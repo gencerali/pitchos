@@ -50,6 +50,25 @@ export default {
         }
       });
     }
+    if (url.pathname === '/debug') {
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/sites?status=eq.live&select=*`, {
+        headers: {
+          'apikey': env.SUPABASE_SERVICE_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`
+        }
+      });
+      const text = await res.text();
+      return new Response(text, { headers: { 'Content-Type': 'application/json' }});
+    }
+    if (url.pathname === '/stats') {
+      const siteCode = url.searchParams.get('site') || 'BJK';
+      const articles = await getCachedArticles(env, siteCode);
+      const todayArticles = articles.filter(a => isTodayArticle(a.time_ago));
+      return Response.json(
+        { site: siteCode, published_today: todayArticles.length, total_cached: articles.length },
+        { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET' } }
+      );
+    }
     return new Response('PitchOS Fetch Agent — OK', { status: 200 });
   },
   // Cron trigger (runs every hour automatically)
@@ -132,6 +151,7 @@ async function processSite(site, env) {
       category: a.category || 'Haber',
       nvs:      a.nvs      || a.nvs_score   || 0,
       time_ago: a.time_ago || 'Güncel',
+      is_fresh: a.is_fresh ?? true,
     }))),
     { expirationTtl: 7200 }
   );
@@ -142,12 +162,10 @@ async function processSite(site, env) {
 }
 // ─── FETCH ARTICLES via Claude + Web Search ──────────────────
 async function fetchArticles(site, env) {
-  // Step 1 — search with web search enabled
-  const searchPrompt = `Search the web for the latest ${site.team_name} football news from the last 24 hours. Find transfers, match results, injuries, squad updates.`;
-  
+  const searchPrompt = `Search the web for the latest ${site.team_name} football news from the last 24 hours. Find transfers, match results, injuries, squad updates, press conferences.`;
+
   const searchResponse = await callClaude(env, MODEL_FETCH, searchPrompt, true);
 
-  // Step 2 — extract all text including tool results
   const allText = searchResponse.content
     .map(b => {
       if (b.type === 'text') return b.text;
@@ -156,21 +174,25 @@ async function fetchArticles(site, env) {
     })
     .join('\n');
 
-  // Step 3 — second call to format as JSON (no web search)
-  const formatPrompt = `Based on this football news content, return ONLY a valid JSON array with up to 8 articles. No markdown, no explanation, just the raw JSON array starting with [ and ending with ].
+  const formatPrompt = `Based on this football news content, return ONLY a valid JSON array. No markdown, just raw JSON starting with [ and ending with ].
 
-IMPORTANT: Every field must be filled. Never leave summary, source or url empty.
+RULES:
+- Only include news where something specific happened recently (match result, goal, injury, signing, statement, press conference)
+- Do NOT include general stats, old fixture lists, or league tables unless a result changed today
+- If you find fewer than 3 good articles, return only those - never invent or pad
+- Every field must be filled
 
-Each object must have exactly these keys:
-- title (string, the headline)
-- summary (string, REQUIRED, write 2-3 sentences describing the news even if you have to infer from context)
-- source (string, REQUIRED, name of the publication or website e.g. "Fanatik", "TRT Spor", "Milliyet" — if unknown write "Spor Haberleri")
-- url (string, REQUIRED, the article URL — if unknown write "#")
-- category (string, one of: Transfer|Match|Injury|Squad|Club|European)
-- time_ago (string, e.g. "1 saat önce", "Bugün", "Dün")
+Each object must have:
+- title (string, specific headline)
+- summary (string, 2-3 sentences describing what specifically happened)
+- source (string, publication name, use "Spor Haberleri" if unknown)
+- url (string, use "#" if unknown)
+- category (one of: Transfer|Match|Injury|Squad|Club|European)
+- time_ago (string, e.g. "1 saat once", "Bugun", "Dun")
+- is_fresh (boolean, true if event happened in last 48 hours)
 
-News content:
-${allText.slice(0, 3000)}`;
+News content to analyze:
+${allText.slice(0, 4000)}`;
 
   let formatResponse;
   try {
@@ -179,7 +201,7 @@ ${allText.slice(0, 3000)}`;
     console.error('Format call failed:', e.message);
     return { articles: [], usage: searchResponse.usage };
   }
-  
+
   let articles = [];
   try {
     const text = extractText(formatResponse.content);
@@ -188,6 +210,7 @@ ${allText.slice(0, 3000)}`;
       articles = JSON.parse(match[0]);
     }
     if (!Array.isArray(articles)) articles = [];
+    articles = articles.filter(a => a.is_fresh !== false);
   } catch (e) {
     console.error('Parse error:', e.message);
     console.log('Raw format response:', JSON.stringify(formatResponse?.content).slice(0, 300));
@@ -364,6 +387,12 @@ function addUsage(stats, usage, model) {
   stats.tokensOut += usage.output_tokens || 0;
   stats.costEur   += ((usage.input_tokens  / 1_000_000) * rates.input) +
                      ((usage.output_tokens / 1_000_000) * rates.output);
+}
+function isTodayArticle(timeAgo = '') {
+  const s = timeAgo.toLowerCase();
+  // Exclude anything explicitly yesterday or older
+  if (s.includes('dün') || s.includes('gün önce') || s.includes('hafta') || s.includes('ay')) return false;
+  return true;
 }
 function simpleHash(str) {
   str = String(str || '');
