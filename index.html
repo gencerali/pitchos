@@ -661,8 +661,9 @@
       const nvsClass = a.nvs >= 75 ? 'high' : a.nvs >= 55 ? 'med' : '';
       return `
         <div class="card ${featured}" role="button" tabindex="0"
-             onclick="openModal(${i})"
-             onkeydown="if(event.key==='Enter')openModal(${i})">
+             data-idx="${i}"
+             onclick="openArticle(_articles[this.dataset.idx])"
+             onkeydown="if(event.key==='Enter')openArticle(_articles[this.dataset.idx])">
           <div class="card-cat">
             ${esc(a.category || 'Haber')}
             ${a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : ''}
@@ -740,8 +741,7 @@
   // ── MODAL ────────────────────────────────────────────────────
   let _articles = [];
 
-  function openModal(i) {
-    const a = _articles[i];
+  function openArticle(a) {
     if (!a) return;
     const nvsClass = a.nvs >= 75 ? 'high' : a.nvs >= 55 ? 'med' : '';
 

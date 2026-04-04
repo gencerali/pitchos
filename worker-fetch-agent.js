@@ -130,19 +130,18 @@ async function processSite(site, env) {
   }));
   stats.claudeCalls++;
   addUsage(stats, scoreUsage, MODEL_SCORE);
-  // 3. Route by NVS score
-  const toPublish = mergedScored.filter(a => a.nvs >= site.auto_publish_threshold);
-  const toQueue   = mergedScored.filter(a => a.nvs >= site.review_threshold && a.nvs < site.auto_publish_threshold);
+  // 3. Write full Turkish articles for ALL scored articles
+  const toWrite = mergedScored.filter(a => a.nvs >= site.review_threshold);
   const toDiscard = mergedScored.filter(a => a.nvs < site.review_threshold);
-  stats.published = toPublish.length;
-  stats.queued    = toQueue.length;
+  const { written, usage: writeUsage } = await writeArticles(toWrite, site, env);
+  stats.claudeCalls += written.length;
+  addUsage(stats, writeUsage, MODEL_SUMMARY);
+  // 4. Route written articles by NVS score
+  const writtenPublish = written.filter(a => a.nvs >= site.auto_publish_threshold);
+  const writtenQueue   = written.filter(a => a.nvs >= site.review_threshold && a.nvs < site.auto_publish_threshold);
+  stats.published = writtenPublish.length;
+  stats.queued    = writtenQueue.length;
   stats.rejected  = toDiscard.length;
-  // 4. Write full Turkish articles for publishable content
-  const { written: writtenPublish, usage: writePublishUsage } = await writeArticles(toPublish, site, env);
-  const { written: writtenQueue,   usage: writeQueueUsage   } = await writeArticles(toQueue,   site, env);
-  stats.claudeCalls += writtenPublish.length + writtenQueue.length;
-  addUsage(stats, writePublishUsage, MODEL_SUMMARY);
-  addUsage(stats, writeQueueUsage,   MODEL_SUMMARY);
   // 5. Save to Supabase
   if (writtenPublish.length > 0) {
     await saveArticles(env, site.id, writtenPublish, 'published');
