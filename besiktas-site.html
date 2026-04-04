@@ -351,6 +351,106 @@
       letter-spacing: 0.08em;
     }
 
+    /* ── ARTICLE MODAL ── */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 500;
+      background: rgba(0,0,0,0.82);
+      display: flex; align-items: center; justify-content: center;
+      padding: 1.5rem;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.22s ease;
+    }
+    .modal-overlay.open {
+      opacity: 1; pointer-events: all;
+    }
+    .modal {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      max-width: 700px; width: 100%;
+      max-height: 90vh;
+      display: flex; flex-direction: column;
+      transform: translateY(18px);
+      transition: transform 0.22s ease;
+      overflow: hidden;
+    }
+    .modal-overlay.open .modal {
+      transform: translateY(0);
+    }
+    .modal-header {
+      padding: 1.25rem 1.5rem 0;
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+      flex-shrink: 0;
+    }
+    .modal-close {
+      background: none; border: none; color: var(--muted);
+      font-size: 1.4rem; cursor: pointer; line-height: 1;
+      padding: 0.1rem 0.3rem; flex-shrink: 0;
+      transition: color 0.15s;
+    }
+    .modal-close:hover { color: var(--white); }
+    .modal-meta-top {
+      display: flex; align-items: center; gap: 0.6rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.7rem; letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+    .modal-cat { color: var(--red); font-weight: 600; }
+    .modal-body {
+      padding: 1rem 1.5rem 1.5rem;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .modal-headline {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 1.7rem; font-weight: 700;
+      line-height: 1.2; color: var(--white);
+      margin-bottom: 0.75rem;
+    }
+    .modal-source-line {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.72rem; color: var(--muted);
+      letter-spacing: 0.06em;
+      display: flex; align-items: center; gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      padding-bottom: 1rem; border-bottom: 1px solid var(--border);
+    }
+    .modal-article p {
+      font-size: 0.95rem; line-height: 1.7;
+      color: #bbb; margin-bottom: 1.1rem;
+    }
+    .modal-article p:last-child { margin-bottom: 0; }
+    .modal-sources {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.7rem; color: var(--muted);
+      letter-spacing: 0.06em;
+      border-top: 1px solid var(--border);
+      padding-top: 1rem; margin-top: 1.25rem;
+    }
+    .modal-footer {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0; gap: 1rem;
+    }
+    .modal-read-link {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.75rem; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--muted);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .modal-read-link:hover { color: var(--white); }
+    .modal-read-link.hidden { visibility: hidden; }
+    .btn-kapat {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.78rem; letter-spacing: 0.15em;
+      text-transform: uppercase;
+      background: none; border: 1px solid var(--border);
+      color: var(--white); padding: 0.5rem 1.2rem;
+      cursor: pointer; transition: background 0.15s, border-color 0.15s;
+    }
+    .btn-kapat:hover { background: var(--gray); border-color: var(--muted); }
+
     /* ── RESPONSIVE ── */
     @media(max-width:900px) {
       .news-grid, .video-grid { grid-template-columns: repeat(2,1fr); }
@@ -455,6 +555,33 @@
   </div>
 </main>
 
+<!-- ── ARTICLE MODAL ── -->
+<div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalHeadline">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-meta-top">
+        <span class="modal-cat" id="modalCat"></span>
+        <span id="modalNvsBadge"></span>
+      </div>
+      <button class="modal-close" id="modalCloseBtn" aria-label="Kapat">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-headline" id="modalHeadline"></div>
+      <div class="modal-source-line">
+        <span id="modalSource"></span>
+        <span>·</span>
+        <span id="modalTimeAgo"></span>
+      </div>
+      <div class="modal-article" id="modalArticle"></div>
+      <div class="modal-sources" id="modalSources"></div>
+    </div>
+    <div class="modal-footer">
+      <a class="modal-read-link" id="modalReadLink" href="#" target="_blank" rel="noopener">Kaynağa git →</a>
+      <button class="btn-kapat" id="modalKapatBtn">Kapat</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── FOOTER ── -->
 <footer>
   <div class="footer-logo">Kartal Haber</div>
@@ -527,12 +654,15 @@
 
   // ── RENDER ARTICLES ──────────────────────────────────────────
   function renderArticles(list) {
+    _articles = list;
     const grid = document.getElementById('newsGrid');
     grid.innerHTML = list.slice(0, 6).map((a, i) => {
       const featured = i === 0 ? 'featured' : '';
       const nvsClass = a.nvs >= 75 ? 'high' : a.nvs >= 55 ? 'med' : '';
       return `
-        <a class="card ${featured}" href="${esc(a.url)}" target="_blank" rel="noopener">
+        <div class="card ${featured}" role="button" tabindex="0"
+             onclick="openModal(${i})"
+             onkeydown="if(event.key==='Enter')openModal(${i})">
           <div class="card-cat">
             ${esc(a.category || 'Haber')}
             ${a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : ''}
@@ -549,7 +679,7 @@
               <span class="card-link">Oku →</span>
             </div>
           </div>
-        </a>`;
+        </div>`;
     }).join('');
   }
 
@@ -606,6 +736,57 @@
       .replace(/&/g,'&amp;').replace(/</g,'&lt;')
       .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+
+  // ── MODAL ────────────────────────────────────────────────────
+  let _articles = [];
+
+  function openModal(i) {
+    const a = _articles[i];
+    if (!a) return;
+    const nvsClass = a.nvs >= 75 ? 'high' : a.nvs >= 55 ? 'med' : '';
+
+    document.getElementById('modalCat').textContent       = a.category || 'Haber';
+    document.getElementById('modalNvsBadge').innerHTML    = a.nvs
+      ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : '';
+    document.getElementById('modalHeadline').textContent  = a.title || '';
+    document.getElementById('modalSource').textContent    = a.source || '';
+    document.getElementById('modalTimeAgo').textContent   = a.time_ago || '';
+    document.getElementById('modalSources').textContent   = a.source
+      ? `Kaynaklar: ${a.source}` : '';
+
+    // Render full_body as paragraphs, fall back to summary
+    const body = a.full_body || a.summary || '';
+    document.getElementById('modalArticle').innerHTML = body
+      .split(/\n\n+/)
+      .filter(p => p.trim())
+      .map(p => `<p>${esc(p.trim())}</p>`)
+      .join('');
+
+    const link = document.getElementById('modalReadLink');
+    if (a.url && a.url !== '#' && a.url !== '') {
+      link.href = a.url;
+      link.classList.remove('hidden');
+    } else {
+      link.classList.add('hidden');
+    }
+
+    document.getElementById('modalOverlay').classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
+  document.getElementById('modalKapatBtn').addEventListener('click', closeModal);
+  document.getElementById('modalOverlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeModal();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+  });
 
   init();
 </script>

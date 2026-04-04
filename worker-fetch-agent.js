@@ -104,19 +104,25 @@ async function processSite(site, env) {
     rejected: 0, claudeCalls: 0,
     tokensIn: 0, tokensOut: 0, costEur: 0
   };
-  // 1. Fetch raw articles via Claude with web search
-  const { articles, usage: fetchUsage } = await fetchArticles(site, env);
-  stats.fetched = articles.length;
+  // 1. Fetch from RSS feeds and Claude web search in parallel
+  const [rssArticles, { articles: webArticles, usage: fetchUsage }] = await Promise.all([
+    fetchRSSArticles(site),
+    fetchArticles(site, env),
+  ]);
   stats.claudeCalls++;
   addUsage(stats, fetchUsage, MODEL_FETCH);
-  if (articles.length === 0) {
+  // Combine and deduplicate by title similarity
+  const combined = dedupeByTitle([...rssArticles, ...webArticles]);
+  stats.fetched = combined.length;
+  console.log(`${site.short_code}: ${rssArticles.length} RSS + ${webArticles.length} web = ${combined.length} combined`);
+  if (combined.length === 0) {
     await logFetch(env, site.id, 'partial', stats, 'No articles returned');
     return stats;
   }
   // 2. Score all articles in one batch call
-  const { scored, usage: scoreUsage } = await scoreArticles(articles, site, env);
+  const { scored, usage: scoreUsage } = await scoreArticles(combined, site, env);
   // Merge NVS scores back onto original articles to preserve all fields
-  const mergedScored = articles.map((orig, i) => ({
+  const mergedScored = combined.map((orig, i) => ({
     ...orig,
     nvs:          scored[i]?.nvs          || 50,
     content_type: scored[i]?.content_type || 'unknown',
@@ -131,27 +137,34 @@ async function processSite(site, env) {
   stats.published = toPublish.length;
   stats.queued    = toQueue.length;
   stats.rejected  = toDiscard.length;
-  // 4. Save to Supabase
-  if (toPublish.length > 0) {
-    await saveArticles(env, site.id, toPublish, 'published');
+  // 4. Write full Turkish articles for publishable content
+  const { written: writtenPublish, usage: writePublishUsage } = await writeArticles(toPublish, site, env);
+  const { written: writtenQueue,   usage: writeQueueUsage   } = await writeArticles(toQueue,   site, env);
+  stats.claudeCalls += writtenPublish.length + writtenQueue.length;
+  addUsage(stats, writePublishUsage, MODEL_SUMMARY);
+  addUsage(stats, writeQueueUsage,   MODEL_SUMMARY);
+  // 5. Save to Supabase
+  if (writtenPublish.length > 0) {
+    await saveArticles(env, site.id, writtenPublish, 'published');
   }
-  if (toQueue.length > 0) {
-    await saveArticles(env, site.id, toQueue, 'pending');
+  if (writtenQueue.length > 0) {
+    await saveArticles(env, site.id, writtenQueue, 'pending');
   }
   // 5. Cache published articles to KV (fan site reads this)
   const existing = await getCachedArticles(env, site.short_code);
-  const merged   = mergeAndDedupe([...toPublish, ...existing], 20);
+  const merged   = mergeAndDedupe([...writtenPublish, ...existing], 20);
   await env.PITCHOS_CACHE.put(
     `articles:${site.short_code}`,
     JSON.stringify(merged.map(a => ({
-      title:    a.title    || '',
-      summary:  a.summary  || '',
-      source:   a.source   || a.source_name || '',
-      url:      a.url      || a.original_url || '#',
-      category: a.category || 'Haber',
-      nvs:      a.nvs      || a.nvs_score   || 0,
-      time_ago: a.time_ago || 'Güncel',
-      is_fresh: a.is_fresh ?? true,
+      title:     a.title     || '',
+      summary:   a.summary   || '',
+      full_body: a.full_body || '',
+      source:    a.source    || a.source_name || '',
+      url:       a.url       || a.original_url || '',
+      category:  a.category  || 'Haber',
+      nvs:       a.nvs       || a.nvs_score   || 0,
+      time_ago:  a.time_ago  || 'Güncel',
+      is_fresh:  a.is_fresh  ?? true,
     }))),
     { expirationTtl: 7200 }
   );
@@ -160,6 +173,119 @@ async function processSite(site, env) {
   stats.durationMs = Date.now() - startTime;
   return stats;
 }
+// ─── FETCH ARTICLES via RSS ──────────────────────────────────
+const RSS_FEEDS = [
+  { url: 'https://www.fanatik.com.tr/rss/besiktas',          source: 'Fanatik' },
+  { url: 'https://www.trtspor.com.tr/rss',                   source: 'TRT Spor' },
+  { url: 'https://www.fotomac.com.tr/rss/besiktas',          source: 'Fotomac' },
+  { url: 'https://www.milliyet.com.tr/rss/rssnew/spor',      source: 'Milliyet' },
+];
+const CUTOFF_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+async function fetchRSSArticles(site) {
+  const results = await Promise.allSettled(RSS_FEEDS.map(feed => fetchOneFeed(feed, site)));
+  const articles = [];
+  for (const r of results) {
+    if (r.status === 'fulfilled') articles.push(...r.value);
+    else console.error('RSS feed failed:', r.reason?.message);
+  }
+  return articles;
+}
+
+async function fetchOneFeed({ url, source }, site) {
+  const res = await fetch(url, { headers: { 'User-Agent': 'PitchOS/1.0' }, cf: { cacheTtl: 300 } });
+  if (!res.ok) throw new Error(`${source} returned ${res.status}`);
+  const xml = await res.text();
+  const cutoff = Date.now() - CUTOFF_MS;
+  const articles = [];
+
+  // Extract <item> blocks
+  const items = xml.match(/<item[\s\S]*?<\/item>/g) || [];
+  for (const item of items) {
+    const title    = stripCDATA(getTag(item, 'title'));
+    const summary  = stripCDATA(getTag(item, 'description')) || title;
+    const url_     = getRSSLink(item) || getTag(item, 'guid') || '';
+    const pubDate  = getTag(item, 'pubDate');
+    const published_at = pubDate ? new Date(pubDate).toISOString() : null;
+    const pubMs    = pubDate ? new Date(pubDate).getTime() : 0;
+
+    // Skip if older than 24h
+    if (pubMs && pubMs < cutoff) continue;
+
+    // Skip if title doesn't mention the team (for non-team-specific feeds)
+    const teamKeywords = [site.team_name, site.short_code, 'beşiktaş', 'besiktas', 'kartal', 'bjk']
+      .map(k => k.toLowerCase());
+    const haystack = (title + ' ' + summary).toLowerCase();
+    if (!teamKeywords.some(k => haystack.includes(k))) continue;
+
+    articles.push({
+      title,
+      summary:      summary.slice(0, 500),
+      source,
+      url:          url_,
+      category:     'Club',
+      time_ago:     pubMs ? relativeTime(pubMs) : 'Güncel',
+      published_at,
+      is_fresh:     true,
+    });
+  }
+  return articles;
+}
+
+function getTag(xml, tag) {
+  const m = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return m ? m[1].trim() : '';
+}
+// RSS <link> is often a naked text node between tags, not wrapped in <link>...</link>
+function getRSSLink(item) {
+  // Standard: <link>https://...</link>
+  const standard = item.match(/<link[^>]*>([^<]+)<\/link>/i);
+  if (standard) return standard[1].trim();
+  // Atom-style: <link href="https://..."/>
+  const atom = item.match(/<link[^>]+href="([^"]+)"/i);
+  if (atom) return atom[1].trim();
+  // Naked: text node after </title> or before <description>
+  const naked = item.match(/<link\s*\/?>[\s\r\n]*(https?:\/\/[^\s<]+)/i);
+  if (naked) return naked[1].trim();
+  return '';
+}
+
+function stripCDATA(str) {
+  return str.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim();
+}
+
+function relativeTime(ms) {
+  const diff = Date.now() - ms;
+  const h = Math.floor(diff / 3600000);
+  if (h < 1) return `${Math.floor(diff / 60000)} dakika önce`;
+  if (h < 24) return `${h} saat önce`;
+  return 'Dün';
+}
+
+// ─── DEDUPE BY TITLE SIMILARITY ──────────────────────────────
+function dedupeByTitle(articles) {
+  const kept = [];
+  for (const a of articles) {
+    const aNorm = normalizeTitle(a.title);
+    const isDupe = kept.some(k => titleSimilarity(aNorm, normalizeTitle(k.title)) > 0.4);
+    if (!isDupe) kept.push(a);
+  }
+  return kept;
+}
+
+function normalizeTitle(title = '') {
+  return title.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function titleSimilarity(a, b) {
+  const wordsA = new Set(a.split(' ').filter(w => w.length > 3));
+  const wordsB = new Set(b.split(' ').filter(w => w.length > 3));
+  if (wordsA.size === 0 || wordsB.size === 0) return 0;
+  let shared = 0;
+  for (const w of wordsA) if (wordsB.has(w)) shared++;
+  return shared / Math.max(wordsA.size, wordsB.size);
+}
+
 // ─── FETCH ARTICLES via Claude + Web Search ──────────────────
 async function fetchArticles(site, env) {
   const searchPrompt = `Search the web for the latest ${site.team_name} football news from the last 24 hours. Find transfers, match results, injuries, squad updates, press conferences.`;
@@ -224,6 +350,79 @@ ${allText.slice(0, 4000)}`;
 
   return { articles, usage };
 }
+// ─── WRITE FULL TURKISH ARTICLES ─────────────────────────────
+async function writeArticles(articles, site, env) {
+  if (articles.length === 0) return { written: [], usage: null };
+
+  // Group articles about the same story by title similarity
+  const groups = [];
+  for (const a of articles) {
+    const norm = normalizeTitle(a.title);
+    const existing = groups.find(g =>
+      titleSimilarity(norm, normalizeTitle(g[0].title)) > 0.4
+    );
+    if (existing) existing.push(a);
+    else groups.push([a]);
+  }
+
+  // Write one article per group in parallel
+  const results = await Promise.allSettled(groups.map(group => writeOneArticle(group, site, env)));
+
+  const written = [];
+  const totalUsage = { input_tokens: 0, output_tokens: 0 };
+  for (const r of results) {
+    if (r.status === 'fulfilled') {
+      written.push(r.value.article);
+      totalUsage.input_tokens  += r.value.usage?.input_tokens  || 0;
+      totalUsage.output_tokens += r.value.usage?.output_tokens || 0;
+    } else {
+      console.error('writeOneArticle failed:', r.reason?.message);
+    }
+  }
+  return { written, usage: totalUsage };
+}
+
+async function writeOneArticle(group, site, env) {
+  // Use the highest-NVS article as the lead; others provide additional context
+  const lead = group.reduce((best, a) => (a.nvs || 0) > (best.nvs || 0) ? a : best, group[0]);
+  const context = group.map(a =>
+    `KAYNAK: ${a.source}\nBAŞLIK: ${a.title}\nİÇERİK: ${a.summary}`
+  ).join('\n\n---\n\n');
+
+  const prompt = `Sen ${site.team_name} için profesyonel bir spor gazetecisisin. Aşağıdaki kaynaklardan derlenen haberi, Türkçe olarak tam bir spor haberi makalesine dönüştür.
+
+KAYNAK HABERLER:
+${context}
+
+Aşağıdaki JSON formatında yanıt ver (markdown veya açıklama olmadan, sadece ham JSON):
+{
+  "headline": "Dikkat çekici, özlü haber başlığı",
+  "body": "GİRİŞ PARAGRAFı (kim/ne/ne zaman/nerede - 2-3 cümle)\\n\\nGELİŞME (detaylar ve bağlam - 2-3 paragraf, her biri 2-3 cümle)\\n\\nSONUÇ (genel tablo veya beklentiler - 1 paragraf)",
+  "sources": ["kaynak adları dizisi"],
+  "category": "${lead.category || 'Club'}",
+  "nvs_score": ${lead.nvs || 50}
+}`;
+
+  const response = await callClaude(env, MODEL_SUMMARY, prompt, false);
+  const text = extractText(response.content);
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error('No JSON in writeOneArticle response');
+
+  const parsed = JSON.parse(match[0]);
+  return {
+    article: {
+      ...lead,
+      title:     parsed.headline || lead.title,
+      summary:   (parsed.body || '').split('\n\n')[0] || lead.summary,
+      full_body: parsed.body    || '',
+      source:    (parsed.sources || [lead.source]).join(', '),
+      category:  parsed.category || lead.category,
+      nvs:       parsed.nvs_score ?? lead.nvs,
+    },
+    usage: response.usage,
+  };
+}
+
 // ─── SCORE ARTICLES (batch NVS) ──────────────────────────────
 async function scoreArticles(articles, site, env) {
   const prompt = `You are a news value scorer for ${site.team_name} football content.
@@ -305,6 +504,7 @@ async function saveArticles(env, siteId, articles, status) {
     original_url: a.url || null,
     title:        a.title,
     summary:      a.summary,
+    raw_body:     a.full_body || null,
     category:     a.category || 'Club',
     language:     a.language || 'tr',
     nvs_score:    a.nvs || 0,
