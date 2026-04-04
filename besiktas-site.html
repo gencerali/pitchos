@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kartal Haber | Beşiktaş JK Son Dakika</title>
+  <meta name="description" content="Beşiktaş JK son dakika haberleri, transfer, maç ve kulüp haberleri. Güvenilir kaynaklardan otomatik güncellenen Kartal haberleri." />
+  <meta property="og:title" content="Kartal Haber | Beşiktaş JK" />
+  <meta property="og:description" content="Beşiktaş'ın en güncel haberleri" />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:ital,wght@0,400;0,600;0,700;1,400&family=Barlow:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --black:   #080808;
+      --white:   #f2f0eb;
+      --red:     #c0392b;
+      --gray:    #141414;
+      --panel:   #1a1a1a;
+      --border:  #272727;
+      --muted:   #666;
+      --muted2:  #444;
+      --accent:  #e8e0d0;
+      --green:   #00c853;
+    }
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      background: var(--black);
+      color: var(--white);
+      font-family: 'Barlow', sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── HEADER ── */
+    header {
+      background: var(--black);
+      border-bottom: 3px solid var(--white);
+      position: sticky; top: 0; z-index: 100;
+    }
+
+    .header-inner {
+      max-width: 1200px; margin: 0 auto;
+      padding: 0.9rem 1.5rem;
+      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+    }
+
+    .logo {
+      display: flex; align-items: center; gap: 0.9rem;
+    }
+
+    .crest {
+      width: 52px; height: 52px;
+      background: var(--white); border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.5rem; flex-shrink: 0;
+    }
+
+    .logo-text {}
+    .logo-name {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 2.2rem; letter-spacing: 0.06em; line-height: 1;
+    }
+    .logo-sub {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.7rem; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--muted);
+    }
+
+    .header-right { display: flex; align-items: center; gap: 1rem; }
+
+    .live-pill {
+      display: flex; align-items: center; gap: 0.4rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase;
+      color: var(--red); border: 1px solid var(--red);
+      padding: 0.3rem 0.7rem; border-radius: 2px;
+    }
+
+    .live-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--red); animation: blink 1.4s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+    /* ── TICKER ── */
+    .ticker-wrap {
+      background: var(--white); color: var(--black);
+      overflow: hidden; white-space: nowrap; padding: 0.45rem 0;
+    }
+    .ticker-track { display: inline-flex; animation: scroll 60s linear infinite; }
+    .ticker-item {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.85rem; font-weight: 600;
+      letter-spacing: 0.07em; text-transform: uppercase;
+      padding: 0 2rem;
+    }
+    .ticker-sep { color: var(--muted); padding: 0 0.5rem; }
+    @keyframes scroll { from{transform:translateX(0)} to{transform:translateX(-50%)} }
+
+    /* ── TRANSFER RADAR BANNER ── */
+    .radar-banner {
+      background: linear-gradient(135deg, #1a0000 0%, #0d0000 100%);
+      border-bottom: 1px solid #3a0000;
+      padding: 0.6rem 1.5rem;
+      display: flex; align-items: center; gap: 1rem;
+      overflow: hidden;
+    }
+
+    .radar-label {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 0.85rem; letter-spacing: 0.1em;
+      color: var(--red); flex-shrink: 0;
+      display: flex; align-items: center; gap: 0.4rem;
+    }
+
+    .radar-items {
+      display: flex; gap: 1rem; overflow: hidden;
+      max-width: 1200px; margin: 0 auto; flex: 1;
+    }
+
+    .radar-item {
+      display: flex; align-items: center; gap: 0.5rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; color: var(--accent); white-space: nowrap;
+    }
+
+    .radar-nvs {
+      font-size: 0.65rem; padding: 0.1rem 0.35rem;
+      border-radius: 2px; font-weight: 600;
+    }
+    .radar-nvs.high { background: #c0392b33; color: var(--red); }
+    .radar-nvs.med  { background: #e67e2233; color: #e67e22; }
+
+    /* ── FAN PULSE ── */
+    .pulse-bar {
+      background: var(--gray);
+      border-bottom: 1px solid var(--border);
+    }
+    .pulse-inner {
+      max-width: 1200px; margin: 0 auto;
+      padding: 0.7rem 1.5rem;
+      display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
+    }
+    .pulse-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--muted); flex-shrink: 0;
+    }
+    .pulse-items { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+    .pulse-item {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; display: flex; align-items: center; gap: 0.35rem;
+    }
+    .pulse-mood { font-size: 0.9rem; }
+
+    /* ── MATCH DAY BANNER ── */
+    .matchday {
+      background: var(--white); color: var(--black);
+      display: none; /* shown only on match days via JS */
+      padding: 0.7rem 1.5rem; text-align: center;
+    }
+    .matchday.active { display: block; }
+    .matchday-text {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.1rem; letter-spacing: 0.1em;
+    }
+
+    /* ── MAIN ── */
+    main {
+      max-width: 1200px; margin: 0 auto;
+      padding: 2rem 1.5rem;
+    }
+
+    .section-row {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 1.25rem;
+    }
+
+    .section-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem; letter-spacing: 0.25em;
+      text-transform: uppercase; color: var(--muted);
+      display: flex; align-items: center; gap: 0.75rem; flex: 1;
+    }
+    .section-label::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+
+    .last-update {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem; color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+
+    /* ── NEWS GRID ── */
+    .news-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px; background: var(--border);
+      border: 1px solid var(--border); margin-bottom: 2rem;
+    }
+
+    .card {
+      background: var(--gray);
+      padding: 1.4rem 1.5rem;
+      display: flex; flex-direction: column; gap: 0.65rem;
+      cursor: pointer; transition: background 0.15s;
+      animation: up 0.4s ease both;
+      text-decoration: none; color: inherit;
+    }
+    .card:hover { background: var(--panel); }
+
+    @keyframes up {
+      from { opacity:0; transform:translateY(10px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+    .card:nth-child(1){animation-delay:0s}
+    .card:nth-child(2){animation-delay:.05s}
+    .card:nth-child(3){animation-delay:.10s}
+    .card:nth-child(4){animation-delay:.15s}
+    .card:nth-child(5){animation-delay:.20s}
+    .card:nth-child(6){animation-delay:.25s}
+
+    .card.featured { grid-column: span 2; }
+    .card.featured .card-title {
+      font-size: 1.55rem; line-height: 1.2;
+    }
+
+    .card-cat {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem; letter-spacing: 0.2em;
+      text-transform: uppercase; color: var(--red); font-weight: 600;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+
+    .nvs-badge {
+      font-size: 0.6rem; padding: 0.1rem 0.35rem;
+      border-radius: 1px; margin-left: auto;
+    }
+    .nvs-badge.high { background: #00c85322; color: var(--green); }
+    .nvs-badge.med  { background: #ffb83022; color: #ffb830; }
+
+    .card-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 1.15rem; font-weight: 700;
+      line-height: 1.25; color: var(--white);
+    }
+
+    .card-summary {
+      font-size: 0.84rem; color: #999;
+      line-height: 1.55; flex: 1;
+    }
+
+    .card-meta {
+      display: flex; align-items: center;
+      justify-content: space-between;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.68rem; color: var(--muted);
+      border-top: 1px solid var(--border); padding-top: 0.65rem;
+      margin-top: 0.25rem;
+    }
+
+    .card-source { display: flex; align-items: center; gap: 0.35rem; }
+    .src-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--muted2); flex-shrink: 0;
+    }
+
+    .card-link {
+      color: var(--muted); text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+      font-size: 0.66rem;
+    }
+    .card-link:hover { color: var(--white); border-color: var(--white); }
+
+    /* ── VIDEO MOMENTS ── */
+    .video-section { margin-bottom: 2rem; }
+
+    .video-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 1px; background: var(--border); border: 1px solid var(--border);
+    }
+
+    .video-card {
+      background: var(--gray); padding: 1rem 1.25rem;
+      display: flex; gap: 0.85rem; cursor: pointer;
+      transition: background 0.15s; text-decoration: none; color: inherit;
+    }
+    .video-card:hover { background: var(--panel); }
+
+    .video-thumb {
+      width: 48px; height: 48px; border-radius: 3px;
+      background: #1a0000; display: flex;
+      align-items: center; justify-content: center;
+      font-size: 1.2rem; flex-shrink: 0;
+      border: 1px solid #3a0000;
+    }
+
+    .video-body { flex: 1; min-width: 0; }
+    .video-source {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.62rem; color: var(--red);
+      letter-spacing: 0.12em; text-transform: uppercase;
+    }
+    .video-moment {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.9rem; font-weight: 600;
+      line-height: 1.3; margin: 0.2rem 0;
+    }
+    .video-ts {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem; color: var(--muted);
+    }
+
+    /* ── SKELETON ── */
+    .skel { background: var(--gray); padding: 1.4rem 1.5rem; }
+    .skel-line {
+      height: 13px; background: var(--border); border-radius: 2px;
+      margin-bottom: 0.5rem; animation: shimmer 1.5s ease-in-out infinite;
+    }
+    .skel-line.s { width: 35%; height: 9px; }
+    .skel-line.m { width: 70%; }
+    .skel-line.l { width: 100%; }
+    @keyframes shimmer { 0%,100%{opacity:.35} 50%{opacity:.7} }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem 1.5rem; text-align: center;
+    }
+    .footer-logo {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.4rem; letter-spacing: 0.08em;
+      margin-bottom: 0.5rem;
+    }
+    .footer-links {
+      display: flex; gap: 1.5rem; justify-content: center;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.72rem; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--muted);
+      flex-wrap: wrap; margin-bottom: 0.75rem;
+    }
+    .footer-links a { color: var(--muted); text-decoration: none; }
+    .footer-links a:hover { color: var(--white); }
+    .footer-copy {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem; color: var(--muted2);
+      letter-spacing: 0.08em;
+    }
+
+    /* ── RESPONSIVE ── */
+    @media(max-width:900px) {
+      .news-grid, .video-grid { grid-template-columns: repeat(2,1fr); }
+      .card.featured { grid-column: span 2; }
+    }
+    @media(max-width:580px) {
+      .news-grid, .video-grid { grid-template-columns: 1fr; }
+      .card.featured { grid-column: span 1; }
+      .card.featured .card-title { font-size: 1.2rem; }
+      .logo-name { font-size: 1.7rem; }
+      .radar-banner { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <div class="crest">🦅</div>
+      <div class="logo-text">
+        <div class="logo-name">Kartal Haber</div>
+        <div class="logo-sub">Beşiktaş JK · Son Dakika</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="live-pill"><div class="live-dot"></div>Canlı</div>
+    </div>
+  </div>
+</header>
+
+<!-- ── TICKER ── -->
+<div class="ticker-wrap">
+  <div class="ticker-track" id="ticker">
+    <span class="ticker-item">⚫ Kartal Haber yükleniyor...</span>
+    <span class="ticker-item">⚫ Kartal Haber yükleniyor...</span>
+  </div>
+</div>
+
+<!-- ── TRANSFER RADAR ── -->
+<div class="radar-banner">
+  <div class="radar-label">🎯 Transfer Radar</div>
+  <div class="radar-items" id="radarItems">
+    <div class="radar-item" style="color:var(--muted)">Yükleniyor...</div>
+  </div>
+</div>
+
+<!-- ── FAN PULSE ── -->
+<div class="pulse-bar">
+  <div class="pulse-inner">
+    <div class="pulse-label">Taraftar Nabzı</div>
+    <div class="pulse-items" id="fanPulse">
+      <div class="pulse-item"><span class="pulse-mood">⏳</span> Yükleniyor...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── MATCH DAY ── -->
+<div class="matchday" id="matchdayBanner">
+  <div class="matchday-text">⚽ MAÇ GÜNÜ — Beşiktaş vs Galatasaray · Bugün 20:00 · Canlı Yorum Açık</div>
+</div>
+
+<!-- ── MAIN ── -->
+<main>
+  <div class="section-row">
+    <div class="section-label">Son Dakika Haberleri</div>
+    <div class="last-update" id="lastUpdate">Güncelleniyor...</div>
+  </div>
+
+  <div class="news-grid" id="newsGrid">
+    <!-- Skeletons -->
+    <div class="skel featured">
+      <div class="skel-line s"></div><div class="skel-line l"></div>
+      <div class="skel-line m"></div><div class="skel-line l"></div>
+    </div>
+    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
+    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
+    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
+    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
+  </div>
+
+  <!-- ── VIDEO MOMENTS ── -->
+  <div class="video-section">
+    <div class="section-row" style="margin-bottom:1.25rem">
+      <div class="section-label">Video Öne Çıkanlar</div>
+    </div>
+    <div class="video-grid" id="videoGrid">
+      <div class="skel" style="display:flex;gap:.75rem;padding:1rem 1.25rem">
+        <div style="width:48px;height:48px;background:var(--border);border-radius:3px;flex-shrink:0"></div>
+        <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
+      </div>
+      <div class="skel" style="display:flex;gap:.75rem;padding:1rem 1.25rem">
+        <div style="width:48px;height:48px;background:var(--border);border-radius:3px;flex-shrink:0"></div>
+        <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
+      </div>
+      <div class="skel" style="display:flex;gap:.75rem;padding:1rem 1.25rem">
+        <div style="width:48px;height:48px;background:var(--border);border-radius:3px;flex-shrink:0"></div>
+        <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <div class="footer-logo">Kartal Haber</div>
+  <div class="footer-links">
+    <a href="#">Hakkında</a>
+    <a href="#">Gizlilik Politikası</a>
+    <a href="#">Kaynak Atıf</a>
+    <a href="#">İletişim</a>
+    <a href="/rss.xml">RSS</a>
+  </div>
+  <div class="footer-copy">
+    © 2026 Kartal Haber · Tüm haberler güvenilir kaynaklardan otomatik derlenmektedir.
+    Bu site Beşiktaş JK ile resmi bir bağlantısı bulunmamaktadır.
+  </div>
+</footer>
+
+<script>
+  // ── CONFIG ──────────────────────────────────────────────────
+  // Replace with your Cloudflare Worker URL after deployment
+  const WORKER_URL = 'https://pitchos-fetch-agent.YOUR_SUBDOMAIN.workers.dev';
+  const SITE_CODE  = 'BJK';
+
+  // ── MOCK DATA (used when worker not yet deployed) ────────────
+  const MOCK_ARTICLES = [
+    { title: 'Beşiktaş, Ciro Immobile transferinde sona geldi', summary: 'Siyah-beyazlılar, İtalyan forvet için Lazio ile anlaştı. Transferin bu hafta açıklanması bekleniyor.', source: 'Fanatik', url: '#', category: 'Transfer', nvs: 88, time_ago: '1 saat önce' },
+    { title: 'Rıdvan Dilmen: "Beşiktaş bu sezon şampiyon olur"', summary: 'Eski teknik direktör, siyah-beyazlıların bu sezonki kadrosunu değerlendirdi.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 72, time_ago: '3 saat önce' },
+    { title: 'Alex Oxlade-Chamberlain sakatlandı', summary: 'İngiliz orta saha oyuncusu antrenmanı erken terk etti. Maç öncesi durumu belirsiz.', source: 'Milliyet', url: '#', category: 'Injury', nvs: 81, time_ago: '5 saat önce' },
+    { title: 'Beşiktaş - Trabzonspor maçı bilet satışları başladı', summary: 'Derbinin biletleri resmi site üzerinden satışa çıktı. İlk iki saat içinde büyük bölümü tükendi.', source: 'Fotomac', url: '#', category: 'Match', nvs: 65, time_ago: '2 saat önce' },
+    { title: 'Semih Kılıçsoy Almanya yolunda', summary: 'Genç yıldızın Bundesliga kulübüyle görüştüğü öğrenildi. Kulüp henüz açıklama yapmadı.', source: 'Fırat Günayer', url: '#', category: 'Transfer', nvs: 76, time_ago: '30 dk önce' },
+    { title: 'Teknik direktör basın toplantısı yaptı', summary: 'Önümüzdeki maç için hazırlıkların tamamlandığını açıkladı. Forma şüphelisi 2 isim var.', source: 'BJK Official', url: '#', category: 'Squad', nvs: 68, time_ago: '4 saat önce' },
+  ];
+
+  const MOCK_VIDEOS = [
+    { source: 'Rabona TV', moment: 'Transfer görüşmeleri: Brugge anlaşması detayları', timestamp: '02:14', url: 'https://youtube.com' },
+    { source: 'Fırat Günayer', moment: 'Medikal randevusu perşembeye alındı', timestamp: '07:40', url: 'https://youtube.com' },
+    { source: 'BJK TV', moment: 'Antrenman öncesi açıklamalar ve kadro haberleri', timestamp: '00:45', url: 'https://youtube.com' },
+  ];
+
+  const MOCK_PULSE = [
+    { label: 'Genel',    emoji: '🔥', mood: 'Heyecanlı' },
+    { label: 'Transfer', emoji: '🤞', mood: 'Umutlu' },
+    { label: 'Kadro',    emoji: '💪', mood: 'Güvenli' },
+    { label: 'Yönetim',  emoji: '😤', mood: 'Endişeli' },
+  ];
+
+  const MOCK_RADAR = [
+    { name: 'Ciro Immobile',  nvs: 88 },
+    { name: 'Semih Kılıçsoy', nvs: 76 },
+    { name: 'Romain Faivre',  nvs: 61 },
+  ];
+
+  // ── INIT ─────────────────────────────────────────────────────
+  async function init() {
+    let articles = [];
+    try {
+      const res  = await fetch(`${WORKER_URL}/cache?site=${SITE_CODE}`);
+      const data = await res.json();
+      articles   = Array.isArray(data) && data.length > 0 ? data : MOCK_ARTICLES;
+    } catch {
+      articles = MOCK_ARTICLES;
+    }
+
+    renderArticles(articles);
+    renderTicker(articles);
+    renderRadar(MOCK_RADAR);      // Sprint 2: replace with real data
+    renderPulse(MOCK_PULSE);      // Sprint 2: replace with real data
+    renderVideos(MOCK_VIDEOS);    // Sprint 2: replace with real data
+    setTimestamp();
+  }
+
+  // ── RENDER ARTICLES ──────────────────────────────────────────
+  function renderArticles(list) {
+    const grid = document.getElementById('newsGrid');
+    grid.innerHTML = list.slice(0, 6).map((a, i) => {
+      const featured = i === 0 ? 'featured' : '';
+      const nvsClass = a.nvs >= 75 ? 'high' : a.nvs >= 55 ? 'med' : '';
+      return `
+        <a class="card ${featured}" href="${esc(a.url)}" target="_blank" rel="noopener">
+          <div class="card-cat">
+            ${esc(a.category || 'Haber')}
+            ${a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : ''}
+          </div>
+          <div class="card-title">${esc(a.title)}</div>
+          <div class="card-summary">${esc(a.summary)}</div>
+          <div class="card-meta">
+            <div class="card-source">
+              <div class="src-dot"></div>
+              ${esc(a.source)}
+            </div>
+            <div style="display:flex;align-items:center;gap:.75rem">
+              <span>${esc(a.time_ago || '')}</span>
+              <span class="card-link">Oku →</span>
+            </div>
+          </div>
+        </a>`;
+    }).join('');
+  }
+
+  // ── RENDER TICKER ────────────────────────────────────────────
+  function renderTicker(articles) {
+    const items = articles
+      .map(a => `<span class="ticker-item">⚫ ${esc(a.title)}</span>`)
+      .join('<span class="ticker-sep">|</span>');
+    // Duplicate for seamless loop
+    document.getElementById('ticker').innerHTML = items + items;
+  }
+
+  // ── RENDER RADAR ─────────────────────────────────────────────
+  function renderRadar(items) {
+    document.getElementById('radarItems').innerHTML = items.map(r => `
+      <div class="radar-item">
+        ${esc(r.name)}
+        <span class="radar-nvs ${r.nvs >= 75 ? 'high' : 'med'}">${r.nvs}</span>
+      </div>
+    `).join('');
+  }
+
+  // ── RENDER PULSE ─────────────────────────────────────────────
+  function renderPulse(items) {
+    document.getElementById('fanPulse').innerHTML = items.map(p => `
+      <div class="pulse-item">
+        <span class="pulse-mood">${p.emoji}</span>
+        <strong>${p.label}:</strong> ${p.mood}
+      </div>
+    `).join('');
+  }
+
+  // ── RENDER VIDEOS ────────────────────────────────────────────
+  function renderVideos(items) {
+    document.getElementById('videoGrid').innerHTML = items.map(v => `
+      <a class="video-card" href="${esc(v.url)}" target="_blank" rel="noopener">
+        <div class="video-thumb">▶</div>
+        <div class="video-body">
+          <div class="video-source">${esc(v.source)}</div>
+          <div class="video-moment">${esc(v.moment)}</div>
+          <div class="video-ts">⏱ ${esc(v.timestamp)}'den itibaren</div>
+        </div>
+      </a>
+    `).join('');
+  }
+
+  function setTimestamp() {
+    document.getElementById('lastUpdate').textContent =
+      `Son güncelleme: ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`;
+  }
+
+  function esc(s = '') {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  init();
+</script>
+</body>
+</html>

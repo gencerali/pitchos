@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PitchOS — Football Media Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg:        #0d0f12;
+      --surface:   #13161b;
+      --panel:     #181c23;
+      --border:    #242830;
+      --border2:   #2e3440;
+      --text:      #e8eaf0;
+      --muted:     #5a6070;
+      --muted2:    #3d4455;
+      --green:     #00e57a;
+      --green-dim: #00e57a22;
+      --amber:     #ffb830;
+      --amber-dim: #ffb83022;
+      --red:       #ff4d6a;
+      --red-dim:   #ff4d6a22;
+      --blue:      #4d9fff;
+      --blue-dim:  #4d9fff18;
+      --accent:    #00e57a;
+      --mono:      'DM Mono', monospace;
+      --sans:      'DM Sans', sans-serif;
+      --display:   'Syne', sans-serif;
+    }
+
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      width: 220px;
+      min-width: 220px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      position: sticky;
+      top: 0;
+    }
+
+    .logo {
+      padding: 1.5rem 1.25rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo-mark {
+      font-family: var(--display);
+      font-size: 1.3rem;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .logo-mark .dot {
+      width: 8px;
+      height: 8px;
+      background: var(--green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--green);
+      animation: glow 2s ease-in-out infinite;
+    }
+
+    @keyframes glow {
+      0%,100% { box-shadow: 0 0 6px var(--green); }
+      50%      { box-shadow: 0 0 14px var(--green); }
+    }
+
+    .logo-sub {
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-top: 0.2rem;
+    }
+
+    .nav {
+      flex: 1;
+      padding: 1rem 0;
+      overflow-y: auto;
+    }
+
+    .nav-section {
+      margin-bottom: 1.5rem;
+    }
+
+    .nav-label {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 0 1.25rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.55rem 1.25rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      border-left: 2px solid transparent;
+      color: var(--muted);
+      font-size: 0.88rem;
+      font-weight: 400;
+      user-select: none;
+    }
+
+    .nav-item:hover {
+      color: var(--text);
+      background: var(--panel);
+    }
+
+    .nav-item.active {
+      color: var(--green);
+      border-left-color: var(--green);
+      background: var(--green-dim);
+    }
+
+    .nav-item .icon {
+      font-size: 0.9rem;
+      width: 18px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .nav-badge {
+      margin-left: auto;
+      background: var(--red-dim);
+      color: var(--red);
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 2px;
+    }
+
+    .nav-badge.green {
+      background: var(--green-dim);
+      color: var(--green);
+    }
+
+    .sidebar-footer {
+      border-top: 1px solid var(--border);
+      padding: 1rem 1.25rem;
+    }
+
+    .user-chip {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .avatar {
+      width: 28px;
+      height: 28px;
+      background: var(--green-dim);
+      border: 1px solid var(--green);
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--green);
+      flex-shrink: 0;
+    }
+
+    .user-info { flex: 1; min-width: 0; }
+
+    .user-name {
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .user-role {
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    /* ── MAIN ── */
+    .main {
+      flex: 1;
+      height: 100vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── TOPBAR ── */
+    .topbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .page-title {
+      font-family: var(--display);
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .topbar-right {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .system-status {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--green);
+      letter-spacing: 0.08em;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: glow 2s ease-in-out infinite;
+    }
+
+    .btn {
+      font-family: var(--mono);
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      padding: 0.45rem 1rem;
+      border: 1px solid var(--border2);
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s;
+      border-radius: 3px;
+    }
+
+    .btn:hover { border-color: var(--muted2); background: var(--panel); }
+
+    .btn.primary {
+      background: var(--green);
+      color: var(--bg);
+      border-color: var(--green);
+      font-weight: 500;
+    }
+
+    .btn.primary:hover { opacity: 0.88; }
+
+    /* ── CONTENT ── */
+    .content {
+      flex: 1;
+      padding: 2rem;
+    }
+
+    /* ── SECTION HEADER ── */
+    .section-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      gap: 1rem;
+    }
+
+    .section-title {
+      font-family: var(--display);
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text);
+    }
+
+    .section-desc {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 0.2rem;
+    }
+
+    /* ── STAT CARDS ── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 2rem;
+    }
+
+    .stat-card {
+      background: var(--panel);
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      animation: fadeIn 0.4s ease both;
+    }
+
+    @keyframes fadeIn {
+      from { opacity:0; transform: translateY(6px); }
+      to   { opacity:1; transform: translateY(0); }
+    }
+
+    .stat-card:nth-child(1) { animation-delay: 0s; }
+    .stat-card:nth-child(2) { animation-delay: 0.06s; }
+    .stat-card:nth-child(3) { animation-delay: 0.12s; }
+    .stat-card:nth-child(4) { animation-delay: 0.18s; }
+
+    .stat-label {
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .stat-value {
+      font-family: var(--display);
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    .stat-delta {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      color: var(--green);
+    }
+
+    .stat-delta.down { color: var(--red); }
+
+    /* ── SITES TABLE ── */
+    .table-wrap {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 2rem;
+    }
+
+    .table-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .table-title {
+      font-family: var(--display);
+      font-size: 0.9rem;
+      font-weight: 700;
+    }
+
+    .table-actions {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    thead th {
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      text-align: left;
+      padding: 0.6rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      font-weight: 400;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border);
+      transition: background 0.12s;
+      cursor: pointer;
+    }
+
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: var(--surface); }
+
+    tbody td {
+      padding: 0.85rem 1.25rem;
+      font-size: 0.84rem;
+      color: var(--text);
+      vertical-align: middle;
+    }
+
+    .team-cell {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .team-crest {
+      width: 30px;
+      height: 30px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+
+    .team-name {
+      font-weight: 500;
+      font-size: 0.86rem;
+    }
+
+    .team-domain {
+      font-family: var(--mono);
+      font-size: 0.68rem;
+      color: var(--muted);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      padding: 0.2rem 0.6rem;
+      border-radius: 2px;
+      text-transform: uppercase;
+    }
+
+    .status-pill.live    { background: var(--green-dim); color: var(--green); }
+    .status-pill.draft   { background: var(--amber-dim); color: var(--amber); }
+    .status-pill.paused  { background: var(--muted2);    color: var(--muted); }
+
+    .status-pill .pip {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .nvs-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .nvs-track {
+      width: 60px;
+      height: 4px;
+      background: var(--border2);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .nvs-fill {
+      height: 100%;
+      border-radius: 2px;
+      background: var(--green);
+      transition: width 0.6s ease;
+    }
+
+    .nvs-fill.med { background: var(--amber); }
+    .nvs-fill.low { background: var(--red); }
+
+    .nvs-num {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--muted);
+      min-width: 24px;
+    }
+
+    .row-actions {
+      display: flex;
+      gap: 0.35rem;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+
+    tbody tr:hover .row-actions { opacity: 1; }
+
+    .icon-btn {
+      background: var(--panel);
+      border: 1px solid var(--border2);
+      color: var(--muted);
+      width: 26px;
+      height: 26px;
+      border-radius: 3px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      transition: all 0.12s;
+    }
+
+    .icon-btn:hover { color: var(--text); border-color: var(--muted2); }
+
+    /* ── BOTTOM GRID ── */
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    /* ── FEED PANEL ── */
+    .feed-panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .feed-item {
+      display: flex;
+      gap: 0.75rem;
+      padding: 0.85rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      align-items: flex-start;
+      animation: fadeIn 0.3s ease both;
+    }
+
+    .feed-item:last-child { border-bottom: none; }
+
+    .feed-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.8rem;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .feed-icon.twitter  { background: #1da1f222; color: #1da1f2; }
+    .feed-icon.youtube  { background: #ff000022; color: #ff4040; }
+    .feed-icon.rss      { background: var(--amber-dim); color: var(--amber); }
+    .feed-icon.system   { background: var(--green-dim); color: var(--green); }
+    .feed-icon.alert    { background: var(--red-dim); color: var(--red); }
+
+    .feed-body { flex: 1; min-width: 0; }
+
+    .feed-text {
+      font-size: 0.82rem;
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    .feed-text strong { font-weight: 500; }
+
+    .feed-meta {
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+
+    .feed-nvs {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 2px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .feed-nvs.high { background: var(--green-dim); color: var(--green); }
+    .feed-nvs.med  { background: var(--amber-dim); color: var(--amber); }
+    .feed-nvs.low  { background: var(--muted2); color: var(--muted); }
+
+    /* ── COST PANEL ── */
+    .cost-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.75rem 1.25rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.83rem;
+    }
+
+    .cost-row:last-child { border-bottom: none; }
+
+    .cost-label { color: var(--muted); }
+
+    .cost-val {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      color: var(--text);
+    }
+
+    .cost-val.green { color: var(--green); }
+    .cost-val.amber { color: var(--amber); }
+
+    .progress-wrap {
+      padding: 0.75rem 1.25rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      color: var(--muted);
+      margin-bottom: 0.4rem;
+      letter-spacing: 0.08em;
+    }
+
+    .progress-track {
+      height: 5px;
+      background: var(--border2);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--green);
+      border-radius: 3px;
+      transition: width 1s ease;
+    }
+
+    /* ── MODAL (New Site) ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+
+    .modal-overlay.open { display: flex; }
+
+    .modal {
+      background: var(--panel);
+      border: 1px solid var(--border2);
+      border-radius: 8px;
+      width: 520px;
+      max-width: 95vw;
+      animation: slideUp 0.25s ease;
+    }
+
+    @keyframes slideUp {
+      from { opacity:0; transform: translateY(20px); }
+      to   { opacity:1; transform: translateY(0); }
+    }
+
+    .modal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .modal-title {
+      font-family: var(--display);
+      font-size: 1rem;
+      font-weight: 700;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 1.1rem;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+
+    .modal-close:hover { color: var(--text); }
+
+    .modal-body { padding: 1.5rem; }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .form-group.full { grid-column: 1 / -1; }
+
+    label {
+      font-family: var(--mono);
+      font-size: 0.62rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    input, select {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 0.84rem;
+      padding: 0.55rem 0.75rem;
+      border-radius: 3px;
+      outline: none;
+      transition: border-color 0.15s;
+      width: 100%;
+    }
+
+    input:focus, select:focus { border-color: var(--green); }
+
+    select option { background: var(--panel); }
+
+    .modal-foot {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border);
+    }
+
+    /* ── TABS ── */
+    .tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 1.5rem;
+    }
+
+    .tab {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.65rem 1.25rem;
+      cursor: pointer;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s;
+    }
+
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--green); border-bottom-color: var(--green); }
+
+    /* ── EMPTY STATE ── */
+    .empty {
+      text-align: center;
+      padding: 3rem;
+      color: var(--muted);
+    }
+
+    .empty-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+    .empty-text { font-size: 0.85rem; }
+
+    /* ── HIDDEN PAGES ── */
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── SPRINT BADGE ── */
+    .sprint-tag {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 0.6rem;
+      letter-spacing: 0.1em;
+      background: var(--blue-dim);
+      color: var(--blue);
+      padding: 0.15rem 0.5rem;
+      border-radius: 2px;
+      margin-left: 0.5rem;
+      vertical-align: middle;
+    }
+
+    .coming-soon {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 300px;
+      gap: 1rem;
+      color: var(--muted);
+    }
+
+    .coming-soon .label {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      background: var(--blue-dim);
+      color: var(--blue);
+      padding: 0.25rem 0.75rem;
+      border-radius: 2px;
+    }
+
+    .coming-soon .title {
+      font-family: var(--display);
+      font-size: 1.4rem;
+      font-weight: 800;
+      color: var(--text);
+      text-align: center;
+    }
+
+    .coming-soon .desc {
+      font-size: 0.83rem;
+      color: var(--muted);
+      text-align: center;
+      max-width: 320px;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="logo">
+    <div class="logo-mark">
+      <div class="dot"></div>
+      PitchOS
+    </div>
+    <div class="logo-sub">Football Media Platform</div>
+  </div>
+
+  <nav class="nav">
+    <div class="nav-section">
+      <div class="nav-label">Overview</div>
+      <div class="nav-item active" onclick="navigate('dashboard', this)">
+        <span class="icon">▦</span> Dashboard
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Sites</div>
+      <div class="nav-item" onclick="navigate('sites', this)">
+        <span class="icon">◈</span> All Sites
+        <span class="nav-badge green">1</span>
+      </div>
+      <div class="nav-item" onclick="navigate('new-site', this)">
+        <span class="icon">＋</span> New Site
+      </div>
+      <div class="nav-item" onclick="navigate('feature-flags', this)">
+        <span class="icon">⚑</span> Feature Flags
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Content</div>
+      <div class="nav-item" onclick="navigate('queue', this)">
+        <span class="icon">◎</span> Review Queue
+        <span class="nav-badge">4</span>
+      </div>
+      <div class="nav-item" onclick="navigate('sources', this)">
+        <span class="icon">⊕</span> Sources
+      </div>
+      <div class="nav-item" onclick="navigate('social', this)">
+        <span class="icon">◌</span> Social Accounts
+      </div>
+      <div class="nav-item" onclick="navigate('scoring', this)">
+        <span class="icon">◈</span> NVS Scoring
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Monetization</div>
+      <div class="nav-item" onclick="navigate('ads', this)">
+        <span class="icon">$</span> Ad Slots
+      </div>
+      <div class="nav-item" onclick="navigate('revenue', this)">
+        <span class="icon">↗</span> Revenue
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Compliance</div>
+      <div class="nav-item" onclick="navigate('legal', this)">
+        <span class="icon">⚖</span> Legal & GDPR
+      </div>
+      <div class="nav-item" onclick="navigate('comments', this)">
+        <span class="icon">◷</span> Comments
+        <span class="nav-badge">7</span>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">System</div>
+      <div class="nav-item" onclick="navigate('analytics', this)">
+        <span class="icon">⌗</span> Analytics
+      </div>
+      <div class="nav-item" onclick="navigate('costs', this)">
+        <span class="icon">◉</span> API Costs
+      </div>
+      <div class="nav-item" onclick="navigate('alerts', this)">
+        <span class="icon">⚠</span> Alerts
+      </div>
+    </div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="user-chip">
+      <div class="avatar">AD</div>
+      <div class="user-info">
+        <div class="user-name">Admin</div>
+        <div class="user-role">Owner</div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="page-title" id="pageTitle">Dashboard</div>
+    <div class="topbar-right">
+      <div class="system-status">
+        <div class="status-dot"></div>
+        All systems operational
+      </div>
+      <button class="btn primary" onclick="openModal()">＋ New Site</button>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content">
+
+    <!-- DASHBOARD PAGE -->
+    <div class="page active" id="page-dashboard">
+      <div class="section-header">
+        <div>
+          <div class="section-title">Overview</div>
+          <div class="section-desc">Your football media network at a glance</div>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-label">Active Sites</div>
+          <div class="stat-value">1</div>
+          <div class="stat-delta">↑ add more via Site Factory</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Articles Today</div>
+          <div class="stat-value">24</div>
+          <div class="stat-delta">↑ 12 vs yesterday</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">API Calls Today</div>
+          <div class="stat-value">48</div>
+          <div class="stat-delta">↑ ~€0.04 cost</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Queue Pending</div>
+          <div class="stat-value" style="color:var(--amber)">4</div>
+          <div class="stat-delta" style="color:var(--amber)">needs review</div>
+        </div>
+      </div>
+
+      <div class="bottom-grid">
+        <!-- Live feed -->
+        <div class="feed-panel">
+          <div class="table-header">
+            <div class="table-title">Live Content Feed</div>
+            <div style="font-family:var(--mono);font-size:0.62rem;color:var(--green);">● LIVE</div>
+          </div>
+          <div class="feed-item">
+            <div class="feed-icon twitter">𝕏</div>
+            <div class="feed-body">
+              <div class="feed-text"><strong>Fırat Günayer</strong> — Beşiktaş'ın Ciro Immobile için teklif hazırladığı öğrenildi.</div>
+              <div class="feed-meta">Twitter · kartal-haber.com · 4 min ago</div>
+            </div>
+            <div class="feed-nvs high">82</div>
+          </div>
+          <div class="feed-item">
+            <div class="feed-icon youtube">▶</div>
+            <div class="feed-body">
+              <div class="feed-text"><strong>Rabona TV</strong> — Transfer özel: 02:14 anlaşma detayları, 07:40 medikal bilgisi</div>
+              <div class="feed-meta">YouTube · kartal-haber.com · 18 min ago</div>
+            </div>
+            <div class="feed-nvs high">76</div>
+          </div>
+          <div class="feed-item">
+            <div class="feed-icon rss">◈</div>
+            <div class="feed-body">
+              <div class="feed-text"><strong>Fanatik</strong> — Beşiktaş, Süper Lig'de liderliğini sürdürüyor</div>
+              <div class="feed-meta">RSS · kartal-haber.com · 1 hr ago</div>
+            </div>
+            <div class="feed-nvs med">61</div>
+          </div>
+          <div class="feed-item">
+            <div class="feed-icon system">⚙</div>
+            <div class="feed-body">
+              <div class="feed-text">Scheduled fetch completed — 7 articles cached, 2 held for review</div>
+              <div class="feed-meta">System · all sites · 2 hr ago</div>
+            </div>
+            <div class="feed-nvs low">—</div>
+          </div>
+          <div class="feed-item">
+            <div class="feed-icon alert">⚠</div>
+            <div class="feed-body">
+              <div class="feed-text">4 items in review queue awaiting approval</div>
+              <div class="feed-meta">System · kartal-haber.com · 2 hr ago</div>
+            </div>
+            <div class="feed-nvs low">—</div>
+          </div>
+        </div>
+
+        <!-- Cost panel -->
+        <div class="feed-panel">
+          <div class="table-header">
+            <div class="table-title">API Cost Monitor</div>
+            <span style="font-family:var(--mono);font-size:0.62rem;color:var(--muted)">April 2026</span>
+          </div>
+          <div class="progress-wrap">
+            <div class="progress-label">
+              <span>Monthly budget usage</span>
+              <span style="color:var(--green)">€0.04 / €20.00</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" style="width:0.2%"></div>
+            </div>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Fetch Agent calls today</span>
+            <span class="cost-val">24</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Score Agent calls today</span>
+            <span class="cost-val">24</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Tokens used today</span>
+            <span class="cost-val">~14,200</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Cost today</span>
+            <span class="cost-val green">€0.04</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Projected monthly</span>
+            <span class="cost-val amber">€1.20</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Model used</span>
+            <span class="cost-val" style="font-family:var(--mono);font-size:0.7rem">Sonnet + Haiku</span>
+          </div>
+          <div class="cost-row">
+            <span class="cost-label">Cache hit rate</span>
+            <span class="cost-val green">94%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SITES PAGE -->
+    <div class="page" id="page-sites">
+      <div class="section-header">
+        <div>
+          <div class="section-title">All Sites</div>
+          <div class="section-desc">Manage your football media network</div>
+        </div>
+        <button class="btn primary" onclick="openModal()">＋ New Site</button>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active">All (1)</div>
+        <div class="tab">Live (1)</div>
+        <div class="tab">Draft (0)</div>
+        <div class="tab">Paused (0)</div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Team / Site</th>
+              <th>Status</th>
+              <th>Country</th>
+              <th>Language</th>
+              <th>Avg NVS</th>
+              <th>Last Fetch</th>
+              <th>Articles</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="team-cell">
+                  <div class="team-crest" style="background:#1c1c1c">🦅</div>
+                  <div>
+                    <div class="team-name">Beşiktaş JK</div>
+                    <div class="team-domain">kartal-haber.com</div>
+                  </div>
+                </div>
+              </td>
+              <td><div class="status-pill live"><div class="pip"></div>Live</div></td>
+              <td>🇹🇷 Turkey</td>
+              <td>TR / EN</td>
+              <td>
+                <div class="nvs-bar">
+                  <div class="nvs-track"><div class="nvs-fill" style="width:72%"></div></div>
+                  <div class="nvs-num">72</div>
+                </div>
+              </td>
+              <td style="font-family:var(--mono);font-size:0.72rem;color:var(--muted)">2 min ago</td>
+              <td style="font-family:var(--mono);font-size:0.72rem">247</td>
+              <td>
+                <div class="row-actions">
+                  <div class="icon-btn" title="Edit">✎</div>
+                  <div class="icon-btn" title="Clone">⎘</div>
+                  <div class="icon-btn" title="View site">↗</div>
+                  <div class="icon-btn" title="Pause">⏸</div>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="text-align:center;padding:1rem;font-family:var(--mono);font-size:0.7rem;color:var(--muted)">
+        Scale by cloning — click ⎘ on any site to duplicate its config for a new team.
+      </div>
+    </div>
+
+    <!-- QUEUE PAGE -->
+    <div class="page" id="page-queue">
+      <div class="section-header">
+        <div>
+          <div class="section-title">Review Queue</div>
+          <div class="section-desc">Articles scored 40–59 NVS awaiting manual approval</div>
+        </div>
+        <div style="display:flex;gap:0.5rem">
+          <button class="btn">Approve All</button>
+          <button class="btn">Reject All</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Headline</th>
+              <th>Source</th>
+              <th>Type</th>
+              <th>NVS</th>
+              <th>Site</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="max-width:300px">Transfer söylentisi: Sol bek arayışında yeni isim</td>
+              <td style="font-family:var(--mono);font-size:0.72rem">Twitter · @transferGuru</td>
+              <td><span class="status-pill draft">Tweet</span></td>
+              <td><div class="nvs-bar"><div class="nvs-track"><div class="nvs-fill med" style="width:55%"></div></div><div class="nvs-num">55</div></div></td>
+              <td style="font-family:var(--mono);font-size:0.72rem">kartal-haber</td>
+              <td><div style="display:flex;gap:0.4rem"><button class="btn primary" style="padding:0.3rem 0.7rem;font-size:0.65rem">✓ Approve</button><button class="btn" style="padding:0.3rem 0.7rem;font-size:0.65rem">✕ Reject</button></div></td>
+            </tr>
+            <tr>
+              <td style="max-width:300px">Maç önce hazırlık antrenmanı tamamlandı</td>
+              <td style="font-family:var(--mono);font-size:0.72rem">RSS · Fanatik</td>
+              <td><span class="status-pill draft">Article</span></td>
+              <td><div class="nvs-bar"><div class="nvs-track"><div class="nvs-fill med" style="width:47%"></div></div><div class="nvs-num">47</div></div></td>
+              <td style="font-family:var(--mono);font-size:0.72rem">kartal-haber</td>
+              <td><div style="display:flex;gap:0.4rem"><button class="btn primary" style="padding:0.3rem 0.7rem;font-size:0.65rem">✓ Approve</button><button class="btn" style="padding:0.3rem 0.7rem;font-size:0.65rem">✕ Reject</button></div></td>
+            </tr>
+            <tr>
+              <td style="max-width:300px">Rabona TV: Taraftar yorumları ve tepkiler</td>
+              <td style="font-family:var(--mono);font-size:0.72rem">YouTube · Rabona TV</td>
+              <td><span class="status-pill draft">Video</span></td>
+              <td><div class="nvs-bar"><div class="nvs-track"><div class="nvs-fill med" style="width:42%"></div></div><div class="nvs-num">42</div></div></td>
+              <td style="font-family:var(--mono);font-size:0.72rem">kartal-haber</td>
+              <td><div style="display:flex;gap:0.4rem"><button class="btn primary" style="padding:0.3rem 0.7rem;font-size:0.65rem">✓ Approve</button><button class="btn" style="padding:0.3rem 0.7rem;font-size:0.65rem">✕ Reject</button></div></td>
+            </tr>
+            <tr>
+              <td style="max-width:300px">Büyük haber geliyor yakında... 👀</td>
+              <td style="font-family:var(--mono);font-size:0.72rem">Twitter · @fan_account</td>
+              <td><span class="status-pill draft">Tweet</span></td>
+              <td><div class="nvs-bar"><div class="nvs-track"><div class="nvs-fill low" style="width:22%"></div></div><div class="nvs-num">22</div></div></td>
+              <td style="font-family:var(--mono);font-size:0.72rem">kartal-haber</td>
+              <td><div style="display:flex;gap:0.4rem"><button class="btn primary" style="padding:0.3rem 0.7rem;font-size:0.65rem">✓ Approve</button><button class="btn" style="padding:0.3rem 0.7rem;font-size:0.65rem">✕ Reject</button></div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- COMING SOON PAGES -->
+    <div class="page" id="page-sources"><div class="coming-soon"><div class="label">Sprint 2a</div><div class="title">Source Manager</div><div class="desc">Configure RSS feeds, news APIs and trusted domains per team site. Set refresh intervals and keyword filters.</div></div></div>
+    <div class="page" id="page-social"><div class="coming-soon"><div class="label">Sprint 2b</div><div class="title">Social Accounts</div><div class="desc">Manage trusted Twitter/X accounts and YouTube channels. Discovery engine, trust scores, probation periods.</div></div></div>
+    <div class="page" id="page-scoring"><div class="coming-soon"><div class="label">Sprint 2c</div><div class="title">NVS Scoring Engine</div><div class="desc">Configure scoring dimensions, thresholds, and model routing. View score history per source.</div></div></div>
+    <div class="page" id="page-ads"><div class="coming-soon"><div class="label">Sprint 4</div><div class="title">Ad Slot Manager</div><div class="desc">Assign AdSense slot IDs per site and zone. Affiliate link rules by country.</div></div></div>
+    <div class="page" id="page-revenue"><div class="coming-soon"><div class="label">Sprint 4</div><div class="title">Revenue Dashboard</div><div class="desc">Estimated earnings per site. CPM tracker, affiliate performance, sponsored post CMS.</div></div></div>
+    <div class="page" id="page-legal"><div class="coming-soon"><div class="label">Sprint 3</div><div class="title">Legal & Compliance</div><div class="desc">GDPR/KVKK cookie banners, privacy policy generator, source attribution checker per country.</div></div></div>
+    <div class="page" id="page-comments"><div class="coming-soon"><div class="label">Sprint 6</div><div class="title">Comment Moderation</div><div class="desc">AI-powered toxicity filter, moderation queue, fan reactions. Enable/disable per site.</div></div></div>
+    <div class="page" id="page-analytics"><div class="coming-soon"><div class="label">Sprint 5</div><div class="title">Analytics</div><div class="desc">Pageviews, article clicks, bounce rates. Cross-site comparison. Source performance tracking.</div></div></div>
+    <div class="page" id="page-costs"><div class="coming-soon"><div class="label">Sprint 5</div><div class="title">API Cost Monitor</div><div class="desc">Detailed Claude API usage, cost by site, model routing breakdown, monthly budget alerts.</div></div></div>
+    <div class="page" id="page-alerts"><div class="coming-soon"><div class="label">Sprint 5</div><div class="title">Alert Rules</div><div class="desc">Configure alerts for fetch failures, cost overruns, and unusual traffic patterns.</div></div></div>
+    <div class="page" id="page-feature-flags"><div class="coming-soon"><div class="label">Sprint 8</div><div class="title">Feature Flags</div><div class="desc">Toggle features globally or per site. A/B test layouts and prompts. Roll out changes progressively.</div></div></div>
+    <div class="page" id="page-new-site">
+      <div class="section-header">
+        <div>
+          <div class="section-title">New Site</div>
+          <div class="section-desc">Create a new football fan news site</div>
+        </div>
+      </div>
+      <div style="max-width:560px">
+        <div class="feed-panel">
+          <div class="table-header"><div class="table-title">Site Configuration</div></div>
+          <div style="padding:1.5rem">
+            <div class="form-grid">
+              <div class="form-group">
+                <label>Team Name</label>
+                <input type="text" placeholder="e.g. Galatasaray SK" />
+              </div>
+              <div class="form-group">
+                <label>Short Code</label>
+                <input type="text" placeholder="e.g. GS" />
+              </div>
+              <div class="form-group">
+                <label>Domain</label>
+                <input type="text" placeholder="e.g. aslan-haber.com" />
+              </div>
+              <div class="form-group">
+                <label>Country</label>
+                <select>
+                  <option>🇹🇷 Turkey</option>
+                  <option>🇩🇪 Germany</option>
+                  <option>🇬🇧 England</option>
+                  <option>🇪🇸 Spain</option>
+                  <option>🇫🇷 France</option>
+                  <option>🇮🇹 Italy</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Primary Language</label>
+                <select>
+                  <option>Turkish</option>
+                  <option>English</option>
+                  <option>German</option>
+                  <option>Spanish</option>
+                  <option>Arabic</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Clone From</label>
+                <select>
+                  <option>— Start fresh —</option>
+                  <option>Beşiktaş JK template</option>
+                </select>
+              </div>
+              <div class="form-group full">
+                <label>Primary Color (Hex)</label>
+                <input type="text" placeholder="#000000" />
+              </div>
+            </div>
+            <div style="margin-top:1.25rem;display:flex;gap:0.5rem;justify-content:flex-end">
+              <button class="btn">Cancel</button>
+              <button class="btn primary">Create Site →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<!-- NEW SITE MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="closeModalOutside(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">Create New Site</div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Team Name</label>
+          <input type="text" placeholder="e.g. Galatasaray SK" />
+        </div>
+        <div class="form-group">
+          <label>Short Code</label>
+          <input type="text" placeholder="e.g. GS" />
+        </div>
+        <div class="form-group">
+          <label>Domain</label>
+          <input type="text" placeholder="e.g. aslan-haber.com" />
+        </div>
+        <div class="form-group">
+          <label>Country</label>
+          <select>
+            <option>🇹🇷 Turkey</option>
+            <option>🇩🇪 Germany</option>
+            <option>🇬🇧 England</option>
+            <option>🇪🇸 Spain</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Primary Language</label>
+          <select>
+            <option>Turkish</option>
+            <option>English</option>
+            <option>German</option>
+            <option>Spanish</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Clone Template</label>
+          <select>
+            <option>— Start fresh —</option>
+            <option>Beşiktaş JK</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="closeModal()">Create Site →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  const pageTitles = {
+    dashboard: 'Dashboard',
+    sites: 'All Sites',
+    'new-site': 'New Site',
+    'feature-flags': 'Feature Flags',
+    queue: 'Review Queue',
+    sources: 'Source Manager',
+    social: 'Social Accounts',
+    scoring: 'NVS Scoring Engine',
+    ads: 'Ad Slots',
+    revenue: 'Revenue',
+    legal: 'Legal & Compliance',
+    comments: 'Comments',
+    analytics: 'Analytics',
+    costs: 'API Costs',
+    alerts: 'Alerts',
+  };
+
+  function navigate(page, el) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const target = document.getElementById('page-' + page);
+    if (target) target.classList.add('active');
+    if (el) el.classList.add('active');
+    document.getElementById('pageTitle').textContent = pageTitles[page] || page;
+  }
+
+  function openModal() {
+    document.getElementById('modalOverlay').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('modalOverlay').classList.remove('open');
+  }
+
+  function closeModalOutside(e) {
+    if (e.target === document.getElementById('modalOverlay')) closeModal();
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+  });
+</script>
+</body>
+</html>
