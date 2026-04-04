@@ -1,3 +1,4 @@
+
 /**
  * PitchOS — Fetch Agent (Cloudflare Worker)
  * ==========================================
@@ -20,21 +21,17 @@
  * 4. Add a Cron Trigger: "0 * * * *" (every hour)
  * 5. Paste this entire file as your worker code
  */
-
 // ─── MODELS ──────────────────────────────────────────────────
 const MODEL_FETCH   = 'claude-haiku-4-5-20251001';   // cheap, fast — for fetching
 const MODEL_SCORE   = 'claude-haiku-4-5-20251001';   // cheap — NVS scoring
 const MODEL_SUMMARY = 'claude-sonnet-4-6';           // quality — final summaries
-
 // ─── COST ESTIMATES (EUR per 1M tokens) ──────────────────────
 const COST = {
   'claude-haiku-4-5-20251001':  { input: 0.80,  output: 4.00  },
   'claude-sonnet-4-6':          { input: 2.75,  output: 13.75 },
 };
-
 // ─── MAIN ENTRY POINT ────────────────────────────────────────
 export default {
-
   // HTTP trigger (for manual testing: fetch worker URL)
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -46,23 +43,28 @@ export default {
       const siteCode = url.searchParams.get('site') || 'BJK';
       const cached = await env.PITCHOS_CACHE.get(`articles:${siteCode}`);
       return new Response(cached || '[]', {
-        headers: { 'Content-Type': 'application/json' }
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET',
+        }
       });
     }
     return new Response('PitchOS Fetch Agent — OK', { status: 200 });
   },
-
   // Cron trigger (runs every hour automatically)
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runAllSites(env));
   }
 };
-
 // ─── ORCHESTRATOR ────────────────────────────────────────────
 async function runAllSites(env) {
   const sites = await getActiveSites(env);
+  console.log('Sites found:', JSON.stringify(sites));
+  if (!sites || sites.length === 0) {
+    return { processed: 0, error: 'No active sites found in Supabase' };
+  }
   const results = [];
-
   for (const site of sites) {
     try {
       const result = await processSite(site, env);
@@ -73,10 +75,8 @@ async function runAllSites(env) {
       await logFetch(env, site.id, 'failed', {}, err.message);
     }
   }
-
   return { processed: results.length, results };
 }
-
 // ─── PROCESS ONE SITE ────────────────────────────────────────
 async function processSite(site, env) {
   const startTime = Date.now();
@@ -85,32 +85,33 @@ async function processSite(site, env) {
     rejected: 0, claudeCalls: 0,
     tokensIn: 0, tokensOut: 0, costEur: 0
   };
-
   // 1. Fetch raw articles via Claude with web search
   const { articles, usage: fetchUsage } = await fetchArticles(site, env);
   stats.fetched = articles.length;
   stats.claudeCalls++;
   addUsage(stats, fetchUsage, MODEL_FETCH);
-
   if (articles.length === 0) {
     await logFetch(env, site.id, 'partial', stats, 'No articles returned');
     return stats;
   }
-
   // 2. Score all articles in one batch call
   const { scored, usage: scoreUsage } = await scoreArticles(articles, site, env);
+  // Merge NVS scores back onto original articles to preserve all fields
+  const mergedScored = articles.map((orig, i) => ({
+    ...orig,
+    nvs:          scored[i]?.nvs          || 50,
+    content_type: scored[i]?.content_type || 'unknown',
+    nvs_notes:    scored[i]?.nvs_notes    || '',
+  }));
   stats.claudeCalls++;
   addUsage(stats, scoreUsage, MODEL_SCORE);
-
   // 3. Route by NVS score
-  const toPublish = scored.filter(a => a.nvs >= site.auto_publish_threshold);
-  const toQueue   = scored.filter(a => a.nvs >= site.review_threshold && a.nvs < site.auto_publish_threshold);
-  const toDiscard = scored.filter(a => a.nvs < site.review_threshold);
-
+  const toPublish = mergedScored.filter(a => a.nvs >= site.auto_publish_threshold);
+  const toQueue   = mergedScored.filter(a => a.nvs >= site.review_threshold && a.nvs < site.auto_publish_threshold);
+  const toDiscard = mergedScored.filter(a => a.nvs < site.review_threshold);
   stats.published = toPublish.length;
   stats.queued    = toQueue.length;
   stats.rejected  = toDiscard.length;
-
   // 4. Save to Supabase
   if (toPublish.length > 0) {
     await saveArticles(env, site.id, toPublish, 'published');
@@ -118,75 +119,119 @@ async function processSite(site, env) {
   if (toQueue.length > 0) {
     await saveArticles(env, site.id, toQueue, 'pending');
   }
-
   // 5. Cache published articles to KV (fan site reads this)
   const existing = await getCachedArticles(env, site.short_code);
   const merged   = mergeAndDedupe([...toPublish, ...existing], 20);
   await env.PITCHOS_CACHE.put(
     `articles:${site.short_code}`,
-    JSON.stringify(merged),
-    { expirationTtl: 7200 } // 2 hours TTL as safety net
+    JSON.stringify(merged.map(a => ({
+      title:    a.title    || '',
+      summary:  a.summary  || '',
+      source:   a.source   || a.source_name || '',
+      url:      a.url      || a.original_url || '#',
+      category: a.category || 'Haber',
+      nvs:      a.nvs      || a.nvs_score   || 0,
+      time_ago: a.time_ago || 'Güncel',
+    }))),
+    { expirationTtl: 7200 }
   );
-
   // 6. Log to Supabase
   await logFetch(env, site.id, 'success', stats);
-
   stats.durationMs = Date.now() - startTime;
   return stats;
 }
-
 // ─── FETCH ARTICLES via Claude + Web Search ──────────────────
 async function fetchArticles(site, env) {
-  const prompt = `Search the web for the latest ${site.team_name} football news published in the last 24 hours.
-Find news about: transfers, match results, injuries, squad updates, press conferences, and club news.
-Return ONLY a valid JSON array with up to 8 articles. No markdown, no explanation.
-Each object must have:
-- title (string, compelling headline)
-- summary (string, 2-3 sentences, factual)
-- source (string, publication name)
-- url (string, original article URL)
-- category (one of: Transfer|Match|Injury|Squad|Club|European)
-- published_at (string, ISO date if known, else "unknown")
-- language ("${site.languages[0]}")
-Do not invent facts. Only include real recent news.`;
+  // Step 1 — search with web search enabled
+  const searchPrompt = `Search the web for the latest ${site.team_name} football news from the last 24 hours. Find transfers, match results, injuries, squad updates.`;
+  
+  const searchResponse = await callClaude(env, MODEL_FETCH, searchPrompt, true);
 
-  const response = await callClaude(env, MODEL_FETCH, prompt, true);
+  // Step 2 — extract all text including tool results
+  const allText = searchResponse.content
+    .map(b => {
+      if (b.type === 'text') return b.text;
+      if (b.type === 'tool_result') return JSON.stringify(b.content);
+      return '';
+    })
+    .join('\n');
 
+  // Step 3 — second call to format as JSON (no web search)
+  const formatPrompt = `Based on this football news content, return ONLY a valid JSON array with up to 8 articles. No markdown, no explanation, just the raw JSON array starting with [ and ending with ].
+
+IMPORTANT: Every field must be filled. Never leave summary, source or url empty.
+
+Each object must have exactly these keys:
+- title (string, the headline)
+- summary (string, REQUIRED, write 2-3 sentences describing the news even if you have to infer from context)
+- source (string, REQUIRED, name of the publication or website e.g. "Fanatik", "TRT Spor", "Milliyet" — if unknown write "Spor Haberleri")
+- url (string, REQUIRED, the article URL — if unknown write "#")
+- category (string, one of: Transfer|Match|Injury|Squad|Club|European)
+- time_ago (string, e.g. "1 saat önce", "Bugün", "Dün")
+
+News content:
+${allText.slice(0, 3000)}`;
+
+  let formatResponse;
+  try {
+    formatResponse = await callClaude(env, MODEL_FETCH, formatPrompt, false);
+  } catch(e) {
+    console.error('Format call failed:', e.message);
+    return { articles: [], usage: searchResponse.usage };
+  }
+  
   let articles = [];
   try {
-    const text = extractText(response.content);
-    const clean = text.replace(/```json|```/gi, '').trim();
-    articles = JSON.parse(clean);
+    const text = extractText(formatResponse.content);
+    const match = text.match(/\[[\s\S]*\]/);
+    if (match) {
+      articles = JSON.parse(match[0]);
+    }
     if (!Array.isArray(articles)) articles = [];
   } catch (e) {
-    console.error('Parse error in fetchArticles:', e);
+    console.error('Parse error:', e.message);
+    console.log('Raw format response:', JSON.stringify(formatResponse?.content).slice(0, 300));
   }
 
-  return { articles, usage: response.usage };
-}
+  // Combine usage from both calls
+  const usage = {
+    input_tokens: (searchResponse.usage?.input_tokens || 0) + (formatResponse.usage?.input_tokens || 0),
+    output_tokens: (searchResponse.usage?.output_tokens || 0) + (formatResponse.usage?.output_tokens || 0),
+  };
 
+  return { articles, usage };
+}
 // ─── SCORE ARTICLES (batch NVS) ──────────────────────────────
 async function scoreArticles(articles, site, env) {
   const prompt = `You are a news value scorer for ${site.team_name} football content.
-Score each article in this JSON array on the News Value Score (NVS) scale 0-100.
-Scoring dimensions (total 100):
-- Specificity (25): Named people, figures, confirmed facts vs vague claims
-- Source authority (25): Club official=25, verified journalist=20, media outlet=15, unknown=5
-- Novelty (20): Is this genuinely new information?
-- Recency (15): Published today=15, yesterday=10, older=5
-- Relevance (10): Directly about ${site.team_name}=10, tangential=5
-- Engagement signal (5): Breaking/exclusive=5, routine=2
+
+First classify each article as FACT or RUMOR:
+- FACT: Verifiable, confirmed information. Match results, official lineups, confirmed signings, scheduled fixtures, press conference statements, injury confirmations by club.
+- RUMOR: Unverified claims. Transfer interest, contract talks, speculation, "according to sources", unnamed sources, fan accounts.
+
+Then score each article on NVS (0-100) using these rules:
+
+FOR FACTS — score on:
+- Specificity (35): Named people, exact figures, dates, confirmed details
+- Recency (30): Today=30, yesterday=20, this week=10, older=5
+- Relevance (25): Directly about ${site.team_name}=25, tangential=10
+- Source (10): Official club=10, verified media=7, unknown=3
+
+FOR RUMORS — score on:
+- Source authority (40): Fabrizio Romano/top journalists=40, verified journalist=30, known media outlet=20, unknown/fan=5
+- Specificity (25): Named player+fee+clubs=25, named player only=15, vague=5
+- Novelty (20): First to report=20, already known=5
+- Engagement signal (15): Exclusive=15, widespread=8, minor=3
 
 Input articles:
 ${JSON.stringify(articles, null, 2)}
 
 Return ONLY a valid JSON array (same order) where each object adds:
 - nvs (integer 0-100)
-- nvs_notes (one sentence explaining the score)
+- content_type ("fact" or "rumor")
+- nvs_notes (one sentence explaining the score and classification)
 No markdown, no explanation outside the JSON.`;
-
   const response = await callClaude(env, MODEL_SCORE, prompt, false);
-
   let scored = [];
   try {
     const text = extractText(response.content);
@@ -197,22 +242,18 @@ No markdown, no explanation outside the JSON.`;
     // Fallback: assign neutral score
     scored = articles.map(a => ({ ...a, nvs: 50, nvs_notes: 'Scoring failed, defaulted' }));
   }
-
   return { scored, usage: response.usage };
 }
-
 // ─── CLAUDE API CALL ─────────────────────────────────────────
 async function callClaude(env, model, prompt, useWebSearch) {
   const body = {
     model,
-    max_tokens: 1000,
+    max_tokens: 2000,
     messages: [{ role: 'user', content: prompt }]
   };
-
   if (useWebSearch) {
     body.tools = [{ type: 'web_search_20250305', name: 'web_search' }];
   }
-
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -222,21 +263,17 @@ async function callClaude(env, model, prompt, useWebSearch) {
     },
     body: JSON.stringify(body)
   });
-
   if (!response.ok) {
     const err = await response.text();
     throw new Error(`Claude API error ${response.status}: ${err}`);
   }
-
   return response.json();
 }
-
 // ─── SUPABASE HELPERS ─────────────────────────────────────────
 async function getActiveSites(env) {
   const res = await supabase(env, 'GET', '/rest/v1/sites?status=eq.live&select=*');
   return res || [];
 }
-
 async function saveArticles(env, siteId, articles, status) {
   const rows = articles.map(a => ({
     site_id:      siteId,
@@ -254,12 +291,10 @@ async function saveArticles(env, siteId, articles, status) {
     reviewed_by:  status === 'published' ? 'auto' : null,
     reviewed_at:  status === 'published' ? new Date().toISOString() : null,
   }));
-
   await supabase(env, 'POST', '/rest/v1/content_items', rows, {
     'Prefer': 'resolution=ignore-duplicates'
   });
 }
-
 async function logFetch(env, siteId, status, stats, errorMsg) {
   const row = {
     site_id:            siteId,
@@ -280,7 +315,6 @@ async function logFetch(env, siteId, status, stats, errorMsg) {
   };
   await supabase(env, 'POST', '/rest/v1/fetch_logs', row);
 }
-
 async function supabase(env, method, path, body, extraHeaders = {}) {
   const res = await fetch(`${env.SUPABASE_URL}${path}`, {
     method,
@@ -299,13 +333,11 @@ async function supabase(env, method, path, body, extraHeaders = {}) {
   const text = await res.text();
   return text ? JSON.parse(text) : null;
 }
-
 // ─── KV CACHE HELPERS ────────────────────────────────────────
 async function getCachedArticles(env, siteCode) {
   const cached = await env.PITCHOS_CACHE.get(`articles:${siteCode}`);
   return cached ? JSON.parse(cached) : [];
 }
-
 function mergeAndDedupe(articles, limit) {
   const seen = new Set();
   return articles
@@ -318,7 +350,6 @@ function mergeAndDedupe(articles, limit) {
     .sort((a, b) => (b.nvs || 0) - (a.nvs || 0))
     .slice(0, limit);
 }
-
 // ─── UTILITIES ───────────────────────────────────────────────
 function extractText(content = []) {
   return content
@@ -326,7 +357,6 @@ function extractText(content = []) {
     .map(b => b.text)
     .join('\n');
 }
-
 function addUsage(stats, usage, model) {
   if (!usage) return;
   const rates = COST[model] || { input: 3, output: 15 };
@@ -335,8 +365,8 @@ function addUsage(stats, usage, model) {
   stats.costEur   += ((usage.input_tokens  / 1_000_000) * rates.input) +
                      ((usage.output_tokens / 1_000_000) * rates.output);
 }
-
-function simpleHash(str = '') {
+function simpleHash(str) {
+  str = String(str || '');
   let h = 0;
   for (const c of str) h = Math.imul(31, h) + c.charCodeAt(0) | 0;
   return Math.abs(h).toString(36);
