@@ -10,7 +10,7 @@ export function preFilter(articles, seenHashes) {
     .filter(a => {
       const pubMs = a.published_at ? new Date(a.published_at).getTime() : Date.now();
       if (pubMs < cutoff) return false;
-      const haystack = `${a.title} ${a.summary || ''}`;
+      const haystack = `${a.title} ${a.summary || ''} ${a.full_text || ''}`.slice(0, 600);
       if (!BJK_REGEX.test(haystack)) return false;
       if ((a.summary || '').length < 50) return false;
       const hash = simpleHash(a.title + (a.summary || '').slice(0, 100));
@@ -108,7 +108,7 @@ export async function saveSeenHashes(env, siteCode, articles) {
       existing.add(simpleHash(a.title + (a.summary || '').slice(0, 100)));
     }
     const trimmed = [...existing].slice(-100);
-    await env.PITCHOS_CACHE.put(`seen:${siteCode}`, JSON.stringify(trimmed), { expirationTtl: 172800 });
+    await env.PITCHOS_CACHE.put(`seen:${siteCode}`, JSON.stringify(trimmed), { expirationTtl: 86400 });
   } catch (e) {
     console.error('saveSeenHashes failed:', e.message);
   }

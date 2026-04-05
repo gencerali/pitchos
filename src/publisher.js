@@ -76,7 +76,7 @@ export async function saveArticles(env, siteId, articles, status) {
   const rows = articles.map(a => ({
     site_id:      siteId,
     source_type:  'rss',
-    source_name:  a.source || 'Unknown',
+    source_name:  a.source_name || a.source || 'Unknown',
     original_url: a.url || null,
     title:        a.title,
     summary:      a.summary,

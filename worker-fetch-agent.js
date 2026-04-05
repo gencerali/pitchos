@@ -39,6 +39,11 @@ export default {
         }
       });
     }
+    if (url.pathname === '/clear-cache') {
+      await env.PITCHOS_CACHE.delete('seen:BJK');
+      await env.PITCHOS_CACHE.delete('articles:BJK');
+      return Response.json({ cleared: true });
+    }
     if (url.pathname === '/debug') {
       const res = await fetch(`${env.SUPABASE_URL}/rest/v1/sites?status=eq.live&select=*`, {
         headers: { 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` },

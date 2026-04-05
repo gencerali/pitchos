@@ -25,7 +25,8 @@ export async function fetchRSSArticles(site) {
     if (r.status === 'fulfilled') articles.push(...r.value);
     else console.error(`RSS feed failed: ${r.reason?.message}`);
   }
-  return articles;
+  // Cap total combined articles at 40 before scoring
+  return articles.slice(0, 40);
 }
 
 async function fetchOneFeed(feed, site) {
@@ -48,8 +49,7 @@ async function fetchOneFeed(feed, site) {
 
   const xml = await res.text();
   const cutoff = Date.now() - CUTOFF_48H;
-  let items = xml.match(/<item[\s\S]*?<\/item>/g) || [];
-  items = items.slice(0, 15);
+  const items = xml.match(/<item[\s\S]*?<\/item>/g) || [];
   console.log(`RSS [${sourceName}]: ${items.length} total items in feed`);
 
   if (items.length === 0 && feed.ntvFallback) {
