@@ -6,7 +6,11 @@
       "Bash(wrangler secret:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(dev.bat run:*)",
+      "Bash(cmd.exe /c dev.bat run)",
+      "Bash(curl:*)",
+      "Bash(wrangler kv:*)"
     ]
   }
 }

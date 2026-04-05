@@ -174,60 +174,99 @@ async function processSite(site, env) {
 }
 // ─── FETCH ARTICLES via RSS ──────────────────────────────────
 const RSS_FEEDS = [
-  { url: 'https://www.fanatik.com.tr/rss/besiktas',          source: 'Fanatik' },
-  { url: 'https://www.trtspor.com.tr/rss',                   source: 'TRT Spor' },
-  { url: 'https://www.fotomac.com.tr/rss/besiktas',          source: 'Fotomac' },
-  { url: 'https://www.milliyet.com.tr/rss/rssnew/spor',      source: 'Milliyet' },
+  { url: 'https://www.fotomac.com.tr/rss/besiktas.xml', source: 'Fotomaç',  trust_tier: 'reliable'   },
+  { url: 'https://www.duhuliye.com/rss',                source: 'Duhuliye', trust_tier: 'aggregator' },
 ];
-const CUTOFF_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CUTOFF_MS = 48 * 60 * 60 * 1000; // 48 hours
+
+const BJK_KEYWORDS = ['beşiktaş', 'besiktas', 'bjk', 'kartal', 'siyah-beyaz'];
 
 async function fetchRSSArticles(site) {
   const results = await Promise.allSettled(RSS_FEEDS.map(feed => fetchOneFeed(feed, site)));
   const articles = [];
   for (const r of results) {
-    if (r.status === 'fulfilled') articles.push(...r.value);
-    else console.error('RSS feed failed:', r.reason?.message);
+    if (r.status === 'fulfilled') {
+      articles.push(...r.value);
+    } else {
+      console.error(`RSS feed failed: ${r.reason?.message}`);
+    }
   }
   return articles;
 }
 
-async function fetchOneFeed({ url, source }, site) {
+async function fetchOneFeed({ url, source, trust_tier }, site) {
   const res = await fetch(url, { headers: { 'User-Agent': 'PitchOS/1.0' }, cf: { cacheTtl: 300 } });
-  if (!res.ok) throw new Error(`${source} returned ${res.status}`);
+  if (!res.ok) {
+    console.error(`RSS [${source}]: HTTP ${res.status}`);
+    return [];
+  }
   const xml = await res.text();
   const cutoff = Date.now() - CUTOFF_MS;
+  const items = xml.match(/<item[\s\S]*?<\/item>/g) || [];
+  console.log(`RSS [${source}]: ${items.length} total items in feed`);
+
+  let recentCount = 0;
   const articles = [];
 
-  // Extract <item> blocks
-  const items = xml.match(/<item[\s\S]*?<\/item>/g) || [];
   for (const item of items) {
-    const title    = stripCDATA(getTag(item, 'title'));
-    const summary  = stripCDATA(getTag(item, 'description')) || title;
-    const url_     = getRSSLink(item) || getTag(item, 'guid') || '';
-    const pubDate  = getTag(item, 'pubDate');
+    // ── Parse fields ──
+    const title        = stripCDATA(getTag(item, 'title'));
+    const rawDesc      = stripCDATA(getTag(item, 'description'));
+    const rawContent   = stripCDATA(getTagNS(item, 'content:encoded') || getTagNS(item, 'content'));
+    const url_         = getRSSLink(item) || getTag(item, 'guid') || '';
+    const pubDate      = getTag(item, 'pubDate');
     const published_at = pubDate ? new Date(pubDate).toISOString() : null;
-    const pubMs    = pubDate ? new Date(pubDate).getTime() : 0;
+    const pubMs        = pubDate ? new Date(pubDate).getTime() : 0;
+    const image_url    = getEnclosureUrl(item);
 
-    // Skip if older than 24h
+    // ── 48-hour filter ──
     if (pubMs && pubMs < cutoff) continue;
+    recentCount++;
 
-    // Skip if title doesn't mention the team (for non-team-specific feeds)
-    const teamKeywords = [site.team_name, site.short_code, 'beşiktaş', 'besiktas', 'kartal', 'bjk']
-      .map(k => k.toLowerCase());
-    const haystack = (title + ' ' + summary).toLowerCase();
-    if (!teamKeywords.some(k => haystack.includes(k))) continue;
+    // ── Keyword filter ──
+    const haystack = (title + ' ' + rawDesc + ' ' + rawContent).toLowerCase();
+    if (!BJK_KEYWORDS.some(k => haystack.includes(k))) continue;
+
+    // ── Clean text ──
+    const summary   = stripHTML(rawDesc).slice(0, 500) || title;
+    const full_text = rawContent
+      ? rawContent.split(/<br\s*\/?>|<\/p>/i)
+          .map(p => stripHTML(p).trim())
+          .filter(p => p.length > 20)
+          .join('\n\n')
+          .slice(0, 3000)
+      : summary;
+
+    // ── Original source (Duhuliye aggregates other sites) ──
+    let original_source = null;
+    if (trust_tier === 'aggregator') {
+      const srcMatch = rawContent.match(/(?:Haber kaynağı|Kaynak)\s*[:\-]\s*([^\n<]{2,60})/i);
+      if (srcMatch) original_source = srcMatch[1].trim();
+    }
+
+    // ── Sport detection ──
+    let sport = 'football';
+    if (/basketbol|basket\b/i.test(haystack)) sport = 'basketball';
+    else if (/voleybol/i.test(haystack))       sport = 'volleyball';
 
     articles.push({
       title,
-      summary:      summary.slice(0, 500),
+      summary,
+      full_text,
       source,
+      original_source,
       url:          url_,
+      image_url,
       category:     'Club',
       time_ago:     pubMs ? relativeTime(pubMs) : 'Güncel',
       published_at,
       is_fresh:     true,
+      trust_tier,
+      sport,
     });
   }
+
+  console.log(`RSS [${source}]: ${recentCount} within 48h, ${articles.length} passed keyword filter`);
   return articles;
 }
 
@@ -235,22 +274,36 @@ function getTag(xml, tag) {
   const m = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
   return m ? m[1].trim() : '';
 }
+
+function getTagNS(xml, tag) {
+  // Handles namespace tags like content:encoded
+  const escaped = tag.replace(':', '\\:');
+  const m = xml.match(new RegExp(`<${escaped}[^>]*>([\\s\\S]*?)<\\/${escaped}>`, 'i'));
+  return m ? m[1].trim() : '';
+}
+
+function getEnclosureUrl(item) {
+  const m = item.match(/<enclosure[^>]+url="([^"]+)"/i);
+  return m ? m[1].trim() : null;
+}
+
 // RSS <link> is often a naked text node between tags, not wrapped in <link>...</link>
 function getRSSLink(item) {
-  // Standard: <link>https://...</link>
   const standard = item.match(/<link[^>]*>([^<]+)<\/link>/i);
   if (standard) return standard[1].trim();
-  // Atom-style: <link href="https://..."/>
   const atom = item.match(/<link[^>]+href="([^"]+)"/i);
   if (atom) return atom[1].trim();
-  // Naked: text node after </title> or before <description>
   const naked = item.match(/<link\s*\/?>[\s\r\n]*(https?:\/\/[^\s<]+)/i);
   if (naked) return naked[1].trim();
   return '';
 }
 
 function stripCDATA(str) {
-  return str.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim();
+  return (str || '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim();
+}
+
+function stripHTML(str) {
+  return (str || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function relativeTime(ms) {
