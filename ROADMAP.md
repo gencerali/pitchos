@@ -57,6 +57,66 @@ original content, and passive income through advertising and subscriptions.
 - Rumor tracking: prediction confirmed/failed → journalist accuracy score
 - Feedback loop: Claude prompts updated with engagement weights
 
+## Squad Intelligence System
+
+A dynamic database of players, coaches, and staff per team — used for:
+1. Keyword filtering on international feeds (catch news about BJK players without mentioning BJK)
+2. Transfer Radar (track former players who might return)
+3. Player Pulse cards (sentiment per player)
+4. Journalist accuracy tracking (who predicted their transfer correctly)
+
+#### Supabase table: squad_members
+- id, site_id, name, name_variations (JSONB array e.g. ["Orkun","Kökçü","Kokcu"])
+- role: player | coach | staff | president
+- status: current | departed_1y | departed_2y | target | rumored
+- position: GK | DEF | MID | FWD | coach | director
+- nationality, age, market_value_eur
+- joined_at, departed_at
+- shirt_number
+- social_handles (JSONB e.g. {twitter: "@orkunkokcu", instagram: "..."})
+- created_at, updated_at
+
+#### How it works:
+- Sprint 3: Manually seed BJK squad from Transfermarkt
+- Sprint 5: Auto-update via Transfermarkt RSS + Claude extraction
+- Sprint 6: Console UI to add/edit/remove members
+- Sprint 7: Cross-team when scaling to new clubs
+
+#### Keyword filter logic:
+- current players: always monitored
+- departed_1y: monitored (loan returns, transfer links back)
+- departed_2y: monitored only if mentioned with BJK keyword together
+- targets/rumored: monitored (transfer window)
+- Auto-generate name_variations: "Hyeon-gyu Oh" → ["Oh","Hyeon","현규","오현규"]
+
+#### Console UI (Sprint 6):
+- Squad roster view per team with status badges
+- Add player manually or import from Transfermarkt URL
+- Edit name variations (critical for non-Latin names)
+- Mark as departed → system keeps monitoring for X months
+- Transfer window mode: promote rumored targets to active monitoring
+- Show which articles each player triggered
+
+#### Transfer Window Intelligence:
+During transfer windows (Jan, June-Aug):
+- Expand monitoring to rumored targets automatically
+- Track how many times a name appears across sources
+- Score rumor strength by: source trust × mention frequency × specificity
+- Feed directly into Transfer Radar on fan site
+
+#### Current BJK Squad (seed data — April 2026):
+Kaleciler: Ersin Destanoğlu, Devis Vasquez
+Defans: Amir Murillo, Emmanuel Agbadou, Tiago Djalo, Felix Uduokhai, Emirhan Topçu, Rıdvan Yılmaz, Taylan Bulut, Yasin Özcan, Gökhan Sazdağı
+Orta Saha: Orkun Kökçü, Wilfred Ndidi, Kristjan Asllani, Salih Uçan, Kartal Kayra Yılmaz, Milot Rashica, Junior Olaitan
+Forvet: Tammy Abraham, Vaclav Cerny, El Bilal Touré, Hyeon-gyu Oh, Jota Silva, Cengiz Ünder, Mustafa Hekimoğlu
+Teknik Direktör: Sergen Yalçın
+Başkan: Serdal Adalı
+
+Departed (last 1 year — still monitor):
+Mert Günok (→ Fenerbahçe), Jean Onana (→ Genoa loan)
+
+---
+
 ## Revenue Plan
 - AdSense: all tiers (apply Sprint 3)
 - Transfer window newsletter: €5/month subscribers
@@ -143,6 +203,7 @@ original content, and passive income through advertising and subscriptions.
 - Google Search Console submission
 - Google News submission
 - Sitemap.xml auto-generated
+- **squad_members table**: seed BJK squad manually from Transfermarkt
 
 ### 📋 Sprint 4 — SEO + Distribution
 - NewsArticle structured data
@@ -162,6 +223,7 @@ original content, and passive income through advertising and subscriptions.
 - Learning weights: source trust updated by engagement
 - Journalist accuracy tracker (rumor confirmed/failed)
 - Transfer prediction history dashboard
+- **Squad auto-update**: Transfermarkt RSS + Claude extraction → squad_members
 
 ### 📋 Sprint 6 — Clone Engine + Team 2
 - Console Site Factory fully operational
@@ -170,6 +232,7 @@ original content, and passive income through advertising and subscriptions.
 - Feature flags working
 - Clone Beşiktaş → Team 2 (Galatasaray or Fenerbahçe)
 - Cross-site console dashboard
+- **Console squad management UI**: add/edit/remove players, name variations, status
 
 ### Console — Fetch Schedule Configuration (Sprint 6)
 Per-site settings manageable from console UI:
