@@ -242,6 +242,30 @@
     .nvs-badge.high { background: #00c85322; color: var(--green); }
     .nvs-badge.med  { background: #ffb83022; color: #ffb830; }
 
+    .score-badge {
+      font-size: 0.72rem; letter-spacing: 0.04em;
+      margin-left: auto; line-height: 1;
+    }
+
+    /* ── DİĞER SPORLAR ── */
+    .other-sports-section { margin-bottom: 2rem; }
+    .other-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px; background: var(--border);
+      border: 1px solid var(--border);
+    }
+    .sport-tag {
+      font-size: 0.58rem; padding: 0.1rem 0.4rem;
+      border-radius: 1px; text-transform: uppercase;
+      letter-spacing: 0.12em; font-weight: 600;
+      background: #002244; color: #6ab0ff;
+    }
+    .sport-tag.basketball { background: #1a0800; color: #ff8c42; }
+    .sport-tag.volleyball { background: #001a00; color: #42ff8c; }
+    @media(max-width:900px) { .other-grid { grid-template-columns: repeat(2,1fr); } }
+    @media(max-width:580px) { .other-grid { grid-template-columns: 1fr; } }
+
     .card-title {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 1.15rem; font-weight: 700;
@@ -699,6 +723,14 @@
     <button class="btn-load-more" id="loadMoreBtn">Daha Fazla Haber →</button>
   </div>
 
+  <!-- ── DİĞER SPORLAR ── -->
+  <div class="other-sports-section" id="otherSportsSection" style="display:none">
+    <div class="section-row" style="margin-bottom:1.25rem">
+      <div class="section-label">Diğer Sporlar</div>
+    </div>
+    <div class="other-grid" id="otherSportsGrid"></div>
+  </div>
+
   <!-- ── VIDEO MOMENTS ── -->
   <div class="video-section">
     <div class="section-row" style="margin-bottom:1.25rem">
@@ -876,11 +908,17 @@
     }
 
     _articles = articles;
-    renderCarousel(articles.slice(0, 8));
-    renderGrid(articles.slice(8), 0);
-    renderTicker(articles);
-    renderRadar(MOCK_RADAR);
-    renderPulse(MOCK_PULSE);
+
+    // Split football vs other sports
+    const footballArticles = articles.filter(a => !a.sport || a.sport === 'football');
+    const otherArticles    = articles.filter(a => a.sport && a.sport !== 'football');
+
+    renderCarousel(footballArticles.slice(0, 8));
+    renderGrid(footballArticles.slice(8), 0);
+    renderTicker(footballArticles);
+    renderRadarLive(articles);
+    renderPulseLive(articles);
+    renderOtherSports(otherArticles);
     renderVideos(MOCK_VIDEOS);
     setTimestamp();
   }
@@ -985,11 +1023,14 @@
       el.setAttribute('tabindex', '0');
       el.dataset.absIdx = absIdx >= 0 ? absIdx : i + 8 + offset;
       el.style.animationDelay = `${i * 0.04}s`;
+      const scoreBadge = a.golden_score
+        ? `<span class="score-badge" title="Güven Puanı">${goldenScoreHTML(a.golden_score)}</span>`
+        : (a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : '');
       el.innerHTML = `
         <div class="card-thumb" style="${thumbStyle(a)}"></div>
         <div class="card-cat">
           ${esc(a.category || 'Haber')}
-          ${a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : ''}
+          ${scoreBadge}
         </div>
         <div class="card-title">${esc(a.title)}</div>
         <div class="card-summary">${esc(cleanSummary(a.summary || a.full_body || ''))}</div>
@@ -1027,17 +1068,56 @@
     document.getElementById('ticker').innerHTML = items + items;
   }
 
-  // ── RENDER RADAR ─────────────────────────────────────────────
-  function renderRadar(items) {
-    document.getElementById('radarItems').innerHTML = items.map(r => `
-      <div class="radar-item">
-        ${esc(r.name)}
-        <span class="radar-nvs ${r.nvs >= 75 ? 'high' : 'med'}">${r.nvs}</span>
+  // ── RENDER RADAR (live — transfer/rumor articles) ────────────
+  function renderRadarLive(articles) {
+    const transferArticles = articles.filter(a =>
+      (a.category || '').toLowerCase() === 'transfer' ||
+      (a.content_type || '').toLowerCase() === 'rumor'
+    ).slice(0, 5);
+
+    if (!transferArticles.length) {
+      document.getElementById('radarItems').innerHTML =
+        '<div class="radar-item" style="color:var(--muted)">Transfer haberi yok</div>';
+      return;
+    }
+
+    document.getElementById('radarItems').innerHTML = transferArticles.map(r => `
+      <div class="radar-item" style="cursor:pointer" onclick="openArticle(_articles[${_articles.indexOf(r)}])">
+        ${esc((r.title || '').slice(0, 55))}
+        ${r.golden_score
+          ? `<span class="radar-nvs med">${goldenScoreHTML(r.golden_score)}</span>`
+          : `<span class="radar-nvs ${r.nvs >= 70 ? 'high' : 'med'}">${r.nvs}</span>`}
       </div>
     `).join('');
   }
 
-  // ── RENDER PULSE ─────────────────────────────────────────────
+  // ── RENDER PULSE (live — derived from articles) ───────────────
+  function renderPulseLive(articles) {
+    if (!articles.length) {
+      renderPulse(MOCK_PULSE);
+      return;
+    }
+
+    const avgNvs = articles.reduce((s, a) => s + (a.nvs || 50), 0) / articles.length;
+    const injuries   = articles.filter(a => (a.category||'').toLowerCase() === 'injury').length;
+    const transfers  = articles.filter(a => (a.category||'').toLowerCase() === 'transfer').length;
+    const matchNews  = articles.filter(a => (a.category||'').toLowerCase() === 'match').length;
+    const highNvs    = articles.filter(a => (a.nvs||0) >= 75).length;
+
+    const genelMood = avgNvs >= 70 ? ['🔥', 'Heyecanlı'] : avgNvs >= 55 ? ['💪', 'Kararlı'] : ['🤔', 'Beklemede'];
+    const transferMood = transfers >= 3 ? ['🤞', 'Hareketli'] : transfers >= 1 ? ['👀', 'Takipte'] : ['😴', 'Sakin'];
+    const macMood = matchNews >= 2 ? ['⚽', 'Maç modu'] : ['📰', 'Günlük'];
+    const saglikMood = injuries >= 2 ? ['😟', 'Endişeli'] : ['💚', 'Sağlıklı'];
+
+    const items = [
+      { label: 'Genel',    emoji: genelMood[0],    mood: genelMood[1] },
+      { label: 'Transfer', emoji: transferMood[0],  mood: transferMood[1] },
+      { label: 'Maç',      emoji: macMood[0],       mood: macMood[1] },
+      { label: 'Sağlık',   emoji: saglikMood[0],    mood: saglikMood[1] },
+    ];
+    renderPulse(items);
+  }
+
   function renderPulse(items) {
     document.getElementById('fanPulse').innerHTML = items.map(p => `
       <div class="pulse-item">
@@ -1045,6 +1125,38 @@
         <strong>${p.label}:</strong> ${p.mood}
       </div>
     `).join('');
+  }
+
+  // ── RENDER DİĞER SPORLAR ─────────────────────────────────────
+  function renderOtherSports(articles) {
+    const section = document.getElementById('otherSportsSection');
+    const grid    = document.getElementById('otherSportsGrid');
+    if (!articles.length) { section.style.display = 'none'; return; }
+    section.style.display = '';
+
+    const SPORT_LABELS = { basketball: 'Basketbol', volleyball: 'Voleybol', handball: 'Hentbol' };
+    grid.innerHTML = articles.slice(0, 6).map(a => {
+      const sportLabel = SPORT_LABELS[a.sport] || a.sport || 'Spor';
+      const sportClass = a.sport || '';
+      const idx = _articles.indexOf(a);
+      const scoreBadge = a.golden_score
+        ? `<span class="score-badge">${goldenScoreHTML(a.golden_score)}</span>`
+        : (a.nvs ? `<span class="nvs-badge ${a.nvs >= 75 ? 'high' : 'med'}">${a.nvs}</span>` : '');
+      return `
+        <div class="card" style="cursor:pointer" onclick="openArticle(_articles[${idx}]||${JSON.stringify(a).replace(/"/g,'&quot;')})">
+          <div class="card-cat">
+            <span class="sport-tag ${sportClass}">${esc(sportLabel)}</span>
+            ${esc(a.category || '')}
+            ${scoreBadge}
+          </div>
+          <div class="card-title">${esc(a.title)}</div>
+          <div class="card-summary">${esc(cleanSummary(a.summary || a.full_body || ''))}</div>
+          <div class="card-meta">
+            <div class="card-source"><div class="src-dot"></div>${esc(a.source || '')}</div>
+            <span>${esc(a.time_ago || '')}</span>
+          </div>
+        </div>`;
+    }).join('');
   }
 
   // ── RENDER VIDEOS ────────────────────────────────────────────

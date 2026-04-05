@@ -4,25 +4,48 @@ export const BJK_REGEX  = /beşiktaş|besiktas|bjk|kartal|siyah.beyaz/i;
 export const CUTOFF_48H = 72 * 60 * 60 * 1000;
 
 // ─── PRE-FILTER (pure JS, zero Claude calls) ─────────────────
+// Returns { articles, counts } with per-stage breakdown
 export function preFilter(articles, seenHashes) {
   const cutoff = Date.now() - CUTOFF_48H;
-  return dedupeByTitle(articles)
-    .filter(a => {
-      const pubMs = a.published_at ? new Date(a.published_at).getTime() : Date.now();
-      if (pubMs < cutoff) return false;
-      const haystack = `${a.title} ${a.summary || ''} ${a.full_text || ''}`.slice(0, 600);
-      if (!BJK_REGEX.test(haystack)) return false;
-      if ((a.summary || '').length < 50) return false;
-      const hash = simpleHash(a.title + (a.summary || '').slice(0, 100));
-      if (seenHashes.has(hash)) return false;
-      return true;
-    })
+
+  // Stage 1: date filter
+  const afterDate = articles.filter(a => {
+    const pubMs = a.published_at ? new Date(a.published_at).getTime() : Date.now();
+    return pubMs >= cutoff;
+  });
+
+  // Stage 2: BJK keyword + minimum summary length
+  const afterKeyword = afterDate.filter(a => {
+    const haystack = `${a.title} ${a.summary || ''} ${a.full_text || ''}`.slice(0, 600);
+    if (!BJK_REGEX.test(haystack)) return false;
+    if ((a.summary || '').length < 50) return false;
+    return true;
+  });
+
+  // Stage 3: seen hash dedup
+  const afterHash = afterKeyword.filter(a => {
+    const hash = simpleHash(a.title + (a.summary || '').slice(0, 100));
+    return !seenHashes.has(hash);
+  });
+
+  // Stage 4: title similarity dedup + sort by date + cap 20
+  const afterTitle = dedupeByTitle(afterHash)
     .sort((a, b) => {
       const ta = a.published_at ? new Date(a.published_at).getTime() : 0;
       const tb = b.published_at ? new Date(b.published_at).getTime() : 0;
       return tb - ta;
     })
     .slice(0, 20);
+
+  return {
+    articles: afterTitle,
+    counts: {
+      after_date:    afterDate.length,
+      after_keyword: afterKeyword.length,
+      after_hash:    afterHash.length,
+      after_title:   afterTitle.length,
+    },
+  };
 }
 
 // ─── DEDUPE BY TITLE SIMILARITY ──────────────────────────────

@@ -40,10 +40,11 @@ export default {
       });
     }
     if (url.pathname === '/clear-cache') {
-      const siteCode = url.searchParams.get('site') || 'BJK';
-      await env.PITCHOS_CACHE.delete(`seen:${siteCode}`);
-      await env.PITCHOS_CACHE.delete(`articles:${siteCode}`);
-      return Response.json({ cleared: true, site: siteCode });
+      await Promise.all([
+        env.PITCHOS_CACHE.delete('articles:BJK'),
+        env.PITCHOS_CACHE.delete('seen:BJK'),
+      ]);
+      return Response.json({ cleared: ['articles:BJK', 'seen:BJK'] });
     }
     if (url.pathname === '/debug') {
       const res = await fetch(`${env.SUPABASE_URL}/rest/v1/sites?status=eq.live&select=*`, {
@@ -51,22 +52,76 @@ export default {
       });
       return new Response(await res.text(), { headers: { 'Content-Type': 'application/json' } });
     }
+    if (url.pathname === '/debug-dates') {
+      const results = [];
+      const feedsToCheck = [
+        'https://www.ahaber.com.tr/rss/besiktas.xml',
+        'https://www.trthaber.com/spor_articles.rss',
+        'https://www.ntvspor.net/rss/kategori/futbol',
+      ];
+
+      for (const feedUrl of feedsToCheck) {
+        try {
+          const res = await fetch(feedUrl, { signal: AbortSignal.timeout(8000) });
+          const text = await res.text();
+          const items = text.match(/<item[\s\S]*?<\/item>/g)
+                     || text.match(/<entry[\s\S]*?<\/entry>/g)
+                     || [];
+
+          const sample = items.slice(0, 5).map(item => {
+            const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/i)
+                            || item.match(/<title>([^<]+)<\/title>/i);
+            const dateMatch  = item.match(/<pubDate>([^<]+)<\/pubDate>/i)
+                            || item.match(/<published>([^<]+)<\/published>/i)
+                            || item.match(/<dc:date>([^<]+)<\/dc:date>/i)
+                            || item.match(/<updated>([^<]+)<\/updated>/i);
+
+            const rawDate  = dateMatch?.[1]?.trim() || 'NO DATE FOUND';
+            const parsed   = new Date(rawDate);
+            const ageHours = isNaN(parsed) ? 'PARSE ERROR' : Math.round((Date.now() - parsed.getTime()) / 3600000) + 'h ago';
+
+            return {
+              title:    (titleMatch?.[1] || 'no title').slice(0, 50),
+              raw_date: rawDate,
+              parsed:   isNaN(parsed) ? 'INVALID' : parsed.toISOString(),
+              age:      ageHours,
+            };
+          });
+
+          results.push({ feed: feedUrl, item_count: items.length, sample });
+        } catch (e) {
+          results.push({ feed: feedUrl, error: e.message });
+        }
+      }
+
+      return Response.json(results, {
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
     if (url.pathname === '/debug-feeds') {
       const results = [];
       for (const feed of RSS_FEEDS) {
         try {
           const res = await fetch(feed.url, { signal: AbortSignal.timeout(8000) });
           const text = await res.text();
-          const itemCount = (text.match(/<item>/gi) || []).length;
+          // Count both RSS <item> and Atom <entry> tags
+          const rssItems  = (text.match(/<item[\s>]/gi) || []).length;
+          const atomItems = (text.match(/<entry[\s>]/gi) || []).length;
+          const itemCount = rssItems || atomItems;
+          const format    = atomItems > rssItems ? 'atom' : 'rss';
           const titles = [];
-          const titleMatches = text.matchAll(/<title><!\[CDATA\[(.*?)\]\]><\/title>/gi);
-          for (const m of titleMatches) {
-            if (titles.length < 3) titles.push(m[1].slice(0, 60));
+          // Try CDATA titles first, then plain text titles
+          const cdataTitles = [...text.matchAll(/<title><!\[CDATA\[(.*?)\]\]><\/title>/gi)];
+          const plainTitles = [...text.matchAll(/<title>([^<]{5,})<\/title>/gi)];
+          const allTitles   = cdataTitles.length ? cdataTitles : plainTitles;
+          for (const m of allTitles) {
+            if (titles.length < 3) titles.push(m[1].trim().slice(0, 60));
           }
           results.push({
             name: feed.name,
             url: feed.url,
             status: res.status,
+            format,
             total_items: itemCount,
             sample_titles: titles,
           });
@@ -122,14 +177,15 @@ async function runAllSites(env) {
 async function processSite(site, env) {
   const startTime = Date.now();
   const stats = {
-    fetched: 0, published: 0, queued: 0, rejected: 0, skipped_seen: 0,
+    raw_fetched: 0, after_date: 0, after_keyword: 0, after_hash: 0, after_title: 0,
+    scored: 0, published: 0, queued: 0, rejected: 0,
     claudeCalls: 0,
     scout_tokens_in: 0, scout_tokens_out: 0, scout_cost_eur: 0,
     tokensIn: 0, tokensOut: 0, costEur: 0,
   };
 
   // ── FETCH (RSS + web search + beIN + Twitter in parallel) ────
-  const [rssArticles, { articles: webArticles, usage: fetchUsage }, { articles: beINArticles, usage: beINUsage }, { articles: twitterArticles, usage: twitterUsage }] = await Promise.all([
+  const [{ articles: rssArticles, bySource }, { articles: webArticles, usage: fetchUsage }, { articles: beINArticles, usage: beINUsage }, { articles: twitterArticles, usage: twitterUsage }] = await Promise.all([
     fetchRSSArticles(site),
     fetchArticles(site, env),
     fetchBeIN(site, env),
@@ -142,14 +198,34 @@ async function processSite(site, env) {
 
   // ── PRE-FILTER (pure JS, zero Claude calls) ──────────────────
   const seenHashes = await getSeenHashes(env, site.short_code);
-  const allFetched  = [...rssArticles, ...webArticles, ...beINArticles, ...twitterArticles];
-  const preFiltered = preFilter(allFetched, seenHashes);
-  stats.fetched      = preFiltered.length;
-  stats.skipped_seen = allFetched.length - dedupeByTitle(allFetched).length;
-  console.log(`${site.short_code}: ${rssArticles.length} RSS + ${webArticles.length} web + ${beINArticles.length} beIN + ${twitterArticles.length} twitter → ${preFiltered.length} after pre-filter`);
+  const allFetched = [...rssArticles, ...webArticles, ...beINArticles, ...twitterArticles];
+
+  const { articles: preFiltered, counts: filterCounts } = preFilter(allFetched, seenHashes);
+
+  const funnelStats = {
+    raw_fetched:   allFetched.length,
+    after_date:    filterCounts.after_date,
+    after_keyword: filterCounts.after_keyword,
+    after_hash:    filterCounts.after_hash,
+    after_title:   filterCounts.after_title,
+    scored:        0,
+    by_source:     bySource,
+  };
+
+  stats.raw_fetched   = funnelStats.raw_fetched;
+  stats.after_title   = funnelStats.after_title;
+
+  console.log(
+    `${site.short_code} FUNNEL: ${funnelStats.raw_fetched} raw` +
+    ` → ${funnelStats.after_date} date` +
+    ` → ${funnelStats.after_keyword} keyword` +
+    ` → ${funnelStats.after_hash} hash` +
+    ` → ${funnelStats.after_title} title-dedup` +
+    ` (RSS:${rssArticles.length} web:${webArticles.length} beIN:${beINArticles.length} twitter:${twitterArticles.length})`
+  );
 
   if (preFiltered.length === 0) {
-    await logFetch(env, site.id, 'partial', stats, 'No articles after pre-filter');
+    await logFetch(env, site.id, 'partial', stats, 'No articles after pre-filter', funnelStats);
     return stats;
   }
 
@@ -167,8 +243,10 @@ async function processSite(site, env) {
   addUsagePhase(stats, scoreUsage, MODEL_SCORE, 'scout');
 
   const top8 = mergedScored.sort((a, b) => (b.nvs || 0) - (a.nvs || 0)).slice(0, 8);
-  stats.rejected = mergedScored.slice(8).length;
-  console.log(`${site.short_code}: top 8 → NVS ${top8.map(a => a.nvs).join(', ')}`);
+  stats.scored        = top8.length;
+  stats.rejected      = mergedScored.slice(8).length;
+  funnelStats.scored  = mergedScored.length;
+  console.log(`${site.short_code}: scored ${mergedScored.length} → top 8 NVS: ${top8.map(a => a.nvs).join(', ')}`);
 
   // ── WRITE PHASE (decision-based, no Sonnet) ───────────────────
   const allWritten = await writeArticles(top8, site, env);
@@ -186,7 +264,7 @@ async function processSite(site, env) {
 
   await cacheToKV(env, site, toPublish, toQueue);
   await saveSeenHashes(env, site.short_code, toPublish);
-  await logFetch(env, site.id, 'success', stats);
+  await logFetch(env, site.id, 'success', stats, null, funnelStats);
 
   stats.durationMs = Date.now() - startTime;
   return stats;
@@ -251,18 +329,25 @@ async function buildReport(env) {
   });
 
   const lastRun = lastRuns?.[0] || {};
+  const lastSuccess = (lastRuns || []).find(r => r.status === 'success');
+  let funnelData = {};
+  if (lastSuccess?.error_message) {
+    try { funnelData = JSON.parse(lastSuccess.error_message); } catch (e) {}
+  }
 
   return {
     funnel: {
-      total_fetched: lastRun.items_fetched || 0,
-      after_date_filter: lastRun.items_fetched || 0,
-      after_keyword_filter: lastRun.items_fetched || 0,
-      after_hash_dedup: lastRun.items_fetched || 0,
-      after_title_dedup: lastRun.items_scored || 0,
-      auto_published: lastRun.items_published || 0,
-      queued_for_review: lastRun.items_queued || 0,
-      rejected: lastRun.items_rejected || 0,
-      final_in_cache: cached.length,
+      total_fetched:        funnelData.raw_fetched   || lastRun.items_fetched  || 0,
+      after_date_filter:    funnelData.after_date    || funnelData.raw_fetched || 0,
+      after_keyword_filter: funnelData.after_keyword || funnelData.after_date  || 0,
+      after_hash_dedup:     funnelData.after_hash    || funnelData.after_keyword || 0,
+      after_title_dedup:    funnelData.after_title   || funnelData.after_hash  || 0,
+      after_scoring:        funnelData.scored        || lastRun.items_scored   || 0,
+      auto_published:       lastRun.items_published  || 0,
+      queued_for_review:    lastRun.items_queued     || 0,
+      rejected:             lastRun.items_rejected   || 0,
+      final_in_cache:       cached.length,
+      by_source:            funnelData.by_source     || {},
     },
     by_source,
     by_category,

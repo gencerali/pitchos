@@ -140,9 +140,16 @@ Bilmiyorsan null yaz.`;
 export async function writeArticles(articles, site, env) {
   const results = [];
 
-  for (const article of articles) {
+  for (let i = 0; i < articles.length; i++) {
+    const article = articles[i];
     const mode = decidePublishMode(article);
     let published = { ...article, publish_mode: mode };
+
+    if (i === 0) {
+      console.log('ARTICLE 1 mode:', mode);
+      console.log('ARTICLE 1 url:', article.url);
+      console.log('ARTICLE 1 full_body before:', article.full_body?.length || 0);
+    }
 
     if (mode === 'template_matchday') {
       const written = await writeMatchDay(article, env);
@@ -151,14 +158,29 @@ export async function writeArticles(articles, site, env) {
       await new Promise(r => setTimeout(r, 300));
 
     } else if (mode === 'copy_source') {
-      const result = article.full_text
-        ? { content: article.full_text, image_url: article.image_url || '' }
-        : await fetchSourceContent(article.url);
-      const content = result.content || '';
-      console.log('copy_source:', article.title.slice(0, 40), 'content length:', content.length);
-      published.full_body  = content || cleanRSS(article.summary || '');
-      published.summary    = content ? content.slice(0, 300) : cleanRSS(article.summary || article.description || '');
-      published.image_url  = result.image_url || article.image_url || '';
+      const fetched  = await fetchSourceContent(article.url);
+      const content  = fetched?.content  || '';
+      const ogImage  = fetched?.image_url || '';
+      console.log(`copy_source [${article.title?.slice(0, 40)}]: content=${content.length} chars, img=${!!ogImage}`);
+      if (i === 0) {
+        console.log('ARTICLE 1 fetchSourceContent result:', {
+          content_length: fetched?.content?.length || 0,
+          image_url: fetched?.image_url || 'none',
+          first_100_chars: fetched?.content?.slice(0, 100) || 'empty',
+        });
+      }
+      published = {
+        ...article,
+        publish_mode: 'copy_source',
+        full_body:  content.length > 100 ? content : cleanRSS(article.summary || ''),
+        summary:    content.length > 100
+          ? content.slice(0, 300).replace(/\s+/g, ' ').trim()
+          : cleanRSS(article.summary || ''),
+        image_url:  ogImage || article.image_url || '',
+      };
+      if (i === 0) {
+        console.log('ARTICLE 1 full_body after:', published.full_body?.length || 0);
+      }
       await new Promise(r => setTimeout(r, 300));
 
     } else {
@@ -178,47 +200,65 @@ export async function writeArticles(articles, site, env) {
 }
 
 // ─── SUPABASE SAVES ───────────────────────────────────────────
-export async function saveArticles(env, siteId, articles, status) {
+export async function saveArticles(env, siteId, articles) {
+  if (!articles || articles.length === 0) return;
+
   const rows = articles.map(a => ({
-    site_id:      siteId,
-    source_type:  'rss',
-    source_name:  a.source_name || a.source || 'Unknown',
-    original_url: a.url || null,
-    title:        a.title,
-    summary:      a.summary,
-    raw_body:     a.full_body || null,
-    category:     a.category || 'Club',
-    language:     a.language || 'tr',
-    nvs_score:    a.nvs || 0,
-    nvs_notes:    a.nvs_notes || null,
-    content_hash: simpleHash(a.title + a.summary),
-    status,
-    reviewed_by:  status === 'published' ? 'auto' : null,
-    reviewed_at:  status === 'published' ? new Date().toISOString() : null,
+    site_id: siteId,
+    title: a.title || '',
+    source_name: a.source_name || a.source || 'Unknown',
+    category: a.category || 'Club',
+    content_type: a.content_type || 'fact',
+    nvs_score: a.nvs || a.nvs_score || 0,
+    status: a.status || 'published',
+    fetched_at: a.fetched_at || new Date().toISOString(),
+    reviewed_at: new Date().toISOString(),
+    original_url: a.url || a.original_url || '',
+    nvs_notes: a.nvs_notes || '',
+    full_body: a.full_body || '',
+    summary: a.summary || '',
+    image_url: a.image_url || '',
+    publish_mode: a.publish_mode || 'rss_summary',
   }));
-  await supabase(env, 'POST', '/rest/v1/content_items', rows, {
-    'Prefer': 'resolution=ignore-duplicates',
-  });
+
+  console.log('SUPABASE INSERT: attempting', rows.length, 'rows');
+  console.log('SUPABASE SAMPLE ROW:', JSON.stringify(rows[0]).slice(0, 200));
+
+  const result = await supabase(env, 'POST', '/rest/v1/content_items', rows);
+
+  if (result && result.error) {
+    console.error('SUPABASE INSERT ERROR:', JSON.stringify(result.error));
+  } else {
+    console.log('SUPABASE INSERT OK:', rows.length, 'articles saved');
+  }
+
+  return result;
 }
 
-export async function logFetch(env, siteId, status, stats, errorMsg) {
-  console.log(`logFetch [${status}] scout: ${stats.scout_tokens_in}in €${(stats.scout_cost_eur||0).toFixed(4)} | total €${(stats.costEur||0).toFixed(4)}`);
+export async function logFetch(env, siteId, status, stats, errorMsg, funnelStats) {
+  console.log(
+    `logFetch [${status}] raw:${funnelStats?.raw_fetched||stats.raw_fetched||0}` +
+    ` →kw:${funnelStats?.after_keyword||0} →title:${funnelStats?.after_title||stats.after_title||0}` +
+    ` scored:${funnelStats?.scored||0} pub:${stats.published||0} €${(stats.costEur||0).toFixed(4)}`
+  );
   const row = {
     site_id:            siteId,
     trigger_type:       'cron',
     status,
-    items_fetched:      stats.fetched      || 0,
-    items_scored:       stats.fetched      || 0,
-    items_published:    stats.published    || 0,
-    items_queued:       stats.queued       || 0,
-    items_rejected:     stats.rejected     || 0,
-    claude_calls:       stats.claudeCalls  || 0,
-    tokens_input:       stats.tokensIn     || 0,
-    tokens_output:      stats.tokensOut    || 0,
-    estimated_cost_eur: stats.costEur      || 0,
+    items_fetched:      funnelStats?.raw_fetched  || stats.raw_fetched   || 0,
+    items_scored:       funnelStats?.after_title  || stats.after_title   || 0,
+    items_published:    stats.published           || 0,
+    items_queued:       stats.queued              || 0,
+    items_rejected:     stats.rejected            || 0,
+    claude_calls:       stats.claudeCalls         || 0,
+    tokens_input:       stats.tokensIn            || 0,
+    tokens_output:      stats.tokensOut           || 0,
+    estimated_cost_eur: stats.costEur             || 0,
     model_used:         `${MODEL_FETCH}`,
-    error_message:      errorMsg || null,
-    duration_ms:        stats.durationMs   || null,
+    error_message:      status === 'success' && funnelStats
+      ? JSON.stringify(funnelStats)
+      : errorMsg || null,
+    duration_ms:        stats.durationMs          || null,
   };
   await supabase(env, 'POST', '/rest/v1/fetch_logs', row);
 }
@@ -227,6 +267,8 @@ export async function logFetch(env, siteId, status, stats, errorMsg) {
 export async function cacheToKV(env, site, toPublish, toQueue) {
   const existing   = await getCachedArticles(env, site.short_code);
   const mergedKV   = mergeAndDedupe([...toPublish, ...toQueue, ...existing], 20);
+  console.log(`KV cache: ${mergedKV.length} articles, full_body lengths: ${mergedKV.map(a => a.full_body?.length || 0).join(',')}`);
+  console.log('KV CACHE article 1 full_body:', mergedKV[0]?.full_body?.length || 0);
   await env.PITCHOS_CACHE.put(
     `articles:${site.short_code}`,
     JSON.stringify(mergedKV.map(a => ({

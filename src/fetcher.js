@@ -17,21 +17,111 @@ export const RSS_FEEDS = [
   { url: 'https://www.sabah.com.tr/rss/spor.xml',          name: 'Sabah Spor',        trust: 'press',     sport: 'football',    keywordFilter: true },
   { url: 'https://www.milliyet.com.tr/rss/rssnew/spor',    name: 'Milliyet Spor',     trust: 'press',     sport: 'football',    keywordFilter: true },
   { url: 'https://www.haberturk.com/rss/spor.xml',         name: 'Habertürk Spor',    trust: 'press',     sport: 'football',    keywordFilter: true },
+  // Journalist Twitter feeds via Nitter RSS
+  { url: 'https://nitter.privacydev.net/firatgunayer/rss',  name: 'Fırat Günayer',   trust: 'journalist',    sport: 'football', titleOnly: true },
+  { url: 'https://nitter.privacydev.net/FabrizioRomano/rss', name: 'Fabrizio Romano', trust: 'journalist',    sport: 'football', titleOnly: true },
   // International feeds — BJK_KEYWORDS filter + football-only check
   { url: 'https://www.transfermarkt.com/rss/news',         name: 'Transfermarkt',     trust: 'international', sport: 'football', titleOnly: true },
   { url: 'https://www.skysports.com/rss/12040',            name: 'Sky Sports',        trust: 'international', sport: 'football', titleOnly: true, footballOnly: true },
+  // Proxy feeds (403-blocked direct, routed via rss2json.com)
+  { url: 'https://www.fotomac.com.tr/rss/Besiktas.xml',    name: 'Fotomaç',           trust: 'press',         sport: 'football', proxy: true },
+  { url: 'https://www.aspor.com.tr/rss/besiktas.xml',      name: 'A Spor',            trust: 'broadcast',     sport: 'football', proxy: true },
+  { url: 'https://www.fotomac.com.tr/rss/Basketbol.xml',   name: 'Fotomaç Basketbol', trust: 'press',         sport: 'basketball', proxy: true },
 ];
 
-// ─── RSS FETCH ────────────────────────────────────────────────
-export async function fetchRSSArticles(site) {
-  const results = await Promise.allSettled(RSS_FEEDS.map(feed => fetchOneFeed(feed, site)));
-  const articles = [];
-  for (const r of results) {
-    if (r.status === 'fulfilled') articles.push(...r.value);
-    else console.error(`RSS feed failed: ${r.reason?.message}`);
+// ─── RSS2JSON PROXY ───────────────────────────────────────────
+async function fetchViaRss2Json(feed) {
+  const sourceName = feed.name || feed.source;
+  const trustTier  = feed.trust || 'unknown';
+  const feedSport  = feed.sport || 'football';
+  const emptyResult = () => ({ articles: [], feedStats: { name: sourceName, raw: 0, after_date: 0, after_keyword: 0 } });
+
+  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&count=20`;
+  let data;
+  try {
+    const res = await fetch(apiUrl, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) { console.error(`rss2json [${sourceName}]: HTTP ${res.status}`); return emptyResult(); }
+    data = await res.json();
+  } catch (e) {
+    console.error(`rss2json [${sourceName}]: ${e.message}`);
+    return emptyResult();
   }
-  // Cap total combined articles at 40 before scoring
-  return articles.slice(0, 40);
+
+  if (data.status !== 'ok' || !Array.isArray(data.items)) {
+    console.error(`rss2json [${sourceName}]: status=${data.status}`);
+    return emptyResult();
+  }
+
+  const cutoff = Date.now() - CUTOFF_48H;
+  let recentCount = 0;
+  const articles = [];
+
+  for (const item of data.items) {
+    const title = (item.title || '').trim();
+    if (!title) continue;
+    const pubMs = item.pubDate ? new Date(item.pubDate).getTime() : Date.now();
+    if (pubMs && pubMs < cutoff) continue;
+    recentCount++;
+
+    const rawDesc = item.description || item.content || '';
+    const summary = stripHTML(rawDesc).slice(0, 500) || title;
+    const haystack = (title + ' ' + summary).toLowerCase();
+
+    if (feed.keywordFilter) {
+      if (!BJK_KEYWORDS.some(kw => haystack.includes(kw))) continue;
+    }
+
+    let sport = feedSport;
+    if (feedSport === 'football') {
+      if (/basketbol|basket\b/i.test(title + ' ' + summary)) sport = 'basketball';
+      else if (/voleybol/i.test(title + ' ' + summary))       sport = 'volleyball';
+    }
+
+    articles.push({
+      title,
+      summary,
+      full_text:    summary,
+      source:       sourceName,
+      original_source: null,
+      url:          item.link || item.guid || '',
+      image_url:    item.thumbnail || item.enclosure?.link || null,
+      category:     'Club',
+      time_ago:     pubMs ? relativeTime(pubMs) : 'Güncel',
+      published_at: pubMs ? new Date(pubMs).toISOString() : null,
+      is_fresh:     true,
+      trust_tier:   trustTier,
+      sport,
+    });
+  }
+
+  console.log(`rss2json [${sourceName}]: ${data.items.length} raw → ${recentCount} after date → ${articles.length} after filter`);
+  return { articles, feedStats: { name: sourceName, raw: data.items.length, after_date: recentCount, after_keyword: articles.length } };
+}
+
+// ─── RSS FETCH ────────────────────────────────────────────────
+// Returns { articles, bySource: { feedName: { raw, after_date, after_keyword } } }
+export async function fetchRSSArticles(site) {
+  const directFeeds = RSS_FEEDS.filter(f => !f.proxy);
+  const proxyFeeds  = RSS_FEEDS.filter(f =>  f.proxy);
+
+  const [directResults, proxyResults] = await Promise.all([
+    Promise.allSettled(directFeeds.map(feed => fetchOneFeed(feed, site))),
+    Promise.allSettled(proxyFeeds.map(feed  => fetchViaRss2Json(feed))),
+  ]);
+
+  const articles = [];
+  const bySource = {};
+
+  for (const r of [...directResults, ...proxyResults]) {
+    if (r.status === 'fulfilled') {
+      articles.push(...r.value.articles);
+      const fs = r.value.feedStats;
+      bySource[fs.name] = { raw: fs.raw, after_date: fs.after_date, after_keyword: fs.after_keyword };
+    } else {
+      console.error(`RSS feed failed: ${r.reason?.message}`);
+    }
+  }
+  return { articles: articles.slice(0, 40), bySource };
 }
 
 async function fetchOneFeed(feed, site) {
@@ -39,40 +129,57 @@ async function fetchOneFeed(feed, site) {
   const trustTier  = feed.trust || feed.trust_tier || 'unknown';
   const feedSport  = feed.sport || 'football';
 
+  const emptyResult = (raw = 0) => ({ articles: [], feedStats: { name: sourceName, raw, after_date: 0, after_keyword: 0 } });
+
   let res;
   try {
     res = await fetch(feed.url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PitchOS/1.0)' }, cf: { cacheTtl: 300 } });
   } catch (e) {
     console.error(`RSS [${sourceName}]: fetch error ${e.message}`);
-    return feed.ntvFallback ? fetchNTVSporFromHTML(feed.ntvFallback, sourceName) : [];
+    if (feed.ntvFallback) {
+      const fallback = await fetchNTVSporFromHTML(feed.ntvFallback, sourceName);
+      return { articles: fallback, feedStats: { name: sourceName, raw: 0, after_date: 0, after_keyword: fallback.length } };
+    }
+    return emptyResult();
   }
   if (!res.ok) {
     console.error(`RSS [${sourceName}]: HTTP ${res.status}`);
-    return feed.ntvFallback ? fetchNTVSporFromHTML(feed.ntvFallback, sourceName) : [];
+    if (feed.ntvFallback) {
+      const fallback = await fetchNTVSporFromHTML(feed.ntvFallback, sourceName);
+      return { articles: fallback, feedStats: { name: sourceName, raw: 0, after_date: 0, after_keyword: fallback.length } };
+    }
+    return emptyResult();
   }
 
   const xml = await res.text();
   const cutoff = Date.now() - CUTOFF_48H;
-  const items = xml.match(/<item[\s\S]*?<\/item>/g) || [];
+  // Support both RSS (<item>) and Atom (<entry>) formats
+  const items = xml.match(/<item[\s\S]*?<\/item>/g)
+             || xml.match(/<entry[\s\S]*?<\/entry>/g)
+             || [];
   console.log(`RSS [${sourceName}]: ${items.length} total items in feed`);
 
   if (items.length === 0 && feed.ntvFallback) {
-    return fetchNTVSporFromHTML(feed.ntvFallback, sourceName);
+    const fallback = await fetchNTVSporFromHTML(feed.ntvFallback, sourceName);
+    return { articles: fallback, feedStats: { name: sourceName, raw: 0, after_date: 0, after_keyword: fallback.length } };
   }
 
   let recentCount = 0;
   const articles = [];
 
   for (const item of items) {
-    // Robust title extraction: try plain text first, then CDATA
-    const rawTitle   = item.match(/<title>([^<]*)<\/title>/i)?.[1]
-                    || item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i)?.[1]
+    // Robust title extraction: 4-pattern approach (CDATA first, then plain text variants)
+    const rawTitle   = item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i)?.[1]
+                    || item.match(/<title[^>]*><!\[CDATA\[([\s\S]*?)\]\]>/i)?.[1]
+                    || item.match(/<title[^>]*>([^<]{3,})<\/title>/i)?.[1]
+                    || item.match(/<title[^>]*>\s*([^\s<][^<]*)<\/title>/i)?.[1]
                     || '';
+    if (!rawTitle) console.log(`EMPTY TITLE in ${sourceName}: ${item.slice(0, 200)}`);
     const title      = stripCDATA(rawTitle).trim() || stripCDATA(getTag(item, 'title'));
-    const rawDesc    = stripCDATA(getTag(item, 'description'));
+    const rawDesc    = stripCDATA(getTag(item, 'description') || getTag(item, 'summary'));
     const rawContent = stripCDATA(getTagNS(item, 'content:encoded') || getTagNS(item, 'content'));
-    const url_       = getRSSLink(item) || getTag(item, 'guid') || '';
-    const pubDate    = getTag(item, 'pubDate') || getTag(item, 'dc:date') || getTag(item, 'updated');
+    const url_       = getRSSLink(item) || getTag(item, 'guid') || getTag(item, 'id') || '';
+    const pubDate    = getTag(item, 'pubDate') || getTag(item, 'published') || getTag(item, 'dc:date') || getTag(item, 'updated');
     let published_at = null, pubMs = 0;
     if (pubDate) {
       const d = new Date(pubDate);
@@ -134,8 +241,8 @@ async function fetchOneFeed(feed, site) {
     });
   }
 
-  console.log(`RSS [${sourceName}]: ${recentCount} within 48h, ${articles.length} passed keyword filter`);
-  return articles;
+  console.log(`FEED [${sourceName}]: ${items.length} raw → ${recentCount} after date → ${articles.length} after BJK filter`);
+  return { articles, feedStats: { name: sourceName, raw: items.length, after_date: recentCount, after_keyword: articles.length } };
 }
 
 async function fetchNTVSporFromHTML(fallbackUrl, sourceName) {
