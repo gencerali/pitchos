@@ -198,6 +198,16 @@ original content, and passive income through advertising and subscriptions.
 - Learning: behavioral analytics not LLM retraining
 - Photos: Sprint 3 (Wikimedia/Unsplash), Sprint 5 (Twitter embeds)
 
+### Token Optimization Framework
+- Pre-filter in pure JS before any Claude call: 48h recency, keyword regex, dedup, seen-hash check, min 50 chars, cap 20
+- Scout phase (Haiku): title (100ch) + source + trust_tier + sport only — no summary, no full text
+- Seen-hash cache in KV (`seen:BJK`, last 100 hashes, 48h TTL) — skip already-processed articles each run
+- Deep dive: Duhuliye articles use content:encoded already fetched (zero extra fetch); others use fetchFullArticle() max 2000ch
+- Write phase: top 3 = Sonnet (full text context), ranks 4-8 = Haiku (summary only, 400ch)
+- Per-phase token tracking: scout_tokens, write_tokens logged to console + Supabase fetch_logs
+- 2s delay between scout and score calls; 500ms between deep-dive fetches
+- Rate limit: 50k input tokens/minute on Haiku org limit — pre-filter + seen-hash prevents re-scoring known articles
+
 ## Open Questions
 - Kartalix Pro pricing and feature set (decide Sprint 8)
 - Whether to show article read count publicly

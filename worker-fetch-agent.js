@@ -110,72 +110,84 @@ async function runAllSites(env) {
 async function processSite(site, env) {
   const startTime = Date.now();
   const stats = {
-    fetched: 0, published: 0, queued: 0,
-    rejected: 0, claudeCalls: 0,
-    tokensIn: 0, tokensOut: 0, costEur: 0
+    fetched: 0, published: 0, queued: 0, rejected: 0, skipped_seen: 0,
+    claudeCalls: 0,
+    scout_tokens_in: 0, scout_tokens_out: 0, scout_cost_eur: 0,
+    write_tokens_in: 0, write_tokens_out: 0, write_cost_eur: 0,
+    tokensIn: 0, tokensOut: 0, costEur: 0,
   };
 
-  // ── PHASE 1: SCOUT ───────────────────────────────────────────
-  // Fetch lightweight articles from RSS + web search in parallel
+  // ── FETCH (RSS + web search in parallel) ─────────────────────
   const [rssArticles, { articles: webArticles, usage: fetchUsage }] = await Promise.all([
     fetchRSSArticles(site),
     fetchArticles(site, env),
   ]);
   stats.claudeCalls++;
-  addUsage(stats, fetchUsage, MODEL_FETCH);
-  const deduped = dedupeByTitle([...rssArticles, ...webArticles]);
-  // Cap to 15 most recent articles before scoring
-  const combined = deduped
-    .sort((a, b) => {
-      const ta = a.published_at ? new Date(a.published_at).getTime() : 0;
-      const tb = b.published_at ? new Date(b.published_at).getTime() : 0;
-      return tb - ta; // descending — most recent first, unparseable (0) sorts last
-    })
-    .slice(0, 15);
-  stats.fetched = combined.length;
-  console.log(`${site.short_code}: ${rssArticles.length} RSS + ${webArticles.length} web = ${deduped.length} deduped → ${combined.length} capped for scoring`);
-  if (combined.length === 0) {
-    await logFetch(env, site.id, 'partial', stats, 'No articles returned');
+  addUsagePhase(stats, fetchUsage, MODEL_FETCH, 'scout');
+
+  // ── PRE-FILTER (pure JS, zero Claude calls) ──────────────────
+  const seenHashes = await getSeenHashes(env, site.short_code);
+  const preFiltered = preFilter([...rssArticles, ...webArticles], seenHashes);
+  stats.fetched      = preFiltered.length;
+  stats.skipped_seen = ([...rssArticles, ...webArticles].length - dedupeByTitle([...rssArticles, ...webArticles]).length);
+  console.log(`${site.short_code}: ${rssArticles.length} RSS + ${webArticles.length} web → ${preFiltered.length} after pre-filter`);
+
+  if (preFiltered.length === 0) {
+    await logFetch(env, site.id, 'partial', stats, 'No articles after pre-filter');
     return stats;
   }
-  // 2s delay between scout Claude call and score call to avoid per-minute token limit
-  await sleep(2000);
-  // Score on lightweight fields only
-  const { scored, usage: scoreUsage } = await scoreArticles(combined, site, env);
-  const mergedScored = combined.map((orig, i) => ({
+
+  // ── SCOUT PHASE (Haiku, title+source+trust_tier+sport only) ──
+  await sleep(2000); // avoid per-minute token limit
+  const { scored, usage: scoreUsage } = await scoreArticles(preFiltered, site, env);
+  const mergedScored = preFiltered.map((orig, i) => ({
     ...orig,
     nvs:          scored[i]?.nvs          || 50,
     content_type: scored[i]?.content_type || 'unknown',
     nvs_notes:    scored[i]?.nvs_notes    || '',
+    golden_score: scored[i]?.golden_score || null,
   }));
   stats.claudeCalls++;
-  addUsage(stats, scoreUsage, MODEL_SCORE);
-  // Top 8 proceed; rest discarded
-  const top8 = mergedScored
-    .sort((a, b) => (b.nvs || 0) - (a.nvs || 0))
-    .slice(0, 8);
-  const discarded = mergedScored.slice(8);
-  stats.rejected = discarded.filter(a => a.nvs < site.review_threshold).length;
-  console.log(`${site.short_code}: top 8 selected for writing (${discarded.length} discarded)`);
+  addUsagePhase(stats, scoreUsage, MODEL_SCORE, 'scout');
 
-  // ── PHASE 2: DEEP DIVE — skipped temporarily to reduce token usage ──
+  // Top 8 by NVS
+  const top8 = mergedScored.sort((a, b) => (b.nvs || 0) - (a.nvs || 0)).slice(0, 8);
+  stats.rejected = mergedScored.slice(8).length;
+  console.log(`${site.short_code}: top 8 → NVS ${top8.map(a => a.nvs).join(', ')}`);
 
-  // ── PHASE 3: WRITE ────────────────────────────────────────────
-  // Top 2 only (temp limit), summary-only context
-  const deepDive = top8.slice(0, 2);
-  const { written: writtenDeep, usage: writeDeepUsage } =
-    await writeArticles(deepDive, site, env, false);
-  stats.claudeCalls += writtenDeep.length;
-  addUsage(stats, writeDeepUsage, MODEL_SUMMARY);
+  // ── DEEP DIVE (top 3, free fetch) ────────────────────────────
+  const top3 = top8.slice(0, 3);
+  for (let i = 0; i < top3.length; i++) {
+    if (i > 0) await sleep(500);
+    // Duhuliye articles already have full_text from RSS content:encoded — no extra fetch
+    if (top3[i].full_text && top3[i].full_text.length > 200) {
+      console.log(`Deep dive [${i+1}]: using cached full_text (${top3[i].full_text.length} chars)`);
+    } else if (top3[i].url && top3[i].url !== '#') {
+      const fetched = await fetchFullArticle(top3[i].url);
+      if (fetched) {
+        top3[i] = { ...top3[i], full_text: fetched };
+        console.log(`Deep dive [${i+1}]: fetched ${fetched.length} chars from ${top3[i].url}`);
+      }
+    }
+  }
 
-  // Ranks 3-8: summary only
-  const remainder = top8.slice(2);
-  const { written: writtenRemainder, usage: writeRemUsage } =
-    await writeArticles(remainder, site, env, false);
-  stats.claudeCalls += writtenRemainder.length;
-  addUsage(stats, writeRemUsage, MODEL_SUMMARY);
+  // ── WRITE PHASE ───────────────────────────────────────────────
+  // Top 3: Sonnet with full text
+  const { written: writtenTop, usage: writeTopUsage } =
+    await writeArticles(top3, site, env, MODEL_SUMMARY, true);
+  stats.claudeCalls += writtenTop.length;
+  addUsagePhase(stats, writeTopUsage, MODEL_SUMMARY, 'write');
 
-  const allWritten = [...writtenDeep, ...writtenRemainder];
+  // Ranks 4–8: Haiku with summary only
+  const remainder = top8.slice(3);
+  const { written: writtenRem, usage: writeRemUsage } =
+    await writeArticles(remainder, site, env, MODEL_FETCH, false);
+  stats.claudeCalls += writtenRem.length;
+  addUsagePhase(stats, writeRemUsage, MODEL_FETCH, 'write');
+
+  console.log(`Write phase: scout ${stats.scout_tokens_in}in/${stats.scout_tokens_out}out, write ${stats.write_tokens_in}in/${stats.write_tokens_out}out, total €${stats.costEur.toFixed(4)}`);
+
+  const allWritten = [...writtenTop, ...writtenRem];
 
   // Route by NVS
   const toPublish = allWritten.filter(a => a.nvs >= site.auto_publish_threshold);
@@ -193,31 +205,84 @@ async function processSite(site, env) {
   await env.PITCHOS_CACHE.put(
     `articles:${site.short_code}`,
     JSON.stringify(mergedKV.map(a => ({
-      title:     a.title     || '',
-      summary:   a.summary   || '',
-      full_body: a.full_body || '',
-      source:    a.source    || a.source_name || '',
-      url:       a.url       || a.original_url || '',
-      category:  a.category  || 'Haber',
-      nvs:       a.nvs       || a.nvs_score   || 0,
-      time_ago:  a.time_ago  || 'Güncel',
-      is_fresh:  a.is_fresh  ?? true,
+      title:        a.title        || '',
+      summary:      a.summary      || '',
+      full_body:    a.full_body    || '',
+      source:       a.source       || a.source_name || '',
+      url:          a.url          || a.original_url || '',
+      category:     a.category     || 'Haber',
+      nvs:          a.nvs          || a.nvs_score   || 0,
+      golden_score: a.golden_score || null,
+      time_ago:     a.time_ago     || 'Güncel',
+      is_fresh:     a.is_fresh     ?? true,
+      sport:        a.sport        || 'football',
     }))),
     { expirationTtl: 7200 }
   );
+
+  // Store processed hashes so next run skips them
+  await saveSeenHashes(env, site.short_code, preFiltered);
 
   await logFetch(env, site.id, 'success', stats);
   stats.durationMs = Date.now() - startTime;
   return stats;
 }
+// ─── PRE-FILTER (pure JS, zero Claude calls) ─────────────────
+const BJK_REGEX = /beşiktaş|besiktas|bjk|kartal|siyah.beyaz/i;
+const CUTOFF_48H = 48 * 60 * 60 * 1000;
+
+function preFilter(articles, seenHashes) {
+  const cutoff = Date.now() - CUTOFF_48H;
+  return dedupeByTitle(articles)
+    .filter(a => {
+      // 48-hour recency (skip if pubMs known and too old)
+      const pubMs = a.published_at ? new Date(a.published_at).getTime() : Date.now();
+      if (pubMs < cutoff) return false;
+      // Keyword filter
+      const haystack = `${a.title} ${a.summary || ''}`;
+      if (!BJK_REGEX.test(haystack)) return false;
+      // Min 50 chars in summary
+      if ((a.summary || '').length < 50) return false;
+      // Skip already processed
+      const hash = simpleHash(a.title + (a.summary || '').slice(0, 100));
+      if (seenHashes.has(hash)) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      // Most recent first; missing published_at sorts last
+      const ta = a.published_at ? new Date(a.published_at).getTime() : 0;
+      const tb = b.published_at ? new Date(b.published_at).getTime() : 0;
+      return tb - ta;
+    })
+    .slice(0, 20);
+}
+
+async function getSeenHashes(env, siteCode) {
+  try {
+    const raw = await env.PITCHOS_CACHE.get(`seen:${siteCode}`);
+    return new Set(raw ? JSON.parse(raw) : []);
+  } catch { return new Set(); }
+}
+
+async function saveSeenHashes(env, siteCode, articles) {
+  try {
+    const existing = await getSeenHashes(env, siteCode);
+    for (const a of articles) {
+      existing.add(simpleHash(a.title + (a.summary || '').slice(0, 100)));
+    }
+    // Keep last 100 hashes only
+    const trimmed = [...existing].slice(-100);
+    await env.PITCHOS_CACHE.put(`seen:${siteCode}`, JSON.stringify(trimmed), { expirationTtl: 172800 }); // 48h
+  } catch (e) {
+    console.error('saveSeenHashes failed:', e.message);
+  }
+}
+
 // ─── FETCH ARTICLES via RSS ──────────────────────────────────
 const RSS_FEEDS = [
   { url: 'https://www.fotomac.com.tr/rss/besiktas.xml', source: 'Fotomaç',  trust_tier: 'reliable'   },
   { url: 'https://www.duhuliye.com/rss',                source: 'Duhuliye', trust_tier: 'aggregator' },
 ];
-const CUTOFF_MS = 48 * 60 * 60 * 1000; // 48 hours
-
-const BJK_KEYWORDS = ['beşiktaş', 'besiktas', 'bjk', 'kartal', 'siyah-beyaz'];
 
 async function fetchRSSArticles(site) {
   const results = await Promise.allSettled(RSS_FEEDS.map(feed => fetchOneFeed(feed, site)));
@@ -239,7 +304,7 @@ async function fetchOneFeed({ url, source, trust_tier }, site) {
     return [];
   }
   const xml = await res.text();
-  const cutoff = Date.now() - CUTOFF_MS;
+  const cutoff = Date.now() - CUTOFF_48H;
   const items = xml.match(/<item[\s\S]*?<\/item>/g) || [];
   console.log(`RSS [${source}]: ${items.length} total items in feed`);
 
@@ -257,13 +322,13 @@ async function fetchOneFeed({ url, source, trust_tier }, site) {
     const pubMs        = pubDate ? new Date(pubDate).getTime() : 0;
     const image_url    = getEnclosureUrl(item);
 
-    // ── 48-hour filter ──
+    // ── 48-hour filter (broad pass — preFilter does the strict check) ──
     if (pubMs && pubMs < cutoff) continue;
     recentCount++;
 
-    // ── Keyword filter ──
+    // ── Keyword filter (broad pass) ──
     const haystack = (title + ' ' + rawDesc + ' ' + rawContent).toLowerCase();
-    if (!BJK_KEYWORDS.some(k => haystack.includes(k))) continue;
+    if (!BJK_REGEX.test(haystack)) continue;
 
     // ── Clean text ──
     const summary   = stripHTML(rawDesc).slice(0, 500) || title;
@@ -468,26 +533,22 @@ function sleep(ms) {
 }
 
 // ─── WRITE FULL TURKISH ARTICLES ─────────────────────────────
-// useFullText=true: uses article.full_text if available (deep dive)
-// useFullText=false: uses summary only (remainder)
-async function writeArticles(articles, site, env, useFullText = false) {
+// model: MODEL_SUMMARY (Sonnet) for top 3, MODEL_FETCH (Haiku) for 4-8
+// useFullText: true = include full_text in context, false = summary only
+async function writeArticles(articles, site, env, model = MODEL_SUMMARY, useFullText = false) {
   if (articles.length === 0) return { written: [], usage: null };
 
-  // Each article is already its own story at this point (deduped upstream)
-  // Group only if two snuck through with similar titles
   const groups = [];
   for (const a of articles) {
     const norm = normalizeTitle(a.title);
-    const existing = groups.find(g =>
-      titleSimilarity(norm, normalizeTitle(g[0].title)) > 0.4
-    );
+    const existing = groups.find(g => titleSimilarity(norm, normalizeTitle(g[0].title)) > 0.4);
     if (existing) existing.push(a);
     else groups.push([a]);
   }
-  console.log(`writeArticles (fullText=${useFullText}): ${groups.length} groups`);
+  console.log(`writeArticles (model=${model.includes('sonnet') ? 'sonnet' : 'haiku'}, fullText=${useFullText}): ${groups.length} groups`);
 
   const results = await Promise.allSettled(
-    groups.map(group => writeOneArticle(group, site, env, useFullText))
+    groups.map(group => writeOneArticle(group, site, env, model, useFullText))
   );
 
   const written = [];
@@ -504,30 +565,24 @@ async function writeArticles(articles, site, env, useFullText = false) {
   return { written, usage: totalUsage };
 }
 
-async function writeOneArticle(group, site, env, useFullText) {
+async function writeOneArticle(group, site, env, model, useFullText) {
   const lead = group.reduce((best, a) => (a.nvs || 0) > (best.nvs || 0) ? a : best, group[0]);
 
-  // Build context: full_text for deep dive, summary for remainder
   const context = group.map(a => {
-    const content = (a.summary || '').slice(0, 400);
+    const content = useFullText && a.full_text
+      ? a.full_text.slice(0, 2000)
+      : (a.summary || '').slice(0, 400);
     return `KAYNAK: ${a.source}\nBAŞLIK: ${a.title}\nİÇERİK: ${content}`;
   }).join('\n\n---\n\n');
 
-  const prompt = `Sen ${site.team_name} için profesyonel bir spor gazetecisisin. Aşağıdaki kaynaklardan derlenen haberi, Türkçe olarak tam bir spor haberi makalesine dönüştür.
+  const prompt = `Sen ${site.team_name} için profesyonel bir spor gazetecisisin. Aşağıdaki kaynakları kullanarak Türkçe haber yaz.
 
-KAYNAK HABERLER:
 ${context}
 
-Aşağıdaki JSON formatında yanıt ver (markdown veya açıklama olmadan, sadece ham JSON):
-{
-  "headline": "Dikkat çekici, özlü haber başlığı",
-  "body": "GİRİŞ PARAGRAFı (kim/ne/ne zaman/nerede - 2-3 cümle)\\n\\nGELİŞME (detaylar ve bağlam - 2-3 paragraf, her biri 2-3 cümle)\\n\\nSONUÇ (genel tablo veya beklentiler - 1 paragraf)",
-  "sources": ["kaynak adları dizisi"],
-  "category": "${lead.category || 'Club'}",
-  "nvs_score": ${lead.nvs || 50}
-}`;
+Sadece ham JSON döndür:
+{"headline":"başlık","body":"giriş paragrafı\\n\\ngelişme\\n\\nsonuç","sources":["kaynak"],"category":"${lead.category || 'Club'}","nvs_score":${lead.nvs || 50}}`;
 
-  const response = await callClaude(env, MODEL_SUMMARY, prompt, false);
+  const response = await callClaude(env, model, prompt, false);
   const text = extractText(response.content);
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('No JSON in writeOneArticle response');
@@ -536,12 +591,13 @@ Aşağıdaki JSON formatında yanıt ver (markdown veya açıklama olmadan, sade
   return {
     article: {
       ...lead,
-      title:     parsed.headline || lead.title,
-      summary:   (parsed.body || '').split('\n\n')[0] || lead.summary,
-      full_body: parsed.body    || '',
-      source:    (parsed.sources || [lead.source]).join(', '),
-      category:  parsed.category || lead.category,
-      nvs:       parsed.nvs_score ?? lead.nvs,
+      title:        parsed.headline || lead.title,
+      summary:      (parsed.body || '').split('\n\n')[0] || lead.summary,
+      full_body:    parsed.body    || '',
+      source:       (parsed.sources || [lead.source]).join(', '),
+      category:     parsed.category || lead.category,
+      nvs:          parsed.nvs_score ?? lead.nvs,
+      golden_score: lead.golden_score,
     },
     usage: response.usage,
   };
@@ -549,14 +605,16 @@ Aşağıdaki JSON formatında yanıt ver (markdown veya açıklama olmadan, sade
 
 // ─── SCORE ARTICLES (batch NVS) ──────────────────────────────
 async function scoreArticles(articles, site, env) {
-  // Send only lightweight fields to keep token count low
   const slim = articles.map(a => ({
-    title:  a.title,
-    source: a.source,
+    t: (a.title || '').slice(0, 100),  // title max 100 chars
+    s: a.source,
+    tt: a.trust_tier || 'unknown',
+    sp: a.sport || 'football',
   }));
-  const prompt = `Score these ${site.team_name} news items. Return a JSON array (same order), each object with: nvs (0-100), content_type ("fact"|"rumor"), nvs_notes (one sentence). No markdown.
-Higher nvs = more newsworthy: match results/confirmed signings ~80+, press quotes ~60, rumors ~40, vague/old ~20.
-Articles: ${JSON.stringify(slim)}`;
+  const prompt = `Score these ${site.team_name} news items. Return JSON array (same order), each: nvs(0-100), content_type("fact"|"rumor"|"analysis"), golden_score(1-5 for facts, "eye1"|"eye2"|"eye3" for rumors), nvs_notes(max 8 words). No markdown.
+nvs guide: match result/confirmed=80+, press/injury=60+, rumor known journalist=50, vague rumor=30, analysis=40.
+golden_score: 5=official confirmed, 4=verified journalist, 3=reliable media, 2=plausible unverified, 1=weak; eye3=known journalist rumor, eye2=unverified rumor, eye1=speculation.
+Items: ${JSON.stringify(slim)}`;
   const response = await callClaude(env, MODEL_SCORE, prompt, false);
   let scored = [];
   try {
@@ -623,22 +681,23 @@ async function saveArticles(env, siteId, articles, status) {
   });
 }
 async function logFetch(env, siteId, status, stats, errorMsg) {
+  console.log(`logFetch [${status}] scout: ${stats.scout_tokens_in}in €${(stats.scout_cost_eur||0).toFixed(4)} | write: ${stats.write_tokens_in}in €${(stats.write_cost_eur||0).toFixed(4)} | total €${(stats.costEur||0).toFixed(4)}`);
   const row = {
     site_id:            siteId,
     trigger_type:       'cron',
     status,
-    items_fetched:      stats.fetched    || 0,
-    items_scored:       stats.fetched    || 0,
-    items_published:    stats.published  || 0,
-    items_queued:       stats.queued     || 0,
-    items_rejected:     stats.rejected   || 0,
-    claude_calls:       stats.claudeCalls || 0,
-    tokens_input:       stats.tokensIn   || 0,
-    tokens_output:      stats.tokensOut  || 0,
-    estimated_cost_eur: stats.costEur    || 0,
-    model_used:         `${MODEL_FETCH}+${MODEL_SCORE}`,
+    items_fetched:      stats.fetched      || 0,
+    items_scored:       stats.fetched      || 0,
+    items_published:    stats.published    || 0,
+    items_queued:       stats.queued       || 0,
+    items_rejected:     stats.rejected     || 0,
+    claude_calls:       stats.claudeCalls  || 0,
+    tokens_input:       stats.tokensIn     || 0,
+    tokens_output:      stats.tokensOut    || 0,
+    estimated_cost_eur: stats.costEur      || 0,
+    model_used:         `${MODEL_FETCH}+${MODEL_SCORE}+${MODEL_SUMMARY}`,
     error_message:      errorMsg || null,
-    duration_ms:        stats.durationMs || null,
+    duration_ms:        stats.durationMs   || null,
   };
   await supabase(env, 'POST', '/rest/v1/fetch_logs', row);
 }
@@ -691,6 +750,23 @@ function addUsage(stats, usage, model) {
   stats.tokensOut += usage.output_tokens || 0;
   stats.costEur   += ((usage.input_tokens  / 1_000_000) * rates.input) +
                      ((usage.output_tokens / 1_000_000) * rates.output);
+}
+
+function addUsagePhase(stats, usage, model, phase) {
+  if (!usage) return;
+  addUsage(stats, usage, model);
+  const rates = COST[model] || { input: 3, output: 15 };
+  const cost = ((usage.input_tokens  / 1_000_000) * rates.input) +
+               ((usage.output_tokens / 1_000_000) * rates.output);
+  if (phase === 'scout') {
+    stats.scout_tokens_in  += usage.input_tokens  || 0;
+    stats.scout_tokens_out += usage.output_tokens || 0;
+    stats.scout_cost_eur   += cost;
+  } else if (phase === 'write') {
+    stats.write_tokens_in  += usage.input_tokens  || 0;
+    stats.write_tokens_out += usage.output_tokens || 0;
+    stats.write_cost_eur   += cost;
+  }
 }
 function isTodayArticle(timeAgo = '') {
   const s = timeAgo.toLowerCase();
