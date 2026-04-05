@@ -10,7 +10,12 @@
       "Bash(dev.bat run:*)",
       "Bash(cmd.exe /c dev.bat run)",
       "Bash(curl:*)",
-      "Bash(wrangler kv:*)"
+      "Bash(wrangler kv:*)",
+      "Bash(cmd /c \"dev cache\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Articles: {len\\(d.get\\(\\\\\"articles\\\\\",[]\\)\\)}'\\); [print\\(f'  [{i+1}] {a[\\\\\"title\\\\\"][:80]} | NVS:{a.get\\(\\\\\"nvs_score\\\\\",\\\\\"?\\\\\"\\)} | GS:{a.get\\(\\\\\"golden_score\\\\\",\\\\\"?\\\\\"\\)}'\\) for i,a in enumerate\\(d.get\\('articles',[]\\)[:10]\\)]\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); articles=d if isinstance\\(d,list\\) else d.get\\('articles',[]\\); print\\(f'Articles: {len\\(articles\\)}'\\); [print\\(f'  [{i+1}] {a[\\\\\"title\\\\\"][:80]} | NVS:{a.get\\(\\\\\"nvs_score\\\\\",\\\\\"?\\\\\"\\)} | GS:{a.get\\(\\\\\"golden_score\\\\\",\\\\\"?\\\\\"\\)}'\\) for i,a in enumerate\\(articles[:10]\\)]\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); articles=d if isinstance\\(d,list\\) else d.get\\('articles',[]\\); print\\(json.dumps\\(articles[0], indent=2, ensure_ascii=False\\)\\)\")",
+      "Bash(python -c ':*)"
     ]
   }
 }
