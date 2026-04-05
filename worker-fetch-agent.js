@@ -114,14 +114,15 @@ async function processSite(site, env) {
     rejected: 0, claudeCalls: 0,
     tokensIn: 0, tokensOut: 0, costEur: 0
   };
-  // 1. Fetch from RSS feeds and Claude web search in parallel
+
+  // ── PHASE 1: SCOUT ───────────────────────────────────────────
+  // Fetch lightweight articles from RSS + web search in parallel
   const [rssArticles, { articles: webArticles, usage: fetchUsage }] = await Promise.all([
     fetchRSSArticles(site),
     fetchArticles(site, env),
   ]);
   stats.claudeCalls++;
   addUsage(stats, fetchUsage, MODEL_FETCH);
-  // Combine and deduplicate by title similarity
   const combined = dedupeByTitle([...rssArticles, ...webArticles]);
   stats.fetched = combined.length;
   console.log(`${site.short_code}: ${rssArticles.length} RSS + ${webArticles.length} web = ${combined.length} combined`);
@@ -129,9 +130,8 @@ async function processSite(site, env) {
     await logFetch(env, site.id, 'partial', stats, 'No articles returned');
     return stats;
   }
-  // 2. Score all articles in one batch call
+  // Score on lightweight fields only
   const { scored, usage: scoreUsage } = await scoreArticles(combined, site, env);
-  // Merge NVS scores back onto original articles to preserve all fields
   const mergedScored = combined.map((orig, i) => ({
     ...orig,
     nvs:          scored[i]?.nvs          || 50,
@@ -140,31 +140,58 @@ async function processSite(site, env) {
   }));
   stats.claudeCalls++;
   addUsage(stats, scoreUsage, MODEL_SCORE);
-  // 3. Write full Turkish articles for ALL scored articles
-  const toWrite = mergedScored.filter(a => a.nvs >= site.review_threshold);
-  const toDiscard = mergedScored.filter(a => a.nvs < site.review_threshold);
-  const { written, usage: writeUsage } = await writeArticles(toWrite, site, env);
-  stats.claudeCalls += written.length;
-  addUsage(stats, writeUsage, MODEL_SUMMARY);
-  // 4. Route written articles by NVS score
-  const writtenPublish = written.filter(a => a.nvs >= site.auto_publish_threshold);
-  const writtenQueue   = written.filter(a => a.nvs >= site.review_threshold && a.nvs < site.auto_publish_threshold);
-  stats.published = writtenPublish.length;
-  stats.queued    = writtenQueue.length;
-  stats.rejected  = toDiscard.length;
-  // 5. Save to Supabase
-  if (writtenPublish.length > 0) {
-    await saveArticles(env, site.id, writtenPublish, 'published');
+  // Top 8 proceed; rest discarded
+  const top8 = mergedScored
+    .sort((a, b) => (b.nvs || 0) - (a.nvs || 0))
+    .slice(0, 8);
+  const discarded = mergedScored.slice(8);
+  stats.rejected = discarded.filter(a => a.nvs < site.review_threshold).length;
+  console.log(`${site.short_code}: top 8 selected for writing (${discarded.length} discarded)`);
+
+  // ── PHASE 2: DEEP DIVE (top 3) ───────────────────────────────
+  // Fetch full article HTML for top 3, with 500ms delay between requests
+  const deepDive = top8.slice(0, 3);
+  for (let i = 0; i < deepDive.length; i++) {
+    if (i > 0) await sleep(500);
+    const fullText = await fetchFullArticle(deepDive[i].url);
+    if (fullText) {
+      deepDive[i] = { ...deepDive[i], full_text: fullText };
+      console.log(`Deep dive [${i+1}]: fetched ${fullText.length} chars from ${deepDive[i].url}`);
+    }
   }
-  if (writtenQueue.length > 0) {
-    await saveArticles(env, site.id, writtenQueue, 'pending');
-  }
-  // 5. Cache published articles to KV (fan site reads this)
+
+  // ── PHASE 3: WRITE ────────────────────────────────────────────
+  // Top 3: rewrite with full text via Sonnet
+  const { written: writtenDeep, usage: writeDeepUsage } =
+    await writeArticles(deepDive, site, env, true);
+  stats.claudeCalls += writtenDeep.length;
+  addUsage(stats, writeDeepUsage, MODEL_SUMMARY);
+
+  // Ranks 4-8: rewrite using summary only via Sonnet
+  const remainder = top8.slice(3);
+  const { written: writtenRemainder, usage: writeRemUsage } =
+    await writeArticles(remainder, site, env, false);
+  stats.claudeCalls += writtenRemainder.length;
+  addUsage(stats, writeRemUsage, MODEL_SUMMARY);
+
+  const allWritten = [...writtenDeep, ...writtenRemainder];
+
+  // Route by NVS
+  const toPublish = allWritten.filter(a => a.nvs >= site.auto_publish_threshold);
+  const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < site.auto_publish_threshold);
+  stats.published = toPublish.length;
+  stats.queued    = toQueue.length;
+
+  // Save to Supabase
+  if (toPublish.length > 0) await saveArticles(env, site.id, toPublish, 'published');
+  if (toQueue.length > 0)   await saveArticles(env, site.id, toQueue,   'pending');
+
+  // Cache published articles to KV
   const existing = await getCachedArticles(env, site.short_code);
-  const merged   = mergeAndDedupe([...writtenPublish, ...existing], 20);
+  const mergedKV  = mergeAndDedupe([...toPublish, ...existing], 20);
   await env.PITCHOS_CACHE.put(
     `articles:${site.short_code}`,
-    JSON.stringify(merged.map(a => ({
+    JSON.stringify(mergedKV.map(a => ({
       title:     a.title     || '',
       summary:   a.summary   || '',
       full_body: a.full_body || '',
@@ -177,7 +204,7 @@ async function processSite(site, env) {
     }))),
     { expirationTtl: 7200 }
   );
-  // 6. Log to Supabase
+
   await logFetch(env, site.id, 'success', stats);
   stats.durationMs = Date.now() - startTime;
   return stats;
@@ -412,11 +439,41 @@ ${allText.slice(0, 4000)}`;
 
   return { articles, usage };
 }
+// ─── FETCH FULL ARTICLE TEXT ──────────────────────────────────
+async function fetchFullArticle(url) {
+  if (!url || url === '#' || url === '') return null;
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PitchOS/1.0)' },
+      cf: { cacheTtl: 3600 },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    // Prefer <article> block, fall back to all <p> tags
+    const articleBlock = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
+    const source = articleBlock ? articleBlock[1] : html;
+    const paragraphs = [...source.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+      .map(m => stripHTML(m[1]).trim())
+      .filter(p => p.length > 40);
+    return paragraphs.join('\n\n').slice(0, 3000) || null;
+  } catch (e) {
+    console.error(`fetchFullArticle failed for ${url}:`, e.message);
+    return null;
+  }
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // ─── WRITE FULL TURKISH ARTICLES ─────────────────────────────
-async function writeArticles(articles, site, env) {
+// useFullText=true: uses article.full_text if available (deep dive)
+// useFullText=false: uses summary only (remainder)
+async function writeArticles(articles, site, env, useFullText = false) {
   if (articles.length === 0) return { written: [], usage: null };
 
-  // Group articles about the same story by title similarity
+  // Each article is already its own story at this point (deduped upstream)
+  // Group only if two snuck through with similar titles
   const groups = [];
   for (const a of articles) {
     const norm = normalizeTitle(a.title);
@@ -426,15 +483,11 @@ async function writeArticles(articles, site, env) {
     if (existing) existing.push(a);
     else groups.push([a]);
   }
+  console.log(`writeArticles (fullText=${useFullText}): ${groups.length} groups`);
 
-  // Sort groups by highest NVS in group, cap at 3 to stay within time limits
-  const sortedGroups = groups
-    .sort((a, b) => Math.max(...b.map(x => x.nvs || 0)) - Math.max(...a.map(x => x.nvs || 0)))
-    .slice(0, 3);
-  console.log(`writeArticles: ${groups.length} groups → writing top ${sortedGroups.length}`);
-
-  // Write one article per group in parallel
-  const results = await Promise.allSettled(sortedGroups.map(group => writeOneArticle(group, site, env)));
+  const results = await Promise.allSettled(
+    groups.map(group => writeOneArticle(group, site, env, useFullText))
+  );
 
   const written = [];
   const totalUsage = { input_tokens: 0, output_tokens: 0 };
@@ -450,12 +503,16 @@ async function writeArticles(articles, site, env) {
   return { written, usage: totalUsage };
 }
 
-async function writeOneArticle(group, site, env) {
-  // Use the highest-NVS article as the lead; others provide additional context
+async function writeOneArticle(group, site, env, useFullText) {
   const lead = group.reduce((best, a) => (a.nvs || 0) > (best.nvs || 0) ? a : best, group[0]);
-  const context = group.map(a =>
-    `KAYNAK: ${a.source}\nBAŞLIK: ${a.title}\nİÇERİK: ${a.summary}`
-  ).join('\n\n---\n\n');
+
+  // Build context: full_text for deep dive, summary for remainder
+  const context = group.map(a => {
+    const content = useFullText && a.full_text
+      ? a.full_text
+      : (a.summary || '').slice(0, 500);
+    return `KAYNAK: ${a.source}\nBAŞLIK: ${a.title}\nİÇERİK: ${content}`;
+  }).join('\n\n---\n\n');
 
   const prompt = `Sen ${site.team_name} için profesyonel bir spor gazetecisisin. Aşağıdaki kaynaklardan derlenen haberi, Türkçe olarak tam bir spor haberi makalesine dönüştür.
 
