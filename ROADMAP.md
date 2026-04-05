@@ -106,10 +106,23 @@ original content, and passive income through advertising and subscriptions.
 - kartalix.com domain purchased
 
 #### In Progress:
-- Rate limit fix (token reduction)
-- RSS parser (full article extraction from content:encoded)
-- image_url extraction from enclosure tags
-- original_source extraction from Duhuliye items
+- waitUntil timeout fix (max_tokens reduction, brevity prompts)
+- beIN Sports web search integration
+
+#### Confirmed RSS Sources (12 feeds):
+- Beşiktaş JK Resmi — nitter.privacydev.net/Besiktas/rss (official)
+- NTV Spor — ntvspor.net/rss/kategori/futbol + HTML fallback (broadcast)
+- Fotomaç — fotomac.com.tr/rss/Besiktas.xml (press)
+- Fotomaç Basketbol — fotomac.com.tr/rss/Basketbol.xml (press)
+- A Haber — ahaber.com.tr/rss/besiktas.xml (press)
+- TRT Haber — trthaber.com/spor_articles.rss (broadcast)
+- A Spor — aspor.com.tr/rss/anasayfa.xml (broadcast)
+- Hürriyet — hurriyet.com.tr/rss/spor (press)
+- Fırat Günayer — nitter.privacydev.net/firatgunayer/rss (journalist, title-only filter)
+- Fabrizio Romano — nitter.privacydev.net/FabrizioRomano/rss (journalist, title-only filter)
+- Transfermarkt — transfermarkt.com/rss/news (international, title-only filter)
+- Sky Sports — skysports.com/rss/12040 (international, title-only filter)
+- beIN Sports — Claude web search site:beinsports.com.tr (broadcast, ~1000 tokens)
 
 #### Remaining Sprint 2:
 - Golden Score system (⚡ and 👁️ badges) replacing NVS numbers

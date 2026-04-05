@@ -117,20 +117,23 @@ async function processSite(site, env) {
     tokensIn: 0, tokensOut: 0, costEur: 0,
   };
 
-  // ── FETCH (RSS + web search in parallel) ─────────────────────
-  const [rssArticles, { articles: webArticles, usage: fetchUsage }] = await Promise.all([
+  // ── FETCH (RSS + web search + beIN in parallel) ──────────────
+  const [rssArticles, { articles: webArticles, usage: fetchUsage }, { articles: beINArticles, usage: beINUsage }] = await Promise.all([
     fetchRSSArticles(site),
     fetchArticles(site, env),
+    fetchBeIN(site, env),
   ]);
-  stats.claudeCalls++;
+  stats.claudeCalls += 2; // web search + beIN
   addUsagePhase(stats, fetchUsage, MODEL_FETCH, 'scout');
+  addUsagePhase(stats, beINUsage, MODEL_FETCH, 'scout');
 
   // ── PRE-FILTER (pure JS, zero Claude calls) ──────────────────
   const seenHashes = await getSeenHashes(env, site.short_code);
-  const preFiltered = preFilter([...rssArticles, ...webArticles], seenHashes);
+  const allFetched = [...rssArticles, ...webArticles, ...beINArticles];
+  const preFiltered = preFilter(allFetched, seenHashes);
   stats.fetched      = preFiltered.length;
-  stats.skipped_seen = ([...rssArticles, ...webArticles].length - dedupeByTitle([...rssArticles, ...webArticles]).length);
-  console.log(`${site.short_code}: ${rssArticles.length} RSS + ${webArticles.length} web → ${preFiltered.length} after pre-filter`);
+  stats.skipped_seen = allFetched.length - dedupeByTitle(allFetched).length;
+  console.log(`${site.short_code}: ${rssArticles.length} RSS + ${webArticles.length} web + ${beINArticles.length} beIN → ${preFiltered.length} after pre-filter`);
 
   if (preFiltered.length === 0) {
     await logFetch(env, site.id, 'partial', stats, 'No articles after pre-filter');
@@ -138,7 +141,7 @@ async function processSite(site, env) {
   }
 
   // ── SCOUT PHASE (Haiku, title+source+trust_tier+sport only) ──
-  await sleep(2000); // avoid per-minute token limit
+  await sleep(500); // brief pause before scoring
   const { scored, usage: scoreUsage } = await scoreArticles(preFiltered, site, env);
   const mergedScored = preFiltered.map((orig, i) => ({
     ...orig,
@@ -279,9 +282,22 @@ async function saveSeenHashes(env, siteCode, articles) {
 }
 
 // ─── FETCH ARTICLES via RSS ──────────────────────────────────
+// trust values: official, broadcast, press, journalist, international, aggregator
+// titleOnly: only check title for keyword match (international sources)
+// ntvFallback: HTML fallback URL if RSS returns 0 items
 const RSS_FEEDS = [
-  { url: 'https://www.fotomac.com.tr/rss/besiktas.xml', source: 'Fotomaç',  trust_tier: 'reliable'   },
-  { url: 'https://www.duhuliye.com/rss',                source: 'Duhuliye', trust_tier: 'aggregator' },
+  { url: 'https://nitter.privacydev.net/Besiktas/rss',     name: 'Beşiktaş JK Resmi', trust: 'official',      sport: 'football' },
+  { url: 'https://www.ntvspor.net/rss/kategori/futbol',    name: 'NTV Spor',           trust: 'broadcast',     sport: 'football', ntvFallback: 'https://www.ntvspor.net/futbol/takim/besiktas' },
+  { url: 'https://www.fotomac.com.tr/rss/Besiktas.xml',    name: 'Fotomaç',            trust: 'press',         sport: 'football' },
+  { url: 'https://www.fotomac.com.tr/rss/Basketbol.xml',   name: 'Fotomaç Basketbol',  trust: 'press',         sport: 'basketball' },
+  { url: 'https://www.ahaber.com.tr/rss/besiktas.xml',     name: 'A Haber',            trust: 'press',         sport: 'football' },
+  { url: 'https://www.trthaber.com/spor_articles.rss',     name: 'TRT Haber',          trust: 'broadcast',     sport: 'football' },
+  { url: 'https://www.aspor.com.tr/rss/anasayfa.xml',      name: 'A Spor',             trust: 'broadcast',     sport: 'football' },
+  { url: 'https://www.hurriyet.com.tr/rss/spor',           name: 'Hürriyet',           trust: 'press',         sport: 'football' },
+  { url: 'https://nitter.privacydev.net/firatgunayer/rss',  name: 'Fırat Günayer',      trust: 'journalist',    sport: 'football', titleOnly: true },
+  { url: 'https://nitter.privacydev.net/FabrizioRomano/rss', name: 'Fabrizio Romano',  trust: 'journalist',    sport: 'football', titleOnly: true },
+  { url: 'https://www.transfermarkt.com/rss/news',         name: 'Transfermarkt',      trust: 'international', sport: 'football', titleOnly: true },
+  { url: 'https://www.skysports.com/rss/12040',            name: 'Sky Sports',         trust: 'international', sport: 'football', titleOnly: true },
 ];
 
 async function fetchRSSArticles(site) {
@@ -297,40 +313,58 @@ async function fetchRSSArticles(site) {
   return articles;
 }
 
-async function fetchOneFeed({ url, source, trust_tier }, site) {
-  const res = await fetch(url, { headers: { 'User-Agent': 'PitchOS/1.0' }, cf: { cacheTtl: 300 } });
+async function fetchOneFeed(feed, site) {
+  const sourceName = feed.name || feed.source;
+  const trustTier  = feed.trust || feed.trust_tier || 'unknown';
+  const feedSport  = feed.sport || 'football';
+  const titleOnly  = feed.titleOnly || false;
+
+  let res;
+  try {
+    res = await fetch(feed.url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PitchOS/1.0)' }, cf: { cacheTtl: 300 } });
+  } catch (e) {
+    console.error(`RSS [${sourceName}]: fetch error ${e.message}`);
+    return feed.ntvFallback ? fetchNTVSporFromHTML(feed.ntvFallback, sourceName) : [];
+  }
   if (!res.ok) {
-    console.error(`RSS [${source}]: HTTP ${res.status}`);
-    return [];
+    console.error(`RSS [${sourceName}]: HTTP ${res.status}`);
+    return feed.ntvFallback ? fetchNTVSporFromHTML(feed.ntvFallback, sourceName) : [];
   }
   const xml = await res.text();
   const cutoff = Date.now() - CUTOFF_48H;
   const items = xml.match(/<item[\s\S]*?<\/item>/g) || [];
-  console.log(`RSS [${source}]: ${items.length} total items in feed`);
+  console.log(`RSS [${sourceName}]: ${items.length} total items in feed`);
+
+  // NTV Spor fallback if RSS is empty
+  if (items.length === 0 && feed.ntvFallback) {
+    return fetchNTVSporFromHTML(feed.ntvFallback, sourceName);
+  }
 
   let recentCount = 0;
   const articles = [];
 
   for (const item of items) {
-    // ── Parse fields ──
     const title        = stripCDATA(getTag(item, 'title'));
     const rawDesc      = stripCDATA(getTag(item, 'description'));
     const rawContent   = stripCDATA(getTagNS(item, 'content:encoded') || getTagNS(item, 'content'));
     const url_         = getRSSLink(item) || getTag(item, 'guid') || '';
-    const pubDate      = getTag(item, 'pubDate');
-    const published_at = pubDate ? new Date(pubDate).toISOString() : null;
-    const pubMs        = pubDate ? new Date(pubDate).getTime() : 0;
+    const pubDate      = getTag(item, 'pubDate') || getTag(item, 'dc:date') || getTag(item, 'updated');
+    let published_at = null, pubMs = 0;
+    if (pubDate) {
+      const d = new Date(pubDate);
+      if (!isNaN(d.getTime())) { published_at = d.toISOString(); pubMs = d.getTime(); }
+    }
     const image_url    = getEnclosureUrl(item);
 
-    // ── 48-hour filter (broad pass — preFilter does the strict check) ──
     if (pubMs && pubMs < cutoff) continue;
     recentCount++;
 
-    // ── Keyword filter (broad pass) ──
-    const haystack = (title + ' ' + rawDesc + ' ' + rawContent).toLowerCase();
+    // titleOnly sources: strict title-only keyword match
+    const haystack = titleOnly
+      ? title.toLowerCase()
+      : (title + ' ' + rawDesc + ' ' + rawContent).toLowerCase();
     if (!BJK_REGEX.test(haystack)) continue;
 
-    // ── Clean text ──
     const summary   = stripHTML(rawDesc).slice(0, 500) || title;
     const full_text = rawContent
       ? rawContent.split(/<br\s*\/?>|<\/p>/i)
@@ -340,37 +374,117 @@ async function fetchOneFeed({ url, source, trust_tier }, site) {
           .slice(0, 3000)
       : summary;
 
-    // ── Original source (Duhuliye aggregates other sites) ──
+    // Detect aggregated source (e.g. aggregator republishes with credit line)
     let original_source = null;
-    if (trust_tier === 'aggregator') {
+    if (trustTier === 'aggregator') {
       const srcMatch = rawContent.match(/(?:Haber kaynağı|Kaynak)\s*[:\-]\s*([^\n<]{2,60})/i);
       if (srcMatch) original_source = srcMatch[1].trim();
     }
 
-    // ── Sport detection ──
-    let sport = 'football';
-    if (/basketbol|basket\b/i.test(haystack)) sport = 'basketball';
-    else if (/voleybol/i.test(haystack))       sport = 'volleyball';
+    // Sport detection (override feed default if haystack signals another sport)
+    let sport = feedSport;
+    if (feedSport === 'football') {
+      if (/basketbol|basket\b/i.test(haystack)) sport = 'basketball';
+      else if (/voleybol/i.test(haystack))       sport = 'volleyball';
+    }
 
     articles.push({
       title,
       summary,
       full_text,
-      source,
+      source:          sourceName,
       original_source,
-      url:          url_,
+      url:             url_,
       image_url,
-      category:     'Club',
-      time_ago:     pubMs ? relativeTime(pubMs) : 'Güncel',
+      category:        'Club',
+      time_ago:        pubMs ? relativeTime(pubMs) : 'Güncel',
       published_at,
-      is_fresh:     true,
-      trust_tier,
+      is_fresh:        true,
+      trust_tier:      trustTier,
       sport,
     });
   }
 
-  console.log(`RSS [${source}]: ${recentCount} within 48h, ${articles.length} passed keyword filter`);
+  console.log(`RSS [${sourceName}]: ${recentCount} within 48h, ${articles.length} passed keyword filter`);
   return articles;
+}
+
+async function fetchNTVSporFromHTML(fallbackUrl, sourceName) {
+  try {
+    const res = await fetch(fallbackUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PitchOS/1.0)' },
+      cf: { cacheTtl: 300 },
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+    const articles = [];
+    const seen = new Set();
+    // Extract article links with titles from the page
+    const re = /href="(https?:\/\/www\.ntvspor\.net\/[^"]{10,120})"[^>]*>([^<]{20,150})/gi;
+    let m;
+    while ((m = re.exec(html)) !== null && articles.length < 8) {
+      const url = m[1];
+      const title = stripHTML(m[2]).trim();
+      if (title.length < 20 || seen.has(url)) continue;
+      seen.add(url);
+      if (!BJK_REGEX.test(title)) continue;
+      articles.push({
+        title,
+        summary: title,
+        url,
+        source:     sourceName,
+        trust_tier: 'broadcast',
+        sport:      'football',
+        is_fresh:   true,
+        time_ago:   'Güncel',
+        published_at: null,
+      });
+    }
+    console.log(`RSS [${sourceName}] HTML fallback: ${articles.length} articles`);
+    return articles;
+  } catch (e) {
+    console.error(`NTV Spor HTML fallback failed: ${e.message}`);
+    return [];
+  }
+}
+
+// ─── FETCH beIN SPORTS via Claude web search ──────────────────
+async function fetchBeIN(site, env) {
+  const prompt = `Search "site:beinsports.com.tr beşiktaş" for the latest Beşiktaş news from beIN Sports Turkey. Return ONLY a JSON array (no other text):
+[{"title":"...","url":"...","summary":"...","published_at":"ISO date or null"}]
+Maximum 5 results. Only include items directly about Beşiktaş.`;
+
+  let searchResponse;
+  try {
+    searchResponse = await callClaude(env, MODEL_FETCH, prompt, true, 600);
+  } catch (e) {
+    console.error('fetchBeIN search failed:', e.message);
+    return { articles: [], usage: null };
+  }
+
+  const allText = searchResponse.content.map(b => b.type === 'text' ? b.text : '').join(' ');
+  const match = allText.match(/\[[\s\S]*?\]/);
+  if (!match) return { articles: [], usage: searchResponse.usage };
+
+  try {
+    const raw = JSON.parse(match[0]);
+    const articles = (Array.isArray(raw) ? raw : []).filter(a => a.title).map(a => ({
+      title:        a.title,
+      summary:      a.summary || a.title,
+      url:          a.url || '',
+      source:       'beIN Sports',
+      trust_tier:   'broadcast',
+      sport:        'football',
+      published_at: a.published_at || null,
+      time_ago:     a.published_at ? relativeTime(new Date(a.published_at).getTime()) : 'Güncel',
+      is_fresh:     true,
+    }));
+    console.log(`beIN Sports: ${articles.length} articles`);
+    return { articles, usage: searchResponse.usage };
+  } catch (e) {
+    console.error('fetchBeIN parse failed:', e.message);
+    return { articles: [], usage: searchResponse.usage };
+  }
 }
 
 function getTag(xml, tag) {
@@ -477,7 +591,7 @@ ${allText.slice(0, 1500)}`;
 
   let formatResponse;
   try {
-    formatResponse = await callClaude(env, MODEL_FETCH, formatPrompt, false);
+    formatResponse = await callClaude(env, MODEL_FETCH, formatPrompt, false, 600);
   } catch(e) {
     console.error('Format call failed:', e.message);
     return { articles: [], usage: searchResponse.usage };
@@ -575,14 +689,15 @@ async function writeOneArticle(group, site, env, model, useFullText) {
     return `KAYNAK: ${a.source}\nBAŞLIK: ${a.title}\nİÇERİK: ${content}`;
   }).join('\n\n---\n\n');
 
-  const prompt = `Sen ${site.team_name} için profesyonel bir spor gazetecisisin. Aşağıdaki kaynakları kullanarak Türkçe haber yaz.
+  const prompt = `Sen ${site.team_name} için profesyonel bir spor gazetecisisin. Aşağıdaki kaynakları kullanarak kısa Türkçe haber yaz (maksimum 120 kelime).
 
 ${context}
 
-Sadece ham JSON döndür:
-{"headline":"başlık","body":"giriş paragrafı\\n\\ngelişme\\n\\nsonuç","sources":["kaynak"],"category":"${lead.category || 'Club'}","nvs_score":${lead.nvs || 50}}`;
+Sadece ham JSON döndür (başka metin yok):
+{"headline":"başlık","body":"giriş\\n\\ngelişme\\n\\nsonuç","sources":["kaynak"],"category":"${lead.category || 'Club'}","nvs_score":${lead.nvs || 50}}`;
 
-  const response = await callClaude(env, model, prompt, false);
+  const writeTokens = model.includes('sonnet') ? 1000 : 500;
+  const response = await callClaude(env, model, prompt, false, writeTokens);
   const text = extractText(response.content);
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) throw new Error('No JSON in writeOneArticle response');
@@ -615,7 +730,7 @@ async function scoreArticles(articles, site, env) {
 nvs guide: match result/confirmed=80+, press/injury=60+, rumor known journalist=50, vague rumor=30, analysis=40.
 golden_score: 5=official confirmed, 4=verified journalist, 3=reliable media, 2=plausible unverified, 1=weak; eye3=known journalist rumor, eye2=unverified rumor, eye1=speculation.
 Items: ${JSON.stringify(slim)}`;
-  const response = await callClaude(env, MODEL_SCORE, prompt, false);
+  const response = await callClaude(env, MODEL_SCORE, prompt, false, 800);
   let scored = [];
   try {
     const text = extractText(response.content);
@@ -629,10 +744,10 @@ Items: ${JSON.stringify(slim)}`;
   return { scored, usage: response.usage };
 }
 // ─── CLAUDE API CALL ─────────────────────────────────────────
-async function callClaude(env, model, prompt, useWebSearch) {
+async function callClaude(env, model, prompt, useWebSearch, maxTokens = 1000) {
   const body = {
     model,
-    max_tokens: 2000,
+    max_tokens: maxTokens,
     messages: [{ role: 'user', content: prompt }]
   };
   if (useWebSearch) {
