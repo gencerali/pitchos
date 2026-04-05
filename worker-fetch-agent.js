@@ -148,27 +148,18 @@ async function processSite(site, env) {
   stats.rejected = discarded.filter(a => a.nvs < site.review_threshold).length;
   console.log(`${site.short_code}: top 8 selected for writing (${discarded.length} discarded)`);
 
-  // ── PHASE 2: DEEP DIVE (top 3) ───────────────────────────────
-  // Fetch full article HTML for top 3, with 500ms delay between requests
-  const deepDive = top8.slice(0, 3);
-  for (let i = 0; i < deepDive.length; i++) {
-    if (i > 0) await sleep(500);
-    const fullText = await fetchFullArticle(deepDive[i].url);
-    if (fullText) {
-      deepDive[i] = { ...deepDive[i], full_text: fullText };
-      console.log(`Deep dive [${i+1}]: fetched ${fullText.length} chars from ${deepDive[i].url}`);
-    }
-  }
+  // ── PHASE 2: DEEP DIVE — skipped temporarily to reduce token usage ──
 
   // ── PHASE 3: WRITE ────────────────────────────────────────────
-  // Top 3: rewrite with full text via Sonnet
+  // Top 2 only (temp limit), summary-only context
+  const deepDive = top8.slice(0, 2);
   const { written: writtenDeep, usage: writeDeepUsage } =
-    await writeArticles(deepDive, site, env, true);
+    await writeArticles(deepDive, site, env, false);
   stats.claudeCalls += writtenDeep.length;
   addUsage(stats, writeDeepUsage, MODEL_SUMMARY);
 
-  // Ranks 4-8: rewrite using summary only via Sonnet
-  const remainder = top8.slice(3);
+  // Ranks 3-8: summary only
+  const remainder = top8.slice(2);
   const { written: writtenRemainder, usage: writeRemUsage } =
     await writeArticles(remainder, site, env, false);
   stats.claudeCalls += writtenRemainder.length;
@@ -407,7 +398,7 @@ Each object must have:
 - is_fresh (boolean, true if event happened in last 48 hours)
 
 News content to analyze:
-${allText.slice(0, 4000)}`;
+${allText.slice(0, 1500)}`;
 
   let formatResponse;
   try {
@@ -508,9 +499,7 @@ async function writeOneArticle(group, site, env, useFullText) {
 
   // Build context: full_text for deep dive, summary for remainder
   const context = group.map(a => {
-    const content = useFullText && a.full_text
-      ? a.full_text
-      : (a.summary || '').slice(0, 500);
+    const content = (a.summary || '').slice(0, 400);
     return `KAYNAK: ${a.source}\nBAŞLIK: ${a.title}\nİÇERİK: ${content}`;
   }).join('\n\n---\n\n');
 
@@ -550,34 +539,14 @@ Aşağıdaki JSON formatında yanıt ver (markdown veya açıklama olmadan, sade
 
 // ─── SCORE ARTICLES (batch NVS) ──────────────────────────────
 async function scoreArticles(articles, site, env) {
-  const prompt = `You are a news value scorer for ${site.team_name} football content.
-
-First classify each article as FACT or RUMOR:
-- FACT: Verifiable, confirmed information. Match results, official lineups, confirmed signings, scheduled fixtures, press conference statements, injury confirmations by club.
-- RUMOR: Unverified claims. Transfer interest, contract talks, speculation, "according to sources", unnamed sources, fan accounts.
-
-Then score each article on NVS (0-100) using these rules:
-
-FOR FACTS — score on:
-- Specificity (35): Named people, exact figures, dates, confirmed details
-- Recency (30): Today=30, yesterday=20, this week=10, older=5
-- Relevance (25): Directly about ${site.team_name}=25, tangential=10
-- Source (10): Official club=10, verified media=7, unknown=3
-
-FOR RUMORS — score on:
-- Source authority (40): Fabrizio Romano/top journalists=40, verified journalist=30, known media outlet=20, unknown/fan=5
-- Specificity (25): Named player+fee+clubs=25, named player only=15, vague=5
-- Novelty (20): First to report=20, already known=5
-- Engagement signal (15): Exclusive=15, widespread=8, minor=3
-
-Input articles:
-${JSON.stringify(articles, null, 2)}
-
-Return ONLY a valid JSON array (same order) where each object adds:
-- nvs (integer 0-100)
-- content_type ("fact" or "rumor")
-- nvs_notes (one sentence explaining the score and classification)
-No markdown, no explanation outside the JSON.`;
+  // Send only lightweight fields to keep token count low
+  const slim = articles.map(a => ({
+    title:  a.title,
+    source: a.source,
+  }));
+  const prompt = `Score these ${site.team_name} news items. Return a JSON array (same order), each object with: nvs (0-100), content_type ("fact"|"rumor"), nvs_notes (one sentence). No markdown.
+Higher nvs = more newsworthy: match results/confirmed signings ~80+, press quotes ~60, rumors ~40, vague/old ~20.
+Articles: ${JSON.stringify(slim)}`;
   const response = await callClaude(env, MODEL_SCORE, prompt, false);
   let scored = [];
   try {
