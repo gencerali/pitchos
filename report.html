@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Kartalix — Funnel Report</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --bg: #090909;
+  --surface: #111111;
+  --panel: #161616;
+  --border: #222222;
+  --border2: #2a2a2a;
+  --text: #e8e6e0;
+  --muted: #555550;
+  --muted2: #333330;
+  --accent: #c8f135;
+  --accent-dim: #c8f13518;
+  --red: #ff4444;
+  --red-dim: #ff444418;
+  --amber: #ffaa00;
+  --amber-dim: #ffaa0018;
+  --blue: #4488ff;
+  --blue-dim: #4488ff18;
+  --mono: 'JetBrains Mono', monospace;
+  --display: 'Syne', sans-serif;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  min-height: 100vh;
+}
+
+/* AUTH */
+#auth-screen {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 999;
+}
+
+.auth-box {
+  width: 320px;
+  border: 1px solid var(--border2);
+  padding: 2rem;
+}
+
+.auth-logo {
+  font-family: var(--display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.25rem;
+}
+
+.auth-sub {
+  font-size: 0.65rem;
+  color: var(--muted);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 2rem;
+}
+
+.auth-box input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 0.65rem 0.75rem;
+  outline: none;
+  margin-bottom: 0.75rem;
+  letter-spacing: 0.1em;
+}
+
+.auth-box input:focus { border-color: var(--accent); }
+
+.auth-btn {
+  width: 100%;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  padding: 0.65rem;
+  cursor: pointer;
+}
+
+.auth-err {
+  color: var(--red);
+  font-size: 0.7rem;
+  margin-top: 0.5rem;
+  letter-spacing: 0.05em;
+  display: none;
+}
+
+/* MAIN */
+#app { display: none; }
+
+/* TOPBAR */
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 2rem;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky; top: 0; z-index: 50;
+}
+
+.topbar-left {
+  display: flex; align-items: center; gap: 1rem;
+}
+
+.logo {
+  font-family: var(--display);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.logo span { color: var(--accent); }
+
+.badge {
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border2);
+  color: var(--muted);
+}
+
+.topbar-right {
+  display: flex; align-items: center; gap: 1rem;
+}
+
+.refresh-btn {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.refresh-btn:hover { background: var(--accent); color: #000; }
+.refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.last-updated {
+  font-size: 0.62rem;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* SEARCH */
+.search-bar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0.75rem 2rem;
+  display: flex; align-items: center; gap: 1rem;
+}
+
+.search-bar input {
+  flex: 1;
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  padding: 0.5rem 0.75rem;
+  outline: none;
+  max-width: 400px;
+}
+
+.search-bar input:focus { border-color: var(--accent); }
+
+.search-bar input::placeholder { color: var(--muted); }
+
+.search-hint {
+  font-size: 0.62rem;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+
+/* CONTENT */
+.content {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1.5rem 2rem;
+}
+
+/* GRID */
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+/* STAT CARDS */
+.stat-card {
+  background: var(--panel);
+  padding: 1.25rem 1.5rem;
+}
+
+.stat-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.stat-value {
+  font-family: var(--display);
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.stat-sub {
+  font-size: 0.65rem;
+  color: var(--muted);
+  margin-top: 0.35rem;
+  letter-spacing: 0.04em;
+}
+
+.stat-value.green { color: var(--accent); }
+.stat-value.red { color: var(--red); }
+.stat-value.amber { color: var(--amber); }
+.stat-value.blue { color: var(--blue); }
+
+/* SECTION */
+.section {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s;
+}
+
+.section-head:hover { background: var(--surface); }
+
+.section-title {
+  font-family: var(--display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: flex; align-items: center; gap: 0.75rem;
+}
+
+.section-count {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  background: var(--border2);
+  color: var(--muted);
+  padding: 0.15rem 0.5rem;
+  letter-spacing: 0.06em;
+}
+
+.section-count.green { background: var(--accent-dim); color: var(--accent); }
+.section-count.red { background: var(--red-dim); color: var(--red); }
+.section-count.amber { background: var(--amber-dim); color: var(--amber); }
+
+.chevron {
+  font-size: 0.7rem;
+  color: var(--muted);
+  transition: transform 0.2s;
+}
+
+.section.open .chevron { transform: rotate(180deg); }
+
+.section-body {
+  display: none;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.section.open .section-body { display: block; }
+
+/* FUNNEL */
+.funnel-row {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  gap: 1rem;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.funnel-row:hover { background: var(--surface); }
+.funnel-row:last-child { border-bottom: none; }
+
+.funnel-label {
+  width: 160px;
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+
+.funnel-bar-wrap {
+  flex: 1;
+  height: 6px;
+  background: var(--border2);
+  position: relative;
+}
+
+.funnel-bar {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.6s ease;
+}
+
+.funnel-bar.removed { background: var(--red); }
+.funnel-bar.queued { background: var(--amber); }
+.funnel-bar.rejected { background: var(--red); }
+
+.funnel-num {
+  width: 40px;
+  text-align: right;
+  font-size: 0.8rem;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.funnel-delta {
+  width: 80px;
+  text-align: right;
+  font-size: 0.65rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.funnel-expand {
+  font-size: 0.6rem;
+  color: var(--accent);
+  letter-spacing: 0.1em;
+  width: 60px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ARTICLE CARDS */
+.article-list {
+  padding: 0.75rem 1.25rem;
+}
+
+.article-card {
+  border: 1px solid var(--border);
+  padding: 0.85rem 1rem;
+  margin-bottom: 0.5rem;
+  transition: border-color 0.15s;
+  animation: fadeIn 0.2s ease both;
+}
+
+.article-card:hover { border-color: var(--border2); }
+.article-card.hidden { display: none; }
+
+@keyframes fadeIn {
+  from { opacity:0; transform: translateY(4px); }
+  to { opacity:1; transform: translateY(0); }
+}
+
+.article-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.tag {
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.4rem;
+}
+
+.tag.source { background: var(--border2); color: var(--muted); }
+.tag.category { background: var(--blue-dim); color: var(--blue); }
+.tag.fact { background: var(--accent-dim); color: var(--accent); }
+.tag.rumor { background: var(--amber-dim); color: var(--amber); }
+.tag.analysis { background: var(--blue-dim); color: var(--blue); }
+
+.nvs-badge {
+  font-size: 0.58rem;
+  padding: 0.1rem 0.4rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.nvs-badge.high { background: var(--accent-dim); color: var(--accent); }
+.nvs-badge.med { background: var(--amber-dim); color: var(--amber); }
+.nvs-badge.low { background: var(--red-dim); color: var(--red); }
+
+.golden {
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+}
+
+.article-title {
+  font-family: var(--display);
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin-bottom: 0.4rem;
+  color: var(--text);
+}
+
+.article-notes {
+  font-size: 0.68rem;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 0.5rem;
+  font-style: italic;
+}
+
+.article-timestamps {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.ts-item {
+  font-size: 0.62rem;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.ts-item strong {
+  color: var(--text);
+  font-weight: 400;
+}
+
+.article-url {
+  font-size: 0.62rem;
+  color: var(--accent);
+  text-decoration: none;
+  letter-spacing: 0.04em;
+}
+
+.article-url:hover { text-decoration: underline; }
+
+/* SOURCE TABLE */
+.source-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.source-table th {
+  font-size: 0.58rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  font-weight: 400;
+}
+
+.source-table td {
+  padding: 0.7rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+  vertical-align: middle;
+}
+
+.source-table tr:last-child td { border-bottom: none; }
+
+.source-table tr {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.source-table tr:hover { background: var(--surface); }
+
+.mini-bar-wrap {
+  width: 80px;
+  height: 4px;
+  background: var(--border2);
+  display: inline-block;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+}
+
+.mini-bar { height: 100%; background: var(--accent); }
+.mini-bar.red { background: var(--red); }
+
+/* RUNS TABLE */
+.runs-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.runs-table th {
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: left;
+  padding: 0.6rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  font-weight: 400;
+}
+
+.runs-table td {
+  padding: 0.65rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+
+.runs-table tr:last-child td { border-bottom: none; }
+
+.status-ok { color: var(--accent); font-weight: 500; }
+.status-fail { color: var(--red); font-weight: 500; }
+.status-partial { color: var(--amber); font-weight: 500; }
+
+/* DIST BARS */
+.dist-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.dist-row:last-child { border-bottom: none; }
+
+.dist-label {
+  width: 70px;
+  font-size: 0.65rem;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.dist-bar-wrap {
+  flex: 1;
+  height: 5px;
+  background: var(--border2);
+}
+
+.dist-bar { height: 100%; transition: width 0.5s ease; }
+
+.dist-count {
+  width: 30px;
+  text-align: right;
+  font-size: 0.72rem;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+/* LOADING */
+.loading-state {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: var(--muted);
+}
+
+.loading-spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  margin: 0 auto 1rem;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.error-state {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: var(--red);
+  font-size: 0.8rem;
+}
+
+/* LOAD MORE */
+.load-more {
+  text-align: center;
+  padding: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.load-more button {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--muted);
+  padding: 0.4rem 1rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.load-more button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* CATEGORY PILLS */
+.cat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--border);
+}
+
+.cat-cell {
+  background: var(--panel);
+  padding: 1rem 1.25rem;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.cat-cell:hover { background: var(--surface); }
+
+.cat-name {
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.4rem;
+}
+
+.cat-num {
+  font-family: var(--display);
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--accent);
+  line-height: 1;
+}
+
+.cat-sub {
+  font-size: 0.62rem;
+  color: var(--muted);
+  margin-top: 0.25rem;
+}
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); }
+
+/* RESPONSIVE */
+@media(max-width: 900px) {
+  .grid-3, .grid-4 { grid-template-columns: repeat(2,1fr); }
+  .grid-2 { grid-template-columns: 1fr; }
+  .cat-grid { grid-template-columns: repeat(2,1fr); }
+  .content { padding: 1rem; }
+  .topbar, .search-bar { padding: 0 1rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- AUTH -->
+<div id="auth-screen">
+  <div class="auth-box">
+    <div class="auth-logo">Kartalix<span style="color:var(--accent)">.</span></div>
+    <div class="auth-sub">Funnel Report · Internal</div>
+    <input type="password" id="pwd-input" placeholder="Enter password" onkeydown="if(event.key==='Enter')checkAuth()"/>
+    <button class="auth-btn" onclick="checkAuth()">Access Dashboard</button>
+    <div class="auth-err" id="auth-err">Incorrect password</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="logo">Kartalix<span>.</span></div>
+      <div class="badge">Funnel Report</div>
+      <div class="status-dot" id="status-dot"></div>
+    </div>
+    <div class="topbar-right">
+      <div class="last-updated" id="last-updated">—</div>
+      <button class="refresh-btn" id="refresh-btn" onclick="loadReport()">↻ Refresh</button>
+    </div>
+  </div>
+
+  <!-- SEARCH -->
+  <div class="search-bar">
+    <input type="text" id="search-input" placeholder="Search articles across all sections..." oninput="filterArticles(this.value)"/>
+    <div class="search-hint" id="search-hint">Type to filter all expanded articles</div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content" id="content">
+    <div class="loading-state">
+      <div class="loading-spinner"></div>
+      <div>Loading funnel data...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const REPORT_URL = 'https://pitchos-fetch-agent.gencerali.workers.dev/report';
+const PASSWORD = 'kartalix2026';
+let reportData = null;
+let searchTerm = '';
+
+// ── AUTH ──────────────────────────────────────────────────────
+function checkAuth() {
+  const pwd = document.getElementById('pwd-input').value;
+  if (pwd === PASSWORD) {
+    document.getElementById('auth-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    sessionStorage.setItem('kartalix-auth', '1');
+    loadReport();
+  } else {
+    document.getElementById('auth-err').style.display = 'block';
+    document.getElementById('pwd-input').value = '';
+  }
+}
+
+if (sessionStorage.getItem('kartalix-auth')) {
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+}
+
+// ── LOAD REPORT ──────────────────────────────────────────────
+async function loadReport() {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = '↻ Loading...';
+
+  try {
+    const res = await fetch(REPORT_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    reportData = await res.json();
+    renderReport(reportData);
+    document.getElementById('last-updated').textContent =
+      'Updated ' + new Date().toLocaleTimeString('tr-TR', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  } catch(e) {
+    document.getElementById('content').innerHTML = `
+      <div class="error-state">
+        ⚠ Could not load report<br>
+        <small style="color:var(--muted);margin-top:0.5rem;display:block">${e.message}</small>
+        <small style="color:var(--muted);display:block">Make sure /report endpoint is deployed</small>
+      </div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↻ Refresh';
+  }
+}
+
+// ── RENDER ───────────────────────────────────────────────────
+function renderReport(d) {
+  const f = d.funnel || {};
+  const sources = d.by_source || [];
+  const categories = d.by_category || [];
+  const types = d.by_content_type || [];
+  const dist = d.scoring_distribution || {};
+  const runs = d.last_runs || [];
+  const published = d.top_published || [];
+  const rejected = d.top_rejected || [];
+  const all_fetched = d.all_fetched || [];
+
+  const maxFetched = f.total_fetched || 1;
+
+  document.getElementById('content').innerHTML = `
+
+    <!-- STAT CARDS -->
+    <div class="grid-4">
+      <div class="stat-card">
+        <div class="stat-label">Total Fetched</div>
+        <div class="stat-value blue">${f.total_fetched || 0}</div>
+        <div class="stat-sub">across all sources</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">After Filtering</div>
+        <div class="stat-value">${f.after_title_dedup || 0}</div>
+        <div class="stat-sub">${pct(f.after_title_dedup, f.total_fetched)}% passed filters</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Published</div>
+        <div class="stat-value green">${f.auto_published || 0}</div>
+        <div class="stat-sub">${pct(f.auto_published, f.after_title_dedup)}% of filtered</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Last Run Cost</div>
+        <div class="stat-value amber">€${((runs[0]?.estimated_cost_eur)||0).toFixed(4)}</div>
+        <div class="stat-sub">~€${(((runs[0]?.estimated_cost_eur)||0)*24*30).toFixed(2)}/month</div>
+      </div>
+    </div>
+
+    <!-- FUNNEL -->
+    <div class="section open" id="sec-funnel">
+      <div class="section-head" onclick="toggleSection('sec-funnel')">
+        <div class="section-title">
+          📥 News Funnel
+          <span class="section-count">${f.total_fetched || 0} in → ${f.auto_published || 0} out</span>
+        </div>
+        <div class="chevron">▼</div>
+      </div>
+      <div class="section-body">
+        ${funnelRow('Fetched', f.total_fetched, maxFetched, '', 'all_fetched', all_fetched)}
+        ${funnelRow('After date filter (72h)', f.after_date_filter, maxFetched, `-${(f.total_fetched||0)-(f.after_date_filter||0)} too old`, 'after_date', d.removed_old)}
+        ${funnelRow('After keyword filter', f.after_keyword_filter, maxFetched, `-${(f.after_date_filter||0)-(f.after_keyword_filter||0)} not BJK`, 'after_keyword', d.removed_keyword)}
+        ${funnelRow('After hash dedup', f.after_hash_dedup, maxFetched, `-${(f.after_keyword_filter||0)-(f.after_hash_dedup||0)} seen before`, 'after_hash', d.removed_hash)}
+        ${funnelRow('After title dedup', f.after_title_dedup, maxFetched, `-${(f.after_hash_dedup||0)-(f.after_title_dedup||0)} near-dupes`, 'after_title', d.removed_dupes)}
+        ${funnelRow('Published ✅', f.auto_published, maxFetched, `NVS ≥ threshold`, 'published', published, 'green')}
+        ${funnelRow('Queued ⏳', f.queued_for_review, maxFetched, `NVS mid-range`, 'queued', d.queued_items, 'amber')}
+        ${funnelRow('Rejected ❌', f.rejected, maxFetched, `NVS too low`, 'rejected', rejected, 'removed')}
+      </div>
+    </div>
+
+    <!-- SOURCES -->
+    <div class="section" id="sec-sources">
+      <div class="section-head" onclick="toggleSection('sec-sources')">
+        <div class="section-title">
+          📡 By Source
+          <span class="section-count">${sources.length} sources</span>
+        </div>
+        <div class="chevron">▼</div>
+      </div>
+      <div class="section-body">
+        <table class="source-table">
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Trust</th>
+              <th>Contributed</th>
+              <th>Published</th>
+              <th>Rejected</th>
+              <th>Pub Rate</th>
+              <th>Avg NVS</th>
+              <th>Last Article</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sources.map(s => `
+              <tr onclick="toggleSourceArticles('src-${slug(s.source_name)}')">
+                <td><strong>${esc(s.source_name)}</strong></td>
+                <td><span class="tag source">${esc(s.trust||'—')}</span></td>
+                <td>${s.contributed||0}</td>
+                <td style="color:var(--accent)">${s.published||0}</td>
+                <td style="color:var(--red)">${s.rejected||0}</td>
+                <td>
+                  <div class="mini-bar-wrap"><div class="mini-bar" style="width:${pct(s.published,s.contributed)}%"></div></div>
+                  ${pct(s.published,s.contributed)}%
+                </td>
+                <td>${nvsBadgeInline(s.avg_nvs)}</td>
+                <td style="color:var(--muted)">${fmtTime(s.last_article_at)}</td>
+              </tr>
+              <tr id="src-${slug(s.source_name)}" style="display:none">
+                <td colspan="8" style="padding:0">
+                  <div class="article-list">
+                    ${articleCards((all_fetched||[]).filter(a => a.source_name === s.source_name), 10)}
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CATEGORIES -->
+    <div class="section" id="sec-cats">
+      <div class="section-head" onclick="toggleSection('sec-cats')">
+        <div class="section-title">
+          ⚽ By Category
+          <span class="section-count">${categories.length} categories</span>
+        </div>
+        <div class="chevron">▼</div>
+      </div>
+      <div class="section-body">
+        <div class="cat-grid">
+          ${categories.map(c => `
+            <div class="cat-cell" onclick="toggleCatArticles('cat-${slug(c.category)}')">
+              <div class="cat-name">${esc(c.category)}</div>
+              <div class="cat-num">${c.count_published||0}</div>
+              <div class="cat-sub">published · ${c.count_rejected||0} rejected · avg NVS ${Math.round(c.avg_nvs||0)}</div>
+            </div>
+          `).join('')}
+        </div>
+        ${categories.map(c => `
+          <div id="cat-${slug(c.category)}" style="display:none;border-top:1px solid var(--border)">
+            <div class="article-list">
+              ${articleCards((all_fetched||[]).filter(a => a.category === c.category), 10)}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <!-- CONTENT TYPE -->
+    <div class="grid-2">
+      <div class="section" id="sec-types" style="margin-bottom:0">
+        <div class="section-head" onclick="toggleSection('sec-types')">
+          <div class="section-title">🔬 By Content Type</div>
+          <div class="chevron">▼</div>
+        </div>
+        <div class="section-body">
+          <table class="source-table">
+            <thead><tr><th>Type</th><th>Count</th><th>Avg NVS</th><th>Pub Rate</th></tr></thead>
+            <tbody>
+              ${types.map(t => `
+                <tr>
+                  <td><span class="tag ${t.content_type}">${esc(t.content_type||'unknown')}</span></td>
+                  <td>${t.count||0}</td>
+                  <td>${nvsBadgeInline(t.avg_nvs)}</td>
+                  <td>${pct(t.count_published,t.count)}%</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SCORING DIST -->
+      <div class="section" id="sec-dist" style="margin-bottom:0">
+        <div class="section-head" onclick="toggleSection('sec-dist')">
+          <div class="section-title">🎯 Score Distribution</div>
+          <div class="chevron">▼</div>
+        </div>
+        <div class="section-body">
+          ${distRow('90–100', dist.nvs_90_100, dist, '#c8f135')}
+          ${distRow('70–89',  dist.nvs_70_89,  dist, '#88cc44')}
+          ${distRow('50–69',  dist.nvs_50_69,  dist, '#ffaa00')}
+          ${distRow('30–49',  dist.nvs_30_49,  dist, '#ff7722')}
+          ${distRow('0–29',   dist.nvs_0_29,   dist, '#ff4444')}
+        </div>
+      </div>
+    </div>
+
+    <!-- LAST RUNS -->
+    <div class="section" id="sec-runs">
+      <div class="section-head" onclick="toggleSection('sec-runs')">
+        <div class="section-title">
+          🕐 Last Fetch Runs
+          <span class="section-count">${runs.length} runs</span>
+        </div>
+        <div class="chevron">▼</div>
+      </div>
+      <div class="section-body">
+        <table class="runs-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Status</th>
+              <th>Fetched</th>
+              <th>Published</th>
+              <th>Queued</th>
+              <th>Rejected</th>
+              <th>Claude Calls</th>
+              <th>Cost</th>
+              <th>Duration</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${runs.map(r => `
+              <tr>
+                <td style="color:var(--muted)">${fmtDateTime(r.created_at)}</td>
+                <td class="status-${r.status==='success'?'ok':r.status==='failed'?'fail':'partial'}">${r.status}</td>
+                <td>${r.items_fetched||0}</td>
+                <td style="color:var(--accent)">${r.items_published||0}</td>
+                <td style="color:var(--amber)">${r.items_queued||0}</td>
+                <td style="color:var(--red)">${r.items_rejected||0}</td>
+                <td>${r.claude_calls||0}</td>
+                <td>€${(r.estimated_cost_eur||0).toFixed(4)}</td>
+                <td>${r.duration_ms ? Math.round(r.duration_ms/1000)+'s' : '—'}</td>
+                <td style="color:var(--red);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.error_message?esc(r.error_message.slice(0,60)):'—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TOP PUBLISHED -->
+    <div class="section open" id="sec-pub">
+      <div class="section-head" onclick="toggleSection('sec-pub')">
+        <div class="section-title">
+          ✅ Top Published
+          <span class="section-count green">${published.length}</span>
+        </div>
+        <div class="chevron">▼</div>
+      </div>
+      <div class="section-body">
+        <div class="article-list">
+          ${articleCards(published, 20)}
+        </div>
+      </div>
+    </div>
+
+    <!-- TOP REJECTED -->
+    <div class="section" id="sec-rej">
+      <div class="section-head" onclick="toggleSection('sec-rej')">
+        <div class="section-title">
+          ❌ Top Rejected
+          <span class="section-count red">${rejected.length}</span>
+        </div>
+        <div class="chevron">▼</div>
+      </div>
+      <div class="section-body">
+        <div class="article-list">
+          ${articleCards(rejected, 10)}
+        </div>
+      </div>
+    </div>
+
+  `;
+}
+
+// ── HELPERS ──────────────────────────────────────────────────
+function funnelRow(label, val, max, delta, id, articles, barClass='') {
+  const pctVal = Math.round(((val||0) / max) * 100);
+  const hasArticles = articles && articles.length > 0;
+  return `
+    <div class="funnel-row" onclick="${hasArticles ? `toggleFunnelArticles('funnel-${id}')` : ''}">
+      <div class="funnel-label">${label}</div>
+      <div class="funnel-bar-wrap">
+        <div class="funnel-bar ${barClass}" style="width:${pctVal}%"></div>
+      </div>
+      <div class="funnel-num">${val||0}</div>
+      <div class="funnel-delta">${delta}</div>
+      <div class="funnel-expand">${hasArticles ? '▼ show' : ''}</div>
+    </div>
+    ${hasArticles ? `
+    <div id="funnel-${id}" style="display:none;border-bottom:1px solid var(--border);background:var(--bg)">
+      <div class="article-list">
+        ${articleCards(articles, 20)}
+      </div>
+    </div>` : ''}
+  `;
+}
+
+function articleCards(items, limit) {
+  if (!items || items.length === 0) return '<div style="padding:1rem;color:var(--muted);font-size:0.72rem">No articles</div>';
+  const visible = items.slice(0, limit);
+  const remaining = items.length - limit;
+  return visible.map((a,i) => `
+    <div class="article-card" style="animation-delay:${i*0.03}s" data-search="${esc((a.title||'') + ' ' + (a.source_name||'') + ' ' + (a.category||'') + ' ' + (a.nvs_notes||'')).toLowerCase()}">
+      <div class="article-meta">
+        <span class="tag source">${esc(a.source_name||'Unknown')}</span>
+        ${a.category ? `<span class="tag category">${esc(a.category)}</span>` : ''}
+        ${a.content_type ? `<span class="tag ${a.content_type}">${esc(a.content_type)}</span>` : ''}
+        ${nvsBadge(a.nvs_score)}
+        <span class="golden">${goldenScore(a.golden_score)}</span>
+      </div>
+      <div class="article-title">${esc(a.title||'Untitled')}</div>
+      ${a.nvs_notes ? `<div class="article-notes">"${esc(a.nvs_notes)}"</div>` : ''}
+      <div class="article-timestamps">
+        ${a.fetched_at ? `<div class="ts-item">Fetched <strong>${fmtDateTime(a.fetched_at)}</strong></div>` : ''}
+        ${a.reviewed_at ? `<div class="ts-item">Published <strong>${fmtDateTime(a.reviewed_at)}</strong></div>` : ''}
+        ${a.time_in_queue_seconds ? `<div class="ts-item">Queue time <strong>${a.time_in_queue_seconds}s</strong></div>` : ''}
+        ${a.original_url && a.original_url !== '#' ? `<a class="article-url" href="${esc(a.original_url)}" target="_blank" rel="noopener">↗ Source</a>` : ''}
+      </div>
+    </div>
+  `).join('') + (remaining > 0 ? `<div class="load-more"><button onclick="loadMore(this, ${JSON.stringify(items).replace(/'/g,"\\'")} )">Load ${remaining} more</button></div>` : '');
+}
+
+function distRow(label, val, dist, color) {
+  const total = (dist.nvs_90_100||0)+(dist.nvs_70_89||0)+(dist.nvs_50_69||0)+(dist.nvs_30_49||0)+(dist.nvs_0_29||0);
+  const w = total > 0 ? Math.round(((val||0)/total)*100) : 0;
+  return `
+    <div class="dist-row">
+      <div class="dist-label">${label}</div>
+      <div class="dist-bar-wrap"><div class="dist-bar" style="width:${w}%;background:${color}"></div></div>
+      <div class="dist-count">${val||0}</div>
+    </div>`;
+}
+
+function nvsBadge(nvs) {
+  if (!nvs && nvs !== 0) return '';
+  const cls = nvs >= 70 ? 'high' : nvs >= 45 ? 'med' : 'low';
+  return `<span class="nvs-badge ${cls}">NVS ${nvs}</span>`;
+}
+
+function nvsBadgeInline(nvs) {
+  if (!nvs && nvs !== 0) return '—';
+  const cls = nvs >= 70 ? 'high' : nvs >= 45 ? 'med' : 'low';
+  return `<span class="nvs-badge ${cls}">${Math.round(nvs)}</span>`;
+}
+
+function goldenScore(gs) {
+  if (!gs || gs === 'N/A') return '';
+  const n = parseInt(gs) || 0;
+  if (n === 0) return '';
+  return '⚡'.repeat(Math.min(n, 5));
+}
+
+function pct(a, b) {
+  if (!b || b === 0) return 0;
+  return Math.round(((a||0)/b)*100);
+}
+
+function fmtTime(ts) {
+  if (!ts) return '—';
+  try { return new Date(ts).toLocaleTimeString('tr-TR', {hour:'2-digit',minute:'2-digit'}); }
+  catch { return '—'; }
+}
+
+function fmtDateTime(ts) {
+  if (!ts) return '—';
+  try {
+    const d = new Date(ts);
+    return d.toLocaleDateString('tr-TR', {day:'2-digit',month:'2-digit'}) + ' ' +
+           d.toLocaleTimeString('tr-TR', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  } catch { return '—'; }
+}
+
+function esc(s='') {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function slug(s='') {
+  return String(s).toLowerCase().replace(/[^a-z0-9]/g,'-');
+}
+
+// ── INTERACTIONS ─────────────────────────────────────────────
+function toggleSection(id) {
+  document.getElementById(id).classList.toggle('open');
+}
+
+function toggleFunnelArticles(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleSourceArticles(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
+}
+
+function toggleCatArticles(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// ── SEARCH ───────────────────────────────────────────────────
+function filterArticles(term) {
+  searchTerm = term.toLowerCase().trim();
+  const cards = document.querySelectorAll('.article-card');
+  let visible = 0;
+  cards.forEach(card => {
+    const text = card.getAttribute('data-search') || '';
+    const match = !searchTerm || text.includes(searchTerm);
+    card.classList.toggle('hidden', !match);
+    if (match) visible++;
+  });
+  document.getElementById('search-hint').textContent =
+    searchTerm ? `${visible} articles match "${searchTerm}"` : 'Type to filter all expanded articles';
+}
+
+// ── AUTO REFRESH ──────────────────────────────────────────────
+setInterval(() => {
+  if (document.getElementById('app').style.display !== 'none') loadReport();
+}, 5 * 60 * 1000);
+
+// Init if already authed
+if (sessionStorage.getItem('kartalix-auth')) loadReport();
+</script>
+</body>
+</html>
