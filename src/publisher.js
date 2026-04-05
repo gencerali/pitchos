@@ -204,21 +204,25 @@ export async function saveArticles(env, siteId, articles) {
   if (!articles || articles.length === 0) return;
 
   const rows = articles.map(a => ({
-    site_id: siteId,
-    title: a.title || '',
-    source_name: a.source_name || a.source || 'Unknown',
-    category: a.category || 'Club',
-    content_type: a.content_type || 'fact',
-    nvs_score: a.nvs || a.nvs_score || 0,
-    status: a.status || 'published',
-    fetched_at: a.fetched_at || new Date().toISOString(),
-    reviewed_at: new Date().toISOString(),
+    site_id:      siteId,
+    source_type:  'rss',
+    source_name:  a.source_name || a.source || 'Unknown',
     original_url: a.url || a.original_url || '',
-    nvs_notes: a.nvs_notes || '',
-    full_body: a.full_body || '',
-    summary: a.summary || '',
-    image_url: a.image_url || '',
+    title:        a.title || '',
+    summary:      a.summary || '',
+    full_body:    a.full_body || '',
+    category:     a.category || 'Club',
+    content_type: a.content_type || 'fact',
+    sport:        a.sport || 'football',
+    nvs_score:    a.nvs || a.nvs_score || 0,
+    nvs_notes:    a.nvs_notes || '',
+    golden_score: a.golden_score != null ? String(a.golden_score) : null,
+    image_url:    a.image_url || '',
     publish_mode: a.publish_mode || 'rss_summary',
+    status:       'published',
+    reviewed_by:  'auto',
+    fetched_at:   a.fetched_at || new Date().toISOString(),
+    reviewed_at:  new Date().toISOString(),
   }));
 
   console.log('SUPABASE INSERT: attempting', rows.length, 'rows');
