@@ -70,7 +70,7 @@ async function fetchOneFeed(feed, site) {
       const d = new Date(pubDate);
       if (!isNaN(d.getTime())) { published_at = d.toISOString(); pubMs = d.getTime(); }
     }
-    const image_url = getEnclosureUrl(item);
+    const image_url = getImageUrl(item, rawDesc);
 
     if (pubMs && pubMs < cutoff) continue;
     recentCount++;
@@ -342,9 +342,17 @@ function getTagNS(xml, tag) {
   return m ? m[1].trim() : '';
 }
 
-function getEnclosureUrl(item) {
-  const m = item.match(/<enclosure[^>]+url="([^"]+)"/i);
-  return m ? m[1].trim() : null;
+function getImageUrl(item, rawDesc) {
+  // 1. <enclosure url="...">
+  const enc = item.match(/<enclosure[^>]+url="([^"]+)"/i);
+  if (enc) return enc[1].trim();
+  // 2. <media:content url="...">
+  const media = item.match(/<media:content[^>]+url="([^"]+)"/i);
+  if (media) return media[1].trim();
+  // 3. First <img src="..."> in description HTML
+  const img = (rawDesc || '').match(/<img[^>]+src="([^"]+)"/i);
+  if (img) return img[1].trim();
+  return null;
 }
 
 function getRSSLink(item) {

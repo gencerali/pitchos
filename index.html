@@ -466,18 +466,14 @@
 
     .carousel-slide {
       flex: 0 0 100%;
-      height: 420px;
+      height: 380px;
       position: relative;
       cursor: pointer;
       overflow: hidden;
+      background-size: cover;
+      background-position: center top;
+      background-color: #0a0a0a;
     }
-
-    .slide-bg {
-      position: absolute; inset: 0;
-      background-size: cover; background-position: center;
-      transition: transform 0.6s ease;
-    }
-    .carousel-slide:hover .slide-bg { transform: scale(1.03); }
 
     .slide-overlay {
       position: absolute; inset: 0;
@@ -608,7 +604,7 @@
     @media(max-width:900px) {
       .news-grid, .video-grid { grid-template-columns: repeat(2,1fr); }
       .card.featured { grid-column: span 2; }
-      .carousel-slide { height: 340px; }
+      .carousel-slide { height: 360px; }
       .slide-title { font-size: 1.8rem; }
     }
     @media(max-width:580px) {
@@ -617,7 +613,7 @@
       .card.featured .card-title { font-size: 1.2rem; }
       .logo-name { font-size: 1.7rem; }
       .radar-banner { display: none; }
-      .carousel-slide { height: 280px; }
+      .carousel-slide { height: 240px; }
       .slide-title { font-size: 1.5rem; }
       .slide-summary { display: none; }
       .carousel-arrow { display: none; }
@@ -828,34 +824,44 @@
     return '⚡'.repeat(Math.min(n, 5));
   }
 
-  // Gradient fallbacks per category
-  const CAT_GRADIENTS = {
-    Transfer:   'linear-gradient(135deg,#2a0800 0%,#0d0000 100%)',
-    Match:      'linear-gradient(135deg,#001a08 0%,#000d04 100%)',
-    Injury:     'linear-gradient(135deg,#1a0a00 0%,#080808 100%)',
-    Squad:      'linear-gradient(135deg,#0a0a1a 0%,#080808 100%)',
-    Club:       'linear-gradient(135deg,#1a1a1a 0%,#080808 100%)',
-    Basketball: 'linear-gradient(135deg,#100a00 0%,#080808 100%)',
+  // Category gradient fallbacks
+  const CAT_GRAD = {
+    Transfer: 'linear-gradient(135deg, #1a0000, #0d0000)',
+    Match:    'linear-gradient(135deg, #001a00, #000d00)',
+    Injury:   'linear-gradient(135deg, #1a0800, #0d0400)',
+    Club:     'linear-gradient(135deg, #0a0a14, #050510)',
   };
+  function catGrad(a) { return CAT_GRAD[a.category || 'Club'] || 'linear-gradient(135deg, #111, #0a0a0a)'; }
 
-  function catGradient(a) {
-    return CAT_GRADIENTS[(a.category || 'Club')] || CAT_GRADIENTS.Club;
+  // Carousel slide inline style
+  function slideStyle(a) {
+    return a.image_url
+      ? `background-image: url('${esc(a.image_url)}')`
+      : `background: ${catGrad(a)}`;
   }
 
-  // Carousel slide background: image layered over gradient — CSS handles load failure
-  function slideBg(a) {
-    if (a.image_url) {
-      return `background-image: url('${esc(a.image_url)}'), ${catGradient(a)}; background-size: cover; background-position: center;`;
-    }
-    return `background: ${catGradient(a)};`;
+  // Card thumbnail inline style (full-bleed, 130px)
+  function thumbStyle(a) {
+    const base = 'height:130px;background-size:cover;background-position:center;background-color:#141414;margin:-1.4rem -1.5rem 0.75rem;width:calc(100% + 3rem);flex-shrink:0';
+    return a.image_url
+      ? `${base};background-image:url('${esc(a.image_url)}')`
+      : `${base};background:${catGrad(a)}`;
   }
 
-  // Card thumbnail: same layered fallback approach
-  function cardImageStyle(a) {
-    if (a.image_url) {
-      return `background-image: url('${esc(a.image_url)}'), ${catGradient(a)}; background-size: cover; background-position: center;`;
-    }
-    return `background: ${catGradient(a)};`;
+  // Strip RSS boilerplate from summary text
+  function cleanSummary(text) {
+    if (!text) return '';
+    return text
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/Devamı için tıklayınız\.?/gi, '')
+      .replace(/İşte detaylar\.?/gi, '')
+      .replace(/İşte ayrıntılar\.?/gi, '')
+      .replace(/Son dakika Beşiktaş haberleri[^.]*/gi, '')
+      .replace(/BJK spor haberi[^)]*/gi, '')
+      .replace(/\(BJK spor haberi\)/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 280);
   }
 
   // ── INIT ─────────────────────────────────────────────────────
@@ -893,16 +899,15 @@
 
     const track = document.getElementById('carouselTrack');
     track.innerHTML = items.map((a, i) => `
-      <div class="carousel-slide" data-cidx="${i}" onclick="openArticle(_carouselItems[${i}])">
-        <div class="slide-bg" style="${slideBg(a)}"></div>
-        <div class="slide-overlay"></div>
+      <div class="carousel-slide" data-cidx="${i}" onclick="openArticle(_carouselItems[${i}])" style="${slideStyle(a)}">
+        <div style="position:absolute;inset:0;background:linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.95) 70%)"></div>
         <div class="slide-top">
           <span class="slide-cat-badge">${esc(a.category || 'Haber')}</span>
           ${a.golden_score ? `<span class="slide-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : ''}
         </div>
         <div class="slide-content">
           <div class="slide-title">${esc(a.title)}</div>
-          <div class="slide-summary">${esc(a.summary || '')}</div>
+          <div class="slide-summary">${esc(cleanSummary(a.summary || ''))}</div>
           <div class="slide-meta">
             <div class="slide-source">
               <div class="slide-src-dot"></div>
@@ -981,13 +986,13 @@
       el.dataset.absIdx = absIdx >= 0 ? absIdx : i + 8 + offset;
       el.style.animationDelay = `${i * 0.04}s`;
       el.innerHTML = `
-        <div class="card-image" style="${cardImageStyle(a)}"></div>
+        <div class="card-thumb" style="${thumbStyle(a)}"></div>
         <div class="card-cat">
           ${esc(a.category || 'Haber')}
           ${a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : ''}
         </div>
         <div class="card-title">${esc(a.title)}</div>
-        <div class="card-summary">${esc(a.summary)}</div>
+        <div class="card-summary">${esc(cleanSummary(a.summary || a.full_body || ''))}</div>
         <div class="card-meta">
           <div class="card-source">
             <div class="src-dot"></div>
