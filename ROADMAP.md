@@ -223,6 +223,19 @@ Mert Günok (→ Fenerbahçe), Jean Onana (→ Genoa loan)
 - Sitemap.xml auto-generated
 - **squad_members table**: seed BJK squad manually from Transfermarkt
 
+### RSS Proxy Solution (Sprint 3)
+Fotomaç and A Spor block Cloudflare Worker IPs (403).
+Solution: Use a free RSS proxy service to fetch blocked feeds:
+- https://api.rss2json.com/v1/api.json?rss_url=FEED_URL (free tier 10k/day)
+- Or deploy a simple proxy on Cloudflare Pages that fetches RSS with browser headers
+
+Blocked feeds to restore via proxy:
+- fotomac.com.tr/rss/Besiktas.xml (best BJK-specific source)
+- aspor.com.tr/rss/besiktas.xml (30+ BJK articles)
+- fotomac.com.tr/rss/Basketbol.xml
+
+Priority: HIGH — these were the best sources.
+
 ### 📋 Sprint 4 — SEO + Distribution
 - NewsArticle structured data
 - Meta tags + Open Graph per article

@@ -108,7 +108,7 @@ export async function saveSeenHashes(env, siteCode, articles) {
       existing.add(simpleHash(a.title + (a.summary || '').slice(0, 100)));
     }
     const trimmed = [...existing].slice(-100);
-    await env.PITCHOS_CACHE.put(`seen:${siteCode}`, JSON.stringify(trimmed), { expirationTtl: 86400 });
+    await env.PITCHOS_CACHE.put(`seen:${siteCode}`, JSON.stringify(trimmed), { expirationTtl: 43200 });
   } catch (e) {
     console.error('saveSeenHashes failed:', e.message);
   }

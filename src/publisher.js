@@ -1,74 +1,180 @@
-import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_SCORE, MODEL_SUMMARY } from './utils.js';
+import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH } from './utils.js';
 import { normalizeTitle, titleSimilarity } from './processor.js';
 
-// ─── WRITE ARTICLES ───────────────────────────────────────────
-export async function writeArticles(articles, site, env, model = MODEL_SUMMARY, useFullText = false) {
-  if (articles.length === 0) return { written: [], usage: null };
+// ─── PUBLISH MODE DECISION ────────────────────────────────────
+export function decidePublishMode(article) {
+  const cat   = (article.category     || '').toLowerCase();
+  const type  = (article.content_type || '').toLowerCase();
+  const trust = (article.trust        || '').toLowerCase();
+  const nvs   = article.nvs || 0;
 
-  const groups = [];
-  for (const a of articles) {
-    const norm = normalizeTitle(a.title);
-    const existing = groups.find(g => titleSimilarity(norm, normalizeTitle(g[0].title)) > 0.3);
-    if (existing) existing.push(a);
-    else groups.push([a]);
-  }
-  console.log(`writeArticles (model=${model.includes('sonnet') ? 'sonnet' : 'haiku'}, fullText=${useFullText}): ${groups.length} groups`);
+  const today   = new Date().toISOString().slice(0, 10);
+  const pubDate = (article.published_at || '').slice(0, 10);
+  const isToday = pubDate === today;
 
-  const results = await Promise.allSettled(
-    groups.map(group => writeOneArticle(group, site, env, model, useFullText))
-  );
-
-  const written = [];
-  const totalUsage = { input_tokens: 0, output_tokens: 0 };
-  for (const r of results) {
-    if (r.status === 'fulfilled') {
-      written.push(r.value.article);
-      totalUsage.input_tokens  += r.value.usage?.input_tokens  || 0;
-      totalUsage.output_tokens += r.value.usage?.output_tokens || 0;
-    } else {
-      console.error('writeOneArticle failed:', r.reason?.message);
-    }
-  }
-  return { written, usage: totalUsage };
+  if (cat === 'match' && type === 'fact' && isToday)  return 'template_matchday';
+  if (trust === 'official')                            return 'template_official';
+  if (cat === 'match' && type === 'fact' && !isToday) return 'template_postmatch';
+  if (cat === 'injury')                               return 'template_injury';
+  if (cat === 'transfer' && nvs >= 70)                return 'template_transfer';
+  if (nvs >= 55 && article.url && article.url !== '#') return 'copy_source';
+  return 'rss_summary';
 }
 
-async function writeOneArticle(group, site, env, model, useFullText) {
-  const lead = group.reduce((best, a) => (a.nvs || 0) > (best.nvs || 0) ? a : best, group[0]);
+// ─── CLEAN RSS TEXT (no Claude) ───────────────────────────────
+export function cleanRSS(text) {
+  if (!text) return '';
+  return text
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/devamı için tıklayınız\.?/gi, '')
+    .replace(/ayrıntılar için tıklayınız\.?/gi, '')
+    .replace(/haber detayı için tıklayınız\.?/gi, '')
+    .replace(/işte (maçın |o |tüm )?detaylar(ı)?\.?/gi, '')
+    .replace(/işte ayrıntılar\.?/gi, '')
+    .replace(/işte o anlar\.?/gi, '')
+    .replace(/son dakika beşiktaş haberleri[^.]*/gi, '')
+    .replace(/bjk spor haberi[^)]*/gi, '')
+    .replace(/\(bjk spor haberi\)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\.\s*$/, '.')
+    .slice(0, 300);
+}
 
-  const context = group.map(a => {
-    const content = useFullText && a.full_text
-      ? a.full_text.slice(0, 2000)
-      : (a.summary || '').slice(0, 400);
-    return `KAYNAK: ${a.source}\nBAŞLIK: ${a.title}\nİÇERİK: ${content}`;
-  }).join('\n\n---\n\n');
+// ─── OG IMAGE EXTRACTION ─────────────────────────────────────
+function extractOGImage(html) {
+  const m = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+         || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+  return m ? m[1].trim() : '';
+}
 
-  const prompt = `Sen ${site.team_name} için profesyonel bir spor gazetecisisin. Aşağıdaki kaynakları kullanarak kısa Türkçe haber yaz (maksimum 120 kelime).
+// Lightweight fetch — reads full response but only parses head section for og:image
+async function fetchOGImage(url) {
+  if (!url || url === '#') return '';
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Kartalix/1.0)' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return '';
+    const html = await res.text();
+    return extractOGImage(html.slice(0, 5000));
+  } catch (e) {
+    return '';
+  }
+}
 
-${context}
+// ─── FETCH FULL SOURCE CONTENT (no Claude) ───────────────────
+// Returns { content, image_url }
+export async function fetchSourceContent(url) {
+  if (!url || url === '#') return { content: '', image_url: '' };
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Kartalix/1.0)' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return { content: '', image_url: '' };
+    const html = await res.text();
+    const image_url = extractOGImage(html.slice(0, 5000));
+    const text = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[\s\S]*?<\/style>/gi, '')
+      .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+      .replace(/<header[\s\S]*?<\/header>/gi, '')
+      .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const start = text.search(/beşiktaş|besiktas|bjk/i);
+    const excerpt = start > 100 ? text.slice(start - 100) : text;
+    return { content: excerpt.slice(0, 4000), image_url };
+  } catch (e) {
+    console.error('fetchSourceContent failed:', url, e.message);
+    return { content: '', image_url: '' };
+  }
+}
 
-Sadece ham JSON döndür (başka metin yok):
-{"headline":"başlık","body":"giriş\\n\\ngelişme\\n\\nsonuç","sources":["kaynak"],"category":"${lead.category || 'Club'}","nvs_score":${lead.nvs || 50}}`;
+// ─── MATCH DAY TEMPLATE (Haiku extracts facts) ───────────────
+async function writeMatchDay(article, env) {
+  const prompt = `Bu Beşiktaş maç haberinden aşağıdaki bilgileri çıkar ve JSON olarak döndür.
+Sadece JSON döndür, başka hiçbir şey yazma.
 
-  const writeTokens = model.includes('sonnet') ? 1000 : 500;
-  const response = await callClaude(env, model, prompt, false, writeTokens);
-  const text = extractText(response.content);
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error('No JSON in writeOneArticle response');
+Haber: ${article.title} — ${cleanRSS(article.summary || article.description || '')}
 
-  const parsed = JSON.parse(match[0]);
-  return {
-    article: {
-      ...lead,
-      title:        parsed.headline || lead.title,
-      summary:      (parsed.body || '').split('\n\n')[0] || lead.summary,
-      full_body:    parsed.body    || '',
-      source:       (parsed.sources || [lead.source]).join(', '),
-      category:     parsed.category || lead.category,
-      nvs:          parsed.nvs_score ?? lead.nvs,
-      golden_score: lead.golden_score,
-    },
-    usage: response.usage,
-  };
+{
+  "rakip": "rakip takım adı",
+  "tarih": "gün ve tarih",
+  "saat": "maç saati (İstanbul saatiyle)",
+  "stadyum": "stadyum adı",
+  "tv_kanali": "yayıncı kanal",
+  "mac_turu": "lig/kupa adı",
+  "is_home": true
+}
+
+Bilmiyorsan null yaz.`;
+
+  try {
+    const res  = await callClaude(env, MODEL_FETCH, prompt, false, 300);
+    const text = extractText(res.content);
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const data = JSON.parse(match[0]);
+
+    const homeAway = data.is_home ? 'Ev Sahibi' : 'Deplasman';
+    const body =
+      `⚽ MAÇ GÜNÜ\n\n` +
+      `${data.mac_turu || 'Süper Lig'} — ${data.tarih || 'Bugün'}\n` +
+      `🕐 Saat: ${data.saat || '?'} (İstanbul)\n` +
+      `🏟️ ${data.stadyum || '?'} (${homeAway})\n` +
+      `📺 ${data.tv_kanali || 'beIN Sports'}\n\n` +
+      `Beşiktaş, ${data.rakip || 'rakibi'} ile karşılaşıyor.`;
+
+    return { ...article, full_body: body, publish_mode: 'template_matchday', usage: res.usage };
+  } catch (e) {
+    console.error('writeMatchDay failed:', e.message);
+    return null;
+  }
+}
+
+// ─── WRITE ARTICLES (decision-based, no Sonnet) ───────────────
+export async function writeArticles(articles, site, env) {
+  const results = [];
+
+  for (const article of articles) {
+    const mode = decidePublishMode(article);
+    let published = { ...article, publish_mode: mode };
+
+    if (mode === 'template_matchday') {
+      const written = await writeMatchDay(article, env);
+      if (written) published = written;
+      else published.summary = cleanRSS(article.summary || article.description || '');
+      await new Promise(r => setTimeout(r, 300));
+
+    } else if (mode === 'copy_source') {
+      const result = article.full_text
+        ? { content: article.full_text, image_url: article.image_url || '' }
+        : await fetchSourceContent(article.url);
+      const content = result.content || '';
+      console.log('copy_source:', article.title.slice(0, 40), 'content length:', content.length);
+      published.full_body  = content || cleanRSS(article.summary || '');
+      published.summary    = content ? content.slice(0, 300) : cleanRSS(article.summary || article.description || '');
+      published.image_url  = result.image_url || article.image_url || '';
+      await new Promise(r => setTimeout(r, 300));
+
+    } else {
+      published.summary    = cleanRSS(article.summary || article.description || '');
+      published.full_body  = published.summary;
+      // Fetch og:image for rss_summary articles that have a real URL
+      if (article.url && article.url !== '#' && !article.image_url) {
+        published.image_url = await fetchOGImage(article.url);
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+
+    results.push(published);
+  }
+
+  return results;
 }
 
 // ─── SUPABASE SAVES ───────────────────────────────────────────
@@ -96,7 +202,7 @@ export async function saveArticles(env, siteId, articles, status) {
 }
 
 export async function logFetch(env, siteId, status, stats, errorMsg) {
-  console.log(`logFetch [${status}] scout: ${stats.scout_tokens_in}in €${(stats.scout_cost_eur||0).toFixed(4)} | write: ${stats.write_tokens_in}in €${(stats.write_cost_eur||0).toFixed(4)} | total €${(stats.costEur||0).toFixed(4)}`);
+  console.log(`logFetch [${status}] scout: ${stats.scout_tokens_in}in €${(stats.scout_cost_eur||0).toFixed(4)} | total €${(stats.costEur||0).toFixed(4)}`);
   const row = {
     site_id:            siteId,
     trigger_type:       'cron',
@@ -110,7 +216,7 @@ export async function logFetch(env, siteId, status, stats, errorMsg) {
     tokens_input:       stats.tokensIn     || 0,
     tokens_output:      stats.tokensOut    || 0,
     estimated_cost_eur: stats.costEur      || 0,
-    model_used:         `${MODEL_FETCH}+${MODEL_SCORE}+${MODEL_SUMMARY}`,
+    model_used:         `${MODEL_FETCH}`,
     error_message:      errorMsg || null,
     duration_ms:        stats.durationMs   || null,
   };
@@ -119,14 +225,14 @@ export async function logFetch(env, siteId, status, stats, errorMsg) {
 
 // ─── KV CACHE ─────────────────────────────────────────────────
 export async function cacheToKV(env, site, toPublish, toQueue) {
-  const existing = await getCachedArticles(env, site.short_code);
-  const mergedKV  = mergeAndDedupe([...toPublish, ...toQueue, ...existing], 20);
+  const existing   = await getCachedArticles(env, site.short_code);
+  const mergedKV   = mergeAndDedupe([...toPublish, ...toQueue, ...existing], 20);
   await env.PITCHOS_CACHE.put(
     `articles:${site.short_code}`,
     JSON.stringify(mergedKV.map(a => ({
       title:        a.title        || '',
-      summary:      a.summary      || '',
-      full_body:    a.full_body    || '',
+      summary:      cleanRSS(a.summary || a.description || ''),
+      full_body:    a.full_body ? cleanRSS(a.full_body) : cleanRSS(a.summary || a.description || ''),
       source:       a.source       || a.source_name || '',
       url:          a.url          || a.original_url || '',
       category:     a.category     || 'Haber',
@@ -135,6 +241,8 @@ export async function cacheToKV(env, site, toPublish, toQueue) {
       time_ago:     a.time_ago     || 'Güncel',
       is_fresh:     a.is_fresh     ?? true,
       sport:        a.sport        || 'football',
+      publish_mode: a.publish_mode || 'rss_summary',
+      image_url:    a.image_url    || '',
     }))),
     { expirationTtl: 7200 }
   );

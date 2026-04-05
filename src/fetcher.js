@@ -7,15 +7,19 @@ import { BJK_REGEX, CUTOFF_48H } from './processor.js';
 // press/broadcast/official: team-specific feeds, no feed-level keyword filter
 // ntvFallback: HTML fallback URL if RSS returns 0 items
 export const RSS_FEEDS = [
-  { url: 'https://www.ntvspor.net/rss/kategori/futbol',   name: 'NTV Spor',          trust: 'broadcast',     sport: 'football', ntvFallback: 'https://www.ntvspor.net/futbol/takim/besiktas' },
-  { url: 'https://www.fotomac.com.tr/rss/Besiktas.xml',   name: 'Fotomaç',           trust: 'press',         sport: 'football' },
-  { url: 'https://www.fotomac.com.tr/rss/Basketbol.xml',  name: 'Fotomaç Basketbol', trust: 'press',         sport: 'basketball' },
-  { url: 'https://www.ahaber.com.tr/rss/besiktas.xml',    name: 'A Haber',           trust: 'press',         sport: 'football' },
-  { url: 'https://www.trthaber.com/spor_articles.rss',    name: 'TRT Haber',         trust: 'broadcast',     sport: 'football' },
-  { url: 'https://www.aspor.com.tr/rss/anasayfa.xml',     name: 'A Spor',            trust: 'broadcast',     sport: 'football' },
-  { url: 'https://www.hurriyet.com.tr/rss/spor',          name: 'Hürriyet',          trust: 'press',         sport: 'football' },
-  { url: 'https://www.transfermarkt.com/rss/news',        name: 'Transfermarkt',     trust: 'international', sport: 'football', titleOnly: true },
-  { url: 'https://www.skysports.com/rss/12040',           name: 'Sky Sports',        trust: 'international', sport: 'football', titleOnly: true },
+  // Team-specific feeds — no keyword filter needed
+  { url: 'https://www.ntvspor.net/rss/kategori/futbol',    name: 'NTV Spor',          trust: 'broadcast', sport: 'football',    ntvFallback: 'https://www.ntvspor.net/futbol/takim/besiktas' },
+  { url: 'https://www.ahaber.com.tr/rss/besiktas.xml',     name: 'A Haber',           trust: 'press',     sport: 'football' },
+  { url: 'https://www.ahaber.com.tr/rss/basketbol.xml',    name: 'A Haber Basketbol', trust: 'press',     sport: 'basketball' },
+  { url: 'https://www.trthaber.com/spor_articles.rss',     name: 'TRT Haber',         trust: 'broadcast', sport: 'football' },
+  // General sports feeds — BJK_KEYWORDS filter applied
+  { url: 'https://www.hurriyet.com.tr/rss/spor',           name: 'Hürriyet',          trust: 'press',     sport: 'football',    keywordFilter: true },
+  { url: 'https://www.sabah.com.tr/rss/spor.xml',          name: 'Sabah Spor',        trust: 'press',     sport: 'football',    keywordFilter: true },
+  { url: 'https://www.milliyet.com.tr/rss/rssnew/spor',    name: 'Milliyet Spor',     trust: 'press',     sport: 'football',    keywordFilter: true },
+  { url: 'https://www.haberturk.com/rss/spor.xml',         name: 'Habertürk Spor',    trust: 'press',     sport: 'football',    keywordFilter: true },
+  // International feeds — BJK_KEYWORDS filter + football-only check
+  { url: 'https://www.transfermarkt.com/rss/news',         name: 'Transfermarkt',     trust: 'international', sport: 'football', titleOnly: true },
+  { url: 'https://www.skysports.com/rss/12040',            name: 'Sky Sports',        trust: 'international', sport: 'football', titleOnly: true, footballOnly: true },
 ];
 
 // ─── RSS FETCH ────────────────────────────────────────────────
@@ -60,7 +64,11 @@ async function fetchOneFeed(feed, site) {
   const articles = [];
 
   for (const item of items) {
-    const title      = stripCDATA(getTag(item, 'title'));
+    // Robust title extraction: try plain text first, then CDATA
+    const rawTitle   = item.match(/<title>([^<]*)<\/title>/i)?.[1]
+                    || item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i)?.[1]
+                    || '';
+    const title      = stripCDATA(rawTitle).trim() || stripCDATA(getTag(item, 'title'));
     const rawDesc    = stripCDATA(getTag(item, 'description'));
     const rawContent = stripCDATA(getTagNS(item, 'content:encoded') || getTagNS(item, 'content'));
     const url_       = getRSSLink(item) || getTag(item, 'guid') || '';
@@ -75,11 +83,17 @@ async function fetchOneFeed(feed, site) {
     if (pubMs && pubMs < cutoff) continue;
     recentCount++;
 
-    // journalist/international feeds: match by player/staff name in title + description
-    // press/broadcast/official feeds: team-specific URLs, no feed-level keyword filter needed
-    if (trustTier === 'journalist' || trustTier === 'international') {
-      const haystack = (title + ' ' + (rawDesc || '')).toLowerCase();
+    const haystack = (title + ' ' + (rawDesc || '')).toLowerCase();
+
+    // journalist/international feeds: BJK_KEYWORDS filter
+    // general press feeds with keywordFilter flag: same filter
+    if (trustTier === 'journalist' || trustTier === 'international' || feed.keywordFilter) {
       if (!BJK_KEYWORDS.some(kw => haystack.includes(kw))) continue;
+    }
+
+    // Sky Sports and other mixed-sport international feeds: must mention football or BJK
+    if (feed.footballOnly) {
+      if (!haystack.includes('football') && !BJK_KEYWORDS.some(kw => haystack.includes(kw))) continue;
     }
 
     const summary   = stripHTML(rawDesc).slice(0, 500) || title;
@@ -99,8 +113,8 @@ async function fetchOneFeed(feed, site) {
 
     let sport = feedSport;
     if (feedSport === 'football') {
-      if (/basketbol|basket\b/i.test(haystack)) sport = 'basketball';
-      else if (/voleybol/i.test(haystack))       sport = 'volleyball';
+      if (/basketbol|basket\b/i.test(title + ' ' + (rawDesc || ''))) sport = 'basketball';
+      else if (/voleybol/i.test(title + ' ' + (rawDesc || '')))       sport = 'volleyball';
     }
 
     articles.push({
