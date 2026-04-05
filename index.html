@@ -481,12 +481,7 @@
 
     .slide-overlay {
       position: absolute; inset: 0;
-      background: linear-gradient(
-        to bottom,
-        rgba(0,0,0,0.15) 0%,
-        rgba(0,0,0,0.3) 40%,
-        rgba(0,0,0,0.88) 100%
-      );
+      background: linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.85) 100%);
     }
 
     .slide-top {
@@ -583,6 +578,16 @@
     }
     .carousel-dot.active {
       background: var(--white); transform: scale(1.3);
+    }
+
+    /* ── CARD IMAGE ── */
+    .card-image {
+      height: 140px;
+      background-size: cover;
+      background-position: center;
+      margin: -1.4rem -1.5rem 0;
+      width: calc(100% + 3rem);
+      flex-shrink: 0;
     }
 
     /* ── LOAD MORE ── */
@@ -825,18 +830,32 @@
 
   // Gradient fallbacks per category
   const CAT_GRADIENTS = {
-    Transfer:   'linear-gradient(135deg,#1a0a00 0%,#0d0000 100%)',
-    Match:      'linear-gradient(135deg,#000d1a 0%,#000508 100%)',
-    Injury:     'linear-gradient(135deg,#1a1000 0%,#080808 100%)',
+    Transfer:   'linear-gradient(135deg,#2a0800 0%,#0d0000 100%)',
+    Match:      'linear-gradient(135deg,#001a08 0%,#000d04 100%)',
+    Injury:     'linear-gradient(135deg,#1a0a00 0%,#080808 100%)',
     Squad:      'linear-gradient(135deg,#0a0a1a 0%,#080808 100%)',
-    Club:       'linear-gradient(135deg,#0d0d0d 0%,#080808 100%)',
+    Club:       'linear-gradient(135deg,#1a1a1a 0%,#080808 100%)',
     Basketball: 'linear-gradient(135deg,#100a00 0%,#080808 100%)',
   };
 
+  function catGradient(a) {
+    return CAT_GRADIENTS[(a.category || 'Club')] || CAT_GRADIENTS.Club;
+  }
+
+  // Carousel slide background: image layered over gradient — CSS handles load failure
   function slideBg(a) {
-    if (a.image_url) return `background-image:url(${esc(a.image_url)})`;
-    const cat = a.category || 'Club';
-    return `background:${CAT_GRADIENTS[cat] || CAT_GRADIENTS.Club}`;
+    if (a.image_url) {
+      return `background-image: url('${esc(a.image_url)}'), ${catGradient(a)}; background-size: cover; background-position: center;`;
+    }
+    return `background: ${catGradient(a)};`;
+  }
+
+  // Card thumbnail: same layered fallback approach
+  function cardImageStyle(a) {
+    if (a.image_url) {
+      return `background-image: url('${esc(a.image_url)}'), ${catGradient(a)}; background-size: cover; background-position: center;`;
+    }
+    return `background: ${catGradient(a)};`;
   }
 
   // ── INIT ─────────────────────────────────────────────────────
@@ -962,6 +981,7 @@
       el.dataset.absIdx = absIdx >= 0 ? absIdx : i + 8 + offset;
       el.style.animationDelay = `${i * 0.04}s`;
       el.innerHTML = `
+        <div class="card-image" style="${cardImageStyle(a)}"></div>
         <div class="card-cat">
           ${esc(a.category || 'Haber')}
           ${a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : ''}
