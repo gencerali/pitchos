@@ -117,23 +117,25 @@ async function processSite(site, env) {
     tokensIn: 0, tokensOut: 0, costEur: 0,
   };
 
-  // ── FETCH (RSS + web search + beIN in parallel) ──────────────
-  const [rssArticles, { articles: webArticles, usage: fetchUsage }, { articles: beINArticles, usage: beINUsage }] = await Promise.all([
+  // ── FETCH (RSS + web search + beIN + Twitter in parallel) ─────
+  const [rssArticles, { articles: webArticles, usage: fetchUsage }, { articles: beINArticles, usage: beINUsage }, { articles: twitterArticles, usage: twitterUsage }] = await Promise.all([
     fetchRSSArticles(site),
     fetchArticles(site, env),
     fetchBeIN(site, env),
+    fetchTwitterSources(site, env),
   ]);
-  stats.claudeCalls += 2; // web search + beIN
+  stats.claudeCalls += 3; // web search + beIN + twitter
   addUsagePhase(stats, fetchUsage, MODEL_FETCH, 'scout');
   addUsagePhase(stats, beINUsage, MODEL_FETCH, 'scout');
+  addUsagePhase(stats, twitterUsage, MODEL_FETCH, 'scout');
 
   // ── PRE-FILTER (pure JS, zero Claude calls) ──────────────────
   const seenHashes = await getSeenHashes(env, site.short_code);
-  const allFetched = [...rssArticles, ...webArticles, ...beINArticles];
+  const allFetched = [...rssArticles, ...webArticles, ...beINArticles, ...twitterArticles];
   const preFiltered = preFilter(allFetched, seenHashes);
   stats.fetched      = preFiltered.length;
   stats.skipped_seen = allFetched.length - dedupeByTitle(allFetched).length;
-  console.log(`${site.short_code}: ${rssArticles.length} RSS + ${webArticles.length} web + ${beINArticles.length} beIN → ${preFiltered.length} after pre-filter`);
+  console.log(`${site.short_code}: ${rssArticles.length} RSS + ${webArticles.length} web + ${beINArticles.length} beIN + ${twitterArticles.length} twitter → ${preFiltered.length} after pre-filter`);
 
   if (preFiltered.length === 0) {
     await logFetch(env, site.id, 'partial', stats, 'No articles after pre-filter');
@@ -286,7 +288,6 @@ async function saveSeenHashes(env, siteCode, articles) {
 // titleOnly: only check title for keyword match (international sources)
 // ntvFallback: HTML fallback URL if RSS returns 0 items
 const RSS_FEEDS = [
-  { url: 'https://nitter.privacydev.net/Besiktas/rss',     name: 'Beşiktaş JK Resmi', trust: 'official',      sport: 'football' },
   { url: 'https://www.ntvspor.net/rss/kategori/futbol',    name: 'NTV Spor',           trust: 'broadcast',     sport: 'football', ntvFallback: 'https://www.ntvspor.net/futbol/takim/besiktas' },
   { url: 'https://www.fotomac.com.tr/rss/Besiktas.xml',    name: 'Fotomaç',            trust: 'press',         sport: 'football' },
   { url: 'https://www.fotomac.com.tr/rss/Basketbol.xml',   name: 'Fotomaç Basketbol',  trust: 'press',         sport: 'basketball' },
@@ -294,8 +295,6 @@ const RSS_FEEDS = [
   { url: 'https://www.trthaber.com/spor_articles.rss',     name: 'TRT Haber',          trust: 'broadcast',     sport: 'football' },
   { url: 'https://www.aspor.com.tr/rss/anasayfa.xml',      name: 'A Spor',             trust: 'broadcast',     sport: 'football' },
   { url: 'https://www.hurriyet.com.tr/rss/spor',           name: 'Hürriyet',           trust: 'press',         sport: 'football' },
-  { url: 'https://nitter.privacydev.net/firatgunayer/rss',  name: 'Fırat Günayer',      trust: 'journalist',    sport: 'football', titleOnly: true },
-  { url: 'https://nitter.privacydev.net/FabrizioRomano/rss', name: 'Fabrizio Romano',  trust: 'journalist',    sport: 'football', titleOnly: true },
   { url: 'https://www.transfermarkt.com/rss/news',         name: 'Transfermarkt',      trust: 'international', sport: 'football', titleOnly: true },
   { url: 'https://www.skysports.com/rss/12040',            name: 'Sky Sports',         trust: 'international', sport: 'football', titleOnly: true },
 ];
@@ -445,6 +444,46 @@ async function fetchNTVSporFromHTML(fallbackUrl, sourceName) {
   } catch (e) {
     console.error(`NTV Spor HTML fallback failed: ${e.message}`);
     return [];
+  }
+}
+
+// ─── FETCH TWITTER SOURCES via Claude web search ─────────────
+async function fetchTwitterSources(site, env) {
+  const prompt = `Search Twitter/X for recent posts: "from:Besiktas OR from:firatgunayer besiktas"
+Find the latest tweets about Beşiktaş from these accounts. Return ONLY a JSON array (no other text):
+[{"title":"tweet text","url":"tweet url","summary":"tweet text","published_at":"ISO date or null","account":"Besiktas or firatgunayer"}]
+Maximum 5 results. Only include posts directly about Beşiktaş.`;
+
+  let response;
+  try {
+    response = await callClaude(env, MODEL_FETCH, prompt, true, 600);
+  } catch (e) {
+    console.error('fetchTwitterSources failed:', e.message);
+    return { articles: [], usage: null };
+  }
+
+  const allText = response.content.map(b => b.type === 'text' ? b.text : '').join(' ');
+  const match = allText.match(/\[[\s\S]*?\]/);
+  if (!match) return { articles: [], usage: response.usage };
+
+  try {
+    const raw = JSON.parse(match[0]);
+    const articles = (Array.isArray(raw) ? raw : []).filter(a => a.title).map(a => ({
+      title:        a.title,
+      summary:      a.summary || a.title,
+      url:          a.url || '',
+      source:       a.account === 'Besiktas' ? 'Beşiktaş JK Resmi' : 'Fırat Günayer',
+      trust_tier:   a.account === 'Besiktas' ? 'official' : 'journalist',
+      sport:        'football',
+      published_at: a.published_at || null,
+      time_ago:     a.published_at ? relativeTime(new Date(a.published_at).getTime()) : 'Güncel',
+      is_fresh:     true,
+    }));
+    console.log(`Twitter sources: ${articles.length} tweets`);
+    return { articles, usage: response.usage };
+  } catch (e) {
+    console.error('fetchTwitterSources parse failed:', e.message);
+    return { articles: [], usage: response.usage };
   }
 }
 
