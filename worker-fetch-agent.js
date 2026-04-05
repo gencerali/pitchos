@@ -194,9 +194,10 @@ async function processSite(site, env) {
 
   const allWritten = [...writtenTop, ...writtenRem];
 
-  // Route by NVS
-  const toPublish = allWritten.filter(a => a.nvs >= site.auto_publish_threshold);
-  const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < site.auto_publish_threshold);
+  // Route by NVS (publish threshold temporarily lowered to 30)
+  const publishThreshold = Math.min(site.auto_publish_threshold, 30);
+  const toPublish = allWritten.filter(a => a.nvs >= publishThreshold);
+  const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < publishThreshold);
   stats.published = toPublish.length;
   stats.queued    = toQueue.length;
 
@@ -204,9 +205,9 @@ async function processSite(site, env) {
   if (toPublish.length > 0) await saveArticles(env, site.id, toPublish, 'published');
   if (toQueue.length > 0)   await saveArticles(env, site.id, toQueue,   'pending');
 
-  // Cache published articles to KV
+  // Cache published + queued articles to KV (fans see both)
   const existing = await getCachedArticles(env, site.short_code);
-  const mergedKV  = mergeAndDedupe([...toPublish, ...existing], 20);
+  const mergedKV  = mergeAndDedupe([...toPublish, ...toQueue, ...existing], 20);
   await env.PITCHOS_CACHE.put(
     `articles:${site.short_code}`,
     JSON.stringify(mergedKV.map(a => ({
@@ -234,7 +235,7 @@ async function processSite(site, env) {
 }
 // ─── PRE-FILTER (pure JS, zero Claude calls) ─────────────────
 const BJK_REGEX = /beşiktaş|besiktas|bjk|kartal|siyah.beyaz/i;
-const CUTOFF_48H = 48 * 60 * 60 * 1000;
+const CUTOFF_48H = 72 * 60 * 60 * 1000;
 
 function preFilter(articles, seenHashes) {
   const cutoff = Date.now() - CUTOFF_48H;
@@ -571,11 +572,25 @@ function relativeTime(ms) {
 }
 
 // ─── DEDUPE BY TITLE SIMILARITY ──────────────────────────────
+// Key tokens: player names, scores (e.g. "2-1"), and club/team words worth deduping on
+const KEY_TOKEN_RE = /\b([A-ZÇĞİÖŞÜa-zçğışöşü]{4,}|\d+-\d+)\b/g;
+
+function extractKeyTokens(title) {
+  return new Set((title.match(KEY_TOKEN_RE) || []).map(t => t.toLowerCase()));
+}
+
 function dedupeByTitle(articles) {
   const kept = [];
   for (const a of articles) {
     const aNorm = normalizeTitle(a.title);
-    const isDupe = kept.some(k => titleSimilarity(aNorm, normalizeTitle(k.title)) > 0.4);
+    const aKeys = extractKeyTokens(a.title);
+    const isDupe = kept.some(k => {
+      if (titleSimilarity(aNorm, normalizeTitle(k.title)) > 0.3) return true;
+      const kKeys = extractKeyTokens(k.title);
+      let shared = 0;
+      for (const t of aKeys) if (kKeys.has(t)) shared++;
+      return shared >= 3;
+    });
     if (!isDupe) kept.push(a);
   }
   return kept;
@@ -694,7 +709,7 @@ async function writeArticles(articles, site, env, model = MODEL_SUMMARY, useFull
   const groups = [];
   for (const a of articles) {
     const norm = normalizeTitle(a.title);
-    const existing = groups.find(g => titleSimilarity(norm, normalizeTitle(g[0].title)) > 0.4);
+    const existing = groups.find(g => titleSimilarity(norm, normalizeTitle(g[0].title)) > 0.3);
     if (existing) existing.push(a);
     else groups.push([a]);
   }
