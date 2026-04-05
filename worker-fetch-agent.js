@@ -33,11 +33,11 @@ const COST = {
 // ─── MAIN ENTRY POINT ────────────────────────────────────────
 export default {
   // HTTP trigger (for manual testing: fetch worker URL)
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/run') {
-      const result = await runAllSites(env);
-      return Response.json(result);
+      ctx.waitUntil(runAllSites(env));
+      return Response.json({ status: 'started', message: 'Running in background — check /cache in ~60s' });
     }
     if (url.pathname === '/cache') {
       const siteCode = url.searchParams.get('site') || 'BJK';
@@ -59,6 +59,16 @@ export default {
       });
       const text = await res.text();
       return new Response(text, { headers: { 'Content-Type': 'application/json' }});
+    }
+    if (url.pathname === '/status') {
+      const siteCode = url.searchParams.get('site') || 'BJK';
+      const log = await supabase(env, 'GET',
+        `/rest/v1/fetch_logs?select=*&order=created_at.desc&limit=1`
+      );
+      return Response.json(
+        log?.[0] || { error: 'No fetch logs found' },
+        { headers: { 'Access-Control-Allow-Origin': '*' } }
+      );
     }
     if (url.pathname === '/stats') {
       const siteCode = url.searchParams.get('site') || 'BJK';
@@ -417,8 +427,14 @@ async function writeArticles(articles, site, env) {
     else groups.push([a]);
   }
 
+  // Sort groups by highest NVS in group, cap at 3 to stay within time limits
+  const sortedGroups = groups
+    .sort((a, b) => Math.max(...b.map(x => x.nvs || 0)) - Math.max(...a.map(x => x.nvs || 0)))
+    .slice(0, 3);
+  console.log(`writeArticles: ${groups.length} groups → writing top ${sortedGroups.length}`);
+
   // Write one article per group in parallel
-  const results = await Promise.allSettled(groups.map(group => writeOneArticle(group, site, env)));
+  const results = await Promise.allSettled(sortedGroups.map(group => writeOneArticle(group, site, env)));
 
   const written = [];
   const totalUsage = { input_tokens: 0, output_tokens: 0 };
