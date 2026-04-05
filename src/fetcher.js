@@ -48,7 +48,8 @@ async function fetchOneFeed(feed, site) {
 
   const xml = await res.text();
   const cutoff = Date.now() - CUTOFF_48H;
-  const items = xml.match(/<item[\s\S]*?<\/item>/g) || [];
+  let items = xml.match(/<item[\s\S]*?<\/item>/g) || [];
+  items = items.slice(0, 15);
   console.log(`RSS [${sourceName}]: ${items.length} total items in feed`);
 
   if (items.length === 0 && feed.ntvFallback) {
@@ -149,8 +150,13 @@ async function fetchNTVSporFromHTML(fallbackUrl, sourceName) {
   }
 }
 
-// ─── WEB SEARCH (Claude) ──────────────────────────────────────
+// ─── WEB SEARCH (Claude) — disabled ──────────────────────────
 export async function fetchArticles(site, env) {
+  return { articles: [], usage: { input_tokens: 0, output_tokens: 0 } };
+}
+
+/* original fetchArticles (disabled):
+export async function _fetchArticles(site, env) {
   const searchPrompt = `Search the web for the latest ${site.team_name} football news from the last 24 hours. Find transfers, match results, injuries, squad updates, press conferences.`;
   const searchResponse = await callClaude(env, MODEL_FETCH, searchPrompt, true);
 
@@ -207,9 +213,13 @@ ${allText.slice(0, 1500)}`;
   };
   return { articles, usage };
 }
+*/
 
 // ─── beIN SPORTS (Claude web search) ─────────────────────────
 export async function fetchBeIN(site, env) {
+  // Only run between 8am and 11pm Istanbul time (UTC+3)
+  const hour = new Date().getUTCHours() + 3;
+  if (hour < 8 || hour > 23) return { articles: [], usage: { input_tokens: 0, output_tokens: 0 } };
   const prompt = `Search "site:beinsports.com.tr beşiktaş" for the latest Beşiktaş news from beIN Sports Turkey. Return ONLY a JSON array (no other text):
 [{"title":"...","url":"...","summary":"...","published_at":"ISO date or null"}]
 Maximum 5 results. Only include items directly about Beşiktaş.`;

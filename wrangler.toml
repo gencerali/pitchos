@@ -10,4 +10,4 @@ id = "dedaea653ed542cca25e6cc2551dd1c3"
 SUPABASE_URL = "https://qfgstxswcsodaaksjztz.supabase.co"
 
 [triggers]
-crons = ["0 * * * *"]
+crons = ["0 */2 * * *"]
