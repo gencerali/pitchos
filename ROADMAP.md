@@ -88,6 +88,24 @@ A dynamic database of players, coaches, and staff per team — used for:
 - departed_2y: monitored only if mentioned with BJK keyword together
 - targets/rumored: monitored (transfer window)
 - Auto-generate name_variations: "Hyeon-gyu Oh" → ["Oh","Hyeon","현규","오현규"]
+- journalist/international feeds filtered by BJK_KEYWORDS array (title + description)
+- press/broadcast/official feeds use team-specific RSS URLs — no keyword filter needed
+
+#### Active Keyword List (BJK_KEYWORDS — April 2026, hardcoded in src/utils.js):
+beşiktaş, besiktas, bjk, kartal,
+ersin destanoğlu, devis vasquez, vasquez,
+amir murillo, murillo, emmanuel agbadou, agbadou,
+tiago djalo, djalo, felix uduokhai, uduokhai,
+emirhan topçu, emirhan, rıdvan yılmaz, rıdvan, taylan bulut, taylan,
+gökhan sazdağı, orkun kökçü, orkun, wilfred ndidi, ndidi,
+kristjan asllani, asllani, salih uçan, kartal kayra yılmaz, kartal kayra,
+milot rashica, rashica, junior olaitan, olaitan,
+tammy abraham, abraham, vaclav cerny, cerny,
+el bilal touré, el bilal, hyeon-gyu oh, oh hyeon,
+jota silva, jota, cengiz ünder, cengiz,
+mustafa hekimoğlu, hekimoglu, sergen yalçın, sergen,
+serdal adalı, serdal, mert günok, jean onana, onana
+(Sprint 6: move to squad_members table, auto-build from DB)
 
 #### Console UI (Sprint 6):
 - Squad roster view per team with status badges

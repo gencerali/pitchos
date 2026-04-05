@@ -1,9 +1,10 @@
-import { callClaude, MODEL_FETCH, extractText, sleep } from './utils.js';
+import { callClaude, MODEL_FETCH, extractText, sleep, BJK_KEYWORDS } from './utils.js';
 import { BJK_REGEX, CUTOFF_48H } from './processor.js';
 
 // ─── RSS FEEDS ────────────────────────────────────────────────
 // trust values: official, broadcast, press, journalist, international, aggregator
-// titleOnly: only check title for keyword match (international sources)
+// journalist/international: filtered by BJK_KEYWORDS (title + description)
+// press/broadcast/official: team-specific feeds, no feed-level keyword filter
 // ntvFallback: HTML fallback URL if RSS returns 0 items
 export const RSS_FEEDS = [
   { url: 'https://www.ntvspor.net/rss/kategori/futbol',   name: 'NTV Spor',          trust: 'broadcast',     sport: 'football', ntvFallback: 'https://www.ntvspor.net/futbol/takim/besiktas' },
@@ -33,7 +34,6 @@ async function fetchOneFeed(feed, site) {
   const sourceName = feed.name || feed.source;
   const trustTier  = feed.trust || feed.trust_tier || 'unknown';
   const feedSport  = feed.sport || 'football';
-  const titleOnly  = feed.titleOnly || false;
 
   let res;
   try {
@@ -75,10 +75,12 @@ async function fetchOneFeed(feed, site) {
     if (pubMs && pubMs < cutoff) continue;
     recentCount++;
 
-    const haystack = titleOnly
-      ? title.toLowerCase()
-      : (title + ' ' + rawDesc + ' ' + rawContent).toLowerCase();
-    if (!BJK_REGEX.test(haystack)) continue;
+    // journalist/international feeds: match by player/staff name in title + description
+    // press/broadcast/official feeds: team-specific URLs, no feed-level keyword filter needed
+    if (trustTier === 'journalist' || trustTier === 'international') {
+      const haystack = (title + ' ' + (rawDesc || '')).toLowerCase();
+      if (!BJK_KEYWORDS.some(kw => haystack.includes(kw))) continue;
+    }
 
     const summary   = stripHTML(rawDesc).slice(0, 500) || title;
     const full_text = rawContent

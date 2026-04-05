@@ -9,6 +9,40 @@ const COST = {
   'claude-sonnet-4-6':         { input: 2.75, output: 13.75 },
 };
 
+// ─── SQUAD KEYWORD LIST (BJK players, coaches, staff) ────────
+// Used to filter journalist/international feeds by player name
+export const BJK_KEYWORDS = [
+  'beşiktaş','besiktas','bjk','kartal',
+  'ersin destanoğlu','ersin destanoglu','ersin',
+  'devis vasquez','vasquez',
+  'amir murillo','murillo',
+  'emmanuel agbadou','agbadou',
+  'tiago djalo','djalo',
+  'felix uduokhai','uduokhai',
+  'emirhan topçu','emirhan topcu','emirhan',
+  'rıdvan yılmaz','ridvan yilmaz','rıdvan',
+  'taylan bulut','taylan',
+  'gökhan sazdağı','gokhan sazdagi',
+  'orkun kökçü','orkun kokcu','orkun',
+  'wilfred ndidi','ndidi',
+  'kristjan asllani','asllani',
+  'salih uçan','salih ucan',
+  'kartal kayra yılmaz','kartal kayra',
+  'milot rashica','rashica',
+  'junior olaitan','olaitan',
+  'tammy abraham','abraham',
+  'vaclav cerny','cerny',
+  'el bilal touré','el bilal toure','el bilal',
+  'hyeon-gyu oh','hyeon gyu oh','hyeon-gyu','oh hyeon',
+  'jota silva','jota',
+  'cengiz ünder','cengiz under','cengiz',
+  'mustafa hekimoğlu','hekimoğlu','hekimoglu',
+  'sergen yalçın','sergen yalcin','sergen',
+  'serdal adalı','serdal adali','serdal',
+  'mert günok','mert gunok',
+  'jean onana','onana',
+];
+
 // ─── CLAUDE API CALL ─────────────────────────────────────────
 export async function callClaude(env, model, prompt, useWebSearch, maxTokens = 1000) {
   const body = {
