@@ -123,13 +123,23 @@ async function processSite(site, env) {
   ]);
   stats.claudeCalls++;
   addUsage(stats, fetchUsage, MODEL_FETCH);
-  const combined = dedupeByTitle([...rssArticles, ...webArticles]);
+  const deduped = dedupeByTitle([...rssArticles, ...webArticles]);
+  // Cap to 15 most recent articles before scoring
+  const combined = deduped
+    .sort((a, b) => {
+      const ta = a.published_at ? new Date(a.published_at).getTime() : 0;
+      const tb = b.published_at ? new Date(b.published_at).getTime() : 0;
+      return tb - ta; // descending — most recent first, unparseable (0) sorts last
+    })
+    .slice(0, 15);
   stats.fetched = combined.length;
-  console.log(`${site.short_code}: ${rssArticles.length} RSS + ${webArticles.length} web = ${combined.length} combined`);
+  console.log(`${site.short_code}: ${rssArticles.length} RSS + ${webArticles.length} web = ${deduped.length} deduped → ${combined.length} capped for scoring`);
   if (combined.length === 0) {
     await logFetch(env, site.id, 'partial', stats, 'No articles returned');
     return stats;
   }
+  // 2s delay between scout Claude call and score call to avoid per-minute token limit
+  await sleep(2000);
   // Score on lightweight fields only
   const { scored, usage: scoreUsage } = await scoreArticles(combined, site, env);
   const mergedScored = combined.map((orig, i) => ({
