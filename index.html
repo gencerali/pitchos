@@ -451,10 +451,160 @@
     }
     .btn-kapat:hover { background: var(--gray); border-color: var(--muted); }
 
+    /* ── HERO CAROUSEL ── */
+    .hero-carousel {
+      position: relative; overflow: hidden;
+      background: var(--black);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .carousel-track {
+      display: flex;
+      transition: transform 0.45s cubic-bezier(0.4,0,0.2,1);
+      will-change: transform;
+    }
+
+    .carousel-slide {
+      flex: 0 0 100%;
+      height: 420px;
+      position: relative;
+      cursor: pointer;
+      overflow: hidden;
+    }
+
+    .slide-bg {
+      position: absolute; inset: 0;
+      background-size: cover; background-position: center;
+      transition: transform 0.6s ease;
+    }
+    .carousel-slide:hover .slide-bg { transform: scale(1.03); }
+
+    .slide-overlay {
+      position: absolute; inset: 0;
+      background: linear-gradient(
+        to bottom,
+        rgba(0,0,0,0.15) 0%,
+        rgba(0,0,0,0.3) 40%,
+        rgba(0,0,0,0.88) 100%
+      );
+    }
+
+    .slide-top {
+      position: absolute; top: 1.25rem; left: 1.5rem; right: 1.5rem;
+      display: flex; justify-content: space-between; align-items: flex-start;
+    }
+
+    .slide-cat-badge {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.62rem; letter-spacing: 0.2em;
+      text-transform: uppercase; font-weight: 700;
+      background: var(--red); color: var(--white);
+      padding: 0.25rem 0.6rem; border-radius: 1px;
+    }
+
+    .slide-score-badge {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.72rem; letter-spacing: 0.1em;
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(255,255,255,0.15);
+      padding: 0.2rem 0.55rem; border-radius: 1px;
+      color: var(--white);
+    }
+
+    .slide-content {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 1.25rem 1.5rem 1.5rem;
+    }
+
+    .slide-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 2.2rem; line-height: 1.05;
+      color: var(--white); letter-spacing: 0.03em;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.7);
+      margin-bottom: 0.5rem;
+      display: -webkit-box; -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical; overflow: hidden;
+    }
+
+    .slide-summary {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.92rem; color: rgba(242,240,235,0.8);
+      line-height: 1.4; margin-bottom: 0.9rem;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    .slide-meta {
+      display: flex; justify-content: space-between; align-items: center;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.7rem; color: rgba(242,240,235,0.65);
+      letter-spacing: 0.08em;
+    }
+
+    .slide-source { display: flex; align-items: center; gap: 0.4rem; }
+    .slide-src-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--red);
+    }
+
+    .slide-read {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.75rem; letter-spacing: 0.12em;
+      color: var(--white); text-transform: uppercase;
+      border-bottom: 1px solid rgba(255,255,255,0.5);
+      padding-bottom: 1px;
+    }
+
+    /* Arrow buttons */
+    .carousel-arrow {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.15);
+      color: var(--white); font-size: 1.1rem; line-height: 1;
+      width: 2.4rem; height: 2.4rem;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; z-index: 10;
+      transition: background 0.15s;
+      border-radius: 1px;
+    }
+    .carousel-arrow:hover { background: rgba(192,57,43,0.75); }
+    .carousel-arrow.prev { left: 1rem; }
+    .carousel-arrow.next { right: 1rem; }
+
+    /* Dot indicators */
+    .carousel-dots {
+      position: absolute; bottom: 1rem; left: 50%;
+      transform: translateX(-50%);
+      display: flex; gap: 0.4rem; z-index: 10;
+    }
+
+    .carousel-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: rgba(255,255,255,0.35);
+      cursor: pointer; transition: background 0.2s, transform 0.2s;
+    }
+    .carousel-dot.active {
+      background: var(--white); transform: scale(1.3);
+    }
+
+    /* ── LOAD MORE ── */
+    .load-more-row {
+      display: flex; justify-content: center; padding: 1rem 0 0.5rem;
+    }
+    .btn-load-more {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.75rem; letter-spacing: 0.2em;
+      text-transform: uppercase;
+      background: none; border: 1px solid var(--border);
+      color: var(--muted); padding: 0.6rem 1.8rem;
+      cursor: pointer; transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-load-more:hover { border-color: var(--muted); color: var(--white); }
+
     /* ── RESPONSIVE ── */
     @media(max-width:900px) {
       .news-grid, .video-grid { grid-template-columns: repeat(2,1fr); }
       .card.featured { grid-column: span 2; }
+      .carousel-slide { height: 340px; }
+      .slide-title { font-size: 1.8rem; }
     }
     @media(max-width:580px) {
       .news-grid, .video-grid { grid-template-columns: 1fr; }
@@ -462,6 +612,10 @@
       .card.featured .card-title { font-size: 1.2rem; }
       .logo-name { font-size: 1.7rem; }
       .radar-banner { display: none; }
+      .carousel-slide { height: 280px; }
+      .slide-title { font-size: 1.5rem; }
+      .slide-summary { display: none; }
+      .carousel-arrow { display: none; }
     }
   </style>
 </head>
@@ -514,6 +668,14 @@
   <div class="matchday-text">⚽ MAÇ GÜNÜ — Beşiktaş vs Galatasaray · Bugün 20:00 · Canlı Yorum Açık</div>
 </div>
 
+<!-- ── HERO CAROUSEL ── -->
+<div class="hero-carousel" id="heroCarousel">
+  <div class="carousel-track" id="carouselTrack"></div>
+  <button class="carousel-arrow prev" id="carouselPrev" aria-label="Önceki">&#8592;</button>
+  <button class="carousel-arrow next" id="carouselNext" aria-label="Sonraki">&#8594;</button>
+  <div class="carousel-dots" id="carouselDots"></div>
+</div>
+
 <!-- ── MAIN ── -->
 <main>
   <div class="section-row">
@@ -531,6 +693,9 @@
     <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
     <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
     <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
+  </div>
+  <div class="load-more-row" id="loadMoreRow" style="display:none">
+    <button class="btn-load-more" id="loadMoreBtn">Daha Fazla Haber →</button>
   </div>
 
   <!-- ── VIDEO MOMENTS ── -->
@@ -600,18 +765,23 @@
 
 <script>
   // ── CONFIG ──────────────────────────────────────────────────
-  // Replace with your Cloudflare Worker URL after deployment
   const WORKER_URL = 'https://pitchos-fetch-agent.gencerali.workers.dev';
   const SITE_CODE  = 'BJK';
 
-  // ── MOCK DATA (used when worker not yet deployed) ────────────
+  // ── MOCK DATA ────────────────────────────────────────────────
   const MOCK_ARTICLES = [
-    { title: 'Beşiktaş, Ciro Immobile transferinde sona geldi', summary: 'Siyah-beyazlılar, İtalyan forvet için Lazio ile anlaştı. Transferin bu hafta açıklanması bekleniyor.', source: 'Fanatik', url: '#', category: 'Transfer', nvs: 88, time_ago: '1 saat önce' },
-    { title: 'Rıdvan Dilmen: "Beşiktaş bu sezon şampiyon olur"', summary: 'Eski teknik direktör, siyah-beyazlıların bu sezonki kadrosunu değerlendirdi.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 72, time_ago: '3 saat önce' },
-    { title: 'Alex Oxlade-Chamberlain sakatlandı', summary: 'İngiliz orta saha oyuncusu antrenmanı erken terk etti. Maç öncesi durumu belirsiz.', source: 'Milliyet', url: '#', category: 'Injury', nvs: 81, time_ago: '5 saat önce' },
-    { title: 'Beşiktaş - Trabzonspor maçı bilet satışları başladı', summary: 'Derbinin biletleri resmi site üzerinden satışa çıktı. İlk iki saat içinde büyük bölümü tükendi.', source: 'Fotomac', url: '#', category: 'Match', nvs: 65, time_ago: '2 saat önce' },
-    { title: 'Semih Kılıçsoy Almanya yolunda', summary: 'Genç yıldızın Bundesliga kulübüyle görüştüğü öğrenildi. Kulüp henüz açıklama yapmadı.', source: 'Fırat Günayer', url: '#', category: 'Transfer', nvs: 76, time_ago: '30 dk önce' },
-    { title: 'Teknik direktör basın toplantısı yaptı', summary: 'Önümüzdeki maç için hazırlıkların tamamlandığını açıkladı. Forma şüphelisi 2 isim var.', source: 'BJK Official', url: '#', category: 'Squad', nvs: 68, time_ago: '4 saat önce' },
+    { title: 'Beşiktaş, Ciro Immobile transferinde sona geldi', summary: 'Siyah-beyazlılar, İtalyan forvet için Lazio ile anlaştı. Transferin bu hafta açıklanması bekleniyor.', source: 'Fanatik', url: '#', category: 'Transfer', nvs: 88, golden_score: 4, time_ago: '1 saat önce' },
+    { title: 'Rıdvan Dilmen: "Beşiktaş bu sezon şampiyon olur"', summary: 'Eski teknik direktör, siyah-beyazlıların bu sezonki kadrosunu değerlendirdi.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 72, golden_score: 3, time_ago: '3 saat önce' },
+    { title: 'Alex Oxlade-Chamberlain sakatlandı', summary: 'İngiliz orta saha oyuncusu antrenmanı erken terk etti. Maç öncesi durumu belirsiz.', source: 'Milliyet', url: '#', category: 'Injury', nvs: 81, golden_score: 3, time_ago: '5 saat önce' },
+    { title: 'Beşiktaş - Trabzonspor maçı bilet satışları başladı', summary: 'Derbinin biletleri resmi site üzerinden satışa çıktı. İlk iki saat içinde büyük bölümü tükendi.', source: 'Fotomac', url: '#', category: 'Match', nvs: 65, golden_score: 2, time_ago: '2 saat önce' },
+    { title: 'Semih Kılıçsoy Almanya yolunda', summary: 'Genç yıldızın Bundesliga kulübüyle görüştüğü öğrenildi. Kulüp henüz açıklama yapmadı.', source: 'Fırat Günayer', url: '#', category: 'Transfer', nvs: 76, golden_score: 'eye2', time_ago: '30 dk önce' },
+    { title: 'Teknik direktör basın toplantısı yaptı', summary: 'Önümüzdeki maç için hazırlıkların tamamlandığını açıkladı. Forma şüphelisi 2 isim var.', source: 'BJK Official', url: '#', category: 'Squad', nvs: 68, golden_score: 5, time_ago: '4 saat önce' },
+    { title: 'Beşiktaş Avrupa kupasında son 16ya kaldı', summary: 'Siyah-beyazlılar Konferans Ligi play-off turunu geçmeyi başardı.', source: 'NTV Spor', url: '#', category: 'Match', nvs: 85, golden_score: 5, time_ago: '6 saat önce' },
+    { title: 'Taraftar grubu açıklaması bekleniyor', summary: 'Yönetimle yaşanan gerilim sonrası çarşamba günü ortak bildiri yayımlanacak.', source: 'Hürriyet', url: '#', category: 'Club', nvs: 60, golden_score: 2, time_ago: '7 saat önce' },
+    { title: 'Yeni stadyum projesi onaylandı', summary: 'Beşiktaş Belediye ile anlaşma tamamlandı, inşaat 2027\'de başlayacak.', source: 'BJK Official', url: '#', category: 'Club', nvs: 90, golden_score: 5, time_ago: '8 saat önce' },
+    { title: 'Merkez hakem kurulu açıklaması', summary: 'Geçen haftaki penaltı kararlarına ilişkin resmi değerlendirme yapıldı.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 55, golden_score: 3, time_ago: '9 saat önce' },
+    { title: 'Genç yıldız milli takıma çağrıldı', summary: 'Teknik direktör, kadroya ilk kez çağırdığı isimleri açıkladı.', source: 'A Spor', url: '#', category: 'Squad', nvs: 70, golden_score: 4, time_ago: '10 saat önce' },
+    { title: 'Basketbol şampiyonluk yolunda', summary: 'Beşiktaş Fibabanka EuroCup\'ta finale çok yakın.', source: 'Fotomaç Basketbol', url: '#', category: 'Basketball', nvs: 75, golden_score: 3, time_ago: '11 saat önce' },
   ];
 
   const MOCK_VIDEOS = [
@@ -633,6 +803,42 @@
     { name: 'Romain Faivre',  nvs: 61 },
   ];
 
+  // ── HELPERS ──────────────────────────────────────────────────
+  let _articles = [];
+
+  function esc(s = '') {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function goldenScoreHTML(gs) {
+    if (!gs && gs !== 0) return '';
+    const s = String(gs);
+    if (s.startsWith('eye')) {
+      const n = parseInt(s.replace('eye','')) || 1;
+      return '👁️'.repeat(n);
+    }
+    const n = parseInt(s) || 1;
+    return '⚡'.repeat(Math.min(n, 5));
+  }
+
+  // Gradient fallbacks per category
+  const CAT_GRADIENTS = {
+    Transfer:   'linear-gradient(135deg,#1a0a00 0%,#0d0000 100%)',
+    Match:      'linear-gradient(135deg,#000d1a 0%,#000508 100%)',
+    Injury:     'linear-gradient(135deg,#1a1000 0%,#080808 100%)',
+    Squad:      'linear-gradient(135deg,#0a0a1a 0%,#080808 100%)',
+    Club:       'linear-gradient(135deg,#0d0d0d 0%,#080808 100%)',
+    Basketball: 'linear-gradient(135deg,#100a00 0%,#080808 100%)',
+  };
+
+  function slideBg(a) {
+    if (a.image_url) return `background-image:url(${esc(a.image_url)})`;
+    const cat = a.category || 'Club';
+    return `background:${CAT_GRADIENTS[cat] || CAT_GRADIENTS.Club}`;
+  }
+
   // ── INIT ─────────────────────────────────────────────────────
   async function init() {
     let articles = [];
@@ -644,44 +850,148 @@
       articles = MOCK_ARTICLES;
     }
 
-    renderArticles(articles);
+    _articles = articles;
+    renderCarousel(articles.slice(0, 8));
+    renderGrid(articles.slice(8), 0);
     renderTicker(articles);
-    renderRadar(MOCK_RADAR);      // Sprint 2: replace with real data
-    renderPulse(MOCK_PULSE);      // Sprint 2: replace with real data
-    renderVideos(MOCK_VIDEOS);    // Sprint 2: replace with real data
+    renderRadar(MOCK_RADAR);
+    renderPulse(MOCK_PULSE);
+    renderVideos(MOCK_VIDEOS);
     setTimestamp();
   }
 
-  // ── RENDER ARTICLES ──────────────────────────────────────────
-  function renderArticles(list) {
-    _articles = list;
-    const grid = document.getElementById('newsGrid');
-    grid.innerHTML = list.slice(0, 6).map((a, i) => {
-      const featured = i === 0 ? 'featured' : '';
-      const nvsClass = a.nvs >= 75 ? 'high' : a.nvs >= 55 ? 'med' : '';
-      return `
-        <div class="card ${featured}" role="button" tabindex="0"
-             data-idx="${i}"
-             onclick="openArticle(_articles[this.dataset.idx])"
-             onkeydown="if(event.key==='Enter')openArticle(_articles[this.dataset.idx])">
-          <div class="card-cat">
-            ${esc(a.category || 'Haber')}
-            ${a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : ''}
+  // ── CAROUSEL ─────────────────────────────────────────────────
+  let _carouselIdx   = 0;
+  let _carouselItems = [];
+  let _carouselTimer = null;
+
+  function renderCarousel(items) {
+    _carouselItems = items;
+    if (!items.length) {
+      document.getElementById('heroCarousel').style.display = 'none';
+      return;
+    }
+
+    const track = document.getElementById('carouselTrack');
+    track.innerHTML = items.map((a, i) => `
+      <div class="carousel-slide" data-cidx="${i}" onclick="openArticle(_carouselItems[${i}])">
+        <div class="slide-bg" style="${slideBg(a)}"></div>
+        <div class="slide-overlay"></div>
+        <div class="slide-top">
+          <span class="slide-cat-badge">${esc(a.category || 'Haber')}</span>
+          ${a.golden_score ? `<span class="slide-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : ''}
+        </div>
+        <div class="slide-content">
+          <div class="slide-title">${esc(a.title)}</div>
+          <div class="slide-summary">${esc(a.summary || '')}</div>
+          <div class="slide-meta">
+            <div class="slide-source">
+              <div class="slide-src-dot"></div>
+              ${esc(a.source || '')} · ${esc(a.time_ago || 'Güncel')}
+            </div>
+            <span class="slide-read">Oku →</span>
           </div>
-          <div class="card-title">${esc(a.title)}</div>
-          <div class="card-summary">${esc(a.summary)}</div>
-          <div class="card-meta">
-            <div class="card-source">
-              <div class="src-dot"></div>
-              ${esc(a.source)}
-            </div>
-            <div style="display:flex;align-items:center;gap:.75rem">
-              <span>${esc(a.time_ago || '')}</span>
-              <span class="card-link">Oku →</span>
-            </div>
+        </div>
+      </div>
+    `).join('');
+
+    // Dots
+    const dots = document.getElementById('carouselDots');
+    dots.innerHTML = items.map((_, i) =>
+      `<div class="carousel-dot${i===0?' active':''}" data-dot="${i}" onclick="goToSlide(${i})"></div>`
+    ).join('');
+
+    document.getElementById('carouselPrev').addEventListener('click', e => { e.stopPropagation(); prevSlide(); });
+    document.getElementById('carouselNext').addEventListener('click', e => { e.stopPropagation(); nextSlide(); });
+
+    // Auto-advance
+    startCarouselTimer();
+
+    // Pause on hover
+    const carousel = document.getElementById('heroCarousel');
+    carousel.addEventListener('mouseenter', () => clearInterval(_carouselTimer));
+    carousel.addEventListener('mouseleave', () => startCarouselTimer());
+
+    // Touch swipe
+    let touchX = 0;
+    carousel.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
+    carousel.addEventListener('touchend', e => {
+      const dx = e.changedTouches[0].clientX - touchX;
+      if (Math.abs(dx) > 40) dx < 0 ? nextSlide() : prevSlide();
+    });
+
+    goToSlide(0);
+  }
+
+  function goToSlide(idx) {
+    _carouselIdx = (idx + _carouselItems.length) % _carouselItems.length;
+    document.getElementById('carouselTrack').style.transform = `translateX(-${_carouselIdx * 100}%)`;
+    document.querySelectorAll('.carousel-dot').forEach((d, i) => {
+      d.classList.toggle('active', i === _carouselIdx);
+    });
+  }
+
+  function nextSlide() { goToSlide(_carouselIdx + 1); }
+  function prevSlide() { goToSlide(_carouselIdx - 1); }
+
+  function startCarouselTimer() {
+    clearInterval(_carouselTimer);
+    _carouselTimer = setInterval(nextSlide, 5000);
+  }
+
+  // ── NEWS GRID ────────────────────────────────────────────────
+  let _gridOffset = 0;
+  const GRID_PAGE = 9;
+
+  function renderGrid(items, offset) {
+    _gridOffset = offset;
+    const grid = document.getElementById('newsGrid');
+    const page = items.slice(offset, offset + GRID_PAGE);
+
+    if (offset === 0) {
+      grid.innerHTML = '';
+    }
+
+    page.forEach((a, i) => {
+      const absIdx = _articles.indexOf(a);
+      const nvsClass = a.nvs >= 75 ? 'high' : a.nvs >= 55 ? 'med' : '';
+      const el = document.createElement('div');
+      el.className = 'card';
+      el.setAttribute('role', 'button');
+      el.setAttribute('tabindex', '0');
+      el.dataset.absIdx = absIdx >= 0 ? absIdx : i + 8 + offset;
+      el.style.animationDelay = `${i * 0.04}s`;
+      el.innerHTML = `
+        <div class="card-cat">
+          ${esc(a.category || 'Haber')}
+          ${a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : ''}
+        </div>
+        <div class="card-title">${esc(a.title)}</div>
+        <div class="card-summary">${esc(a.summary)}</div>
+        <div class="card-meta">
+          <div class="card-source">
+            <div class="src-dot"></div>
+            ${esc(a.source)}
+          </div>
+          <div style="display:flex;align-items:center;gap:.75rem">
+            <span>${esc(a.time_ago || '')}</span>
+            <span class="card-link">Oku →</span>
           </div>
         </div>`;
-    }).join('');
+      el.addEventListener('click', () => openArticle(_articles[parseInt(el.dataset.absIdx)] || a));
+      el.addEventListener('keydown', e => { if (e.key === 'Enter') openArticle(_articles[parseInt(el.dataset.absIdx)] || a); });
+      grid.appendChild(el);
+    });
+
+    // Show/hide load more
+    const hasMore = offset + GRID_PAGE < items.length;
+    const row = document.getElementById('loadMoreRow');
+    row.style.display = hasMore ? 'flex' : 'none';
+
+    if (hasMore) {
+      const btn = document.getElementById('loadMoreBtn');
+      btn.onclick = () => renderGrid(items, offset + GRID_PAGE);
+    }
   }
 
   // ── RENDER TICKER ────────────────────────────────────────────
@@ -689,7 +999,6 @@
     const items = articles
       .map(a => `<span class="ticker-item">⚫ ${esc(a.title)}</span>`)
       .join('<span class="ticker-sep">|</span>');
-    // Duplicate for seamless loop
     document.getElementById('ticker').innerHTML = items + items;
   }
 
@@ -732,15 +1041,7 @@
       `Son güncelleme: ${new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`;
   }
 
-  function esc(s = '') {
-    return String(s)
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
   // ── MODAL ────────────────────────────────────────────────────
-  let _articles = [];
-
   function openArticle(a) {
     if (!a) return;
     const nvsClass = a.nvs >= 75 ? 'high' : a.nvs >= 55 ? 'med' : '';
@@ -754,7 +1055,6 @@
     document.getElementById('modalSources').textContent   = a.source
       ? `Kaynaklar: ${a.source}` : '';
 
-    // Render full_body as paragraphs, fall back to summary
     const body = a.full_body || a.summary || '';
     document.getElementById('modalArticle').innerHTML = body
       .split(/\n\n+/)
