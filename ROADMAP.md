@@ -171,6 +171,27 @@ original content, and passive income through advertising and subscriptions.
 - Clone Beşiktaş → Team 2 (Galatasaray or Fenerbahçe)
 - Cross-site console dashboard
 
+### Console — Fetch Schedule Configuration (Sprint 6)
+Per-site settings manageable from console UI:
+
+Fetch schedule:
+- Global cron interval (every 1h / 2h / 4h / 6h / 12h / 24h)
+- Active hours per site (e.g. 08:00-23:00 Istanbul time only)
+- Per-source enable/disable toggle
+- Per-source max items per fetch (5 / 10 / 15 / 20)
+- beIN web search: on/off + max runs per day (1/2/4/8/24)
+- Web search fallback: on/off
+
+Token budget controls:
+- Max tokens per run (soft limit — skip writeArticles if exceeded)
+- Max Sonnet calls per run (1 / 2 / 3)
+- Score-only mode toggle (skip writeArticles entirely, use RSS summary)
+- Cost alert threshold per day (email if exceeded)
+
+These settings stored in Supabase sites table as JSONB column fetch_config.
+Worker reads fetch_config at start of each run and applies settings dynamically.
+No redeployment needed to change schedule or limits.
+
 ### 📋 Sprint 7 — Scale to 5 Teams
 - 3 more Turkish teams
 - Social account discovery engine
@@ -210,6 +231,9 @@ original content, and passive income through advertising and subscriptions.
 - Score visibility: Golden Score badges public, raw NVS internal only
 - Learning: behavioral analytics not LLM retraining
 - Photos: Sprint 3 (Wikimedia/Unsplash), Sprint 5 (Twitter embeds)
+- Fetch schedule and token budgets will be console-configurable per site (Sprint 6)
+- Current hardcoded values are temporary until console UI is built
+- fetch_config JSONB column to be added to sites table in Sprint 6 migration
 
 ### Token Optimization Framework
 - Pre-filter in pure JS before any Claude call: 48h recency, keyword regex, dedup, seen-hash check, min 50 chars, cap 20
