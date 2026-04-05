@@ -737,6 +737,12 @@ Items: ${JSON.stringify(slim)}`;
     const clean = text.replace(/```json|```/gi, '').trim();
     scored = JSON.parse(clean);
     if (!Array.isArray(scored)) scored = articles.map(a => ({ ...a, nvs: 50 }));
+    scored = scored.map(s => ({
+      ...s,
+      golden_score: (s.golden_score == null || s.golden_score === 'N/A' || s.golden_score === '')
+        ? 1
+        : s.golden_score,
+    }));
   } catch (e) {
     // Fallback: assign neutral score
     scored = articles.map(a => ({ ...a, nvs: 50, nvs_notes: 'Scoring failed, defaulted' }));
