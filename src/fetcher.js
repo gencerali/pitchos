@@ -25,19 +25,19 @@ export const RSS_FEEDS = [
   { url: 'https://www.fotomac.com.tr/rss/Basketbol.xml',   name: 'Fotomaç Basketbol', trust: 'press',         sport: 'basketball',  proxy: true },
 ];
 
-// ─── ALLORIGINS PROXY ────────────────────────────────────────
+// ─── RENDER PROXY ─────────────────────────────────────────────
 async function fetchViaRss2Json(feed) {
-  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feed.url)}`;
+  const proxyUrl = `https://pitchos-proxy.onrender.com/rss?url=${encodeURIComponent(feed.url)}`;
   try {
-    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) throw new Error(`allorigins HTTP ${res.status}`);
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
     const text = await res.text();
-    console.log(`PROXY [${feed.name}]: ${text.length} chars received`);
+    console.log(`PROXY [${feed.name}]: ${text.length} chars`);
 
     const items = text.match(/<item[\s\S]*?<\/item>/g) || [];
     console.log(`PROXY [${feed.name}]: ${items.length} items parsed`);
 
-    return items.slice(0, 15).map(item => {
+    return items.slice(0, 20).map(item => {
       const title = item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i)?.[1]
                  || item.match(/<title>([^<]+)<\/title>/i)?.[1] || '';
       const url = item.match(/<link>([^<]+)<\/link>/i)?.[1]
