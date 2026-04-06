@@ -87,33 +87,58 @@ export function dedupeByTitle(articles) {
 
 // ─── SCORE ARTICLES (batch NVS) ──────────────────────────────
 export async function scoreArticles(articles, site, env) {
-  const slim = articles.map(a => ({
-    t:  (a.title || '').slice(0, 100),
-    s:  a.source,
-    tt: a.trust_tier || 'unknown',
-    sp: a.sport || 'football',
-  }));
-  const prompt = `Score these ${site.team_name} news items. Return JSON array (same order), each: nvs(0-100), content_type("fact"|"rumor"|"analysis"), golden_score(1-5 for facts, "eye1"|"eye2"|"eye3" for rumors), nvs_notes(max 8 words). No markdown.
+  const CHUNK = 10;
+  const chunks = [];
+  for (let i = 0; i < articles.length; i += CHUNK) {
+    chunks.push(articles.slice(i, i + CHUNK));
+  }
+
+  const allScored = [];
+  let totalUsage = { input_tokens: 0, output_tokens: 0 };
+
+  for (const chunk of chunks) {
+    const slim = chunk.map(a => ({
+      t:  (a.title || '').slice(0, 100),
+      s:  a.source,
+      tt: a.trust_tier || 'unknown',
+      sp: a.sport || 'football',
+    }));
+    const prompt = `Score these ${site.team_name} news items. Return JSON array (same order), each: nvs(0-100), content_type("fact"|"rumor"|"analysis"), golden_score(1-5 for facts, "eye1"|"eye2"|"eye3" for rumors), nvs_notes(max 8 words). No markdown.
 nvs guide: match result/confirmed=80+, press/injury=60+, rumor known journalist=50, vague rumor=30, analysis=40.
 golden_score: 5=official confirmed, 4=verified journalist, 3=reliable media, 2=plausible unverified, 1=weak; eye3=known journalist rumor, eye2=unverified rumor, eye1=speculation.
 Items: ${JSON.stringify(slim)}`;
-  const response = await callClaude(env, MODEL_SCORE, prompt, false, 800);
-  let scored = [];
-  try {
-    const text = extractText(response.content);
-    const clean = text.replace(/```json|```/gi, '').trim();
-    scored = JSON.parse(clean);
-    if (!Array.isArray(scored)) scored = articles.map(a => ({ ...a, nvs: 50 }));
-    scored = scored.map(s => ({
-      ...s,
-      golden_score: (s.golden_score == null || s.golden_score === 'N/A' || s.golden_score === '')
-        ? 1
-        : s.golden_score,
-    }));
-  } catch (e) {
-    scored = articles.map(a => ({ ...a, nvs: 50, nvs_notes: 'Scoring failed, defaulted' }));
+
+    const response = await callClaude(env, MODEL_SCORE, prompt, false, 2000);
+    if (totalUsage && response.usage) {
+      totalUsage.input_tokens  += response.usage.input_tokens  || 0;
+      totalUsage.output_tokens += response.usage.output_tokens || 0;
+    }
+
+    try {
+      const text  = extractText(response.content);
+      const clean = text.replace(/```json|```/gi, '').trim();
+      const parsed = JSON.parse(clean);
+      const chunkScored = Array.isArray(parsed) ? parsed : chunk.map(() => ({ nvs: 50 }));
+      const normalized = chunkScored.map(s => ({
+        ...s,
+        golden_score: (s.golden_score == null || s.golden_score === 'N/A' || s.golden_score === '')
+          ? 1
+          : s.golden_score,
+      }));
+      // Pad if response was short
+      while (normalized.length < chunk.length) {
+        normalized.push({ nvs: 50, content_type: 'fact', golden_score: 2, nvs_notes: 'Truncated' });
+      }
+      allScored.push(...normalized);
+    } catch (e) {
+      console.error('scoreArticles chunk parse failed:', e.message, '| stop_reason:', response?.stop_reason);
+      allScored.push(...chunk.map(() => ({ nvs: 50, content_type: 'fact', golden_score: 2, nvs_notes: 'Parse failed' })));
+    }
+
+    if (chunks.length > 1) await new Promise(r => setTimeout(r, 300));
   }
-  return { scored, usage: response.usage };
+
+  return { scored: allScored, usage: totalUsage };
 }
 
 // ─── SEEN HASH CACHE ─────────────────────────────────────────

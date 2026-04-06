@@ -44,7 +44,7 @@ export const BJK_KEYWORDS = [
 ];
 
 // ─── CLAUDE API CALL ─────────────────────────────────────────
-export async function callClaude(env, model, prompt, useWebSearch, maxTokens = 1000) {
+export async function callClaude(env, model, prompt, useWebSearch, maxTokens = 2000) {
   const body = {
     model,
     max_tokens: maxTokens,
