@@ -71,7 +71,7 @@ export async function fetchSourceContent(url) {
   try {
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Kartalix/1.0)' },
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return { content: '', image_url: '' };
     const html = await res.text();
@@ -109,7 +109,7 @@ export async function fetchSourceContent(url) {
       content = start > 100 ? full.slice(start - 100) : full;
     }
 
-    return { content: content.slice(0, 4000), image_url };
+    return { content: content.slice(0, 5000), image_url };
   } catch (e) {
     console.error('fetchSourceContent failed:', url, e.message);
     return { content: '', image_url: '' };
@@ -300,7 +300,9 @@ export async function cacheToKV(env, site, toPublish, toQueue) {
     JSON.stringify(mergedKV.map(a => ({
       title:        a.title        || '',
       summary:      cleanRSS(a.summary || a.description || ''),
-      full_body:    a.full_body ? cleanRSS(a.full_body) : cleanRSS(a.summary || a.description || ''),
+      full_body:    a.full_body && a.full_body.length > 300
+        ? a.full_body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000)
+        : cleanRSS(a.summary || a.description || ''),
       source:       a.source       || a.source_name || '',
       url:          a.url          || a.original_url || '',
       category:     a.category     || 'Haber',
