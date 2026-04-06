@@ -70,7 +70,7 @@ async function fetchViaReadability(url) {
   if (!url || url === '#') return { content: '', image_url: '' };
   try {
     const proxyUrl = `https://pitchos-proxy.onrender.com/article?url=${encodeURIComponent(url)}`;
-    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(20000) });
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
     if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
     const data = await res.json();
 
@@ -133,7 +133,7 @@ Bilmiyorsan null yaz.`;
   }
 }
 
-// ─── WRITE ARTICLES (Readability for all, template for special) ─
+// ─── WRITE ARTICLES (Readability for top 3 only, rss_summary rest) ─
 export async function writeArticles(articles, site, env) {
   const results = [];
 
@@ -148,7 +148,8 @@ export async function writeArticles(articles, site, env) {
       else published.summary = cleanRSS(article.summary || article.description || '');
       await new Promise(r => setTimeout(r, 300));
 
-    } else if (article.url && article.url !== '#') {
+    } else if (i < 3 && article.url && article.url !== '#') {
+      // Only top 3 get Readability fetch — avoids Worker timeout
       const fetched = await fetchViaReadability(article.url);
       const content = fetched.content || '';
       const publish_mode = content.length > 500 ? 'readability' : 'rss_summary';
@@ -160,7 +161,7 @@ export async function writeArticles(articles, site, env) {
         image_url:  fetched.image_url || article.image_url || '',
       };
       console.log(`writeArticles [${article.title?.slice(0, 40)}]: mode=${publish_mode} content=${content.length}chars`);
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise(r => setTimeout(r, 200));
 
     } else {
       published.summary   = cleanRSS(article.summary || article.description || '');
