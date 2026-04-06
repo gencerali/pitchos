@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, sleep, isTodayArticle, supabase, MODEL_FETCH, MODEL_SCORE } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, RSS_FEEDS } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, enrichArticles } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, fetchSourceContent } from './src/publisher.js';
 
 // ─── MAIN ENTRY POINT ────────────────────────────────────────
 export default {
@@ -45,6 +45,31 @@ export default {
         env.PITCHOS_CACHE.delete('seen:BJK'),
       ]);
       return Response.json({ cleared: ['articles:BJK', 'seen:BJK'] });
+    }
+    if (url.pathname === '/enrich') {
+      const cached = await env.PITCHOS_CACHE.get('articles:BJK');
+      if (!cached) return Response.json({ error: 'no cache' });
+      const articles = JSON.parse(cached);
+      const enriched = [];
+      for (const article of articles) {
+        if (article.url && article.url !== '#' && (!article.full_body || article.full_body.length < 300)) {
+          try {
+            const result = await fetchSourceContent(article.url, env);
+            enriched.push({
+              ...article,
+              full_body: result.content || article.full_body || '',
+              image_url: result.image_url || article.image_url || '',
+            });
+          } catch(e) {
+            enriched.push(article);
+          }
+          await new Promise(r => setTimeout(r, 100));
+        } else {
+          enriched.push(article);
+        }
+      }
+      await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(enriched), { expirationTtl: 7200 });
+      return Response.json({ enriched: enriched.length });
     }
     if (url.pathname === '/debug') {
       const res = await fetch(`${env.SUPABASE_URL}/rest/v1/sites?status=eq.live&select=*`, {
@@ -251,18 +276,10 @@ async function processSite(site, env) {
     return stats;
   }
 
-  // ── ENRICH PHASE — top 15 by rough score get full content ─────
-  const toEnrich = [...preFiltered]
-    .sort((a, b) => (b.nvs || b.nvs_score || 0) - (a.nvs || a.nvs_score || 0))
-    .slice(0, 15);
-  const enriched = await enrichArticles(toEnrich, env);
-  const allArticles = [...enriched, ...preFiltered.slice(15)];
-  console.log(`${site.short_code} ENRICH: ${enriched.filter(a => a.has_full_content).length}/${toEnrich.length} enriched, ${allArticles.length} total`);
-
   // ── SCOUT PHASE ───────────────────────────────────────────────
   await sleep(500);
-  const { scored, usage: scoreUsage } = await scoreArticles(allArticles, site, env);
-  const mergedScored = allArticles.map((orig, i) => ({
+  const { scored, usage: scoreUsage } = await scoreArticles(preFiltered, site, env);
+  const mergedScored = preFiltered.map((orig, i) => ({
     ...orig,
     nvs:          scored[i]?.nvs          || 50,
     content_type: scored[i]?.content_type || 'unknown',
