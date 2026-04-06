@@ -31,97 +31,59 @@ export const RSS_FEEDS = [
 
 // ─── RSS2JSON PROXY ───────────────────────────────────────────
 async function fetchViaRss2Json(feed) {
-  const sourceName = feed.name || feed.source;
-  const trustTier  = feed.trust || 'unknown';
-  const feedSport  = feed.sport || 'football';
-  const emptyResult = () => ({ articles: [], feedStats: { name: sourceName, raw: 0, after_date: 0, after_keyword: 0 } });
-
-  const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&count=20`;
-  let data;
+  const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&count=30`;
   try {
-    const res = await fetch(apiUrl, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) { console.error(`rss2json [${sourceName}]: HTTP ${res.status}`); return emptyResult(); }
-    data = await res.json();
-  } catch (e) {
-    console.error(`rss2json [${sourceName}]: ${e.message}`);
-    return emptyResult();
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`rss2json HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.status !== 'ok') throw new Error(`rss2json: ${data.message}`);
+    console.log(`PROXY [${feed.name}]: ${data.items?.length || 0} items`);
+    return (data.items || []).map(item => ({
+      title:            item.title || '',
+      url:              item.link || '',
+      summary:          (item.description || '').replace(/<[^>]+>/g, '').slice(0, 300),
+      full_text:        (item.content || '').replace(/<[^>]+>/g, '').slice(0, 3000),
+      has_full_content: (item.content || '').length > 100,
+      image_url:        item.thumbnail || item.enclosure?.link || '',
+      published_at:     item.pubDate || '',
+      source_name:      feed.name,
+      source:           feed.name,
+      trust_tier:       feed.trust,
+      sport:            feed.sport,
+      is_fresh:         true,
+      time_ago:         'Güncel',
+    }));
+  } catch(e) {
+    console.error(`PROXY FAILED [${feed.name}]:`, e.message);
+    return [];
   }
-
-  if (data.status !== 'ok' || !Array.isArray(data.items)) {
-    console.error(`rss2json [${sourceName}]: status=${data.status}`);
-    return emptyResult();
-  }
-
-  const cutoff = Date.now() - CUTOFF_48H;
-  let recentCount = 0;
-  const articles = [];
-
-  for (const item of data.items) {
-    const title = (item.title || '').trim();
-    if (!title) continue;
-    const pubMs = item.pubDate ? new Date(item.pubDate).getTime() : Date.now();
-    if (pubMs && pubMs < cutoff) continue;
-    recentCount++;
-
-    const rawDesc = item.description || item.content || '';
-    const summary = stripHTML(rawDesc).slice(0, 500) || title;
-    const haystack = (title + ' ' + summary).toLowerCase();
-
-    if (feed.keywordFilter) {
-      if (!BJK_KEYWORDS.some(kw => haystack.includes(kw))) continue;
-    }
-
-    let sport = feedSport;
-    if (feedSport === 'football') {
-      if (/basketbol|basket\b/i.test(title + ' ' + summary)) sport = 'basketball';
-      else if (/voleybol/i.test(title + ' ' + summary))       sport = 'volleyball';
-    }
-
-    articles.push({
-      title,
-      summary,
-      full_text:    summary,
-      source:       sourceName,
-      original_source: null,
-      url:          item.link || item.guid || '',
-      image_url:    item.thumbnail || item.enclosure?.link || null,
-      category:     'Club',
-      time_ago:     pubMs ? relativeTime(pubMs) : 'Güncel',
-      published_at: pubMs ? new Date(pubMs).toISOString() : null,
-      is_fresh:     true,
-      trust_tier:   trustTier,
-      sport,
-    });
-  }
-
-  console.log(`rss2json [${sourceName}]: ${data.items.length} raw → ${recentCount} after date → ${articles.length} after filter`);
-  return { articles, feedStats: { name: sourceName, raw: data.items.length, after_date: recentCount, after_keyword: articles.length } };
 }
 
 // ─── RSS FETCH ────────────────────────────────────────────────
 // Returns { articles, bySource: { feedName: { raw, after_date, after_keyword } } }
 export async function fetchRSSArticles(site) {
-  const directFeeds = RSS_FEEDS.filter(f => !f.proxy);
-  const proxyFeeds  = RSS_FEEDS.filter(f =>  f.proxy);
-
-  const [directResults, proxyResults] = await Promise.all([
-    Promise.allSettled(directFeeds.map(feed => fetchOneFeed(feed, site))),
-    Promise.allSettled(proxyFeeds.map(feed  => fetchViaRss2Json(feed))),
-  ]);
-
-  const articles = [];
+  const allArticles = [];
   const bySource = {};
 
-  for (const r of [...directResults, ...proxyResults]) {
-    if (r.status === 'fulfilled') {
-      articles.push(...r.value.articles);
-      const fs = r.value.feedStats;
+  for (const feed of RSS_FEEDS) {
+    if (feed.proxy) {
+      const proxyItems = await fetchViaRss2Json(feed);
+      allArticles.push(...proxyItems);
+      bySource[feed.name] = { raw: proxyItems.length, after_date: proxyItems.length, after_keyword: proxyItems.length };
+      continue;
+    }
+
+    try {
+      const result = await fetchOneFeed(feed, site);
+      allArticles.push(...result.articles);
+      const fs = result.feedStats;
       bySource[fs.name] = { raw: fs.raw, after_date: fs.after_date, after_keyword: fs.after_keyword };
-    } else {
-      console.error(`RSS feed failed: ${r.reason?.message}`);
+    } catch (e) {
+      console.error(`RSS feed failed [${feed.name}]:`, e.message);
     }
   }
-  return { articles: articles.slice(0, 40), bySource };
+
+  return { articles: allArticles.slice(0, 40), bySource };
 }
 
 async function fetchOneFeed(feed, site) {
