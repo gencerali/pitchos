@@ -9,63 +9,73 @@
   <meta property="og:description" content="Beşiktaş'ın en güncel haberleri" />
   <meta property="og:type" content="website" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Barlow+Condensed:ital,wght@0,400;0,600;0,700;1,400&family=Barlow:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
 
   <style>
     :root {
-      --black:   #080808;
-      --white:   #f2f0eb;
-      --red:     #c0392b;
-      --gray:    #141414;
-      --panel:   #1a1a1a;
-      --border:  #272727;
-      --muted:   #666;
-      --muted2:  #444;
-      --accent:  #e8e0d0;
-      --green:   #00c853;
+      --accent:      #E30A17;
+      --accent-gold: #F5A623;
+      --bg:          #0d0d0d;
+      --surface:     #141414;
+      --panel:       #1a1a1a;
+      --border:      #2a2a2a;
+      --text:        #f0ede6;
+      --muted:       #7a7875;
     }
+
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
     body {
-      background: var(--black);
-      color: var(--white);
-      font-family: 'Barlow', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
       min-height: 100vh;
+      position: relative;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
     }
 
     /* ── HEADER ── */
     header {
-      background: var(--black);
-      border-bottom: 3px solid var(--white);
+      background: var(--bg);
+      border-bottom: 2px solid var(--border);
       position: sticky; top: 0; z-index: 100;
     }
 
     .header-inner {
       max-width: 1200px; margin: 0 auto;
-      padding: 0.9rem 1.5rem;
+      padding: 0.75rem 1.5rem;
       display: flex; align-items: center; justify-content: space-between; gap: 1rem;
     }
 
-    .logo {
-      display: flex; align-items: center; gap: 0.9rem;
-    }
+    .logo { display: flex; align-items: center; gap: 0.75rem; }
 
     .crest {
-      width: 52px; height: 52px;
-      background: var(--white); border-radius: 50%;
+      width: 48px; height: 48px;
+      background: var(--text); border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       font-size: 1.5rem; flex-shrink: 0;
     }
 
-    .logo-text {}
     .logo-name {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 2.2rem; letter-spacing: 0.06em; line-height: 1;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 1.4rem; font-weight: 800;
+      letter-spacing: 0.08em; line-height: 1;
+      text-transform: uppercase; color: var(--text);
     }
+
     .logo-sub {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.7rem; letter-spacing: 0.2em;
+      font-size: 0.62rem; letter-spacing: 0.22em;
       text-transform: uppercase; color: var(--muted);
+      margin-top: 0.1rem;
     }
 
     .header-right { display: flex; align-items: center; gap: 1rem; }
@@ -73,46 +83,48 @@
     .live-pill {
       display: flex; align-items: center; gap: 0.4rem;
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.7rem; letter-spacing: 0.15em; text-transform: uppercase;
-      color: var(--red); border: 1px solid var(--red);
+      font-size: 0.65rem; font-weight: 700;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      color: var(--accent); border: 1px solid var(--accent);
       padding: 0.3rem 0.7rem; border-radius: 2px;
     }
 
     .live-dot {
       width: 6px; height: 6px; border-radius: 50%;
-      background: var(--red); animation: blink 1.4s ease-in-out infinite;
+      background: var(--accent); animation: blink 1.4s ease-in-out infinite;
     }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
 
     /* ── TICKER ── */
     .ticker-wrap {
-      background: var(--white); color: var(--black);
-      overflow: hidden; white-space: nowrap; padding: 0.45rem 0;
+      background: #111;
+      border-bottom: 1px solid var(--accent);
+      overflow: hidden; white-space: nowrap; padding: 0.4rem 0;
     }
     .ticker-track { display: inline-flex; animation: scroll 60s linear infinite; }
     .ticker-item {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.85rem; font-weight: 600;
+      font-size: 0.8rem; font-weight: 600;
       letter-spacing: 0.07em; text-transform: uppercase;
-      padding: 0 2rem;
+      color: var(--text); padding: 0 2rem;
     }
     .ticker-sep { color: var(--muted); padding: 0 0.5rem; }
     @keyframes scroll { from{transform:translateX(0)} to{transform:translateX(-50%)} }
 
     /* ── TRANSFER RADAR BANNER ── */
     .radar-banner {
-      background: linear-gradient(135deg, #1a0000 0%, #0d0000 100%);
-      border-bottom: 1px solid #3a0000;
-      padding: 0.6rem 1.5rem;
+      background: #100000;
+      border-bottom: 1px solid #2a0000;
+      padding: 0.55rem 1.5rem;
       display: flex; align-items: center; gap: 1rem;
       overflow: hidden;
     }
 
     .radar-label {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 0.85rem; letter-spacing: 0.1em;
-      color: var(--red); flex-shrink: 0;
-      display: flex; align-items: center; gap: 0.4rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.72rem; font-weight: 800;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      color: var(--accent); flex-shrink: 0;
     }
 
     .radar-items {
@@ -123,74 +135,77 @@
     .radar-item {
       display: flex; align-items: center; gap: 0.5rem;
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.8rem; color: var(--accent); white-space: nowrap;
+      font-size: 0.78rem; color: var(--text); white-space: nowrap;
     }
 
     .radar-nvs {
-      font-size: 0.65rem; padding: 0.1rem 0.35rem;
-      border-radius: 2px; font-weight: 600;
+      font-size: 0.62rem; padding: 0.1rem 0.35rem;
+      border-radius: 2px; font-weight: 700;
     }
-    .radar-nvs.high { background: #c0392b33; color: var(--red); }
-    .radar-nvs.med  { background: #e67e2233; color: #e67e22; }
+    .radar-nvs.high { background: rgba(227,10,23,0.2); color: var(--accent); }
+    .radar-nvs.med  { background: rgba(245,166,35,0.15); color: var(--accent-gold); }
 
     /* ── FAN PULSE ── */
     .pulse-bar {
-      background: var(--gray);
+      background: var(--surface);
       border-bottom: 1px solid var(--border);
     }
     .pulse-inner {
       max-width: 1200px; margin: 0 auto;
-      padding: 0.7rem 1.5rem;
+      padding: 0.6rem 1.5rem;
       display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
     }
     .pulse-label {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.65rem; letter-spacing: 0.2em;
-      text-transform: uppercase; color: var(--muted); flex-shrink: 0;
+      font-size: 0.6rem; font-weight: 700;
+      letter-spacing: 0.22em; text-transform: uppercase;
+      color: var(--muted); flex-shrink: 0;
     }
     .pulse-items { display: flex; gap: 1.25rem; flex-wrap: wrap; }
     .pulse-item {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.8rem; display: flex; align-items: center; gap: 0.35rem;
+      font-size: 0.78rem; display: flex; align-items: center; gap: 0.35rem;
+      color: var(--text);
     }
-    .pulse-mood { font-size: 0.9rem; }
+    .pulse-mood { font-size: 0.85rem; }
 
     /* ── MATCH DAY BANNER ── */
     .matchday {
-      background: var(--white); color: var(--black);
-      display: none; /* shown only on match days via JS */
-      padding: 0.7rem 1.5rem; text-align: center;
+      background: var(--accent); color: var(--text);
+      display: none;
+      padding: 0.65rem 1.5rem; text-align: center;
     }
     .matchday.active { display: block; }
     .matchday-text {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.1rem; letter-spacing: 0.1em;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 1rem; font-weight: 800;
+      letter-spacing: 0.1em; text-transform: uppercase;
     }
 
     /* ── MAIN ── */
     main {
       max-width: 1200px; margin: 0 auto;
-      padding: 2rem 1.5rem;
+      padding: 1.5rem 1.5rem 2.5rem;
+      position: relative; z-index: 1;
     }
 
-    .section-row {
-      display: flex; align-items: center;
-      justify-content: space-between; margin-bottom: 1.25rem;
+    /* ── SECTION HEADER ── */
+    .section-header {
+      display: flex; align-items: center; gap: 0.75rem;
+      margin: 1.5rem 0 1rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--accent);
+      justify-content: space-between;
     }
-
-    .section-label {
+    .section-header-title {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.65rem; letter-spacing: 0.25em;
-      text-transform: uppercase; color: var(--muted);
-      display: flex; align-items: center; gap: 0.75rem; flex: 1;
+      font-size: 1rem; font-weight: 800;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      color: var(--text);
     }
-    .section-label::after {
-      content: ''; flex: 1; height: 1px; background: var(--border);
-    }
-
     .last-update {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.65rem; color: var(--muted);
+      font-size: 0.62rem; color: var(--muted);
       letter-spacing: 0.06em;
     }
 
@@ -198,67 +213,121 @@
     .news-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 1px; background: var(--border);
-      border: 1px solid var(--border); margin-bottom: 2rem;
+      gap: 0;
+      margin-bottom: 1rem;
     }
 
     .card {
-      background: var(--gray);
-      padding: 1.4rem 1.5rem;
-      display: flex; flex-direction: column; gap: 0.65rem;
-      cursor: pointer; transition: background 0.15s;
+      background: var(--surface);
+      padding: 0;
+      display: flex; flex-direction: column;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
       animation: up 0.4s ease both;
       text-decoration: none; color: inherit;
+      transition: background 0.15s;
+      overflow: hidden;
     }
     .card:hover { background: var(--panel); }
+    .card:hover .card-title { color: var(--accent); }
+    .card:nth-child(3n) { border-right: none; }
 
     @keyframes up {
-      from { opacity:0; transform:translateY(10px); }
+      from { opacity:0; transform:translateY(8px); }
       to   { opacity:1; transform:translateY(0); }
     }
     .card:nth-child(1){animation-delay:0s}
-    .card:nth-child(2){animation-delay:.05s}
-    .card:nth-child(3){animation-delay:.10s}
-    .card:nth-child(4){animation-delay:.15s}
-    .card:nth-child(5){animation-delay:.20s}
-    .card:nth-child(6){animation-delay:.25s}
+    .card:nth-child(2){animation-delay:.04s}
+    .card:nth-child(3){animation-delay:.08s}
+    .card:nth-child(4){animation-delay:.12s}
+    .card:nth-child(5){animation-delay:.16s}
+    .card:nth-child(6){animation-delay:.20s}
 
-    .card.featured { grid-column: span 2; }
-    .card.featured .card-title {
-      font-size: 1.55rem; line-height: 1.2;
+    /* ── CARD IMAGE WRAP ── */
+    .card-img-wrap {
+      position: relative;
+      height: 160px;
+      overflow: hidden;
+      background: var(--panel);
+      flex-shrink: 0;
     }
-
-    .card-cat {
+    .card-img-wrap img,
+    .card-img-bg {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      background-size: cover;
+      background-position: center;
+    }
+    .card-cat-badge {
+      position: absolute; top: 0.5rem; left: 0.5rem;
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.65rem; letter-spacing: 0.2em;
-      text-transform: uppercase; color: var(--red); font-weight: 600;
-      display: flex; align-items: center; gap: 0.5rem;
+      font-size: 0.6rem; font-weight: 800;
+      letter-spacing: 0.18em; text-transform: uppercase;
+      background: var(--accent); color: var(--text);
+      padding: 0.2rem 0.5rem; border-radius: 1px;
+    }
+    .card-score-badge {
+      position: absolute; top: 0.5rem; right: 0.5rem;
+      font-size: 0.72rem; line-height: 1;
+      background: rgba(0,0,0,0.6);
+      padding: 0.2rem 0.4rem; border-radius: 1px;
     }
 
+    /* ── CARD BODY ── */
+    .card-body {
+      padding: 0.85rem 1rem 0.75rem;
+      display: flex; flex-direction: column; gap: 0.45rem;
+      flex: 1;
+    }
+
+    .card-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 1.05rem; font-weight: 700;
+      line-height: 1.25; color: var(--text);
+      transition: color 0.15s;
+      display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden;
+    }
+
+    .card-summary {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.78rem; font-weight: 400;
+      color: var(--muted); line-height: 1.5; flex: 1;
+      display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden;
+    }
+
+    .card-source-line {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.68rem; color: var(--muted);
+      letter-spacing: 0.04em; margin-top: 0.15rem;
+    }
+    .card-source-line span { color: var(--text); font-weight: 600; }
+
+    /* ── NVS / SCORE BADGES (inline) ── */
     .nvs-badge {
-      font-size: 0.6rem; padding: 0.1rem 0.35rem;
-      border-radius: 1px; margin-left: auto;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.58rem; padding: 0.1rem 0.35rem;
+      border-radius: 1px; font-weight: 700;
     }
-    .nvs-badge.high { background: #00c85322; color: var(--green); }
-    .nvs-badge.med  { background: #ffb83022; color: #ffb830; }
+    .nvs-badge.high { background: rgba(227,10,23,0.15); color: var(--accent); }
+    .nvs-badge.med  { background: rgba(245,166,35,0.12); color: var(--accent-gold); }
 
-    .score-badge {
-      font-size: 0.72rem; letter-spacing: 0.04em;
-      margin-left: auto; line-height: 1;
-    }
+    .score-badge { font-size: 0.72rem; line-height: 1; }
 
     /* ── DİĞER SPORLAR ── */
-    .other-sports-section { margin-bottom: 2rem; }
+    .other-sports-section { margin-bottom: 1.5rem; }
     .other-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 1px; background: var(--border);
-      border: 1px solid var(--border);
+      gap: 0;
     }
     .sport-tag {
-      font-size: 0.58rem; padding: 0.1rem 0.4rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.58rem; padding: 0.15rem 0.45rem;
       border-radius: 1px; text-transform: uppercase;
-      letter-spacing: 0.12em; font-weight: 600;
+      letter-spacing: 0.12em; font-weight: 700;
       background: #002244; color: #6ab0ff;
     }
     .sport-tag.basketball { background: #1a0800; color: #ff8c42; }
@@ -266,219 +335,202 @@
     @media(max-width:900px) { .other-grid { grid-template-columns: repeat(2,1fr); } }
     @media(max-width:580px) { .other-grid { grid-template-columns: 1fr; } }
 
-    .card-title {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 1.15rem; font-weight: 700;
-      line-height: 1.25; color: var(--white);
-    }
-
-    .card-summary {
-      font-size: 0.84rem; color: #999;
-      line-height: 1.55; flex: 1;
-    }
-
-    .card-meta {
-      display: flex; align-items: center;
-      justify-content: space-between;
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.68rem; color: var(--muted);
-      border-top: 1px solid var(--border); padding-top: 0.65rem;
-      margin-top: 0.25rem;
-    }
-
-    .card-source { display: flex; align-items: center; gap: 0.35rem; }
-    .src-dot {
-      width: 5px; height: 5px; border-radius: 50%;
-      background: var(--muted2); flex-shrink: 0;
-    }
-
-    .card-link {
-      color: var(--muted); text-decoration: none;
-      border-bottom: 1px solid transparent;
-      transition: color 0.15s, border-color 0.15s;
-      font-size: 0.66rem;
-    }
-    .card-link:hover { color: var(--white); border-color: var(--white); }
-
     /* ── VIDEO MOMENTS ── */
     .video-section { margin-bottom: 2rem; }
 
     .video-grid {
       display: grid; grid-template-columns: repeat(3, 1fr);
-      gap: 1px; background: var(--border); border: 1px solid var(--border);
+      gap: 0;
     }
 
     .video-card {
-      background: var(--gray); padding: 1rem 1.25rem;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+      padding: 1rem 1.1rem;
       display: flex; gap: 0.85rem; cursor: pointer;
       transition: background 0.15s; text-decoration: none; color: inherit;
     }
+    .video-card:nth-child(3n) { border-right: none; }
     .video-card:hover { background: var(--panel); }
 
     .video-thumb {
-      width: 48px; height: 48px; border-radius: 3px;
+      width: 44px; height: 44px; border-radius: 2px;
       background: #1a0000; display: flex;
       align-items: center; justify-content: center;
-      font-size: 1.2rem; flex-shrink: 0;
-      border: 1px solid #3a0000;
+      font-size: 1.1rem; flex-shrink: 0;
+      border: 1px solid #2a0000;
     }
 
     .video-body { flex: 1; min-width: 0; }
     .video-source {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.62rem; color: var(--red);
+      font-size: 0.6rem; color: var(--accent);
       letter-spacing: 0.12em; text-transform: uppercase;
+      font-weight: 700;
     }
     .video-moment {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.9rem; font-weight: 600;
-      line-height: 1.3; margin: 0.2rem 0;
+      font-size: 0.88rem; font-weight: 600;
+      line-height: 1.3; margin: 0.2rem 0; color: var(--text);
     }
     .video-ts {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.65rem; color: var(--muted);
+      font-size: 0.62rem; color: var(--muted);
     }
 
     /* ── SKELETON ── */
-    .skel { background: var(--gray); padding: 1.4rem 1.5rem; }
+    .skel { background: var(--surface); padding: 1.25rem 1rem; }
     .skel-line {
-      height: 13px; background: var(--border); border-radius: 2px;
+      height: 12px; background: var(--border); border-radius: 2px;
       margin-bottom: 0.5rem; animation: shimmer 1.5s ease-in-out infinite;
     }
     .skel-line.s { width: 35%; height: 9px; }
     .skel-line.m { width: 70%; }
     .skel-line.l { width: 100%; }
-    @keyframes shimmer { 0%,100%{opacity:.35} 50%{opacity:.7} }
+    @keyframes shimmer { 0%,100%{opacity:.3} 50%{opacity:.6} }
+
+    /* ── LOAD MORE ── */
+    .load-more-row {
+      display: flex; justify-content: center; padding: 1.25rem 0 0.5rem;
+    }
+    .btn-load-more {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.72rem; font-weight: 700;
+      letter-spacing: 0.2em; text-transform: uppercase;
+      background: none; border: 1px solid var(--border);
+      color: var(--muted); padding: 0.6rem 1.8rem;
+      cursor: pointer; transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-load-more:hover { border-color: var(--accent); color: var(--text); }
 
     /* ── FOOTER ── */
     footer {
       border-top: 1px solid var(--border);
       padding: 2rem 1.5rem; text-align: center;
+      position: relative; z-index: 1;
     }
     .footer-logo {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 1.4rem; letter-spacing: 0.08em;
-      margin-bottom: 0.5rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 1.3rem; font-weight: 800;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      margin-bottom: 0.6rem;
     }
     .footer-links {
       display: flex; gap: 1.5rem; justify-content: center;
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.72rem; letter-spacing: 0.1em;
+      font-size: 0.68rem; letter-spacing: 0.1em;
       text-transform: uppercase; color: var(--muted);
       flex-wrap: wrap; margin-bottom: 0.75rem;
     }
     .footer-links a { color: var(--muted); text-decoration: none; }
-    .footer-links a:hover { color: var(--white); }
+    .footer-links a:hover { color: var(--text); }
     .footer-copy {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.65rem; color: var(--muted2);
-      letter-spacing: 0.08em;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.62rem; color: var(--muted);
+      line-height: 1.6;
     }
 
     /* ── ARTICLE MODAL ── */
     .modal-overlay {
       position: fixed; inset: 0; z-index: 500;
-      background: rgba(0,0,0,0.82);
+      background: rgba(0,0,0,0.85);
       display: flex; align-items: center; justify-content: center;
       padding: 1.5rem;
       opacity: 0; pointer-events: none;
       transition: opacity 0.22s ease;
     }
-    .modal-overlay.open {
-      opacity: 1; pointer-events: all;
-    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
     .modal {
       background: var(--panel);
       border: 1px solid var(--border);
       max-width: 700px; width: 100%;
       max-height: 90vh;
       display: flex; flex-direction: column;
-      transform: translateY(18px);
+      transform: translateY(16px);
       transition: transform 0.22s ease;
       overflow: hidden;
     }
-    .modal-overlay.open .modal {
-      transform: translateY(0);
-    }
+    .modal-overlay.open .modal { transform: translateY(0); }
     .modal-header {
-      padding: 1.25rem 1.5rem 0;
+      padding: 1.1rem 1.4rem 0;
       display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
       flex-shrink: 0;
     }
     .modal-close {
       background: none; border: none; color: var(--muted);
-      font-size: 1.4rem; cursor: pointer; line-height: 1;
+      font-size: 1.3rem; cursor: pointer; line-height: 1;
       padding: 0.1rem 0.3rem; flex-shrink: 0;
       transition: color 0.15s;
     }
-    .modal-close:hover { color: var(--white); }
+    .modal-close:hover { color: var(--text); }
     .modal-meta-top {
       display: flex; align-items: center; gap: 0.6rem;
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.7rem; letter-spacing: 0.15em;
-      text-transform: uppercase;
+      font-size: 0.68rem; font-weight: 700;
+      letter-spacing: 0.15em; text-transform: uppercase;
     }
-    .modal-cat { color: var(--red); font-weight: 600; }
+    .modal-cat { color: var(--accent); }
     .modal-body {
-      padding: 1rem 1.5rem 1.5rem;
-      overflow-y: auto;
-      flex: 1;
+      padding: 1rem 1.4rem 1.4rem;
+      overflow-y: auto; flex: 1;
     }
     .modal-headline {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 1.7rem; font-weight: 700;
-      line-height: 1.2; color: var(--white);
-      margin-bottom: 0.75rem;
+      font-size: 1.65rem; font-weight: 800;
+      line-height: 1.2; color: var(--text);
+      margin-bottom: 0.7rem; text-transform: uppercase;
+      letter-spacing: 0.01em;
     }
     .modal-source-line {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.72rem; color: var(--muted);
+      font-size: 0.7rem; color: var(--muted);
       letter-spacing: 0.06em;
       display: flex; align-items: center; gap: 0.5rem;
-      margin-bottom: 1.5rem;
-      padding-bottom: 1rem; border-bottom: 1px solid var(--border);
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.9rem; border-bottom: 1px solid var(--border);
     }
     .modal-article p {
-      font-size: 0.95rem; line-height: 1.7;
-      color: #bbb; margin-bottom: 1.1rem;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.9rem; line-height: 1.75;
+      color: #bbb; margin-bottom: 1rem;
     }
     .modal-article p:last-child { margin-bottom: 0; }
     .modal-sources {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.7rem; color: var(--muted);
+      font-size: 0.68rem; color: var(--muted);
       letter-spacing: 0.06em;
       border-top: 1px solid var(--border);
-      padding-top: 1rem; margin-top: 1.25rem;
+      padding-top: 0.9rem; margin-top: 1.1rem;
     }
     .modal-footer {
-      padding: 1rem 1.5rem;
+      padding: 0.9rem 1.4rem;
       border-top: 1px solid var(--border);
       display: flex; align-items: center; justify-content: space-between;
       flex-shrink: 0; gap: 1rem;
     }
     .modal-read-link {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.75rem; letter-spacing: 0.1em;
+      font-size: 0.72rem; letter-spacing: 0.1em;
       text-transform: uppercase; color: var(--muted);
-      text-decoration: none;
-      transition: color 0.15s;
+      text-decoration: none; transition: color 0.15s;
     }
-    .modal-read-link:hover { color: var(--white); }
+    .modal-read-link:hover { color: var(--text); }
     .modal-read-link.hidden { visibility: hidden; }
     .btn-kapat {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.78rem; letter-spacing: 0.15em;
-      text-transform: uppercase;
+      font-size: 0.75rem; font-weight: 700;
+      letter-spacing: 0.15em; text-transform: uppercase;
       background: none; border: 1px solid var(--border);
-      color: var(--white); padding: 0.5rem 1.2rem;
+      color: var(--text); padding: 0.45rem 1.2rem;
       cursor: pointer; transition: background 0.15s, border-color 0.15s;
     }
-    .btn-kapat:hover { background: var(--gray); border-color: var(--muted); }
+    .btn-kapat:hover { background: var(--surface); border-color: var(--muted); }
 
     /* ── HERO CAROUSEL ── */
     .hero-carousel {
       position: relative; overflow: hidden;
-      background: var(--black);
+      background: var(--bg);
       border-bottom: 1px solid var(--border);
     }
 
@@ -490,157 +542,136 @@
 
     .carousel-slide {
       flex: 0 0 100%;
-      height: 380px;
+      height: 320px;
       position: relative;
       cursor: pointer;
       overflow: hidden;
       background-size: cover;
-      background-position: center top;
+      background-position: center 30%;
       background-color: #0a0a0a;
     }
 
-    .slide-overlay {
+    .carousel-slide .slide-gradient {
       position: absolute; inset: 0;
-      background: linear-gradient(to bottom, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.85) 100%);
+      background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.1) 100%);
     }
 
     .slide-top {
-      position: absolute; top: 1.25rem; left: 1.5rem; right: 1.5rem;
+      position: absolute; top: 1rem; left: 1.25rem; right: 1.25rem;
       display: flex; justify-content: space-between; align-items: flex-start;
+      z-index: 2;
     }
 
     .slide-cat-badge {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.62rem; letter-spacing: 0.2em;
-      text-transform: uppercase; font-weight: 700;
-      background: var(--red); color: var(--white);
-      padding: 0.25rem 0.6rem; border-radius: 1px;
+      font-size: 0.6rem; letter-spacing: 0.2em;
+      text-transform: uppercase; font-weight: 800;
+      background: var(--accent); color: var(--text);
+      padding: 0.2rem 0.55rem; border-radius: 1px;
     }
 
     .slide-score-badge {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.72rem; letter-spacing: 0.1em;
-      background: rgba(0,0,0,0.55);
-      border: 1px solid rgba(255,255,255,0.15);
-      padding: 0.2rem 0.55rem; border-radius: 1px;
-      color: var(--white);
+      font-size: 0.78rem;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.1);
+      padding: 0.2rem 0.5rem; border-radius: 1px;
     }
 
     .slide-content {
       position: absolute; bottom: 0; left: 0; right: 0;
-      padding: 1.25rem 1.5rem 1.5rem;
+      padding: 1rem 1.25rem 1.25rem;
+      z-index: 2;
     }
 
     .slide-title {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 2.2rem; line-height: 1.05;
-      color: var(--white); letter-spacing: 0.03em;
-      text-shadow: 0 2px 8px rgba(0,0,0,0.7);
-      margin-bottom: 0.5rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 2rem; font-weight: 800; line-height: 1.05;
+      color: var(--text); letter-spacing: 0.02em;
+      text-transform: uppercase;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.8);
+      margin-bottom: 0.45rem;
       display: -webkit-box; -webkit-line-clamp: 3;
       -webkit-box-orient: vertical; overflow: hidden;
     }
 
     .slide-summary {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.92rem; color: rgba(242,240,235,0.8);
-      line-height: 1.4; margin-bottom: 0.9rem;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.82rem; font-weight: 400;
+      color: rgba(240,237,230,0.75);
+      line-height: 1.4; margin-bottom: 0.75rem;
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
 
     .slide-meta {
       display: flex; justify-content: space-between; align-items: center;
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.7rem; color: rgba(242,240,235,0.65);
+      font-size: 0.68rem; color: rgba(240,237,230,0.6);
       letter-spacing: 0.08em;
     }
 
     .slide-source { display: flex; align-items: center; gap: 0.4rem; }
     .slide-src-dot {
       width: 5px; height: 5px; border-radius: 50%;
-      background: var(--red);
+      background: var(--accent);
     }
 
     .slide-read {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.75rem; letter-spacing: 0.12em;
-      color: var(--white); text-transform: uppercase;
-      border-bottom: 1px solid rgba(255,255,255,0.5);
+      font-size: 0.72rem; font-weight: 700;
+      letter-spacing: 0.12em; color: var(--text);
+      text-transform: uppercase;
+      border-bottom: 1px solid rgba(255,255,255,0.4);
       padding-bottom: 1px;
     }
 
-    /* Arrow buttons */
+    /* Carousel arrows */
     .carousel-arrow {
       position: absolute; top: 50%; transform: translateY(-50%);
-      background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.15);
-      color: var(--white); font-size: 1.1rem; line-height: 1;
-      width: 2.4rem; height: 2.4rem;
+      background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.12);
+      color: var(--text); font-size: 1rem; line-height: 1;
+      width: 2.2rem; height: 2.2rem;
       display: flex; align-items: center; justify-content: center;
       cursor: pointer; z-index: 10;
-      transition: background 0.15s;
-      border-radius: 1px;
+      transition: background 0.15s; border-radius: 1px;
     }
-    .carousel-arrow:hover { background: rgba(192,57,43,0.75); }
+    .carousel-arrow:hover { background: rgba(227,10,23,0.7); }
     .carousel-arrow.prev { left: 1rem; }
     .carousel-arrow.next { right: 1rem; }
 
-    /* Dot indicators */
+    /* Carousel dots */
     .carousel-dots {
-      position: absolute; bottom: 1rem; left: 50%;
+      position: absolute; bottom: 0.85rem; left: 50%;
       transform: translateX(-50%);
       display: flex; gap: 0.4rem; z-index: 10;
     }
-
     .carousel-dot {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: rgba(255,255,255,0.35);
+      width: 5px; height: 5px; border-radius: 50%;
+      background: rgba(255,255,255,0.3);
       cursor: pointer; transition: background 0.2s, transform 0.2s;
     }
-    .carousel-dot.active {
-      background: var(--white); transform: scale(1.3);
-    }
-
-    /* ── CARD IMAGE ── */
-    .card-image {
-      height: 140px;
-      background-size: cover;
-      background-position: center;
-      margin: -1.4rem -1.5rem 0;
-      width: calc(100% + 3rem);
-      flex-shrink: 0;
-    }
-
-    /* ── LOAD MORE ── */
-    .load-more-row {
-      display: flex; justify-content: center; padding: 1rem 0 0.5rem;
-    }
-    .btn-load-more {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.75rem; letter-spacing: 0.2em;
-      text-transform: uppercase;
-      background: none; border: 1px solid var(--border);
-      color: var(--muted); padding: 0.6rem 1.8rem;
-      cursor: pointer; transition: border-color 0.15s, color 0.15s;
-    }
-    .btn-load-more:hover { border-color: var(--muted); color: var(--white); }
+    .carousel-dot.active { background: var(--text); transform: scale(1.4); }
 
     /* ── RESPONSIVE ── */
     @media(max-width:900px) {
       .news-grid, .video-grid { grid-template-columns: repeat(2,1fr); }
-      .card.featured { grid-column: span 2; }
-      .carousel-slide { height: 360px; }
-      .slide-title { font-size: 1.8rem; }
+      .card:nth-child(3n) { border-right: 1px solid var(--border); }
+      .card:nth-child(2n) { border-right: none; }
+      .video-card:nth-child(3n) { border-right: 1px solid var(--border); }
+      .video-card:nth-child(2n) { border-right: none; }
+      .carousel-slide { height: 280px; }
+      .slide-title { font-size: 1.7rem; }
     }
     @media(max-width:580px) {
-      .news-grid, .video-grid { grid-template-columns: 1fr; }
-      .card.featured { grid-column: span 1; }
-      .card.featured .card-title { font-size: 1.2rem; }
-      .logo-name { font-size: 1.7rem; }
+      .news-grid, .video-grid, .other-grid { grid-template-columns: 1fr; }
+      .card:nth-child(n) { border-right: none; }
+      .video-card:nth-child(n) { border-right: none; }
+      .logo-name { font-size: 1.2rem; }
       .radar-banner { display: none; }
-      .carousel-slide { height: 240px; }
-      .slide-title { font-size: 1.5rem; }
+      .carousel-slide { height: 200px; }
+      .slide-title { font-size: 1.4rem; }
       .slide-summary { display: none; }
       .carousel-arrow { display: none; }
+      .card-img-wrap { height: 130px; }
     }
   </style>
 </head>
@@ -651,7 +682,7 @@
   <div class="header-inner">
     <div class="logo">
       <div class="crest">🦅</div>
-      <div class="logo-text">
+      <div>
         <div class="logo-name">Kartalix</div>
         <div class="logo-sub">Beşiktaş JK · Son Dakika</div>
       </div>
@@ -690,7 +721,7 @@
 
 <!-- ── MATCH DAY ── -->
 <div class="matchday" id="matchdayBanner">
-  <div class="matchday-text">⚽ MAÇ GÜNÜ — Beşiktaş vs Galatasaray · Bugün 20:00 · Canlı Yorum Açık</div>
+  <div class="matchday-text">⚽ MAÇ GÜNÜ — Beşiktaş · Canlı Yorum Açık</div>
 </div>
 
 <!-- ── HERO CAROUSEL ── -->
@@ -703,17 +734,14 @@
 
 <!-- ── MAIN ── -->
 <main>
-  <div class="section-row">
-    <div class="section-label">Son Dakika Haberleri</div>
-    <div class="last-update" id="lastUpdate">Güncelleniyor...</div>
+  <div class="section-header">
+    <span class="section-header-title">Son Dakika Haberleri</span>
+    <span class="last-update" id="lastUpdate">Güncelleniyor...</span>
   </div>
 
   <div class="news-grid" id="newsGrid">
-    <!-- Skeletons -->
-    <div class="skel featured">
-      <div class="skel-line s"></div><div class="skel-line l"></div>
-      <div class="skel-line m"></div><div class="skel-line l"></div>
-    </div>
+    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
+    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
     <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
     <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
     <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
@@ -725,28 +753,28 @@
 
   <!-- ── DİĞER SPORLAR ── -->
   <div class="other-sports-section" id="otherSportsSection" style="display:none">
-    <div class="section-row" style="margin-bottom:1.25rem">
-      <div class="section-label">Diğer Sporlar</div>
+    <div class="section-header">
+      <span class="section-header-title">Diğer Sporlar</span>
     </div>
     <div class="other-grid" id="otherSportsGrid"></div>
   </div>
 
   <!-- ── VIDEO MOMENTS ── -->
   <div class="video-section">
-    <div class="section-row" style="margin-bottom:1.25rem">
-      <div class="section-label">Video Öne Çıkanlar</div>
+    <div class="section-header" style="margin-top:2rem">
+      <span class="section-header-title">Video Öne Çıkanlar</span>
     </div>
     <div class="video-grid" id="videoGrid">
-      <div class="skel" style="display:flex;gap:.75rem;padding:1rem 1.25rem">
-        <div style="width:48px;height:48px;background:var(--border);border-radius:3px;flex-shrink:0"></div>
+      <div class="skel" style="display:flex;gap:.75rem;padding:1rem">
+        <div style="width:44px;height:44px;background:var(--border);border-radius:2px;flex-shrink:0"></div>
         <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
       </div>
-      <div class="skel" style="display:flex;gap:.75rem;padding:1rem 1.25rem">
-        <div style="width:48px;height:48px;background:var(--border);border-radius:3px;flex-shrink:0"></div>
+      <div class="skel" style="display:flex;gap:.75rem;padding:1rem">
+        <div style="width:44px;height:44px;background:var(--border);border-radius:2px;flex-shrink:0"></div>
         <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
       </div>
-      <div class="skel" style="display:flex;gap:.75rem;padding:1rem 1.25rem">
-        <div style="width:48px;height:48px;background:var(--border);border-radius:3px;flex-shrink:0"></div>
+      <div class="skel" style="display:flex;gap:.75rem;padding:1rem">
+        <div style="width:44px;height:44px;background:var(--border);border-radius:2px;flex-shrink:0"></div>
         <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
       </div>
     </div>
@@ -791,7 +819,7 @@
     <a href="/rss.xml">RSS</a>
   </div>
   <div class="footer-copy">
-    © 2026 Kartalix · Tüm haberler güvenilir kaynaklardan otomatik derlenmektedir.
+    © 2026 Kartalix · Tüm haberler güvenilir kaynaklardan otomatik derlenmektedir.<br>
     Bu site Beşiktaş JK ile resmi bir bağlantısı bulunmamaktadır.
   </div>
 </footer>
@@ -804,9 +832,9 @@
   // ── MOCK DATA ────────────────────────────────────────────────
   const MOCK_ARTICLES = [
     { title: 'Beşiktaş, Ciro Immobile transferinde sona geldi', summary: 'Siyah-beyazlılar, İtalyan forvet için Lazio ile anlaştı. Transferin bu hafta açıklanması bekleniyor.', source: 'Fanatik', url: '#', category: 'Transfer', nvs: 88, golden_score: 4, time_ago: '1 saat önce' },
-    { title: 'Rıdvan Dilmen: "Beşiktaş bu sezon şampiyon olur"', summary: 'Eski teknik direktör, siyah-beyazlıların bu sezonki kadrosunu değerlendirdi.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 72, golden_score: 3, time_ago: '3 saat önce' },
+    { title: 'Rıdvan Dilmen: Beşiktaş bu sezon şampiyon olur', summary: 'Eski teknik direktör, siyah-beyazlıların bu sezonki kadrosunu değerlendirdi.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 72, golden_score: 3, time_ago: '3 saat önce' },
     { title: 'Alex Oxlade-Chamberlain sakatlandı', summary: 'İngiliz orta saha oyuncusu antrenmanı erken terk etti. Maç öncesi durumu belirsiz.', source: 'Milliyet', url: '#', category: 'Injury', nvs: 81, golden_score: 3, time_ago: '5 saat önce' },
-    { title: 'Beşiktaş - Trabzonspor maçı bilet satışları başladı', summary: 'Derbinin biletleri resmi site üzerinden satışa çıktı. İlk iki saat içinde büyük bölümü tükendi.', source: 'Fotomac', url: '#', category: 'Match', nvs: 65, golden_score: 2, time_ago: '2 saat önce' },
+    { title: 'Beşiktaş Trabzonspor maçı bilet satışları başladı', summary: 'Derbinin biletleri resmi site üzerinden satışa çıktı. İlk iki saat içinde büyük bölümü tükendi.', source: 'Fotomac', url: '#', category: 'Match', nvs: 65, golden_score: 2, time_ago: '2 saat önce' },
     { title: 'Semih Kılıçsoy Almanya yolunda', summary: 'Genç yıldızın Bundesliga kulübüyle görüştüğü öğrenildi. Kulüp henüz açıklama yapmadı.', source: 'Fırat Günayer', url: '#', category: 'Transfer', nvs: 76, golden_score: 'eye2', time_ago: '30 dk önce' },
     { title: 'Teknik direktör basın toplantısı yaptı', summary: 'Önümüzdeki maç için hazırlıkların tamamlandığını açıkladı. Forma şüphelisi 2 isim var.', source: 'BJK Official', url: '#', category: 'Squad', nvs: 68, golden_score: 5, time_ago: '4 saat önce' },
     { title: 'Beşiktaş Avrupa kupasında son 16ya kaldı', summary: 'Siyah-beyazlılar Konferans Ligi play-off turunu geçmeyi başardı.', source: 'NTV Spor', url: '#', category: 'Match', nvs: 85, golden_score: 5, time_ago: '6 saat önce' },
@@ -814,7 +842,7 @@
     { title: 'Yeni stadyum projesi onaylandı', summary: 'Beşiktaş Belediye ile anlaşma tamamlandı, inşaat 2027\'de başlayacak.', source: 'BJK Official', url: '#', category: 'Club', nvs: 90, golden_score: 5, time_ago: '8 saat önce' },
     { title: 'Merkez hakem kurulu açıklaması', summary: 'Geçen haftaki penaltı kararlarına ilişkin resmi değerlendirme yapıldı.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 55, golden_score: 3, time_ago: '9 saat önce' },
     { title: 'Genç yıldız milli takıma çağrıldı', summary: 'Teknik direktör, kadroya ilk kez çağırdığı isimleri açıkladı.', source: 'A Spor', url: '#', category: 'Squad', nvs: 70, golden_score: 4, time_ago: '10 saat önce' },
-    { title: 'Basketbol şampiyonluk yolunda', summary: 'Beşiktaş Fibabanka EuroCup\'ta finale çok yakın.', source: 'Fotomaç Basketbol', url: '#', category: 'Basketball', nvs: 75, golden_score: 3, time_ago: '11 saat önce' },
+    { title: 'Basketbol şampiyonluk yolunda', summary: 'Beşiktaş Fibabanka EuroCup\'ta finale çok yakın.', source: 'Fotomaç Basketbol', url: '#', category: 'Basketball', nvs: 75, golden_score: 3, sport: 'basketball', time_ago: '11 saat önce' },
   ];
 
   const MOCK_VIDEOS = [
@@ -830,12 +858,6 @@
     { label: 'Yönetim',  emoji: '😤', mood: 'Endişeli' },
   ];
 
-  const MOCK_RADAR = [
-    { name: 'Ciro Immobile',  nvs: 88 },
-    { name: 'Semih Kılıçsoy', nvs: 76 },
-    { name: 'Romain Faivre',  nvs: 61 },
-  ];
-
   // ── HELPERS ──────────────────────────────────────────────────
   let _articles = [];
 
@@ -843,6 +865,31 @@
     return String(s)
       .replace(/&/g,'&amp;').replace(/</g,'&lt;')
       .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function cleanForDisplay(text) {
+    if (!text) return '';
+    return text
+      .replace(/&amp;/g, '&')
+      .replace(/&#x27;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&#\w+;/g, '')
+      .replace(/\|.*$/g, '')
+      .replace(/Ana Sayfa.*/gi, '')
+      .replace(/Son Güncelleme.*/gi, '')
+      .replace(/#\w+/g, '')
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/Devamı için tıklayınız\.?/gi, '')
+      .replace(/İşte detaylar\.?/gi, '')
+      .replace(/İşte ayrıntılar\.?/gi, '')
+      .replace(/Son dakika Beşiktaş haberleri[^.]*/gi, '')
+      .replace(/BJK spor haberi[^)]*/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 140);
   }
 
   function goldenScoreHTML(gs) {
@@ -856,44 +903,25 @@
     return '⚡'.repeat(Math.min(n, 5));
   }
 
-  // Category gradient fallbacks
   const CAT_GRAD = {
     Transfer: 'linear-gradient(135deg, #1a0000, #0d0000)',
     Match:    'linear-gradient(135deg, #001a00, #000d00)',
     Injury:   'linear-gradient(135deg, #1a0800, #0d0400)',
     Club:     'linear-gradient(135deg, #0a0a14, #050510)',
   };
-  function catGrad(a) { return CAT_GRAD[a.category || 'Club'] || 'linear-gradient(135deg, #111, #0a0a0a)'; }
+  function catGrad(a) { return CAT_GRAD[a.category || 'Club'] || 'linear-gradient(135deg, #111, #0d0d0d)'; }
 
-  // Carousel slide inline style
   function slideStyle(a) {
     return a.image_url
-      ? `background-image: url('${esc(a.image_url)}')`
-      : `background: ${catGrad(a)}`;
+      ? `background-image:url('${esc(a.image_url)}')`
+      : `background:${catGrad(a)}`;
   }
 
-  // Card thumbnail inline style (full-bleed, 130px)
-  function thumbStyle(a) {
-    const base = 'height:130px;background-size:cover;background-position:center;background-color:#141414;margin:-1.4rem -1.5rem 0.75rem;width:calc(100% + 3rem);flex-shrink:0';
+  function cardImgStyle(a) {
+    const base = 'width:100%;height:100%;background-size:cover;background-position:center;';
     return a.image_url
-      ? `${base};background-image:url('${esc(a.image_url)}')`
-      : `${base};background:${catGrad(a)}`;
-  }
-
-  // Strip RSS boilerplate from summary text
-  function cleanSummary(text) {
-    if (!text) return '';
-    return text
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/Devamı için tıklayınız\.?/gi, '')
-      .replace(/İşte detaylar\.?/gi, '')
-      .replace(/İşte ayrıntılar\.?/gi, '')
-      .replace(/Son dakika Beşiktaş haberleri[^.]*/gi, '')
-      .replace(/BJK spor haberi[^)]*/gi, '')
-      .replace(/\(BJK spor haberi\)/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 280);
+      ? `${base}background-image:url('${esc(a.image_url)}')`
+      : `${base}background:${catGrad(a)}`;
   }
 
   // ── INIT ─────────────────────────────────────────────────────
@@ -909,12 +937,11 @@
 
     _articles = articles;
 
-    // Split football vs other sports
     const footballArticles = articles.filter(a => !a.sport || a.sport === 'football');
     const otherArticles    = articles.filter(a => a.sport && a.sport !== 'football');
 
     renderCarousel(footballArticles.slice(0, 8));
-    renderGrid(footballArticles.slice(8), 0);
+    renderGrid(footballArticles, 0);
     renderTicker(footballArticles);
     renderRadarLive(articles);
     renderPulseLive(articles);
@@ -938,18 +965,18 @@
     const track = document.getElementById('carouselTrack');
     track.innerHTML = items.map((a, i) => `
       <div class="carousel-slide" data-cidx="${i}" onclick="openArticle(_carouselItems[${i}])" style="${slideStyle(a)}">
-        <div style="position:absolute;inset:0;background:linear-gradient(to bottom, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.95) 70%)"></div>
+        <div class="slide-gradient"></div>
         <div class="slide-top">
           <span class="slide-cat-badge">${esc(a.category || 'Haber')}</span>
           ${a.golden_score ? `<span class="slide-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : ''}
         </div>
         <div class="slide-content">
-          <div class="slide-title">${esc(a.title)}</div>
-          <div class="slide-summary">${esc(cleanSummary(a.summary || ''))}</div>
+          <div class="slide-title">${esc(cleanForDisplay(a.title))}</div>
+          <div class="slide-summary">${esc(cleanForDisplay(a.summary || '').slice(0, 120))}</div>
           <div class="slide-meta">
             <div class="slide-source">
               <div class="slide-src-dot"></div>
-              ${esc(a.source || '')} · ${esc(a.time_ago || 'Güncel')}
+              Kaynak: ${esc(a.source || '')} · ${esc(a.time_ago || 'Güncel')}
             </div>
             <span class="slide-read">Oku →</span>
           </div>
@@ -957,24 +984,20 @@
       </div>
     `).join('');
 
-    // Dots
     const dots = document.getElementById('carouselDots');
     dots.innerHTML = items.map((_, i) =>
-      `<div class="carousel-dot${i===0?' active':''}" data-dot="${i}" onclick="goToSlide(${i})"></div>`
+      `<div class="carousel-dot${i===0?' active':''}" onclick="goToSlide(${i})"></div>`
     ).join('');
 
     document.getElementById('carouselPrev').addEventListener('click', e => { e.stopPropagation(); prevSlide(); });
     document.getElementById('carouselNext').addEventListener('click', e => { e.stopPropagation(); nextSlide(); });
 
-    // Auto-advance
     startCarouselTimer();
 
-    // Pause on hover
     const carousel = document.getElementById('heroCarousel');
     carousel.addEventListener('mouseenter', () => clearInterval(_carouselTimer));
     carousel.addEventListener('mouseleave', () => startCarouselTimer());
 
-    // Touch swipe
     let touchX = 0;
     carousel.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
     carousel.addEventListener('touchend', e => {
@@ -1002,73 +1025,61 @@
   }
 
   // ── NEWS GRID ────────────────────────────────────────────────
-  let _gridOffset = 0;
   const GRID_PAGE = 9;
 
   function renderGrid(items, offset) {
-    _gridOffset = offset;
     const grid = document.getElementById('newsGrid');
     const page = items.slice(offset, offset + GRID_PAGE);
 
-    if (offset === 0) {
-      grid.innerHTML = '';
-    }
+    if (offset === 0) grid.innerHTML = '';
 
     page.forEach((a, i) => {
       const absIdx = _articles.indexOf(a);
-      const nvsClass = a.nvs >= 75 ? 'high' : a.nvs >= 55 ? 'med' : '';
       const el = document.createElement('div');
       el.className = 'card';
       el.setAttribute('role', 'button');
       el.setAttribute('tabindex', '0');
-      el.dataset.absIdx = absIdx >= 0 ? absIdx : i + 8 + offset;
+      el.dataset.absIdx = absIdx >= 0 ? absIdx : i + offset;
       el.style.animationDelay = `${i * 0.04}s`;
-      const scoreBadge = a.golden_score
-        ? `<span class="score-badge" title="Güven Puanı">${goldenScoreHTML(a.golden_score)}</span>`
-        : (a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : '');
+
+      const scoreHTML = a.golden_score
+        ? `<span class="card-score-badge">${goldenScoreHTML(a.golden_score)}</span>`
+        : '';
+
       el.innerHTML = `
-        <div class="card-thumb" style="${thumbStyle(a)}"></div>
-        <div class="card-cat">
-          ${esc(a.category || 'Haber')}
-          ${scoreBadge}
+        <div class="card-img-wrap">
+          <div style="${cardImgStyle(a)}"></div>
+          <span class="card-cat-badge">${esc(cleanForDisplay(a.category || 'Haber'))}</span>
+          ${scoreHTML}
         </div>
-        <div class="card-title">${esc(a.title)}</div>
-        <div class="card-summary">${esc(cleanSummary(a.summary || a.full_body || ''))}</div>
-        <div class="card-meta">
-          <div class="card-source">
-            <div class="src-dot"></div>
-            ${esc(a.source)}
-          </div>
-          <div style="display:flex;align-items:center;gap:.75rem">
-            <span>${esc(a.time_ago || '')}</span>
-            <span class="card-link">Oku →</span>
-          </div>
+        <div class="card-body">
+          <div class="card-title">${esc(cleanForDisplay(a.title))}</div>
+          <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || ''))}</div>
+          <div class="card-source-line">Kaynak: <span>${esc(a.source || '')}</span> · ${esc(a.time_ago || 'Güncel')}</div>
         </div>`;
+
       el.addEventListener('click', () => openArticle(_articles[parseInt(el.dataset.absIdx)] || a));
       el.addEventListener('keydown', e => { if (e.key === 'Enter') openArticle(_articles[parseInt(el.dataset.absIdx)] || a); });
       grid.appendChild(el);
     });
 
-    // Show/hide load more
     const hasMore = offset + GRID_PAGE < items.length;
     const row = document.getElementById('loadMoreRow');
     row.style.display = hasMore ? 'flex' : 'none';
-
     if (hasMore) {
-      const btn = document.getElementById('loadMoreBtn');
-      btn.onclick = () => renderGrid(items, offset + GRID_PAGE);
+      document.getElementById('loadMoreBtn').onclick = () => renderGrid(items, offset + GRID_PAGE);
     }
   }
 
   // ── RENDER TICKER ────────────────────────────────────────────
   function renderTicker(articles) {
     const items = articles
-      .map(a => `<span class="ticker-item">⚫ ${esc(a.title)}</span>`)
+      .map(a => `<span class="ticker-item">⚫ ${esc(cleanForDisplay(a.title))}</span>`)
       .join('<span class="ticker-sep">|</span>');
     document.getElementById('ticker').innerHTML = items + items;
   }
 
-  // ── RENDER RADAR (live — transfer/rumor articles) ────────────
+  // ── RENDER RADAR (live) ──────────────────────────────────────
   function renderRadarLive(articles) {
     const transferArticles = articles.filter(a =>
       (a.category || '').toLowerCase() === 'transfer' ||
@@ -1083,39 +1094,34 @@
 
     document.getElementById('radarItems').innerHTML = transferArticles.map(r => `
       <div class="radar-item" style="cursor:pointer" onclick="openArticle(_articles[${_articles.indexOf(r)}])">
-        ${esc((r.title || '').slice(0, 55))}
+        ${esc(cleanForDisplay(r.title).slice(0, 55))}
         ${r.golden_score
           ? `<span class="radar-nvs med">${goldenScoreHTML(r.golden_score)}</span>`
-          : `<span class="radar-nvs ${r.nvs >= 70 ? 'high' : 'med'}">${r.nvs}</span>`}
+          : `<span class="radar-nvs ${(r.nvs||0) >= 70 ? 'high' : 'med'}">${r.nvs}</span>`}
       </div>
     `).join('');
   }
 
-  // ── RENDER PULSE (live — derived from articles) ───────────────
+  // ── RENDER PULSE (live) ──────────────────────────────────────
   function renderPulseLive(articles) {
-    if (!articles.length) {
-      renderPulse(MOCK_PULSE);
-      return;
-    }
+    if (!articles.length) { renderPulse(MOCK_PULSE); return; }
 
-    const avgNvs = articles.reduce((s, a) => s + (a.nvs || 50), 0) / articles.length;
+    const avgNvs     = articles.reduce((s, a) => s + (a.nvs || 50), 0) / articles.length;
     const injuries   = articles.filter(a => (a.category||'').toLowerCase() === 'injury').length;
     const transfers  = articles.filter(a => (a.category||'').toLowerCase() === 'transfer').length;
     const matchNews  = articles.filter(a => (a.category||'').toLowerCase() === 'match').length;
-    const highNvs    = articles.filter(a => (a.nvs||0) >= 75).length;
 
-    const genelMood = avgNvs >= 70 ? ['🔥', 'Heyecanlı'] : avgNvs >= 55 ? ['💪', 'Kararlı'] : ['🤔', 'Beklemede'];
-    const transferMood = transfers >= 3 ? ['🤞', 'Hareketli'] : transfers >= 1 ? ['👀', 'Takipte'] : ['😴', 'Sakin'];
-    const macMood = matchNews >= 2 ? ['⚽', 'Maç modu'] : ['📰', 'Günlük'];
-    const saglikMood = injuries >= 2 ? ['😟', 'Endişeli'] : ['💚', 'Sağlıklı'];
+    const genelMood    = avgNvs >= 70 ? ['🔥','Heyecanlı'] : avgNvs >= 55 ? ['💪','Kararlı'] : ['🤔','Beklemede'];
+    const transferMood = transfers >= 3 ? ['🤞','Hareketli'] : transfers >= 1 ? ['👀','Takipte'] : ['😴','Sakin'];
+    const macMood      = matchNews >= 2 ? ['⚽','Maç modu'] : ['📰','Günlük'];
+    const saglikMood   = injuries >= 2 ? ['😟','Endişeli'] : ['💚','Sağlıklı'];
 
-    const items = [
+    renderPulse([
       { label: 'Genel',    emoji: genelMood[0],    mood: genelMood[1] },
-      { label: 'Transfer', emoji: transferMood[0],  mood: transferMood[1] },
-      { label: 'Maç',      emoji: macMood[0],       mood: macMood[1] },
-      { label: 'Sağlık',   emoji: saglikMood[0],    mood: saglikMood[1] },
-    ];
-    renderPulse(items);
+      { label: 'Transfer', emoji: transferMood[0], mood: transferMood[1] },
+      { label: 'Maç',      emoji: macMood[0],      mood: macMood[1] },
+      { label: 'Sağlık',   emoji: saglikMood[0],   mood: saglikMood[1] },
+    ]);
   }
 
   function renderPulse(items) {
@@ -1137,23 +1143,22 @@
     const SPORT_LABELS = { basketball: 'Basketbol', volleyball: 'Voleybol', handball: 'Hentbol' };
     grid.innerHTML = articles.slice(0, 6).map(a => {
       const sportLabel = SPORT_LABELS[a.sport] || a.sport || 'Spor';
-      const sportClass = a.sport || '';
       const idx = _articles.indexOf(a);
-      const scoreBadge = a.golden_score
-        ? `<span class="score-badge">${goldenScoreHTML(a.golden_score)}</span>`
-        : (a.nvs ? `<span class="nvs-badge ${a.nvs >= 75 ? 'high' : 'med'}">${a.nvs}</span>` : '');
+      const scoreHTML = a.golden_score
+        ? `<span class="card-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : '';
       return `
-        <div class="card" style="cursor:pointer" onclick="openArticle(_articles[${idx}]||${JSON.stringify(a).replace(/"/g,'&quot;')})">
-          <div class="card-cat">
-            <span class="sport-tag ${sportClass}">${esc(sportLabel)}</span>
-            ${esc(a.category || '')}
-            ${scoreBadge}
+        <div class="card" onclick="openArticle(_articles[${idx}])">
+          <div class="card-img-wrap">
+            <div style="${cardImgStyle(a)}"></div>
+            <span class="card-cat-badge">
+              <span class="sport-tag ${a.sport||''}">${esc(sportLabel)}</span>
+            </span>
+            ${scoreHTML}
           </div>
-          <div class="card-title">${esc(a.title)}</div>
-          <div class="card-summary">${esc(cleanSummary(a.summary || a.full_body || ''))}</div>
-          <div class="card-meta">
-            <div class="card-source"><div class="src-dot"></div>${esc(a.source || '')}</div>
-            <span>${esc(a.time_ago || '')}</span>
+          <div class="card-body">
+            <div class="card-title">${esc(cleanForDisplay(a.title))}</div>
+            <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || ''))}</div>
+            <div class="card-source-line">Kaynak: <span>${esc(a.source || '')}</span> · ${esc(a.time_ago || 'Güncel')}</div>
           </div>
         </div>`;
     }).join('');
@@ -1166,7 +1171,7 @@
         <div class="video-thumb">▶</div>
         <div class="video-body">
           <div class="video-source">${esc(v.source)}</div>
-          <div class="video-moment">${esc(v.moment)}</div>
+          <div class="video-moment">${esc(cleanForDisplay(v.moment))}</div>
           <div class="video-ts">⏱ ${esc(v.timestamp)}'den itibaren</div>
         </div>
       </a>
@@ -1181,18 +1186,20 @@
   // ── MODAL ────────────────────────────────────────────────────
   function openArticle(a) {
     if (!a) return;
-    const nvsClass = a.nvs >= 75 ? 'high' : a.nvs >= 55 ? 'med' : '';
+    const gs = a.golden_score;
+    const nvsClass = (a.nvs||0) >= 75 ? 'high' : (a.nvs||0) >= 55 ? 'med' : '';
 
-    document.getElementById('modalCat').textContent       = a.category || 'Haber';
-    document.getElementById('modalNvsBadge').innerHTML    = a.nvs
-      ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : '';
-    document.getElementById('modalHeadline').textContent  = a.title || '';
-    document.getElementById('modalSource').textContent    = a.source || '';
-    document.getElementById('modalTimeAgo').textContent   = a.time_ago || '';
-    document.getElementById('modalSources').textContent   = a.source
-      ? `Kaynaklar: ${a.source}` : '';
+    document.getElementById('modalCat').textContent    = cleanForDisplay(a.category || 'Haber');
+    document.getElementById('modalNvsBadge').innerHTML = gs
+      ? `<span class="score-badge">${goldenScoreHTML(gs)}</span>`
+      : (a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : '');
+    document.getElementById('modalHeadline').textContent = cleanForDisplay(a.title || '');
+    document.getElementById('modalSource').textContent   = `Kaynak: ${a.source || ''}`;
+    document.getElementById('modalTimeAgo').textContent  = a.time_ago || '';
+    document.getElementById('modalSources').textContent  = a.source
+      ? `Kaynak: ${a.source}` : '';
 
-    const body = a.full_body || a.summary || '';
+    const body = cleanForDisplay(a.full_body || a.summary || '');
     document.getElementById('modalArticle').innerHTML = body
       .split(/\n\n+/)
       .filter(p => p.trim())
