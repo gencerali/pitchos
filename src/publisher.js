@@ -119,7 +119,13 @@ export async function fetchSourceContent(url) {
 // ─── ENRICH ARTICLES WITH FULL SOURCE CONTENT ────────────────
 export async function enrichArticles(articles, env) {
   const enriched = [];
+  const startTime = Date.now();
   for (const article of articles) {
+    if (Date.now() - startTime > 20000) {
+      console.log('Enrich timeout — stopping at', enriched.length, 'articles');
+      enriched.push(...articles.slice(enriched.length));
+      break;
+    }
     if (article.url && article.url !== '#' && !article.has_full_content) {
       try {
         const result = await fetchSourceContent(article.url, env);
@@ -135,7 +141,7 @@ export async function enrichArticles(articles, env) {
     } else {
       enriched.push(article);
     }
-    await new Promise(r => setTimeout(r, 150));
+    await new Promise(r => setTimeout(r, 50));
   }
   return enriched;
 }

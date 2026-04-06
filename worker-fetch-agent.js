@@ -251,14 +251,18 @@ async function processSite(site, env) {
     return stats;
   }
 
-  // ── ENRICH PHASE (fetch full content before scoring) ──────────
-  const enriched = await enrichArticles(preFiltered, env);
-  console.log(`${site.short_code} ENRICH: ${enriched.filter(a => a.has_full_content).length}/${enriched.length} articles with full content`);
+  // ── ENRICH PHASE — top 15 by rough score get full content ─────
+  const toEnrich = [...preFiltered]
+    .sort((a, b) => (b.nvs || b.nvs_score || 0) - (a.nvs || a.nvs_score || 0))
+    .slice(0, 15);
+  const enriched = await enrichArticles(toEnrich, env);
+  const allArticles = [...enriched, ...preFiltered.slice(15)];
+  console.log(`${site.short_code} ENRICH: ${enriched.filter(a => a.has_full_content).length}/${toEnrich.length} enriched, ${allArticles.length} total`);
 
   // ── SCOUT PHASE ───────────────────────────────────────────────
   await sleep(500);
-  const { scored, usage: scoreUsage } = await scoreArticles(enriched, site, env);
-  const mergedScored = enriched.map((orig, i) => ({
+  const { scored, usage: scoreUsage } = await scoreArticles(allArticles, site, env);
+  const mergedScored = allArticles.map((orig, i) => ({
     ...orig,
     nvs:          scored[i]?.nvs          || 50,
     content_type: scored[i]?.content_type || 'unknown',
