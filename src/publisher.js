@@ -292,7 +292,7 @@ export async function logFetch(env, siteId, status, stats, errorMsg, funnelStats
 // ─── KV CACHE ─────────────────────────────────────────────────
 export async function cacheToKV(env, site, toPublish, toQueue) {
   const existing   = await getCachedArticles(env, site.short_code);
-  const mergedKV   = mergeAndDedupe([...toPublish, ...toQueue, ...existing], 20);
+  const mergedKV   = mergeAndDedupe([...toPublish, ...toQueue, ...existing], 30);
   console.log(`KV cache: ${mergedKV.length} articles, full_body lengths: ${mergedKV.map(a => a.full_body?.length || 0).join(',')}`);
   console.log('KV CACHE article 1 full_body:', mergedKV[0]?.full_body?.length || 0);
   await env.PITCHOS_CACHE.put(

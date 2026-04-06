@@ -264,18 +264,18 @@ async function processSite(site, env) {
   stats.claudeCalls++;
   addUsagePhase(stats, scoreUsage, MODEL_SCORE, 'scout');
 
-  const top8 = mergedScored.sort((a, b) => (b.nvs || 0) - (a.nvs || 0)).slice(0, 8);
-  stats.scored        = top8.length;
-  stats.rejected      = mergedScored.slice(8).length;
+  const top30 = mergedScored.sort((a, b) => (b.nvs || 0) - (a.nvs || 0)).slice(0, 30);
+  stats.scored        = top30.length;
+  stats.rejected      = mergedScored.slice(30).length;
   funnelStats.scored  = mergedScored.length;
-  console.log(`${site.short_code}: scored ${mergedScored.length} → top 8 NVS: ${top8.map(a => a.nvs).join(', ')}`);
+  console.log(`${site.short_code}: scored ${mergedScored.length} → top 30 NVS: ${top30.map(a => a.nvs).join(', ')}`);
 
   // ── WRITE PHASE (decision-based, no Sonnet) ───────────────────
-  const allWritten = await writeArticles(top8, site, env);
+  const allWritten = await writeArticles(top30, site, env);
   console.log(`Write phase: modes ${allWritten.map(a => a.publish_mode).join(', ')} | scout ${stats.scout_tokens_in}in €${stats.costEur.toFixed(4)}`);
 
   // ── ROUTE & SAVE ──────────────────────────────────────────────
-  const publishThreshold = Math.min(site.auto_publish_threshold, 30);
+  const publishThreshold = Math.min(site.auto_publish_threshold, 20);
   const toPublish = allWritten.filter(a => a.nvs >= publishThreshold);
   const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < publishThreshold);
   stats.published = toPublish.length;
