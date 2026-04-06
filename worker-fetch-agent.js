@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, sleep, isTodayArticle, supabase, MODEL_FETCH, MODEL_SCORE } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, RSS_FEEDS } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, fetchSourceContent } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, fetchSourceContent, mergeAndDedupe } from './src/publisher.js';
 
 // ─── MAIN ENTRY POINT ────────────────────────────────────────
 export default {
@@ -310,8 +310,28 @@ async function processSite(site, env) {
   if (toPublish.length > 0) await saveArticles(env, site.id, toPublish, 'published');
   if (toQueue.length > 0)   await saveArticles(env, site.id, toQueue,   'pending');
 
-  // Cache top 30 — articles beyond top 8 use RSS summary as-is
-  await cacheToKV(env, site, [...toPublish, ...toQueue, ...top30.slice(8)], []);
+  // Cache top 30 — merge published + queued + rest of scored, dedupe, map to KV shape
+  const existing   = await getCachedArticles(env, site.short_code);
+  const allForKV   = mergeAndDedupe([...toPublish, ...toQueue, ...top30.slice(8), ...existing], 30);
+  const kvArticles = allForKV.map(a => ({
+    title:        a.title        || '',
+    summary:      a.summary      || a.description || '',
+    full_body:    a.full_body && a.full_body.length > 300
+      ? a.full_body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000)
+      : (a.summary || a.description || ''),
+    source:       a.source       || a.source_name || '',
+    url:          a.url          || a.original_url || '',
+    category:     a.category     || 'Haber',
+    nvs:          a.nvs          || a.nvs_score   || 0,
+    golden_score: a.golden_score || null,
+    time_ago:     a.time_ago     || 'Güncel',
+    is_fresh:     a.is_fresh     ?? true,
+    sport:        a.sport        || 'football',
+    publish_mode: a.publish_mode || 'rss_summary',
+    image_url:    a.image_url    || '',
+  }));
+  console.log('Calling cacheToKV with', kvArticles.length, 'articles for site', site.short_code);
+  await cacheToKV(env, site.short_code, kvArticles);
   await saveSeenHashes(env, site.short_code, toPublish);
   await logFetch(env, site.id, 'success', stats, null, funnelStats);
 

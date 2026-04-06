@@ -320,32 +320,16 @@ export async function logFetch(env, siteId, status, stats, errorMsg, funnelStats
 }
 
 // ─── KV CACHE ─────────────────────────────────────────────────
-export async function cacheToKV(env, site, toPublish, toQueue) {
-  const existing   = await getCachedArticles(env, site.short_code);
-  const mergedKV   = mergeAndDedupe([...toPublish, ...toQueue, ...existing], 30);
-  console.log(`KV cache: ${mergedKV.length} articles, full_body lengths: ${mergedKV.map(a => a.full_body?.length || 0).join(',')}`);
-  console.log('KV CACHE article 1 full_body:', mergedKV[0]?.full_body?.length || 0);
-  await env.PITCHOS_CACHE.put(
-    `articles:${site.short_code}`,
-    JSON.stringify(mergedKV.map(a => ({
-      title:        a.title        || '',
-      summary:      cleanRSS(a.summary || a.description || ''),
-      full_body:    a.full_body && a.full_body.length > 300
-        ? a.full_body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000)
-        : cleanRSS(a.summary || a.description || ''),
-      source:       a.source       || a.source_name || '',
-      url:          a.url          || a.original_url || '',
-      category:     a.category     || 'Haber',
-      nvs:          a.nvs          || a.nvs_score   || 0,
-      golden_score: a.golden_score || null,
-      time_ago:     a.time_ago     || 'Güncel',
-      is_fresh:     a.is_fresh     ?? true,
-      sport:        a.sport        || 'football',
-      publish_mode: a.publish_mode || 'rss_summary',
-      image_url:    a.image_url    || '',
-    }))),
-    { expirationTtl: 7200 }
-  );
+export async function cacheToKV(env, siteCode, articles) {
+  try {
+    const key = `articles:${siteCode}`;
+    const value = JSON.stringify(articles);
+    console.log(`KV WRITE: key=${key} articles=${articles.length} size=${value.length} chars`);
+    await env.PITCHOS_CACHE.put(key, value, { expirationTtl: 7200 });
+    console.log(`KV WRITE SUCCESS: ${key}`);
+  } catch(e) {
+    console.error(`KV WRITE FAILED:`, e.message);
+  }
 }
 
 export async function getCachedArticles(env, siteCode) {
