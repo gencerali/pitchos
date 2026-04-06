@@ -91,7 +91,7 @@ export async function fetchRSSArticles(site) {
     }
   }
 
-  return { articles: allArticles.slice(0, 40), bySource };
+  return { articles: allArticles.slice(0, 100), bySource };
 }
 
 async function fetchOneFeed(feed, site) {

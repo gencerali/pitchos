@@ -28,14 +28,14 @@ export function preFilter(articles, seenHashes) {
     return !seenHashes.has(hash);
   });
 
-  // Stage 4: title similarity dedup + sort by date + cap 20
+  // Stage 4: title similarity dedup + sort by date + cap 100
   const afterTitle = dedupeByTitle(afterHash)
     .sort((a, b) => {
       const ta = a.published_at ? new Date(a.published_at).getTime() : 0;
       const tb = b.published_at ? new Date(b.published_at).getTime() : 0;
       return tb - ta;
     })
-    .slice(0, 20);
+    .slice(0, 100);
 
   return {
     articles: afterTitle,
