@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, sleep, isTodayArticle, supabase, MODEL_FETCH, MODEL_SCORE } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, RSS_FEEDS } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, enrichArticles } from './src/publisher.js';
 
 // ─── MAIN ENTRY POINT ────────────────────────────────────────
 export default {
@@ -251,10 +251,14 @@ async function processSite(site, env) {
     return stats;
   }
 
+  // ── ENRICH PHASE (fetch full content before scoring) ──────────
+  const enriched = await enrichArticles(preFiltered, env);
+  console.log(`${site.short_code} ENRICH: ${enriched.filter(a => a.has_full_content).length}/${enriched.length} articles with full content`);
+
   // ── SCOUT PHASE ───────────────────────────────────────────────
   await sleep(500);
-  const { scored, usage: scoreUsage } = await scoreArticles(preFiltered, site, env);
-  const mergedScored = preFiltered.map((orig, i) => ({
+  const { scored, usage: scoreUsage } = await scoreArticles(enriched, site, env);
+  const mergedScored = enriched.map((orig, i) => ({
     ...orig,
     nvs:          scored[i]?.nvs          || 50,
     content_type: scored[i]?.content_type || 'unknown',

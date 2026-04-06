@@ -99,13 +99,15 @@ export async function scoreArticles(articles, site, env) {
   for (const chunk of chunks) {
     const slim = chunk.map(a => ({
       t:  (a.title || '').slice(0, 100),
-      s:  a.source,
+      s:  a.source || a.source_name,
       tt: a.trust_tier || 'unknown',
       sp: a.sport || 'football',
+      c:  (a.full_body || a.summary || '').slice(0, 400),
     }));
     const prompt = `Score these ${site.team_name} news items. Return JSON array (same order), each: nvs(0-100), content_type("fact"|"rumor"|"analysis"), golden_score(1-5 for facts, "eye1"|"eye2"|"eye3" for rumors), nvs_notes(max 8 words). No markdown.
 nvs guide: match result/confirmed=80+, press/injury=60+, rumor known journalist=50, vague rumor=30, analysis=40.
 golden_score: 5=official confirmed, 4=verified journalist, 3=reliable media, 2=plausible unverified, 1=weak; eye3=known journalist rumor, eye2=unverified rumor, eye1=speculation.
+Fields: t=title, s=source, tt=trust_tier, sp=sport, c=content.
 Items: ${JSON.stringify(slim)}`;
 
     const response = await callClaude(env, MODEL_SCORE, prompt, false, 2000);

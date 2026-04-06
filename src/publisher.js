@@ -116,6 +116,30 @@ export async function fetchSourceContent(url) {
   }
 }
 
+// ─── ENRICH ARTICLES WITH FULL SOURCE CONTENT ────────────────
+export async function enrichArticles(articles, env) {
+  const enriched = [];
+  for (const article of articles) {
+    if (article.url && article.url !== '#' && !article.has_full_content) {
+      try {
+        const result = await fetchSourceContent(article.url, env);
+        enriched.push({
+          ...article,
+          full_body: (result.content || '').length > 200 ? result.content : article.full_body || article.summary || '',
+          image_url: result.image_url || article.image_url || '',
+          has_full_content: (result.content || '').length > 200,
+        });
+      } catch(e) {
+        enriched.push(article);
+      }
+    } else {
+      enriched.push(article);
+    }
+    await new Promise(r => setTimeout(r, 150));
+  }
+  return enriched;
+}
+
 // ─── MATCH DAY TEMPLATE (Haiku extracts facts) ───────────────
 async function writeMatchDay(article, env) {
   const prompt = `Bu Beşiktaş maç haberinden aşağıdaki bilgileri çıkar ve JSON olarak döndür.
