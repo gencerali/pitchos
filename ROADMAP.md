@@ -172,7 +172,7 @@ Mert Günok (→ Fenerbahçe), Jean Onana (→ Genoa loan)
 - Secrets permanent via wrangler secret put
 - dev.bat shortcuts for common commands
 
-### 🔄 Sprint 2 — Content Quality (IN PROGRESS)
+### ✅ Sprint 2 — Content Quality (COMPLETE — April 6, 2026)
 #### Done:
 - Two-phase pipeline (scout → deep dive)
 - Fotomac RSS working (besiktas.xml)
@@ -182,37 +182,74 @@ Mert Günok (→ Fenerbahçe), Jean Onana (→ Genoa loan)
 - Article modal on fan site
 - Cloudflare Pages connected to GitHub (auto-deploy on push)
 - kartalix.com domain purchased
-
-#### In Progress:
-- waitUntil timeout fix (max_tokens reduction, brevity prompts)
-- beIN Sports web search integration
-
-#### Confirmed RSS Sources (12 feeds):
-- Beşiktaş JK Resmi — nitter.privacydev.net/Besiktas/rss (official)
-- NTV Spor — ntvspor.net/rss/kategori/futbol + HTML fallback (broadcast)
-- Fotomaç — fotomac.com.tr/rss/Besiktas.xml (press)
-- Fotomaç Basketbol — fotomac.com.tr/rss/Basketbol.xml (press)
-- A Haber — ahaber.com.tr/rss/besiktas.xml (press)
-- TRT Haber — trthaber.com/spor_articles.rss (broadcast)
-- A Spor — aspor.com.tr/rss/anasayfa.xml (broadcast)
-- Hürriyet — hurriyet.com.tr/rss/spor (press)
-- Fırat Günayer — nitter.privacydev.net/firatgunayer/rss (journalist, title-only filter)
-- Fabrizio Romano — nitter.privacydev.net/FabrizioRomano/rss (journalist, title-only filter)
-- Transfermarkt — transfermarkt.com/rss/news (international, title-only filter)
-- Sky Sports — skysports.com/rss/12040 (international, title-only filter)
-- beIN Sports — Claude web search site:beinsports.com.tr (broadcast, ~1000 tokens)
-
-#### Remaining Sprint 2:
 - Golden Score system (⚡ and 👁️ badges) replacing NVS numbers
-- Article page with full body display
-- Transfer Radar with live data
-- Fan Pulse with real sentiment
-- Nitter RSS for Fırat Günayer Twitter
-- kartalix.com connected to Cloudflare Pages
+- Article modal with full body display
+- Transfer Radar with live data (derived from real articles)
+- Fan Pulse with real sentiment (derived from article categories/NVS)
+- Nitter RSS for Fırat Günayer and Fabrizio Romano
 - Sport classification (football/basketball/other)
 - Diğer Sporlar section on homepage
+- rss2json proxy for Fotomaç, A Spor, Fotomaç Basketbol
+- Supabase content_items insert fixed (source_type + missing columns migration)
+- Scoring fixed (2000 max_tokens, batch 10 articles)
+- kartalix.com DNS pointed to Cloudflare (pending activation)
+
+#### Confirmed RSS Sources (15 feeds):
+- Beşiktaş JK Resmi — nitter.privacydev.net/Besiktas/rss (official)
+- NTV Spor — ntvspor.net/rss/kategori/futbol + HTML fallback (broadcast)
+- Fotomaç — fotomac.com.tr/rss/Besiktas.xml via rss2json proxy (press)
+- Fotomaç Basketbol — fotomac.com.tr/rss/Basketbol.xml via rss2json proxy (press)
+- A Haber — ahaber.com.tr/rss/besiktas.xml (press)
+- A Haber Basketbol — ahaber.com.tr/rss/basketbol.xml (press)
+- TRT Haber — trthaber.com/spor_articles.rss (broadcast)
+- A Spor — aspor.com.tr/rss/besiktas.xml via rss2json proxy (broadcast)
+- Hürriyet — hurriyet.com.tr/rss/spor (press, keyword filter)
+- Sabah Spor — sabah.com.tr/rss/spor.xml (press, keyword filter)
+- Milliyet Spor — milliyet.com.tr/rss/rssnew/spor (press, keyword filter)
+- Habertürk Spor — haberturk.com/rss/spor.xml (press, keyword filter)
+- Fırat Günayer — nitter.privacydev.net/firatgunayer/rss (journalist, keyword filter)
+- Fabrizio Romano — nitter.privacydev.net/FabrizioRomano/rss (journalist, keyword filter)
+- Transfermarkt — transfermarkt.com/rss/news (international, keyword filter)
+- Sky Sports — skysports.com/rss/12040 (international, keyword filter)
+
+---
+
+## Platform Decisions (locked April 6, 2026)
+
+### Decision 1 — Content Model
+- Full original source content fetched and displayed as-is
+- Attribution: source name only (e.g. "Kaynak: Fotomaç") — never a URL
+- Zero RSS summaries in published articles
+- AI writes ONLY structured templates — never free-form rewrites
+- Templates are fact/data-based, expanding gradually in Kartalix style
+- Template priority: Match Day → Post-Match → Transfer → Injury → Official
+
+### Decision 2 — Template Strategy
+- Templates built one at a time, starting with Match Day
+- Extract facts only: who, what, when, where, score — never invented
+- Always cite per fact: "Kaynak: [source name]"
+- Kartalix voice: short sentences, data first, no clickbait, no exclamation marks
+
+### Decision 3 — Multi-Team Scalable Architecture
+- No hardcoded team logic in worker code ever
+- All team config in Supabase sites table as JSONB:
+  - feed_config: RSS feeds per team
+  - keyword_config: player/staff keywords per team
+  - scoring_config: NVS thresholds and publish rules
+  - fetch_config: cron schedule and token budget (Sprint 6)
+- squad_members table: player roster per team (Sprint 3)
+- templates table: template definitions per team (Sprint 5)
+- Worker reads ALL config from Supabase at runtime
+- Adding second team = INSERT one row in sites table only
+
+---
 
 ### 📋 Sprint 3 — Legal + Monetization Foundation
+- Move RSS feeds + keywords from worker code to Supabase feed_config JSONB
+- Seed squad_members table with full BJK roster (April 2026)
+- Match Day template (first AI template)
+- Post-Match template
+- Cosmetic improvements on fan site (carousel height, card spacing, mobile)
 - GDPR/KVKK cookie banner (Turkey + EU)
 - Privacy policy page auto-generated
 - Source attribution on every article
@@ -222,19 +259,6 @@ Mert Günok (→ Fenerbahçe), Jean Onana (→ Genoa loan)
 - Google News submission
 - Sitemap.xml auto-generated
 - **squad_members table**: seed BJK squad manually from Transfermarkt
-
-### RSS Proxy Solution (Sprint 3)
-Fotomaç and A Spor block Cloudflare Worker IPs (403).
-Solution: Use a free RSS proxy service to fetch blocked feeds:
-- https://api.rss2json.com/v1/api.json?rss_url=FEED_URL (free tier 10k/day)
-- Or deploy a simple proxy on Cloudflare Pages that fetches RSS with browser headers
-
-Blocked feeds to restore via proxy:
-- fotomac.com.tr/rss/Besiktas.xml (best BJK-specific source)
-- aspor.com.tr/rss/besiktas.xml (30+ BJK articles)
-- fotomac.com.tr/rss/Basketbol.xml
-
-Priority: HIGH — these were the best sources.
 
 ### 📋 Sprint 4 — SEO + Distribution
 - NewsArticle structured data
