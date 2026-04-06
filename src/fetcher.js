@@ -15,27 +15,28 @@ export const RSS_FEEDS = [
   // General sports feeds — BJK_KEYWORDS filter applied
   { url: 'https://www.hurriyet.com.tr/rss/spor',           name: 'Hürriyet',          trust: 'press',     sport: 'football',    keywordFilter: true },
   { url: 'https://www.sabah.com.tr/rss/spor.xml',          name: 'Sabah Spor',        trust: 'press',     sport: 'football',    keywordFilter: true },
-  { url: 'https://www.milliyet.com.tr/rss/rssnew/spor',    name: 'Milliyet Spor',     trust: 'press',     sport: 'football',    keywordFilter: true },
   { url: 'https://www.haberturk.com/rss/spor.xml',         name: 'Habertürk Spor',    trust: 'press',     sport: 'football',    keywordFilter: true },
-  // Journalist Twitter feeds via Nitter RSS
-  { url: 'https://nitter.privacydev.net/firatgunayer/rss',  name: 'Fırat Günayer',   trust: 'journalist',    sport: 'football', titleOnly: true },
-  { url: 'https://nitter.privacydev.net/FabrizioRomano/rss', name: 'Fabrizio Romano', trust: 'journalist',    sport: 'football', titleOnly: true },
   // International feeds — BJK_KEYWORDS filter + football-only check
   { url: 'https://www.transfermarkt.com/rss/news',         name: 'Transfermarkt',     trust: 'international', sport: 'football', titleOnly: true },
   { url: 'https://www.skysports.com/rss/12040',            name: 'Sky Sports',        trust: 'international', sport: 'football', titleOnly: true, footballOnly: true },
   // Proxy feeds (403-blocked direct, routed via rss2json.com)
-  { url: 'https://www.fotomac.com.tr/rss/Besiktas.xml',    name: 'Fotomaç',           trust: 'press',         sport: 'football', proxy: true },
-  { url: 'https://www.aspor.com.tr/rss/besiktas.xml',      name: 'A Spor',            trust: 'broadcast',     sport: 'football', proxy: true },
-  { url: 'https://www.fotomac.com.tr/rss/Basketbol.xml',   name: 'Fotomaç Basketbol', trust: 'press',         sport: 'basketball', proxy: true },
+  { url: 'https://www.fotomac.com.tr/rss/Besiktas.xml',    name: 'Fotomaç',           trust: 'press',         sport: 'football',    proxy: true },
+  { url: 'https://www.aspor.com.tr/rss/besiktas.xml',      name: 'A Spor',            trust: 'broadcast',     sport: 'football',    proxy: true },
+  { url: 'https://www.fotomac.com.tr/rss/Basketbol.xml',   name: 'Fotomaç Basketbol', trust: 'press',         sport: 'basketball',  proxy: true },
 ];
 
 // ─── RSS2JSON PROXY ───────────────────────────────────────────
 async function fetchViaRss2Json(feed) {
   const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&count=30`;
+  console.log('PROXY ATTEMPT:', proxyUrl);
   try {
     const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) throw new Error(`rss2json HTTP ${res.status}`);
+    if (!res.ok) {
+      console.error(`PROXY HTTP ${res.status} for ${feed.name} — url: ${proxyUrl}`);
+      throw new Error(`rss2json HTTP ${res.status}`);
+    }
     const data = await res.json();
+    console.log(`PROXY RESPONSE [${feed.name}]: status=${data.status} items=${data.items?.length ?? 'n/a'} message=${data.message || ''}`);
     if (data.status !== 'ok') throw new Error(`rss2json: ${data.message}`);
     console.log(`PROXY [${feed.name}]: ${data.items?.length || 0} items`);
     return (data.items || []).map(item => ({
