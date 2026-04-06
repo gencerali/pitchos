@@ -102,6 +102,28 @@ export default {
       const results = [];
       for (const feed of RSS_FEEDS) {
         try {
+          if (feed.proxy) {
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feed.url)}`;
+            const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
+            if (!res.ok) throw new Error(`allorigins HTTP ${res.status}`);
+            const text = await res.text();
+            const items = text.match(/<item[\s\S]*?<\/item>/g) || [];
+            const sampleTitles = items.slice(0, 3).map(item => {
+              const t = item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i)?.[1]
+                     || item.match(/<title>([^<]+)<\/title>/i)?.[1] || '';
+              return t.trim().slice(0, 60);
+            });
+            results.push({
+              name: feed.name,
+              url: feed.url,
+              status: items.length > 0 ? 200 : 400,
+              format: 'proxy',
+              total_items: items.length,
+              sample_titles: sampleTitles,
+              proxy_message: items.length > 0 ? 'ok' : 'no items parsed',
+            });
+            continue;
+          }
           const res = await fetch(feed.url, { signal: AbortSignal.timeout(8000) });
           const text = await res.text();
           // Count both RSS <item> and Atom <entry> tags

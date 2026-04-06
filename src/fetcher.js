@@ -25,35 +25,42 @@ export const RSS_FEEDS = [
   { url: 'https://www.fotomac.com.tr/rss/Basketbol.xml',   name: 'Fotomaç Basketbol', trust: 'press',         sport: 'basketball',  proxy: true },
 ];
 
-// ─── RSS2JSON PROXY ───────────────────────────────────────────
+// ─── ALLORIGINS PROXY ────────────────────────────────────────
 async function fetchViaRss2Json(feed) {
-  const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}`;
-  console.log('PROXY ATTEMPT:', proxyUrl);
+  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(feed.url)}`;
   try {
     const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) {
-      console.error(`PROXY HTTP ${res.status} for ${feed.name} — url: ${proxyUrl}`);
-      throw new Error(`rss2json HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    console.log(`PROXY RESPONSE [${feed.name}]: status=${data.status} items=${data.items?.length ?? 'n/a'} message=${data.message || ''}`);
-    if (data.status !== 'ok') throw new Error(`rss2json: ${data.message}`);
-    console.log(`PROXY [${feed.name}]: ${data.items?.length || 0} items`);
-    return (data.items || []).map(item => ({
-      title:            item.title || '',
-      url:              item.link || '',
-      summary:          (item.description || '').replace(/<[^>]+>/g, '').slice(0, 300),
-      full_text:        (item.content || '').replace(/<[^>]+>/g, '').slice(0, 3000),
-      has_full_content: (item.content || '').length > 100,
-      image_url:        item.thumbnail || item.enclosure?.link || '',
-      published_at:     item.pubDate || '',
-      source_name:      feed.name,
-      source:           feed.name,
-      trust_tier:       feed.trust,
-      sport:            feed.sport,
-      is_fresh:         true,
-      time_ago:         'Güncel',
-    }));
+    if (!res.ok) throw new Error(`allorigins HTTP ${res.status}`);
+    const text = await res.text();
+    console.log(`PROXY [${feed.name}]: ${text.length} chars received`);
+
+    const items = text.match(/<item[\s\S]*?<\/item>/g) || [];
+    console.log(`PROXY [${feed.name}]: ${items.length} items parsed`);
+
+    return items.slice(0, 15).map(item => {
+      const title = item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i)?.[1]
+                 || item.match(/<title>([^<]+)<\/title>/i)?.[1] || '';
+      const url = item.match(/<link>([^<]+)<\/link>/i)?.[1]
+               || item.match(/<guid>([^<]+)<\/guid>/i)?.[1] || '';
+      const desc = item.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/i)?.[1]
+                || item.match(/<description>([^<]+)<\/description>/i)?.[1] || '';
+      const img = item.match(/<enclosure[^>]+url="([^"]+)"/i)?.[1]
+               || item.match(/<media:content[^>]+url="([^"]+)"/i)?.[1] || '';
+      const pub = item.match(/<pubDate>([^<]+)<\/pubDate>/i)?.[1] || '';
+      return {
+        title:        title.trim(),
+        url:          url.trim(),
+        summary:      desc.replace(/<[^>]+>/g, '').slice(0, 300),
+        image_url:    img,
+        published_at: pub,
+        source_name:  feed.name,
+        source:       feed.name,
+        trust_tier:   feed.trust,
+        sport:        feed.sport,
+        is_fresh:     true,
+        time_ago:     'Güncel',
+      };
+    }).filter(a => a.title.length > 5);
   } catch(e) {
     console.error(`PROXY FAILED [${feed.name}]:`, e.message);
     return [];
