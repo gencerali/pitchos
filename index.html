@@ -1214,12 +1214,20 @@
     document.getElementById('modalSources').textContent  = a.source
       ? `Kaynak: ${a.source}` : '';
 
-    const body = cleanForDisplay(a.full_body || a.summary || '');
-    document.getElementById('modalArticle').innerHTML = body
-      .split(/\n\n+/)
-      .filter(p => p.trim())
+    const bodyText = a.full_body && a.full_body.length > (a.summary?.length || 0)
+      ? a.full_body
+      : a.summary || '';
+    // Clean HTML/entities but no length truncation in modal
+    const bodyClean = bodyText
+      .replace(/&amp;/g, '&').replace(/&#x27;/g, "'").replace(/&quot;/g, '"')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&#\w+;/g, '').replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ').trim();
+    document.getElementById('modalArticle').innerHTML = bodyClean
+      .split(/\n\n+|\.\s{2,}/)
+      .filter(p => p.trim().length > 10)
       .map(p => `<p>${esc(p.trim())}</p>`)
-      .join('');
+      .join('') || `<p>${esc(bodyClean)}</p>`;
 
     const link = document.getElementById('modalReadLink');
     if (a.url && a.url !== '#' && a.url !== '') {
