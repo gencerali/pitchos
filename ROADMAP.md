@@ -1,5 +1,5 @@
 # Kartalix — Product Roadmap
-Last updated: April 5, 2026
+Last updated: April 6, 2026
 
 ## Vision
 AI-powered Beşiktaş (and multi-team) fan news platform with credibility scoring,
@@ -245,6 +245,25 @@ Mert Günok (→ Fenerbahçe), Jean Onana (→ Genoa loan)
 ---
 
 ### 📋 Sprint 3 — Legal + Monetization Foundation
+
+### Priority 1 — Cloudflare Proxy Worker for Blocked Feeds
+Fotomaç and A Spor block all proxy services from Cloudflare IPs (rss2json, allorigins both blocked).
+Solution: Deploy a dedicated Cloudflare Worker on a different route that fetches RSS with browser headers.
+Since it runs on Cloudflare edge, same IP range — need to use a non-Cloudflare fetch origin.
+Alternative: Use a VPS or Render.com free tier as RSS proxy middleware.
+Affected feeds: fotomac.com.tr/rss/Besiktas.xml, aspor.com.tr/rss/besiktas.xml, fotomac.com.tr/rss/Basketbol.xml
+These are the highest-value BJK-specific feeds — restoring them adds 25-30 articles per run.
+
+### Known Issues (carry over from Sprint 2)
+- Fotomaç BJK, A Spor BJK, Fotomaç Basketbol — blocked from all Cloudflare-based proxies
+  → Fix: external proxy on non-Cloudflare infrastructure (Sprint 3 Priority 1)
+- NTV Spor titles empty (Atom format parsing incomplete)
+  → Fix: debug Atom title extraction
+- A Haber only returns 3 recent articles despite 100 in feed
+  → Root cause: most articles are older than 7 days in their feed
+- Article full_body content still RSS summary quality
+  → Fix: proper content extraction per source (Sprint 3)
+
 - Move RSS feeds + keywords from worker code to Supabase feed_config JSONB
 - Seed squad_members table with full BJK roster (April 2026)
 - Match Day template (first AI template)
