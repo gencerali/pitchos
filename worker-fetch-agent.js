@@ -270,8 +270,9 @@ async function processSite(site, env) {
   funnelStats.scored  = mergedScored.length;
   console.log(`${site.short_code}: scored ${mergedScored.length} → top 30 NVS: ${top30.map(a => a.nvs).join(', ')}`);
 
-  // ── WRITE PHASE (decision-based, no Sonnet) ───────────────────
-  const allWritten = await writeArticles(top30, site, env);
+  // ── WRITE PHASE — only top 8 get expensive HTTP fetches ──────
+  const top8forWrite = top30.slice(0, 8);
+  const allWritten = await writeArticles(top8forWrite, site, env);
   console.log(`Write phase: modes ${allWritten.map(a => a.publish_mode).join(', ')} | scout ${stats.scout_tokens_in}in €${stats.costEur.toFixed(4)}`);
 
   // ── ROUTE & SAVE ──────────────────────────────────────────────
@@ -284,7 +285,8 @@ async function processSite(site, env) {
   if (toPublish.length > 0) await saveArticles(env, site.id, toPublish, 'published');
   if (toQueue.length > 0)   await saveArticles(env, site.id, toQueue,   'pending');
 
-  await cacheToKV(env, site, toPublish, toQueue);
+  // Cache top 30 — articles beyond top 8 use RSS summary as-is
+  await cacheToKV(env, site, [...toPublish, ...toQueue, ...top30.slice(8)], []);
   await saveSeenHashes(env, site.short_code, toPublish);
   await logFetch(env, site.id, 'success', stats, null, funnelStats);
 
