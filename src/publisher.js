@@ -64,103 +64,31 @@ async function fetchOGImage(url) {
   }
 }
 
-// ─── FETCH FULL SOURCE CONTENT (no Claude) ───────────────────
+// ─── READABILITY PROXY ───────────────────────────────────────
 // Returns { content, image_url }
-
-function extractArticleBody(html) {
-  const clean = (str) => str
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-    .replace(/<header[\s\S]*?<\/header>/gi, '')
-    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
-    .replace(/<aside[\s\S]*?<\/aside>/gi, '')
-    .replace(/class="[^"]*(?:reklam|advertisement|related|sidebar|menu|social|share|widget|banner|cookie)[^"]*"[\s\S]*?<\/div>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  const selectors = [
-    /<article[^>]*>([\s\S]*?)<\/article>/i,
-    /<div[^>]*class="[^"]*(?:haber-detay|haberDetay|news-detail|article-body|content-body|haber-icerik|detay-icerik)[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-    /<div[^>]*class="[^"]*(?:entry-content|post-content|article-content|story-body)[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
-  ];
-
-  for (const selector of selectors) {
-    const match = html.match(selector);
-    if (match && match[1] && match[1].length > 200) {
-      const extracted = clean(match[1]);
-      if (extracted.length > 200) return extracted.slice(0, 5000);
-    }
-  }
-
-  return clean(html).slice(0, 3000);
-}
-
-export async function fetchSourceContent(url) {
+async function fetchViaReadability(url) {
   if (!url || url === '#') return { content: '', image_url: '' };
   try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Kartalix/1.0)' },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return { content: '', image_url: '' };
+    const proxyUrl = `https://pitchos-proxy.onrender.com/article?url=${encodeURIComponent(url)}`;
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
+    const data = await res.json();
 
-    const buffer = await res.arrayBuffer();
-    const decoder = new TextDecoder('utf-8');
-    const html = decoder.decode(buffer);
-
-    const image_url = extractOGImage(html.slice(0, 5000));
-    const raw = extractArticleBody(html);
-
-    const content = raw
-      .replace(/REKLAM[\s\S]{0,500}REKLAM/gi, '')
-      .replace(/advertisement[\s\S]{0,200}advertisement/gi, '')
-      .replace(/Şurada Paylaş![\s\S]{0,100}/gi, '')
-      .replace(/facebook twitter[\s\S]{0,200}/gi, '')
-      .replace(/Yazı Boyutu[\s\S]{0,200}/gi, '')
-      .replace(/Ana Sayfa[\s\S]{0,100}/gi, '')
-      .replace(/ABONE OL[\s\S]{0,100}/gi, '')
-      .replace(/\b(REKLAM|BAKMADAN GEME|Eposta|Linkedin|Flipboard)\b[\s\S]{0,200}/gi, '')
+    const clean = (data.content || '')
+      .replace(/Küçük Normal Orta Büyük[\s\S]{0,100}/gi, '')
+      .replace(/Ana Sayfa Yazı Boyutu[\s\S]{0,100}/gi, '')
+      .replace(/ABONE OL[\s\S]{0,50}/gi, '')
+      .replace(/\d+\s+(?=[A-ZÇĞİÖŞÜa-zçğışöşü])/g, '')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 5000);
 
-    return { content, image_url };
-  } catch (e) {
-    console.error('fetchSourceContent failed:', url, e.message);
+    console.log(`READABILITY [${url.slice(0, 50)}]: ${clean.length} chars`);
+    return { content: clean, image_url: data.image_url || '' };
+  } catch(e) {
+    console.error(`READABILITY FAILED [${url.slice(0, 50)}]:`, e.message);
     return { content: '', image_url: '' };
   }
-}
-
-// ─── ENRICH ARTICLES WITH FULL SOURCE CONTENT ────────────────
-export async function enrichArticles(articles, env) {
-  const enriched = [];
-  const startTime = Date.now();
-  for (const article of articles) {
-    if (Date.now() - startTime > 20000) {
-      console.log('Enrich timeout — stopping at', enriched.length, 'articles');
-      enriched.push(...articles.slice(enriched.length));
-      break;
-    }
-    if (article.url && article.url !== '#' && !article.has_full_content) {
-      try {
-        const result = await fetchSourceContent(article.url, env);
-        enriched.push({
-          ...article,
-          full_body: (result.content || '').length > 200 ? result.content : article.full_body || article.summary || '',
-          image_url: result.image_url || article.image_url || '',
-          has_full_content: (result.content || '').length > 200,
-        });
-      } catch(e) {
-        enriched.push(article);
-      }
-    } else {
-      enriched.push(article);
-    }
-    await new Promise(r => setTimeout(r, 50));
-  }
-  return enriched;
 }
 
 // ─── MATCH DAY TEMPLATE (Haiku extracts facts) ───────────────
@@ -205,7 +133,7 @@ Bilmiyorsan null yaz.`;
   }
 }
 
-// ─── WRITE ARTICLES (decision-based, no Sonnet) ───────────────
+// ─── WRITE ARTICLES (Readability for all, template for special) ─
 export async function writeArticles(articles, site, env) {
   const results = [];
 
@@ -214,52 +142,29 @@ export async function writeArticles(articles, site, env) {
     const mode = decidePublishMode(article);
     let published = { ...article, publish_mode: mode };
 
-    if (i === 0) {
-      console.log('ARTICLE 1 mode:', mode);
-      console.log('ARTICLE 1 url:', article.url);
-      console.log('ARTICLE 1 full_body before:', article.full_body?.length || 0);
-    }
-
     if (mode === 'template_matchday') {
       const written = await writeMatchDay(article, env);
       if (written) published = written;
       else published.summary = cleanRSS(article.summary || article.description || '');
       await new Promise(r => setTimeout(r, 300));
 
-    } else if (mode === 'copy_source') {
-      const fetched  = await fetchSourceContent(article.url);
-      const content  = fetched?.content  || '';
-      const ogImage  = fetched?.image_url || '';
-      console.log(`copy_source [${article.title?.slice(0, 40)}]: content=${content.length} chars, img=${!!ogImage}`);
-      if (i === 0) {
-        console.log('ARTICLE 1 fetchSourceContent result:', {
-          content_length: fetched?.content?.length || 0,
-          image_url: fetched?.image_url || 'none',
-          first_100_chars: fetched?.content?.slice(0, 100) || 'empty',
-        });
-      }
+    } else if (article.url && article.url !== '#') {
+      const fetched = await fetchViaReadability(article.url);
+      const content = fetched.content || '';
+      const publish_mode = content.length > 500 ? 'readability' : 'rss_summary';
       published = {
         ...article,
-        publish_mode: 'copy_source',
-        full_body:  content.length > 100 ? content : cleanRSS(article.summary || ''),
-        summary:    content.length > 100
-          ? content.slice(0, 300).replace(/\s+/g, ' ').trim()
-          : cleanRSS(article.summary || ''),
-        image_url:  ogImage || article.image_url || '',
+        publish_mode,
+        full_body:  content.length > 200 ? content : cleanRSS(article.summary || article.description || ''),
+        summary:    cleanRSS(article.summary || article.description || ''),
+        image_url:  fetched.image_url || article.image_url || '',
       };
-      if (i === 0) {
-        console.log('ARTICLE 1 full_body after:', published.full_body?.length || 0);
-      }
+      console.log(`writeArticles [${article.title?.slice(0, 40)}]: mode=${publish_mode} content=${content.length}chars`);
       await new Promise(r => setTimeout(r, 300));
 
     } else {
-      published.summary    = cleanRSS(article.summary || article.description || '');
-      published.full_body  = published.summary;
-      // Fetch og:image for rss_summary articles that have a real URL
-      if (article.url && article.url !== '#' && !article.image_url) {
-        published.image_url = await fetchOGImage(article.url);
-        await new Promise(r => setTimeout(r, 200));
-      }
+      published.summary   = cleanRSS(article.summary || article.description || '');
+      published.full_body = published.summary;
     }
 
     results.push(published);

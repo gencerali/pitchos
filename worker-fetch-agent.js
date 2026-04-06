@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, sleep, isTodayArticle, supabase, MODEL_FETCH, MODEL_SCORE } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, RSS_FEEDS } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, fetchSourceContent, mergeAndDedupe } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe } from './src/publisher.js';
 
 // ─── MAIN ENTRY POINT ────────────────────────────────────────
 export default {
@@ -45,31 +45,6 @@ export default {
         env.PITCHOS_CACHE.delete('seen:BJK'),
       ]);
       return Response.json({ cleared: ['articles:BJK', 'seen:BJK'] });
-    }
-    if (url.pathname === '/enrich') {
-      const cached = await env.PITCHOS_CACHE.get('articles:BJK');
-      if (!cached) return Response.json({ error: 'no cache' });
-      const articles = JSON.parse(cached);
-      const enriched = [];
-      for (const article of articles) {
-        if (article.url && article.url !== '#' && (!article.full_body || article.full_body.length < 300)) {
-          try {
-            const result = await fetchSourceContent(article.url, env);
-            enriched.push({
-              ...article,
-              full_body: result.content || article.full_body || '',
-              image_url: result.image_url || article.image_url || '',
-            });
-          } catch(e) {
-            enriched.push(article);
-          }
-          await new Promise(r => setTimeout(r, 100));
-        } else {
-          enriched.push(article);
-        }
-      }
-      await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(enriched), { expirationTtl: 7200 });
-      return Response.json({ enriched: enriched.length });
     }
     if (url.pathname === '/debug') {
       const res = await fetch(`${env.SUPABASE_URL}/rest/v1/sites?status=eq.live&select=*`, {
