@@ -264,6 +264,51 @@ These are the highest-value BJK-specific feeds — restoring them adds 25-30 art
 - Article full_body content still RSS summary quality
   → Fix: proper content extraction per source (Sprint 3)
 
+### Content Quality Framework (Sprint 3)
+
+#### Fan Content Priorities
+Tier 1 — Always show (NVS 70+):
+- Match results with score, goals, stats
+- Confirmed injuries with timeline
+- Official club announcements
+- Confirmed transfers
+- Press conference direct quotes
+
+Tier 2 — Show if space (NVS 40-69):
+- Pre-match analysis and lineups
+- Credible transfer rumors (trust: journalist)
+- League table context involving BJK
+- Youth team and other branches
+
+Tier 3 — Deprioritize (NVS 20-39):
+- General speculation
+- Rival team news mentioning BJK in passing
+- Old angles on same story
+
+Never show (NVS < 20):
+- Rival celebrations against BJK as top story
+- General Süper Lig news without BJK relevance
+- Duplicate angles on same story
+
+#### Golden Score Meaning
+⚡⚡⚡⚡⚡ Official confirmation or match result
+⚡⚡⚡⚡   Press conference quote or credible transfer
+⚡⚡⚡     Squad news, lineup, pre-match analysis
+⚡⚡       General club news, youth team
+⚡         Rumors, speculation
+👁️👁️👁️   Credible journalist rumor
+👁️👁️     Press rumor
+👁️        Pure speculation
+
+#### Source Trust Display on Cards
+🔵 Resmi: bjk.com.tr, @Besiktas
+🟢 Birincil: beIN Sports, NTV Spor, TRT Haber, A Spor
+🟡 Basın: Fotomaç, A Haber, Hürriyet, Habertürk
+🟠 Gazeteci: Fırat Günayer, Fabrizio Romano
+
+This framework drives the NVS scoring prompt in Sprint 3.
+Scoring will be rewritten to reflect fan priorities explicitly.
+
 - Move RSS feeds + keywords from worker code to Supabase feed_config JSONB
 - Seed squad_members table with full BJK roster (April 2026)
 - Match Day template (first AI template)
