@@ -66,6 +66,37 @@ async function fetchOGImage(url) {
 
 // ─── FETCH FULL SOURCE CONTENT (no Claude) ───────────────────
 // Returns { content, image_url }
+
+function extractArticleBody(html) {
+  const clean = (str) => str
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+    .replace(/<header[\s\S]*?<\/header>/gi, '')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+    .replace(/<aside[\s\S]*?<\/aside>/gi, '')
+    .replace(/class="[^"]*(?:reklam|advertisement|related|sidebar|menu|social|share|widget|banner|cookie)[^"]*"[\s\S]*?<\/div>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const selectors = [
+    /<article[^>]*>([\s\S]*?)<\/article>/i,
+    /<div[^>]*class="[^"]*(?:haber-detay|haberDetay|news-detail|article-body|content-body|haber-icerik|detay-icerik)[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+    /<div[^>]*class="[^"]*(?:entry-content|post-content|article-content|story-body)[^"]*"[^>]*>([\s\S]*?)<\/div>/i,
+  ];
+
+  for (const selector of selectors) {
+    const match = html.match(selector);
+    if (match && match[1] && match[1].length > 200) {
+      const extracted = clean(match[1]);
+      if (extracted.length > 200) return extracted.slice(0, 5000);
+    }
+  }
+
+  return clean(html).slice(0, 3000);
+}
+
 export async function fetchSourceContent(url) {
   if (!url || url === '#') return { content: '', image_url: '' };
   try {
@@ -74,42 +105,28 @@ export async function fetchSourceContent(url) {
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return { content: '', image_url: '' };
-    const html = await res.text();
+
+    const buffer = await res.arrayBuffer();
+    const decoder = new TextDecoder('utf-8');
+    const html = decoder.decode(buffer);
+
     const image_url = extractOGImage(html.slice(0, 5000));
+    const raw = extractArticleBody(html);
 
-    // Try to extract just the article body — try selectors in priority order
-    function extractBlock(pattern) {
-      const m = html.match(pattern);
-      return m ? m[0] : '';
-    }
-    const stripped = s => s
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
+    const content = raw
+      .replace(/REKLAM[\s\S]{0,500}REKLAM/gi, '')
+      .replace(/advertisement[\s\S]{0,200}advertisement/gi, '')
+      .replace(/Şurada Paylaş![\s\S]{0,100}/gi, '')
+      .replace(/facebook twitter[\s\S]{0,200}/gi, '')
+      .replace(/Yazı Boyutu[\s\S]{0,200}/gi, '')
+      .replace(/Ana Sayfa[\s\S]{0,100}/gi, '')
+      .replace(/ABONE OL[\s\S]{0,100}/gi, '')
+      .replace(/\b(REKLAM|BAKMADAN GEME|Eposta|Linkedin|Flipboard)\b[\s\S]{0,200}/gi, '')
       .replace(/\s+/g, ' ')
-      .trim();
+      .trim()
+      .slice(0, 5000);
 
-    const candidates = [
-      extractBlock(/<article[^>]*>([\s\S]*?)<\/article>/i),
-      extractBlock(/<div[^>]+class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/i),
-      extractBlock(/<div[^>]+class="[^"]*body[^"]*"[^>]*>([\s\S]*?)<\/div>/i),
-      extractBlock(/<div[^>]+class="[^"]*haber[^"]*"[^>]*>([\s\S]*?)<\/div>/i),
-    ].map(stripped).filter(Boolean);
-
-    // Use the longest candidate; fall back to full-page strip if nothing found
-    let content = candidates.sort((a, b) => b.length - a.length)[0] || '';
-    if (!content || content.length < 100) {
-      const full = stripped(
-        html
-          .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-          .replace(/<header[\s\S]*?<\/header>/gi, '')
-          .replace(/<footer[\s\S]*?<\/footer>/gi, '')
-      );
-      const start = full.search(/beşiktaş|besiktas|bjk/i);
-      content = start > 100 ? full.slice(start - 100) : full;
-    }
-
-    return { content: content.slice(0, 5000), image_url };
+    return { content, image_url };
   } catch (e) {
     console.error('fetchSourceContent failed:', url, e.message);
     return { content: '', image_url: '' };
