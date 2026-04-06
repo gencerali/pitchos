@@ -27,7 +27,7 @@ export const RSS_FEEDS = [
 
 // ─── RSS2JSON PROXY ───────────────────────────────────────────
 async function fetchViaRss2Json(feed) {
-  const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}&count=30`;
+  const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(feed.url)}`;
   console.log('PROXY ATTEMPT:', proxyUrl);
   try {
     const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(10000) });
