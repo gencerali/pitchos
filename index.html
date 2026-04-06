@@ -887,9 +887,15 @@
       .replace(/İşte ayrıntılar\.?/gi, '')
       .replace(/Son dakika Beşiktaş haberleri[^.]*/gi, '')
       .replace(/BJK spor haberi[^)]*/gi, '')
+      .replace(/Spor Haberleri.*/gi, '')
+      .replace(/HABERLER.*/g, '')
+      .replace(/Futbol Haber.*/gi, '')
+      .replace(/- Spor.*/gi, '')
+      .replace(/\s*-\s*[A-Z]{2,}.*$/g, '')
       .replace(/\s+/g, ' ')
       .trim()
-      .slice(0, 140);
+      .replace(/^(.{1,120})\s.*$/, '$1')
+      .slice(0, 120);
   }
 
   function goldenScoreHTML(gs) {
@@ -941,7 +947,8 @@
     const otherArticles    = articles.filter(a => a.sport && a.sport !== 'football');
 
     renderCarousel(footballArticles.slice(0, 8));
-    renderGrid(footballArticles, 0);
+    const gridArticles = footballArticles.slice(8);
+    renderGrid(gridArticles, 0);
     renderTicker(footballArticles);
     renderRadarLive(articles);
     renderPulseLive(articles);
@@ -1029,9 +1036,17 @@
 
   function renderGrid(items, offset) {
     const grid = document.getElementById('newsGrid');
-    const page = items.slice(offset, offset + GRID_PAGE);
 
-    if (offset === 0) grid.innerHTML = '';
+    if (offset === 0) {
+      grid.innerHTML = '';
+      if (!items || items.length === 0) {
+        grid.innerHTML = '<p style="color:var(--muted);padding:2rem 0;text-align:center">Daha fazla haber yükleniyor...</p>';
+        document.getElementById('loadMoreRow').style.display = 'none';
+        return;
+      }
+    }
+
+    const page = items.slice(offset, offset + GRID_PAGE);
 
     page.forEach((a, i) => {
       const absIdx = _articles.indexOf(a);

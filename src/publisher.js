@@ -76,18 +76,40 @@ export async function fetchSourceContent(url) {
     if (!res.ok) return { content: '', image_url: '' };
     const html = await res.text();
     const image_url = extractOGImage(html.slice(0, 5000));
-    const text = html
+
+    // Try to extract just the article body — try selectors in priority order
+    function extractBlock(pattern) {
+      const m = html.match(pattern);
+      return m ? m[0] : '';
+    }
+    const stripped = s => s
       .replace(/<script[\s\S]*?<\/script>/gi, '')
       .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-      .replace(/<header[\s\S]*?<\/header>/gi, '')
-      .replace(/<footer[\s\S]*?<\/footer>/gi, '')
       .replace(/<[^>]+>/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
-    const start = text.search(/beşiktaş|besiktas|bjk/i);
-    const excerpt = start > 100 ? text.slice(start - 100) : text;
-    return { content: excerpt.slice(0, 4000), image_url };
+
+    const candidates = [
+      extractBlock(/<article[^>]*>([\s\S]*?)<\/article>/i),
+      extractBlock(/<div[^>]+class="[^"]*content[^"]*"[^>]*>([\s\S]*?)<\/div>/i),
+      extractBlock(/<div[^>]+class="[^"]*body[^"]*"[^>]*>([\s\S]*?)<\/div>/i),
+      extractBlock(/<div[^>]+class="[^"]*haber[^"]*"[^>]*>([\s\S]*?)<\/div>/i),
+    ].map(stripped).filter(Boolean);
+
+    // Use the longest candidate; fall back to full-page strip if nothing found
+    let content = candidates.sort((a, b) => b.length - a.length)[0] || '';
+    if (!content || content.length < 100) {
+      const full = stripped(
+        html
+          .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+          .replace(/<header[\s\S]*?<\/header>/gi, '')
+          .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+      );
+      const start = full.search(/beşiktaş|besiktas|bjk/i);
+      content = start > 100 ? full.slice(start - 100) : full;
+    }
+
+    return { content: content.slice(0, 4000), image_url };
   } catch (e) {
     console.error('fetchSourceContent failed:', url, e.message);
     return { content: '', image_url: '' };
