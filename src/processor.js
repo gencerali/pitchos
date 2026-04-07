@@ -147,7 +147,7 @@ Items: ${JSON.stringify(slim)}`;
 export async function getSeenHashes(env, siteCode) {
   try {
     const raw = await env.PITCHOS_CACHE.get(`seen:${siteCode}`);
-    return new Set(raw ? JSON.parse(raw) : []);
+    return new Set(raw ? JSON.parse(raw).slice(-50) : []);
   } catch { return new Set(); }
 }
 
@@ -157,8 +157,8 @@ export async function saveSeenHashes(env, siteCode, articles) {
     for (const a of articles) {
       existing.add(simpleHash(a.title + (a.summary || '').slice(0, 100)));
     }
-    const trimmed = [...existing].slice(-100);
-    await env.PITCHOS_CACHE.put(`seen:${siteCode}`, JSON.stringify(trimmed), { expirationTtl: 43200 });
+    const trimmed = [...existing].slice(-50);
+    await env.PITCHOS_CACHE.put(`seen:${siteCode}`, JSON.stringify(trimmed), { expirationTtl: 3600 });
   } catch (e) {
     console.error('saveSeenHashes failed:', e.message);
   }

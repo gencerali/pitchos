@@ -46,6 +46,38 @@ export default {
       ]);
       return Response.json({ cleared: ['articles:BJK', 'seen:BJK'] });
     }
+    if (url.pathname === '/enrich') {
+      const cached = await env.PITCHOS_CACHE.get('articles:BJK');
+      if (!cached) return Response.json({ error: 'no cache' });
+      const articles = JSON.parse(cached);
+      const enriched = [];
+      for (const article of articles) {
+        if (article.url && article.url !== '#') {
+          try {
+            const proxyUrl = 'https://pitchos-proxy.onrender.com/article?url=' + encodeURIComponent(article.url);
+            const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.content && data.content.length > 200) {
+                enriched.push({
+                  ...article,
+                  full_body: data.content.slice(0, 5000),
+                  image_url: data.image_url || article.image_url || '',
+                  publish_mode: 'readability',
+                });
+                console.log('ENRICH OK:', article.title?.slice(0, 40), data.content.length, 'chars');
+                continue;
+              }
+            }
+          } catch(e) {
+            console.log('ENRICH FAIL:', article.title?.slice(0, 40), e.message);
+          }
+        }
+        enriched.push(article);
+      }
+      await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(enriched), { expirationTtl: 7200 });
+      return Response.json({ enriched: enriched.length, articles: enriched.map(a => ({ title: a.title?.slice(0, 40), mode: a.publish_mode, len: a.full_body?.length || 0 })) });
+    }
     if (url.pathname === '/debug') {
       const res = await fetch(`${env.SUPABASE_URL}/rest/v1/sites?status=eq.live&select=*`, {
         headers: { 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` },

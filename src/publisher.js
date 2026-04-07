@@ -148,24 +148,11 @@ export async function writeArticles(articles, site, env) {
       else published.summary = cleanRSS(article.summary || article.description || '');
       await new Promise(r => setTimeout(r, 300));
 
-    } else if (i < 3 && article.url && article.url !== '#') {
-      // Only top 3 get Readability fetch — avoids Worker timeout
-      const fetched = await fetchViaReadability(article.url);
-      const content = fetched.content || '';
-      const publish_mode = content.length > 500 ? 'readability' : 'rss_summary';
-      published = {
-        ...article,
-        publish_mode,
-        full_body:  content.length > 200 ? content : cleanRSS(article.summary || article.description || ''),
-        summary:    cleanRSS(article.summary || article.description || ''),
-        image_url:  fetched.image_url || article.image_url || '',
-      };
-      console.log(`writeArticles [${article.title?.slice(0, 40)}]: mode=${publish_mode} content=${content.length}chars`);
-      await new Promise(r => setTimeout(r, 200));
-
     } else {
+      // Use RSS summary — Readability runs separately via /enrich endpoint
       published.summary   = cleanRSS(article.summary || article.description || '');
       published.full_body = published.summary;
+      published.publish_mode = 'rss_summary';
     }
 
     results.push(published);
