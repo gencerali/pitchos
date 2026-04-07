@@ -19,6 +19,7 @@
       --surface:     #141414;
       --panel:       #1a1a1a;
       --border:      #2a2a2a;
+      --border2:     #333333;
       --text:        #f0ede6;
       --muted:       #7a7875;
     }
@@ -48,38 +49,31 @@
       border-bottom: 2px solid var(--border);
       position: sticky; top: 0; z-index: 100;
     }
-
     .header-inner {
-      max-width: 1200px; margin: 0 auto;
+      max-width: 1300px; margin: 0 auto;
       padding: 0.75rem 1.5rem;
       display: flex; align-items: center; justify-content: space-between; gap: 1rem;
     }
-
     .logo { display: flex; align-items: center; gap: 0.75rem; }
-
     .crest {
       width: 48px; height: 48px;
       background: var(--text); border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       font-size: 1.5rem; flex-shrink: 0;
     }
-
     .logo-name {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 1.4rem; font-weight: 800;
       letter-spacing: 0.08em; line-height: 1;
       text-transform: uppercase; color: var(--text);
     }
-
     .logo-sub {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.62rem; letter-spacing: 0.22em;
       text-transform: uppercase; color: var(--muted);
       margin-top: 0.1rem;
     }
-
     .header-right { display: flex; align-items: center; gap: 1rem; }
-
     .live-pill {
       display: flex; align-items: center; gap: 0.4rem;
       font-family: 'Barlow Condensed', sans-serif;
@@ -88,7 +82,6 @@
       color: var(--accent); border: 1px solid var(--accent);
       padding: 0.3rem 0.7rem; border-radius: 2px;
     }
-
     .live-dot {
       width: 6px; height: 6px; border-radius: 50%;
       background: var(--accent); animation: blink 1.4s ease-in-out infinite;
@@ -111,69 +104,10 @@
     .ticker-sep { color: var(--muted); padding: 0 0.5rem; }
     @keyframes scroll { from{transform:translateX(0)} to{transform:translateX(-50%)} }
 
-    /* ── TRANSFER RADAR BANNER ── */
-    .radar-banner {
-      background: #100000;
-      border-bottom: 1px solid #2a0000;
-      padding: 0.55rem 1.5rem;
-      display: flex; align-items: center; gap: 1rem;
-      overflow: hidden;
-    }
-
-    .radar-label {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.72rem; font-weight: 800;
-      letter-spacing: 0.15em; text-transform: uppercase;
-      color: var(--accent); flex-shrink: 0;
-    }
-
-    .radar-items {
-      display: flex; gap: 1rem; overflow: hidden;
-      max-width: 1200px; margin: 0 auto; flex: 1;
-    }
-
-    .radar-item {
-      display: flex; align-items: center; gap: 0.5rem;
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.78rem; color: var(--text); white-space: nowrap;
-    }
-
-    .radar-nvs {
-      font-size: 0.62rem; padding: 0.1rem 0.35rem;
-      border-radius: 2px; font-weight: 700;
-    }
-    .radar-nvs.high { background: rgba(227,10,23,0.2); color: var(--accent); }
-    .radar-nvs.med  { background: rgba(245,166,35,0.15); color: var(--accent-gold); }
-
-    /* ── FAN PULSE ── */
-    .pulse-bar {
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-    }
-    .pulse-inner {
-      max-width: 1200px; margin: 0 auto;
-      padding: 0.6rem 1.5rem;
-      display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
-    }
-    .pulse-label {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.6rem; font-weight: 700;
-      letter-spacing: 0.22em; text-transform: uppercase;
-      color: var(--muted); flex-shrink: 0;
-    }
-    .pulse-items { display: flex; gap: 1.25rem; flex-wrap: wrap; }
-    .pulse-item {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.78rem; display: flex; align-items: center; gap: 0.35rem;
-      color: var(--text);
-    }
-    .pulse-mood { font-size: 0.85rem; }
-
     /* ── MATCH DAY BANNER ── */
     .matchday {
       background: var(--accent); color: var(--text);
-      display: none;
-      padding: 0.65rem 1.5rem; text-align: center;
+      display: none; padding: 0.65rem 1.5rem; text-align: center;
     }
     .matchday.active { display: block; }
     .matchday-text {
@@ -182,56 +116,263 @@
       letter-spacing: 0.1em; text-transform: uppercase;
     }
 
-    /* ── MAIN ── */
-    main {
-      max-width: 1200px; margin: 0 auto;
-      padding: 1.5rem 1.5rem 2.5rem;
-      position: relative; z-index: 1;
+    /* ── HERO CAROUSEL (mobile only) ── */
+    .hero-carousel {
+      position: relative; overflow: hidden;
+      background: var(--bg); border-bottom: 1px solid var(--border);
+    }
+    .carousel-track {
+      display: flex;
+      transition: transform 0.45s cubic-bezier(0.4,0,0.2,1);
+      will-change: transform;
+    }
+    .carousel-slide {
+      flex: 0 0 100%; height: 240px;
+      position: relative; cursor: pointer; overflow: hidden;
+      background-size: cover; background-position: center 30%;
+      background-color: #0a0a0a;
+    }
+    .carousel-slide .slide-gradient {
+      position: absolute; inset: 0;
+      background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.1) 100%);
+    }
+    .slide-top {
+      position: absolute; top: 1rem; left: 1.25rem; right: 1.25rem;
+      display: flex; justify-content: space-between; align-items: flex-start; z-index: 2;
+    }
+    .slide-cat-badge {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.6rem; letter-spacing: 0.2em;
+      text-transform: uppercase; font-weight: 800;
+      background: var(--accent); color: var(--text);
+      padding: 0.2rem 0.55rem; border-radius: 1px;
+    }
+    .slide-score-badge {
+      font-size: 0.78rem;
+      background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1);
+      padding: 0.2rem 0.5rem; border-radius: 1px;
+    }
+    .slide-content {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 1rem 1.25rem 1.25rem; z-index: 2;
+    }
+    .slide-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 1.6rem; font-weight: 800; line-height: 1.05;
+      color: var(--text); letter-spacing: 0.02em; text-transform: uppercase;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.8); margin-bottom: 0.45rem;
+      display: -webkit-box; -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .slide-summary {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.82rem; color: rgba(240,237,230,0.75);
+      line-height: 1.4; margin-bottom: 0.75rem;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .slide-meta {
+      display: flex; justify-content: space-between; align-items: center;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.68rem; color: rgba(240,237,230,0.6); letter-spacing: 0.08em;
+    }
+    .slide-source { display: flex; align-items: center; gap: 0.4rem; }
+    .slide-src-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+    .slide-read {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.72rem; font-weight: 700;
+      letter-spacing: 0.12em; color: var(--text); text-transform: uppercase;
+      border-bottom: 1px solid rgba(255,255,255,0.4); padding-bottom: 1px;
+    }
+    .carousel-arrow {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.12);
+      color: var(--text); font-size: 1rem; line-height: 1;
+      width: 2.2rem; height: 2.2rem;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; z-index: 10; transition: background 0.15s; border-radius: 1px;
+    }
+    .carousel-arrow:hover { background: rgba(227,10,23,0.7); }
+    .carousel-arrow.prev { left: 1rem; }
+    .carousel-arrow.next { right: 1rem; }
+    .carousel-dots {
+      position: absolute; bottom: 0.85rem; left: 50%;
+      transform: translateX(-50%);
+      display: flex; gap: 0.4rem; z-index: 10;
+    }
+    .carousel-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: rgba(255,255,255,0.3);
+      cursor: pointer; transition: background 0.2s, transform 0.2s;
+    }
+    .carousel-dot.active { background: var(--text); transform: scale(1.4); }
+
+    /* ── HERO SPLIT (desktop only) ── */
+    .hero-split {
+      display: none;
+      border-bottom: 1px solid var(--border);
     }
 
-    /* ── SECTION HEADER ── */
+    .hero-main {
+      position: relative; overflow: hidden;
+      background-size: cover; background-position: center;
+      background-color: #0a0a0a; cursor: pointer;
+    }
+    .hero-main .slide-gradient {
+      position: absolute; inset: 0;
+      background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.05) 100%);
+    }
+    .hero-main-top {
+      position: absolute; top: 1rem; left: 1.25rem; right: 1.25rem;
+      display: flex; justify-content: space-between; align-items: flex-start; z-index: 2;
+    }
+    .hero-main-content {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      padding: 1.25rem 1.5rem 1.5rem; z-index: 2;
+    }
+    .hero-main-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 2rem; font-weight: 800; line-height: 1.05;
+      color: var(--text); letter-spacing: 0.02em; text-transform: uppercase;
+      text-shadow: 0 2px 12px rgba(0,0,0,0.8); margin-bottom: 0.5rem;
+      display: -webkit-box; -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .hero-main-summary {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.85rem; color: rgba(240,237,230,0.75);
+      line-height: 1.4; margin-bottom: 0.75rem;
+      display: -webkit-box; -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .hero-main-meta {
+      display: flex; justify-content: space-between; align-items: center;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.68rem; color: rgba(240,237,230,0.6); letter-spacing: 0.08em;
+    }
+
+    .hero-side {
+      display: flex; flex-direction: column;
+      border-left: 1px solid var(--border); overflow: hidden;
+    }
+    .hero-side-item {
+      flex: 1; display: flex; align-items: stretch;
+      cursor: pointer; border-bottom: 1px solid var(--border);
+      transition: background 0.15s; overflow: hidden; min-height: 0;
+    }
+    .hero-side-item:last-child { border-bottom: none; }
+    .hero-side-item:hover { background: var(--panel); }
+    .hero-side-item:hover .hero-side-title { color: var(--accent); }
+    .hero-side-img {
+      width: 80px; flex-shrink: 0;
+      background-size: cover; background-position: center;
+      background-color: #0a0a0a;
+    }
+    .hero-side-body {
+      flex: 1; padding: 0.75rem; min-width: 0;
+      display: flex; flex-direction: column; justify-content: center; gap: 0.4rem;
+    }
+    .hero-side-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.95rem; font-weight: 700;
+      line-height: 1.2; color: var(--text); transition: color 0.15s;
+      display: -webkit-box; -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .hero-side-meta {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.62rem; color: var(--muted); letter-spacing: 0.04em;
+      display: flex; align-items: center; gap: 0.35rem;
+    }
+
+    /* ── AD SLOTS ── */
+    .ad-slot {
+      background: var(--panel);
+      border: 1px dashed var(--border2);
+      min-height: 90px;
+      display: flex; align-items: center; justify-content: center;
+      margin: 1rem 0;
+    }
+    .ad-label {
+      font-size: 0.6rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .ad-leaderboard { max-width: 1300px; margin: 1rem auto; }
+
+    /* ── CONTENT WITH SIDEBAR ── */
+    .content-with-sidebar {
+      max-width: 1300px; margin: 0 auto;
+      padding: 0 1.5rem 2.5rem;
+      display: grid; grid-template-columns: 1fr;
+      gap: 1.5rem; position: relative; z-index: 1;
+    }
+    .main-content { min-width: 0; }
+
+    /* ── SIDEBAR ── */
+    .sidebar { min-width: 0; }
+    .sidebar-section { margin-bottom: 1.5rem; }
+    .sidebar .radar-items {
+      display: flex; flex-direction: column;
+      overflow: visible; max-width: none; margin: 0;
+    }
+    .sidebar .radar-item {
+      white-space: normal; flex-wrap: wrap;
+      border-bottom: 1px solid var(--border);
+      padding: 0.6rem 0; cursor: pointer;
+      font-size: 0.8rem; transition: color 0.15s;
+      display: flex; align-items: flex-start; gap: 0.5rem;
+    }
+    .sidebar .radar-item:last-child { border-bottom: none; }
+    .sidebar .radar-item:hover { color: var(--accent); }
+    .sidebar .pulse-items { display: flex; flex-direction: column; gap: 0; }
+    .sidebar .pulse-item {
+      font-size: 0.82rem; padding: 0.5rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar .pulse-item:last-child { border-bottom: none; }
+    .sidebar-ad-box { min-height: 250px; }
+
+    /* ── SECTION HEADER (new line design) ── */
     .section-header {
       display: flex; align-items: center; gap: 0.75rem;
       margin: 1.5rem 0 1rem;
-      padding-bottom: 0.5rem;
-      border-bottom: 2px solid var(--accent);
-      justify-content: space-between;
     }
-    .section-header-title {
+    .section-line { flex: 1; height: 1px; background: var(--border); }
+    .section-title {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 1rem; font-weight: 800;
-      letter-spacing: 0.15em; text-transform: uppercase;
-      color: var(--text);
+      font-size: 0.75rem; font-weight: 700;
+      letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--accent); white-space: nowrap;
     }
     .last-update {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.62rem; color: var(--muted);
-      letter-spacing: 0.06em;
+      letter-spacing: 0.06em; text-align: right;
+      margin-top: -0.5rem; margin-bottom: 0.75rem;
     }
 
     /* ── NEWS GRID ── */
     .news-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 0;
-      margin-bottom: 1rem;
+      gap: 0.75rem;
+      margin-bottom: 0;
     }
 
+    /* ── CARD ── */
     .card {
-      background: var(--surface);
-      padding: 0;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
       display: flex; flex-direction: column;
       cursor: pointer;
-      border-bottom: 1px solid var(--border);
-      border-right: 1px solid var(--border);
       animation: up 0.4s ease both;
       text-decoration: none; color: inherit;
       transition: background 0.15s;
       overflow: hidden;
     }
-    .card:hover { background: var(--panel); }
+    .card:hover { background: #222; }
     .card:hover .card-title { color: var(--accent); }
-    .card:nth-child(3n) { border-right: none; }
 
     @keyframes up {
       from { opacity:0; transform:translateY(8px); }
@@ -246,26 +387,19 @@
 
     /* ── CARD IMAGE WRAP ── */
     .card-img-wrap {
-      position: relative;
-      height: 160px;
-      overflow: hidden;
-      background: var(--panel);
-      flex-shrink: 0;
+      position: relative; height: 160px;
+      overflow: hidden; background: var(--surface); flex-shrink: 0;
     }
-    .card-img-wrap img,
-    .card-img-bg {
+    .card-img-wrap div {
       width: 100%; height: 100%;
-      object-fit: cover;
-      background-size: cover;
-      background-position: center;
+      background-size: cover; background-position: center;
     }
     .card-cat-badge {
       position: absolute; top: 0.5rem; left: 0.5rem;
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.6rem; font-weight: 800;
       letter-spacing: 0.18em; text-transform: uppercase;
-      background: var(--accent); color: var(--text);
-      padding: 0.2rem 0.5rem; border-radius: 1px;
+      color: var(--text); padding: 0.2rem 0.5rem; border-radius: 1px;
     }
     .card-score-badge {
       position: absolute; top: 0.5rem; right: 0.5rem;
@@ -277,19 +411,16 @@
     /* ── CARD BODY ── */
     .card-body {
       padding: 0.85rem 1rem 0.75rem;
-      display: flex; flex-direction: column; gap: 0.45rem;
-      flex: 1;
+      display: flex; flex-direction: column; gap: 0.45rem; flex: 1;
     }
-
     .card-title {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 1.05rem; font-weight: 700;
+      font-size: 1rem; font-weight: 700;
       line-height: 1.25; color: var(--text);
       transition: color 0.15s;
       display: -webkit-box; -webkit-line-clamp: 2;
       -webkit-box-orient: vertical; overflow: hidden;
     }
-
     .card-summary {
       font-family: 'Inter', sans-serif;
       font-size: 0.78rem; font-weight: 400;
@@ -297,15 +428,21 @@
       display: -webkit-box; -webkit-line-clamp: 2;
       -webkit-box-orient: vertical; overflow: hidden;
     }
-
     .card-source-line {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.68rem; color: var(--muted);
       letter-spacing: 0.04em; margin-top: 0.15rem;
+      display: flex; align-items: center; gap: 0.35rem;
     }
     .card-source-line span { color: var(--text); font-weight: 600; }
 
-    /* ── NVS / SCORE BADGES (inline) ── */
+    /* ── TRUST DOT ── */
+    .src-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      display: inline-block; flex-shrink: 0;
+    }
+
+    /* ── NVS / SCORE BADGES ── */
     .nvs-badge {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.58rem; padding: 0.1rem 0.35rem;
@@ -313,15 +450,18 @@
     }
     .nvs-badge.high { background: rgba(227,10,23,0.15); color: var(--accent); }
     .nvs-badge.med  { background: rgba(245,166,35,0.12); color: var(--accent-gold); }
-
     .score-badge { font-size: 0.72rem; line-height: 1; }
+    .radar-nvs {
+      font-size: 0.62rem; padding: 0.1rem 0.35rem;
+      border-radius: 2px; font-weight: 700; flex-shrink: 0;
+    }
+    .radar-nvs.high { background: rgba(227,10,23,0.2); color: var(--accent); }
+    .radar-nvs.med  { background: rgba(245,166,35,0.15); color: var(--accent-gold); }
 
     /* ── DİĞER SPORLAR ── */
     .other-sports-section { margin-bottom: 1.5rem; }
     .other-grid {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 0;
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;
     }
     .sport-tag {
       font-family: 'Barlow Condensed', sans-serif;
@@ -332,28 +472,20 @@
     }
     .sport-tag.basketball { background: #1a0800; color: #ff8c42; }
     .sport-tag.volleyball { background: #001a00; color: #42ff8c; }
-    @media(max-width:900px) { .other-grid { grid-template-columns: repeat(2,1fr); } }
-    @media(max-width:580px) { .other-grid { grid-template-columns: 1fr; } }
 
-    /* ── VIDEO MOMENTS ── */
+    /* ── VIDEO ── */
     .video-section { margin-bottom: 2rem; }
-
     .video-grid {
-      display: grid; grid-template-columns: repeat(3, 1fr);
-      gap: 0;
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;
     }
-
     .video-card {
       background: var(--surface);
       border-bottom: 1px solid var(--border);
-      border-right: 1px solid var(--border);
       padding: 1rem 1.1rem;
       display: flex; gap: 0.85rem; cursor: pointer;
       transition: background 0.15s; text-decoration: none; color: inherit;
     }
-    .video-card:nth-child(3n) { border-right: none; }
     .video-card:hover { background: var(--panel); }
-
     .video-thumb {
       width: 44px; height: 44px; border-radius: 2px;
       background: #1a0000; display: flex;
@@ -361,13 +493,11 @@
       font-size: 1.1rem; flex-shrink: 0;
       border: 1px solid #2a0000;
     }
-
     .video-body { flex: 1; min-width: 0; }
     .video-source {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.6rem; color: var(--accent);
-      letter-spacing: 0.12em; text-transform: uppercase;
-      font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700;
     }
     .video-moment {
       font-family: 'Barlow Condensed', sans-serif;
@@ -427,8 +557,7 @@
     .footer-links a:hover { color: var(--text); }
     .footer-copy {
       font-family: 'Inter', sans-serif;
-      font-size: 0.62rem; color: var(--muted);
-      line-height: 1.6;
+      font-size: 0.62rem; color: var(--muted); line-height: 1.6;
     }
 
     /* ── ARTICLE MODAL ── */
@@ -442,13 +571,10 @@
     }
     .modal-overlay.open { opacity: 1; pointer-events: all; }
     .modal {
-      background: var(--panel);
-      border: 1px solid var(--border);
-      max-width: 700px; width: 100%;
-      max-height: 90vh;
+      background: var(--panel); border: 1px solid var(--border);
+      max-width: 700px; width: 100%; max-height: 90vh;
       display: flex; flex-direction: column;
-      transform: translateY(16px);
-      transition: transform 0.22s ease;
+      transform: translateY(16px); transition: transform 0.22s ease;
       overflow: hidden;
     }
     .modal-overlay.open .modal { transform: translateY(0); }
@@ -460,8 +586,7 @@
     .modal-close {
       background: none; border: none; color: var(--muted);
       font-size: 1.3rem; cursor: pointer; line-height: 1;
-      padding: 0.1rem 0.3rem; flex-shrink: 0;
-      transition: color 0.15s;
+      padding: 0.1rem 0.3rem; flex-shrink: 0; transition: color 0.15s;
     }
     .modal-close:hover { color: var(--text); }
     .modal-meta-top {
@@ -484,8 +609,7 @@
     }
     .modal-source-line {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.7rem; color: var(--muted);
-      letter-spacing: 0.06em;
+      font-size: 0.7rem; color: var(--muted); letter-spacing: 0.06em;
       display: flex; align-items: center; gap: 0.5rem;
       margin-bottom: 1.25rem;
       padding-bottom: 0.9rem; border-bottom: 1px solid var(--border);
@@ -498,8 +622,7 @@
     .modal-article p:last-child { margin-bottom: 0; }
     .modal-sources {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.68rem; color: var(--muted);
-      letter-spacing: 0.06em;
+      font-size: 0.68rem; color: var(--muted); letter-spacing: 0.06em;
       border-top: 1px solid var(--border);
       padding-top: 0.9rem; margin-top: 1.1rem;
     }
@@ -527,151 +650,35 @@
     }
     .btn-kapat:hover { background: var(--surface); border-color: var(--muted); }
 
-    /* ── HERO CAROUSEL ── */
-    .hero-carousel {
-      position: relative; overflow: hidden;
-      background: var(--bg);
-      border-bottom: 1px solid var(--border);
-    }
-
-    .carousel-track {
-      display: flex;
-      transition: transform 0.45s cubic-bezier(0.4,0,0.2,1);
-      will-change: transform;
-    }
-
-    .carousel-slide {
-      flex: 0 0 100%;
-      height: 320px;
-      position: relative;
-      cursor: pointer;
-      overflow: hidden;
-      background-size: cover;
-      background-position: center 30%;
-      background-color: #0a0a0a;
-    }
-
-    .carousel-slide .slide-gradient {
-      position: absolute; inset: 0;
-      background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.4) 50%, rgba(0,0,0,0.1) 100%);
-    }
-
-    .slide-top {
-      position: absolute; top: 1rem; left: 1.25rem; right: 1.25rem;
-      display: flex; justify-content: space-between; align-items: flex-start;
-      z-index: 2;
-    }
-
-    .slide-cat-badge {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.6rem; letter-spacing: 0.2em;
-      text-transform: uppercase; font-weight: 800;
-      background: var(--accent); color: var(--text);
-      padding: 0.2rem 0.55rem; border-radius: 1px;
-    }
-
-    .slide-score-badge {
-      font-size: 0.78rem;
-      background: rgba(0,0,0,0.6);
-      border: 1px solid rgba(255,255,255,0.1);
-      padding: 0.2rem 0.5rem; border-radius: 1px;
-    }
-
-    .slide-content {
-      position: absolute; bottom: 0; left: 0; right: 0;
-      padding: 1rem 1.25rem 1.25rem;
-      z-index: 2;
-    }
-
-    .slide-title {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 2rem; font-weight: 800; line-height: 1.05;
-      color: var(--text); letter-spacing: 0.02em;
-      text-transform: uppercase;
-      text-shadow: 0 2px 12px rgba(0,0,0,0.8);
-      margin-bottom: 0.45rem;
-      display: -webkit-box; -webkit-line-clamp: 3;
-      -webkit-box-orient: vertical; overflow: hidden;
-    }
-
-    .slide-summary {
-      font-family: 'Inter', sans-serif;
-      font-size: 0.82rem; font-weight: 400;
-      color: rgba(240,237,230,0.75);
-      line-height: 1.4; margin-bottom: 0.75rem;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-
-    .slide-meta {
-      display: flex; justify-content: space-between; align-items: center;
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.68rem; color: rgba(240,237,230,0.6);
-      letter-spacing: 0.08em;
-    }
-
-    .slide-source { display: flex; align-items: center; gap: 0.4rem; }
-    .slide-src-dot {
-      width: 5px; height: 5px; border-radius: 50%;
-      background: var(--accent);
-    }
-
-    .slide-read {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.72rem; font-weight: 700;
-      letter-spacing: 0.12em; color: var(--text);
-      text-transform: uppercase;
-      border-bottom: 1px solid rgba(255,255,255,0.4);
-      padding-bottom: 1px;
-    }
-
-    /* Carousel arrows */
-    .carousel-arrow {
-      position: absolute; top: 50%; transform: translateY(-50%);
-      background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.12);
-      color: var(--text); font-size: 1rem; line-height: 1;
-      width: 2.2rem; height: 2.2rem;
-      display: flex; align-items: center; justify-content: center;
-      cursor: pointer; z-index: 10;
-      transition: background 0.15s; border-radius: 1px;
-    }
-    .carousel-arrow:hover { background: rgba(227,10,23,0.7); }
-    .carousel-arrow.prev { left: 1rem; }
-    .carousel-arrow.next { right: 1rem; }
-
-    /* Carousel dots */
-    .carousel-dots {
-      position: absolute; bottom: 0.85rem; left: 50%;
-      transform: translateX(-50%);
-      display: flex; gap: 0.4rem; z-index: 10;
-    }
-    .carousel-dot {
-      width: 5px; height: 5px; border-radius: 50%;
-      background: rgba(255,255,255,0.3);
-      cursor: pointer; transition: background 0.2s, transform 0.2s;
-    }
-    .carousel-dot.active { background: var(--text); transform: scale(1.4); }
-
     /* ── RESPONSIVE ── */
-    @media(max-width:900px) {
-      .news-grid, .video-grid { grid-template-columns: repeat(2,1fr); }
-      .card:nth-child(3n) { border-right: 1px solid var(--border); }
-      .card:nth-child(2n) { border-right: none; }
-      .video-card:nth-child(3n) { border-right: 1px solid var(--border); }
-      .video-card:nth-child(2n) { border-right: none; }
-      .carousel-slide { height: 280px; }
-      .slide-title { font-size: 1.7rem; }
+    @media(min-width: 768px) {
+      .hero-carousel { display: none; }
+      .hero-split {
+        display: flex; height: 420px;
+        max-width: 1300px; margin: 0 auto;
+      }
+      .hero-main { flex: 0 0 65%; }
+      .hero-side { flex: 0 0 35%; }
     }
-    @media(max-width:580px) {
+    @media(min-width: 1024px) {
+      .content-with-sidebar { grid-template-columns: 1fr 300px; }
+    }
+    @media(max-width: 1023px) {
+      .sidebar { order: 2; }
+      .main-content { order: 1; }
+    }
+    @media(max-width: 900px) {
+      .news-grid, .video-grid, .other-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media(max-width: 580px) {
       .news-grid, .video-grid, .other-grid { grid-template-columns: 1fr; }
-      .card:nth-child(n) { border-right: none; }
-      .video-card:nth-child(n) { border-right: none; }
       .logo-name { font-size: 1.2rem; }
-      .radar-banner { display: none; }
-      .carousel-slide { height: 200px; }
       .slide-title { font-size: 1.4rem; }
       .slide-summary { display: none; }
       .carousel-arrow { display: none; }
       .card-img-wrap { height: 130px; }
+      .ad-leaderboard { margin: 0.5rem 1rem; }
+      .content-with-sidebar { padding: 0 1rem 2rem; }
     }
   </style>
 </head>
@@ -701,30 +708,12 @@
   </div>
 </div>
 
-<!-- ── TRANSFER RADAR ── -->
-<div class="radar-banner">
-  <div class="radar-label">🎯 Transfer Radar</div>
-  <div class="radar-items" id="radarItems">
-    <div class="radar-item" style="color:var(--muted)">Yükleniyor...</div>
-  </div>
-</div>
-
-<!-- ── FAN PULSE ── -->
-<div class="pulse-bar">
-  <div class="pulse-inner">
-    <div class="pulse-label">Taraftar Nabzı</div>
-    <div class="pulse-items" id="fanPulse">
-      <div class="pulse-item"><span class="pulse-mood">⏳</span> Yükleniyor...</div>
-    </div>
-  </div>
-</div>
-
 <!-- ── MATCH DAY ── -->
 <div class="matchday" id="matchdayBanner">
   <div class="matchday-text">⚽ MAÇ GÜNÜ — Beşiktaş · Canlı Yorum Açık</div>
 </div>
 
-<!-- ── HERO CAROUSEL ── -->
+<!-- ── MOBILE CAROUSEL (hidden on desktop) ── -->
 <div class="hero-carousel" id="heroCarousel">
   <div class="carousel-track" id="carouselTrack"></div>
   <button class="carousel-arrow prev" id="carouselPrev" aria-label="Önceki">&#8592;</button>
@@ -732,54 +721,110 @@
   <div class="carousel-dots" id="carouselDots"></div>
 </div>
 
-<!-- ── MAIN ── -->
-<main>
-  <div class="section-header">
-    <span class="section-header-title">Son Dakika Haberleri</span>
-    <span class="last-update" id="lastUpdate">Güncelleniyor...</span>
-  </div>
+<!-- ── DESKTOP SPLIT HERO (hidden on mobile) ── -->
+<div class="hero-split" id="heroSplit">
+  <div class="hero-main" id="heroMain"></div>
+  <div class="hero-side" id="heroSide"></div>
+</div>
 
-  <div class="news-grid" id="newsGrid">
-    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
-    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
-    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
-    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
-    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
-    <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
-  </div>
-  <div class="load-more-row" id="loadMoreRow" style="display:none">
-    <button class="btn-load-more" id="loadMoreBtn">Daha Fazla Haber →</button>
-  </div>
+<!-- ── AD: LEADERBOARD ── -->
+<div class="ad-slot ad-leaderboard" data-slot="leaderboard">
+  <span class="ad-label">Reklam</span>
+</div>
 
-  <!-- ── DİĞER SPORLAR ── -->
-  <div class="other-sports-section" id="otherSportsSection" style="display:none">
+<!-- ── CONTENT + SIDEBAR ── -->
+<div class="content-with-sidebar">
+
+  <!-- MAIN CONTENT -->
+  <div class="main-content">
     <div class="section-header">
-      <span class="section-header-title">Diğer Sporlar</span>
+      <div class="section-line"></div>
+      <span class="section-title">Son Dakika</span>
+      <div class="section-line"></div>
     </div>
-    <div class="other-grid" id="otherSportsGrid"></div>
-  </div>
+    <div class="last-update" id="lastUpdate">Güncelleniyor...</div>
 
-  <!-- ── VIDEO MOMENTS ── -->
-  <div class="video-section">
-    <div class="section-header" style="margin-top:2rem">
-      <span class="section-header-title">Video Öne Çıkanlar</span>
+    <div class="news-grid" id="newsGrid">
+      <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
+      <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
+      <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
+      <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
+      <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
+      <div class="skel"><div class="skel-line s"></div><div class="skel-line l"></div><div class="skel-line m"></div></div>
     </div>
-    <div class="video-grid" id="videoGrid">
-      <div class="skel" style="display:flex;gap:.75rem;padding:1rem">
-        <div style="width:44px;height:44px;background:var(--border);border-radius:2px;flex-shrink:0"></div>
-        <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
+
+    <div class="load-more-row" id="loadMoreRow" style="display:none">
+      <button class="btn-load-more" id="loadMoreBtn">Daha Fazla Haber →</button>
+    </div>
+
+    <!-- DİĞER SPORLAR -->
+    <div class="other-sports-section" id="otherSportsSection" style="display:none">
+      <div class="section-header">
+        <div class="section-line"></div>
+        <span class="section-title">Diğer Sporlar</span>
+        <div class="section-line"></div>
       </div>
-      <div class="skel" style="display:flex;gap:.75rem;padding:1rem">
-        <div style="width:44px;height:44px;background:var(--border);border-radius:2px;flex-shrink:0"></div>
-        <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
+      <div class="other-grid" id="otherSportsGrid"></div>
+    </div>
+
+    <!-- VIDEO MOMENTS -->
+    <div class="video-section">
+      <div class="section-header">
+        <div class="section-line"></div>
+        <span class="section-title">Video Öne Çıkanlar</span>
+        <div class="section-line"></div>
       </div>
-      <div class="skel" style="display:flex;gap:.75rem;padding:1rem">
-        <div style="width:44px;height:44px;background:var(--border);border-radius:2px;flex-shrink:0"></div>
-        <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
+      <div class="video-grid" id="videoGrid">
+        <div class="skel" style="display:flex;gap:.75rem;padding:1rem">
+          <div style="width:44px;height:44px;background:var(--border);border-radius:2px;flex-shrink:0"></div>
+          <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
+        </div>
+        <div class="skel" style="display:flex;gap:.75rem;padding:1rem">
+          <div style="width:44px;height:44px;background:var(--border);border-radius:2px;flex-shrink:0"></div>
+          <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
+        </div>
+        <div class="skel" style="display:flex;gap:.75rem;padding:1rem">
+          <div style="width:44px;height:44px;background:var(--border);border-radius:2px;flex-shrink:0"></div>
+          <div style="flex:1"><div class="skel-line s"></div><div class="skel-line l"></div></div>
+        </div>
       </div>
     </div>
-  </div>
-</main>
+  </div><!-- /main-content -->
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <div class="section-header" style="margin-top:1rem">
+        <div class="section-line"></div>
+        <span class="section-title">Transfer Radar</span>
+        <div class="section-line"></div>
+      </div>
+      <div class="radar-items" id="radarItems">
+        <div class="radar-item" style="color:var(--muted)">Yükleniyor...</div>
+      </div>
+    </div>
+
+    <div class="ad-slot" data-slot="infeed-2">
+      <span class="ad-label">Reklam</span>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="section-header">
+        <div class="section-line"></div>
+        <span class="section-title">Taraftar Nabzı</span>
+        <div class="section-line"></div>
+      </div>
+      <div class="pulse-items" id="fanPulse">
+        <div class="pulse-item" style="color:var(--muted)">Yükleniyor...</div>
+      </div>
+    </div>
+
+    <div class="ad-slot sidebar-ad-box" data-slot="box-300" style="margin-top:1.5rem">
+      <span class="ad-label">Reklam</span>
+    </div>
+  </aside>
+
+</div><!-- /content-with-sidebar -->
 
 <!-- ── ARTICLE MODAL ── -->
 <div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalHeadline">
@@ -829,33 +874,53 @@
   const WORKER_URL = 'https://pitchos-fetch-agent.gencerali.workers.dev';
   const SITE_CODE  = 'BJK';
 
+  // ── CATEGORY & TRUST COLOR SYSTEMS ──────────────────────────
+  const CATEGORY_COLORS = {
+    'Match':    '#E30A17',
+    'Transfer': '#3B82F6',
+    'Injury':   '#F59E0B',
+    'Club':     '#10B981',
+    'European': '#8B5CF6',
+    'Basket':   '#8B5CF6',
+    'Basketball':'#8B5CF6',
+    'Squad':    '#10B981',
+    'default':  '#6B7280',
+  };
+
+  const TRUST_COLORS = {
+    'official':   '#3B82F6',
+    'broadcast':  '#10B981',
+    'press':      '#F59E0B',
+    'journalist': '#F97316',
+  };
+
+  function catColor(a) {
+    return CATEGORY_COLORS[a.category] || CATEGORY_COLORS.default;
+  }
+  function trustColor(a) {
+    return TRUST_COLORS[a.trust] || '#6B7280';
+  }
+
   // ── MOCK DATA ────────────────────────────────────────────────
   const MOCK_ARTICLES = [
-    { title: 'Beşiktaş, Ciro Immobile transferinde sona geldi', summary: 'Siyah-beyazlılar, İtalyan forvet için Lazio ile anlaştı. Transferin bu hafta açıklanması bekleniyor.', source: 'Fanatik', url: '#', category: 'Transfer', nvs: 88, golden_score: 4, time_ago: '1 saat önce' },
-    { title: 'Rıdvan Dilmen: Beşiktaş bu sezon şampiyon olur', summary: 'Eski teknik direktör, siyah-beyazlıların bu sezonki kadrosunu değerlendirdi.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 72, golden_score: 3, time_ago: '3 saat önce' },
-    { title: 'Alex Oxlade-Chamberlain sakatlandı', summary: 'İngiliz orta saha oyuncusu antrenmanı erken terk etti. Maç öncesi durumu belirsiz.', source: 'Milliyet', url: '#', category: 'Injury', nvs: 81, golden_score: 3, time_ago: '5 saat önce' },
-    { title: 'Beşiktaş Trabzonspor maçı bilet satışları başladı', summary: 'Derbinin biletleri resmi site üzerinden satışa çıktı. İlk iki saat içinde büyük bölümü tükendi.', source: 'Fotomac', url: '#', category: 'Match', nvs: 65, golden_score: 2, time_ago: '2 saat önce' },
-    { title: 'Semih Kılıçsoy Almanya yolunda', summary: 'Genç yıldızın Bundesliga kulübüyle görüştüğü öğrenildi. Kulüp henüz açıklama yapmadı.', source: 'Fırat Günayer', url: '#', category: 'Transfer', nvs: 76, golden_score: 'eye2', time_ago: '30 dk önce' },
-    { title: 'Teknik direktör basın toplantısı yaptı', summary: 'Önümüzdeki maç için hazırlıkların tamamlandığını açıkladı. Forma şüphelisi 2 isim var.', source: 'BJK Official', url: '#', category: 'Squad', nvs: 68, golden_score: 5, time_ago: '4 saat önce' },
-    { title: 'Beşiktaş Avrupa kupasında son 16ya kaldı', summary: 'Siyah-beyazlılar Konferans Ligi play-off turunu geçmeyi başardı.', source: 'NTV Spor', url: '#', category: 'Match', nvs: 85, golden_score: 5, time_ago: '6 saat önce' },
-    { title: 'Taraftar grubu açıklaması bekleniyor', summary: 'Yönetimle yaşanan gerilim sonrası çarşamba günü ortak bildiri yayımlanacak.', source: 'Hürriyet', url: '#', category: 'Club', nvs: 60, golden_score: 2, time_ago: '7 saat önce' },
-    { title: 'Yeni stadyum projesi onaylandı', summary: 'Beşiktaş Belediye ile anlaşma tamamlandı, inşaat 2027\'de başlayacak.', source: 'BJK Official', url: '#', category: 'Club', nvs: 90, golden_score: 5, time_ago: '8 saat önce' },
-    { title: 'Merkez hakem kurulu açıklaması', summary: 'Geçen haftaki penaltı kararlarına ilişkin resmi değerlendirme yapıldı.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 55, golden_score: 3, time_ago: '9 saat önce' },
-    { title: 'Genç yıldız milli takıma çağrıldı', summary: 'Teknik direktör, kadroya ilk kez çağırdığı isimleri açıkladı.', source: 'A Spor', url: '#', category: 'Squad', nvs: 70, golden_score: 4, time_ago: '10 saat önce' },
-    { title: 'Basketbol şampiyonluk yolunda', summary: 'Beşiktaş Fibabanka EuroCup\'ta finale çok yakın.', source: 'Fotomaç Basketbol', url: '#', category: 'Basketball', nvs: 75, golden_score: 3, sport: 'basketball', time_ago: '11 saat önce' },
+    { title: 'Beşiktaş, Ciro Immobile transferinde sona geldi', summary: 'Siyah-beyazlılar, İtalyan forvet için Lazio ile anlaştı. Transferin bu hafta açıklanması bekleniyor.', source: 'Fanatik', url: '#', category: 'Transfer', nvs: 88, golden_score: 4, trust: 'press', time_ago: '1 saat önce' },
+    { title: 'Rıdvan Dilmen: Beşiktaş bu sezon şampiyon olur', summary: 'Eski teknik direktör, siyah-beyazlıların bu sezonki kadrosunu değerlendirdi.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 72, golden_score: 3, trust: 'broadcast', time_ago: '3 saat önce' },
+    { title: 'Alex Oxlade-Chamberlain sakatlandı', summary: 'İngiliz orta saha oyuncusu antrenmanı erken terk etti. Maç öncesi durumu belirsiz.', source: 'Milliyet', url: '#', category: 'Injury', nvs: 81, golden_score: 3, trust: 'press', time_ago: '5 saat önce' },
+    { title: 'Beşiktaş Trabzonspor maçı bilet satışları başladı', summary: 'Derbinin biletleri resmi site üzerinden satışa çıktı. İlk iki saat içinde büyük bölümü tükendi.', source: 'Fotomac', url: '#', category: 'Match', nvs: 65, golden_score: 2, trust: 'press', time_ago: '2 saat önce' },
+    { title: 'Semih Kılıçsoy Almanya yolunda', summary: 'Genç yıldızın Bundesliga kulübüyle görüştüğü öğrenildi. Kulüp henüz açıklama yapmadı.', source: 'Fırat Günayer', url: '#', category: 'Transfer', nvs: 76, golden_score: 'eye2', trust: 'journalist', time_ago: '30 dk önce' },
+    { title: 'Teknik direktör basın toplantısı yaptı', summary: 'Önümüzdeki maç için hazırlıkların tamamlandığını açıkladı. Forma şüphelisi 2 isim var.', source: 'BJK Official', url: '#', category: 'Squad', nvs: 68, golden_score: 5, trust: 'official', time_ago: '4 saat önce' },
+    { title: 'Beşiktaş Avrupa kupasında son 16ya kaldı', summary: 'Siyah-beyazlılar Konferans Ligi play-off turunu geçmeyi başardı.', source: 'NTV Spor', url: '#', category: 'Match', nvs: 85, golden_score: 5, trust: 'broadcast', time_ago: '6 saat önce' },
+    { title: 'Taraftar grubu açıklaması bekleniyor', summary: 'Yönetimle yaşanan gerilim sonrası çarşamba günü ortak bildiri yayımlanacak.', source: 'Hürriyet', url: '#', category: 'Club', nvs: 60, golden_score: 2, trust: 'press', time_ago: '7 saat önce' },
+    { title: 'Yeni stadyum projesi onaylandı', summary: 'Beşiktaş Belediye ile anlaşma tamamlandı, inşaat 2027\'de başlayacak.', source: 'BJK Official', url: '#', category: 'Club', nvs: 90, golden_score: 5, trust: 'official', time_ago: '8 saat önce' },
+    { title: 'Merkez hakem kurulu açıklaması', summary: 'Geçen haftaki penaltı kararlarına ilişkin resmi değerlendirme yapıldı.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 55, golden_score: 3, trust: 'broadcast', time_ago: '9 saat önce' },
+    { title: 'Genç yıldız milli takıma çağrıldı', summary: 'Teknik direktör, kadroya ilk kez çağırdığı isimleri açıkladı.', source: 'A Spor', url: '#', category: 'Squad', nvs: 70, golden_score: 4, trust: 'broadcast', time_ago: '10 saat önce' },
+    { title: 'Basketbol şampiyonluk yolunda', summary: 'Beşiktaş Fibabanka EuroCup\'ta finale çok yakın.', source: 'Fotomaç Basketbol', url: '#', category: 'Basketball', nvs: 75, golden_score: 3, trust: 'press', sport: 'basketball', time_ago: '11 saat önce' },
   ];
 
   const MOCK_VIDEOS = [
     { source: 'Rabona TV', moment: 'Transfer görüşmeleri: Brugge anlaşması detayları', timestamp: '02:14', url: 'https://youtube.com' },
     { source: 'Fırat Günayer', moment: 'Medikal randevusu perşembeye alındı', timestamp: '07:40', url: 'https://youtube.com' },
     { source: 'BJK TV', moment: 'Antrenman öncesi açıklamalar ve kadro haberleri', timestamp: '00:45', url: 'https://youtube.com' },
-  ];
-
-  const MOCK_PULSE = [
-    { label: 'Genel',    emoji: '🔥', mood: 'Heyecanlı' },
-    { label: 'Transfer', emoji: '🤞', mood: 'Umutlu' },
-    { label: 'Kadro',    emoji: '💪', mood: 'Güvenli' },
-    { label: 'Yönetim',  emoji: '😤', mood: 'Endişeli' },
   ];
 
   // ── HELPERS ──────────────────────────────────────────────────
@@ -870,32 +935,20 @@
   function cleanForDisplay(text) {
     if (!text) return '';
     return text
-      .replace(/&amp;/g, '&')
-      .replace(/&#x27;/g, "'")
-      .replace(/&quot;/g, '"')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&#\w+;/g, '')
-      .replace(/\|.*$/g, '')
-      .replace(/Ana Sayfa.*/gi, '')
-      .replace(/Son Güncelleme.*/gi, '')
-      .replace(/#\w+/g, '')
-      .replace(/https?:\/\/\S+/g, '')
+      .replace(/&amp;/g, '&').replace(/&#x27;/g, "'")
+      .replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&#\w+;/g, '').replace(/\|.*$/g, '')
+      .replace(/Ana Sayfa.*/gi, '').replace(/Son Güncelleme.*/gi, '')
+      .replace(/#\w+/g, '').replace(/https?:\/\/\S+/g, '')
       .replace(/<[^>]+>/g, ' ')
       .replace(/Devamı için tıklayınız\.?/gi, '')
-      .replace(/İşte detaylar\.?/gi, '')
-      .replace(/İşte ayrıntılar\.?/gi, '')
+      .replace(/İşte detaylar\.?/gi, '').replace(/İşte ayrıntılar\.?/gi, '')
       .replace(/Son dakika Beşiktaş haberleri[^.]*/gi, '')
       .replace(/BJK spor haberi[^)]*/gi, '')
-      .replace(/Spor Haberleri.*/gi, '')
-      .replace(/HABERLER.*/g, '')
-      .replace(/Futbol Haber.*/gi, '')
-      .replace(/- Spor.*/gi, '')
-      .replace(/\s*-\s*[A-Z]{2,}.*$/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .replace(/^(.{1,120})\s.*$/, '$1')
-      .slice(0, 120);
+      .replace(/Spor Haberleri.*/gi, '').replace(/HABERLER.*/g, '')
+      .replace(/Futbol Haber.*/gi, '').replace(/- Spor.*/gi, '')
+      .replace(/\s*-\s*[A-Z]{2,}.*$/g, '').replace(/\s+/g, ' ').trim()
+      .replace(/^(.{1,120})\s.*$/, '$1').slice(0, 120);
   }
 
   function goldenScoreHTML(gs) {
@@ -910,18 +963,13 @@
   }
 
   const CAT_GRAD = {
-    Transfer: 'linear-gradient(135deg, #1a0000, #0d0000)',
+    Transfer: 'linear-gradient(135deg, #0d1a2e, #06111f)',
     Match:    'linear-gradient(135deg, #001a00, #000d00)',
     Injury:   'linear-gradient(135deg, #1a0800, #0d0400)',
     Club:     'linear-gradient(135deg, #0a0a14, #050510)',
+    European: 'linear-gradient(135deg, #14001a, #0d0011)',
   };
-  function catGrad(a) { return CAT_GRAD[a.category || 'Club'] || 'linear-gradient(135deg, #111, #0d0d0d)'; }
-
-  function slideStyle(a) {
-    return a.image_url
-      ? `background-image:url('${esc(a.image_url)}')`
-      : `background:${catGrad(a)}`;
-  }
+  function catGrad(a) { return CAT_GRAD[a.category] || 'linear-gradient(135deg, #111, #0d0d0d)'; }
 
   function cardImgStyle(a) {
     const base = 'width:100%;height:100%;background-size:cover;background-position:center;';
@@ -947,14 +995,73 @@
     const otherArticles    = articles.filter(a => a.sport && a.sport !== 'football');
 
     renderCarousel(footballArticles.slice(0, 8));
-    const gridArticles = footballArticles.slice(8);
-    renderGrid(gridArticles, 0);
+    renderHeroSplit(footballArticles.slice(0, 4));
+    renderGrid(footballArticles.slice(4), 0);
     renderTicker(footballArticles);
     renderRadarLive(articles);
     renderPulseLive(articles);
     renderOtherSports(otherArticles);
     renderVideos(MOCK_VIDEOS);
     setTimestamp();
+  }
+
+  // ── SPLIT HERO ───────────────────────────────────────────────
+  function renderHeroSplit(items) {
+    if (!items || !items.length) return;
+
+    const a = items[0];
+    const cc = catColor(a);
+    const tc = trustColor(a);
+    const main = document.getElementById('heroMain');
+
+    main.style.cssText = `background-size:cover;background-position:center;cursor:pointer;${
+      a.image_url
+        ? `background-image:url('${esc(a.image_url)}')`
+        : `background:${catGrad(a)}`
+    }`;
+
+    main.innerHTML = `
+      <div class="slide-gradient"></div>
+      <div class="hero-main-top">
+        <span class="slide-cat-badge" style="background:${cc}">${esc(a.category || 'Haber')}</span>
+        ${a.golden_score ? `<span class="slide-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : ''}
+      </div>
+      <div class="hero-main-content">
+        <div class="hero-main-title">${esc(cleanForDisplay(a.title))}</div>
+        <div class="hero-main-summary">${esc(cleanForDisplay(a.summary || '').slice(0, 140))}</div>
+        <div class="hero-main-meta">
+          <div class="slide-source">
+            <div class="slide-src-dot" style="background:${tc}"></div>
+            ${esc(a.source || '')} · ${esc(a.time_ago || 'Güncel')}
+          </div>
+          <span class="slide-read">Oku →</span>
+        </div>
+      </div>`;
+
+    main.addEventListener('click', () => openArticle(a));
+
+    const side = document.getElementById('heroSide');
+    side.innerHTML = items.slice(1, 4).map((b) => {
+      const bc  = catColor(b);
+      const btc = trustColor(b);
+      const idx = _articles.indexOf(b);
+      return `
+        <div class="hero-side-item" style="border-left:3px solid ${bc}"
+             onclick="openArticle(_articles[${idx}])">
+          <div class="hero-side-img" style="${
+            b.image_url
+              ? `background-image:url('${esc(b.image_url)}')`
+              : `background:${catGrad(b)}`
+          };background-size:cover;background-position:center;"></div>
+          <div class="hero-side-body">
+            <div class="hero-side-title">${esc(cleanForDisplay(b.title))}</div>
+            <div class="hero-side-meta">
+              <span class="src-dot" style="background:${btc}"></span>
+              ${esc(b.source || '')} · ${esc(b.time_ago || 'Güncel')}
+            </div>
+          </div>
+        </div>`;
+    }).join('');
   }
 
   // ── CAROUSEL ─────────────────────────────────────────────────
@@ -971,10 +1078,11 @@
 
     const track = document.getElementById('carouselTrack');
     track.innerHTML = items.map((a, i) => `
-      <div class="carousel-slide" data-cidx="${i}" onclick="openArticle(_carouselItems[${i}])" style="${slideStyle(a)}">
+      <div class="carousel-slide" data-cidx="${i}" onclick="openArticle(_carouselItems[${i}])"
+           style="${a.image_url ? `background-image:url('${esc(a.image_url)}')` : `background:${catGrad(a)}`}">
         <div class="slide-gradient"></div>
         <div class="slide-top">
-          <span class="slide-cat-badge">${esc(a.category || 'Haber')}</span>
+          <span class="slide-cat-badge" style="background:${catColor(a)}">${esc(a.category || 'Haber')}</span>
           ${a.golden_score ? `<span class="slide-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : ''}
         </div>
         <div class="slide-content">
@@ -982,8 +1090,8 @@
           <div class="slide-summary">${esc(cleanForDisplay(a.summary || '').slice(0, 120))}</div>
           <div class="slide-meta">
             <div class="slide-source">
-              <div class="slide-src-dot"></div>
-              Kaynak: ${esc(a.source || '')} · ${esc(a.time_ago || 'Güncel')}
+              <div class="slide-src-dot" style="background:${trustColor(a)}"></div>
+              ${esc(a.source || '')} · ${esc(a.time_ago || 'Güncel')}
             </div>
             <span class="slide-read">Oku →</span>
           </div>
@@ -1022,10 +1130,8 @@
       d.classList.toggle('active', i === _carouselIdx);
     });
   }
-
   function nextSlide() { goToSlide(_carouselIdx + 1); }
   function prevSlide() { goToSlide(_carouselIdx - 1); }
-
   function startCarouselTimer() {
     clearInterval(_carouselTimer);
     _carouselTimer = setInterval(nextSlide, 5000);
@@ -1040,7 +1146,7 @@
     if (offset === 0) {
       grid.innerHTML = '';
       if (!items || items.length === 0) {
-        grid.innerHTML = '<p style="color:var(--muted);padding:2rem 0;text-align:center">Daha fazla haber yükleniyor...</p>';
+        grid.innerHTML = '<p style="color:var(--muted);padding:2rem 0;text-align:center;grid-column:1/-1">Daha fazla haber yükleniyor...</p>';
         document.getElementById('loadMoreRow').style.display = 'none';
         return;
       }
@@ -1056,26 +1162,39 @@
       el.setAttribute('tabindex', '0');
       el.dataset.absIdx = absIdx >= 0 ? absIdx : i + offset;
       el.style.animationDelay = `${i * 0.04}s`;
+      el.style.borderLeft = `3px solid ${catColor(a)}`;
 
       const scoreHTML = a.golden_score
-        ? `<span class="card-score-badge">${goldenScoreHTML(a.golden_score)}</span>`
-        : '';
+        ? `<span class="card-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : '';
 
       el.innerHTML = `
         <div class="card-img-wrap">
           <div style="${cardImgStyle(a)}"></div>
-          <span class="card-cat-badge">${esc(cleanForDisplay(a.category || 'Haber'))}</span>
+          <span class="card-cat-badge" style="background:${catColor(a)}">${esc(a.category || 'Haber')}</span>
           ${scoreHTML}
         </div>
         <div class="card-body">
           <div class="card-title">${esc(cleanForDisplay(a.title))}</div>
           <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || ''))}</div>
-          <div class="card-source-line">Kaynak: <span>${esc(a.source || '')}</span> · ${esc(a.time_ago || 'Güncel')}</div>
+          <div class="card-source-line">
+            <span class="src-dot" style="background:${trustColor(a)}"></span>
+            <span>${esc(a.source || '')}</span> · ${esc(a.time_ago || 'Güncel')}
+          </div>
         </div>`;
 
       el.addEventListener('click', () => openArticle(_articles[parseInt(el.dataset.absIdx)] || a));
       el.addEventListener('keydown', e => { if (e.key === 'Enter') openArticle(_articles[parseInt(el.dataset.absIdx)] || a); });
       grid.appendChild(el);
+
+      // Inject infeed-1 ad after 6th card on first load
+      if (offset === 0 && i === 5) {
+        const adSlot = document.createElement('div');
+        adSlot.className = 'ad-slot ad-infeed';
+        adSlot.dataset.slot = 'infeed-1';
+        adSlot.style.gridColumn = '1 / -1';
+        adSlot.innerHTML = '<span class="ad-label">Reklam</span>';
+        grid.appendChild(adSlot);
+      }
     });
 
     const hasMore = offset + GRID_PAGE < items.length;
@@ -1094,7 +1213,7 @@
     document.getElementById('ticker').innerHTML = items + items;
   }
 
-  // ── RENDER RADAR (live) ──────────────────────────────────────
+  // ── RENDER RADAR (sidebar) ───────────────────────────────────
   function renderRadarLive(articles) {
     const transferArticles = articles.filter(a =>
       (a.category || '').toLowerCase() === 'transfer' ||
@@ -1107,24 +1226,31 @@
       return;
     }
 
-    document.getElementById('radarItems').innerHTML = transferArticles.map(r => `
-      <div class="radar-item" style="cursor:pointer" onclick="openArticle(_articles[${_articles.indexOf(r)}])">
-        ${esc(cleanForDisplay(r.title).slice(0, 55))}
-        ${r.golden_score
-          ? `<span class="radar-nvs med">${goldenScoreHTML(r.golden_score)}</span>`
-          : `<span class="radar-nvs ${(r.nvs||0) >= 70 ? 'high' : 'med'}">${r.nvs}</span>`}
-      </div>
-    `).join('');
+    document.getElementById('radarItems').innerHTML = transferArticles.map(r => {
+      const idx = _articles.indexOf(r);
+      return `
+        <div class="radar-item" onclick="openArticle(_articles[${idx}])">
+          ${esc(cleanForDisplay(r.title).slice(0, 60))}
+          ${r.golden_score
+            ? `<span class="radar-nvs med">${goldenScoreHTML(r.golden_score)}</span>`
+            : `<span class="radar-nvs ${(r.nvs||0) >= 70 ? 'high' : 'med'}">${r.nvs}</span>`}
+        </div>`;
+    }).join('');
   }
 
-  // ── RENDER PULSE (live) ──────────────────────────────────────
+  // ── RENDER PULSE (sidebar) ───────────────────────────────────
   function renderPulseLive(articles) {
-    if (!articles.length) { renderPulse(MOCK_PULSE); return; }
+    if (!articles.length) {
+      renderPulse([
+        { label: 'Genel', emoji: '⏳', mood: 'Bekleniyor' },
+      ]);
+      return;
+    }
 
-    const avgNvs     = articles.reduce((s, a) => s + (a.nvs || 50), 0) / articles.length;
-    const injuries   = articles.filter(a => (a.category||'').toLowerCase() === 'injury').length;
-    const transfers  = articles.filter(a => (a.category||'').toLowerCase() === 'transfer').length;
-    const matchNews  = articles.filter(a => (a.category||'').toLowerCase() === 'match').length;
+    const avgNvs    = articles.reduce((s, a) => s + (a.nvs || 50), 0) / articles.length;
+    const injuries  = articles.filter(a => (a.category||'').toLowerCase() === 'injury').length;
+    const transfers = articles.filter(a => (a.category||'').toLowerCase() === 'transfer').length;
+    const matchNews = articles.filter(a => (a.category||'').toLowerCase() === 'match').length;
 
     const genelMood    = avgNvs >= 70 ? ['🔥','Heyecanlı'] : avgNvs >= 55 ? ['💪','Kararlı'] : ['🤔','Beklemede'];
     const transferMood = transfers >= 3 ? ['🤞','Hareketli'] : transfers >= 1 ? ['👀','Takipte'] : ['😴','Sakin'];
@@ -1159,21 +1285,24 @@
     grid.innerHTML = articles.slice(0, 6).map(a => {
       const sportLabel = SPORT_LABELS[a.sport] || a.sport || 'Spor';
       const idx = _articles.indexOf(a);
-      const scoreHTML = a.golden_score
-        ? `<span class="card-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : '';
+      const cc = catColor(a);
+      const tc = trustColor(a);
       return `
-        <div class="card" onclick="openArticle(_articles[${idx}])">
+        <div class="card" style="border-left:3px solid ${cc}" onclick="openArticle(_articles[${idx}])">
           <div class="card-img-wrap">
             <div style="${cardImgStyle(a)}"></div>
-            <span class="card-cat-badge">
+            <span class="card-cat-badge" style="background:${cc}">
               <span class="sport-tag ${a.sport||''}">${esc(sportLabel)}</span>
             </span>
-            ${scoreHTML}
+            ${a.golden_score ? `<span class="card-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : ''}
           </div>
           <div class="card-body">
             <div class="card-title">${esc(cleanForDisplay(a.title))}</div>
             <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || ''))}</div>
-            <div class="card-source-line">Kaynak: <span>${esc(a.source || '')}</span> · ${esc(a.time_ago || 'Güncel')}</div>
+            <div class="card-source-line">
+              <span class="src-dot" style="background:${tc}"></span>
+              <span>${esc(a.source || '')}</span> · ${esc(a.time_ago || 'Güncel')}
+            </div>
           </div>
         </div>`;
     }).join('');
@@ -1211,13 +1340,10 @@
     document.getElementById('modalHeadline').textContent = cleanForDisplay(a.title || '');
     document.getElementById('modalSource').textContent   = `Kaynak: ${a.source || ''}`;
     document.getElementById('modalTimeAgo').textContent  = a.time_ago || '';
-    document.getElementById('modalSources').textContent  = a.source
-      ? `Kaynak: ${a.source}` : '';
+    document.getElementById('modalSources').textContent  = a.source ? `Kaynak: ${a.source}` : '';
 
     const bodyText = a.full_body && a.full_body.length > (a.summary?.length || 0)
-      ? a.full_body
-      : a.summary || '';
-    // Clean HTML/entities but no length truncation in modal
+      ? a.full_body : a.summary || '';
     const bodyClean = bodyText
       .replace(/&amp;/g, '&').replace(/&#x27;/g, "'").replace(/&quot;/g, '"')
       .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
