@@ -39,6 +39,12 @@ export default {
         }
       });
     }
+    if (url.pathname === '/update-cache') {
+      if (request.method !== 'POST') return new Response('POST only', { status: 405 });
+      const articles = await request.json();
+      await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(articles), { expirationTtl: 7200 });
+      return Response.json({ updated: articles.length });
+    }
     if (url.pathname === '/clear-cache') {
       await Promise.all([
         env.PITCHOS_CACHE.delete('articles:BJK'),
