@@ -13,22 +13,27 @@
 
   <style>
     :root {
-      --accent:      #E30A17;
-      --accent-gold: #F5A623;
-      --bg:          #0d0d0d;
-      --surface:     #141414;
-      --panel:       #1a1a1a;
-      --border:      #2a2a2a;
-      --border2:     #333333;
-      --text:        #f0ede6;
-      --muted:       #7a7875;
+      --accent:       #E30A17;
+      --accent-gold:  #F5A623;
+      --accent-dim:   rgba(227,10,23,0.1);
+      --bg:           #1a1a1a;
+      --surface:      #ffffff;
+      --panel:        #ffffff;
+      --panel-dark:   #111111;
+      --border:       #e5e7eb;
+      --border2:      #d1d5db;
+      --text:         #111111;
+      --text-on-dark: #ffffff;
+      --muted:        #6b7280;
+      --muted-dark:   #9ca3af;
+      --section-alt:  #f5f3ef;
     }
 
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
 
     body {
       background: var(--bg);
-      color: var(--text);
+      color: var(--text-on-dark);
       font-family: 'Inter', sans-serif;
       min-height: 100vh;
       position: relative;
@@ -45,34 +50,14 @@
 
     /* ── HEADER ── */
     header {
-      background: var(--bg);
-      border-bottom: 2px solid var(--border);
+      background: #0d0d0d;
+      border-bottom: 2px solid var(--accent);
+      height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem;
       position: sticky; top: 0; z-index: 100;
     }
-    .header-inner {
-      max-width: 1300px; margin: 0 auto;
-      padding: 0.75rem 1.5rem;
-      display: flex; align-items: center; justify-content: space-between; gap: 1rem;
-    }
-    .logo { display: flex; align-items: center; gap: 0.75rem; }
-    .crest {
-      width: 48px; height: 48px;
-      background: var(--text); border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.5rem; flex-shrink: 0;
-    }
-    .logo-name {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 1.4rem; font-weight: 800;
-      letter-spacing: 0.08em; line-height: 1;
-      text-transform: uppercase; color: var(--text);
-    }
-    .logo-sub {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.62rem; letter-spacing: 0.22em;
-      text-transform: uppercase; color: var(--muted);
-      margin-top: 0.1rem;
-    }
+    .logo-link { text-decoration: none; display: flex; align-items: center; }
     .header-right { display: flex; align-items: center; gap: 1rem; }
     .live-pill {
       display: flex; align-items: center; gap: 0.4rem;
@@ -90,18 +75,19 @@
 
     /* ── TICKER ── */
     .ticker-wrap {
-      background: #111;
+      background: #0d0d0d;
       border-bottom: 1px solid var(--accent);
       overflow: hidden; white-space: nowrap; padding: 0.4rem 0;
     }
-    .ticker-track { display: inline-flex; animation: scroll 60s linear infinite; }
+    .ticker-wrap:hover .ticker-track { animation-play-state: paused; }
+    .ticker-track { display: inline-flex; animation: scroll 50s linear infinite; }
     .ticker-item {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.8rem; font-weight: 600;
       letter-spacing: 0.07em; text-transform: uppercase;
-      color: var(--text); padding: 0 2rem;
+      color: #f0ede6; padding: 0 2rem;
     }
-    .ticker-sep { color: var(--muted); padding: 0 0.5rem; }
+    .ticker-sep { color: #555; padding: 0 0.5rem; }
     @keyframes scroll { from{transform:translateX(0)} to{transform:translateX(-50%)} }
 
     /* ── MATCH DAY BANNER ── */
@@ -209,7 +195,7 @@
     /* ── HERO SPLIT (desktop only) ── */
     .hero-split {
       display: none;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid #2a2a2a;
     }
 
     .hero-main {
@@ -252,42 +238,42 @@
 
     .hero-side {
       display: flex; flex-direction: column;
-      border-left: 1px solid var(--border); overflow: hidden;
+      border-left: 1px solid rgba(255,255,255,0.08);
+      background: #0d0d0d; overflow: hidden;
     }
     .hero-side-item {
-      flex: 1; display: flex; align-items: stretch;
-      cursor: pointer; border-bottom: 1px solid var(--border);
+      flex: 1; display: flex; flex-direction: column; justify-content: center;
+      padding: 0.75rem 1rem;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
       transition: background 0.15s; overflow: hidden; min-height: 0;
     }
     .hero-side-item:last-child { border-bottom: none; }
-    .hero-side-item:hover { background: var(--panel); }
+    .hero-side-item:hover { background: rgba(255,255,255,0.04); }
     .hero-side-item:hover .hero-side-title { color: var(--accent); }
-    .hero-side-img {
-      width: 80px; flex-shrink: 0;
-      background-size: cover; background-position: center;
-      background-color: #0a0a0a;
-    }
-    .hero-side-body {
-      flex: 1; padding: 0.75rem; min-width: 0;
-      display: flex; flex-direction: column; justify-content: center; gap: 0.4rem;
+    .side-category {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.6rem; font-weight: 800;
+      letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 0.3rem;
     }
     .hero-side-title {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.95rem; font-weight: 700;
-      line-height: 1.2; color: var(--text); transition: color 0.15s;
-      display: -webkit-box; -webkit-line-clamp: 3;
+      font-size: 1rem; font-weight: 700;
+      line-height: 1.2; color: #ffffff; transition: color 0.15s;
+      display: -webkit-box; -webkit-line-clamp: 2;
       -webkit-box-orient: vertical; overflow: hidden;
+      margin-bottom: 0.3rem;
     }
     .hero-side-meta {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.62rem; color: var(--muted); letter-spacing: 0.04em;
-      display: flex; align-items: center; gap: 0.35rem;
+      font-size: 0.65rem; color: var(--muted-dark); letter-spacing: 0.04em;
     }
 
     /* ── AD SLOTS ── */
     .ad-slot {
-      background: var(--panel);
-      border: 1px dashed var(--border2);
+      background: #222;
+      border: 1px dashed #444;
       min-height: 90px;
       display: flex; align-items: center; justify-content: center;
       margin: 1rem 0;
@@ -318,17 +304,17 @@
     }
     .sidebar .radar-item {
       white-space: normal; flex-wrap: wrap;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid #333;
       padding: 0.6rem 0; cursor: pointer;
-      font-size: 0.8rem; transition: color 0.15s;
+      font-size: 0.8rem; color: var(--muted-dark); transition: color 0.15s;
       display: flex; align-items: flex-start; gap: 0.5rem;
     }
     .sidebar .radar-item:last-child { border-bottom: none; }
-    .sidebar .radar-item:hover { color: var(--accent); }
+    .sidebar .radar-item:hover { color: #fff; }
     .sidebar .pulse-items { display: flex; flex-direction: column; gap: 0; }
     .sidebar .pulse-item {
       font-size: 0.82rem; padding: 0.5rem 0;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid #333; color: var(--muted-dark);
     }
     .sidebar .pulse-item:last-child { border-bottom: none; }
     .sidebar-ad-box { min-height: 250px; }
@@ -338,7 +324,7 @@
       display: flex; align-items: center; gap: 0.75rem;
       margin: 1.5rem 0 1rem;
     }
-    .section-line { flex: 1; height: 1px; background: var(--border); }
+    .section-line { flex: 1; height: 1px; background: #444; }
     .section-title {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.75rem; font-weight: 700;
@@ -347,7 +333,7 @@
     }
     .last-update {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.62rem; color: var(--muted);
+      font-size: 0.62rem; color: var(--muted-dark);
       letter-spacing: 0.06em; text-align: right;
       margin-top: -0.5rem; margin-bottom: 0.75rem;
     }
@@ -362,16 +348,18 @@
 
     /* ── CARD ── */
     .card {
-      background: var(--panel);
-      border-bottom: 1px solid var(--border);
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
       display: flex; flex-direction: column;
       cursor: pointer;
       animation: up 0.4s ease both;
-      text-decoration: none; color: inherit;
-      transition: background 0.15s;
+      text-decoration: none; color: #111111;
+      transition: box-shadow 0.15s, border-color 0.15s;
       overflow: hidden;
     }
-    .card:hover { background: #222; }
+    .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-color: var(--accent); }
     .card:hover .card-title { color: var(--accent); }
 
     @keyframes up {
@@ -416,7 +404,7 @@
     .card-title {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 1rem; font-weight: 700;
-      line-height: 1.25; color: var(--text);
+      line-height: 1.25; color: #111111;
       transition: color 0.15s;
       display: -webkit-box; -webkit-line-clamp: 2;
       -webkit-box-orient: vertical; overflow: hidden;
@@ -434,7 +422,7 @@
       letter-spacing: 0.04em; margin-top: 0.15rem;
       display: flex; align-items: center; gap: 0.35rem;
     }
-    .card-source-line span { color: var(--text); font-weight: 600; }
+    .card-source-line span { color: #111111; font-weight: 600; }
 
     /* ── TRUST DOT ── */
     .src-dot {
@@ -686,17 +674,18 @@
 
 <!-- ── HEADER ── -->
 <header>
-  <div class="header-inner">
-    <div class="logo">
-      <div class="crest">🦅</div>
-      <div>
-        <div class="logo-name">Kartalix</div>
-        <div class="logo-sub">Beşiktaş JK · Son Dakika</div>
-      </div>
-    </div>
-    <div class="header-right">
-      <div class="live-pill"><div class="live-dot"></div>Canlı</div>
-    </div>
+  <a href="/" class="logo-link" style="text-decoration:none;display:flex;align-items:center;gap:0">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" height="44">
+      <rect x="0" y="2" width="8" height="40" fill="#ffffff"/>
+      <polygon points="8,22 36,2 29,2 8,16" fill="#ffffff"/>
+      <polygon points="8,22 38,42 46,42 8,25" fill="#E30A17"/>
+      <rect x="0" y="20" width="8" height="5" fill="#E30A17"/>
+      <text x="54" y="28" font-family="'Barlow Condensed',Impact,Arial Narrow,sans-serif" font-size="24" font-weight="900" letter-spacing="3" fill="#ffffff">KARTALIX</text>
+      <text x="55" y="40" font-family="Arial,Helvetica,sans-serif" font-size="7" letter-spacing="2" fill="#666666">BEŞİKTAŞ HABERLERİ</text>
+    </svg>
+  </a>
+  <div class="header-right">
+    <div class="live-pill"><div class="live-dot"></div>Canlı</div>
   </div>
 </header>
 
@@ -1043,23 +1032,13 @@
     const side = document.getElementById('heroSide');
     side.innerHTML = items.slice(1, 4).map((b) => {
       const bc  = catColor(b);
-      const btc = trustColor(b);
       const idx = _articles.indexOf(b);
       return `
         <div class="hero-side-item" style="border-left:3px solid ${bc}"
              onclick="openArticle(_articles[${idx}])">
-          <div class="hero-side-img" style="${
-            b.image_url
-              ? `background-image:url('${esc(b.image_url)}')`
-              : `background:${catGrad(b)}`
-          };background-size:cover;background-position:center;"></div>
-          <div class="hero-side-body">
-            <div class="hero-side-title">${esc(cleanForDisplay(b.title))}</div>
-            <div class="hero-side-meta">
-              <span class="src-dot" style="background:${btc}"></span>
-              ${esc(b.source || '')} · ${esc(b.time_ago || 'Güncel')}
-            </div>
-          </div>
+          <div class="side-category">${esc(b.category || 'Haber')}</div>
+          <div class="hero-side-title">${esc(cleanForDisplay(b.title))}</div>
+          <div class="hero-side-meta">Kaynak: ${esc(b.source || '')} · ${esc(b.time_ago || 'Güncel')}</div>
         </div>`;
     }).join('');
   }
@@ -1208,7 +1187,7 @@
   // ── RENDER TICKER ────────────────────────────────────────────
   function renderTicker(articles) {
     const items = articles
-      .map(a => `<span class="ticker-item">⚫ ${esc(cleanForDisplay(a.title))}</span>`)
+      .map(a => `<span class="ticker-item">⚫ <a href="${esc(a.url || '#')}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;white-space:nowrap">${cleanForDisplay(a.title)}</a></span>`)
       .join('<span class="ticker-sep">|</span>');
     document.getElementById('ticker').innerHTML = items + items;
   }
