@@ -1,8 +1,11 @@
-import json, sys, urllib.request
+import json, sys, subprocess
 
 def fetch(url):
-    with urllib.request.urlopen(url, timeout=15) as r:
-        return json.loads(r.read().decode('utf-8'))
+    result = subprocess.run(
+        ['curl', '-s', '--max-time', '15', url],
+        capture_output=True, text=True, encoding='utf-8'
+    )
+    return json.loads(result.stdout)
 
 try:
     cache = fetch('https://pitchos-fetch-agent.gencerali.workers.dev/cache?site=BJK')
