@@ -1372,7 +1372,7 @@
     document.getElementById('modalTimeAgo').textContent  = a.time_ago || '';
     document.getElementById('modalSources').textContent  = a.source ? `Kaynak: ${a.source}` : '';
 
-    const bodyText = a.full_body && a.full_body.length > (a.summary?.length || 0)
+    const bodyText = a.full_body && a.full_body.length > 200
       ? a.full_body : a.summary || '';
     const bodyClean = bodyText
       .replace(/&amp;/g, '&').replace(/&#x27;/g, "'").replace(/&quot;/g, '"')
@@ -1430,6 +1430,7 @@
 
       document.getElementById('like-count').textContent = data.likes || 0;
       document.getElementById('dislike-count').textContent = data.dislikes || 0;
+      updateReactionButtons(getUserReaction(_currentArticleUrl));
 
       const comments = data.comments || [];
       document.getElementById('comment-count').textContent = `(${comments.length})`;
@@ -1455,20 +1456,53 @@
     }
   }
 
+  function getUserReaction(articleUrl) {
+    const key = 'reaction_' + btoa(articleUrl).slice(0,20);
+    return localStorage.getItem(key);
+  }
+
+  function setUserReaction(articleUrl, reaction) {
+    const key = 'reaction_' + btoa(articleUrl).slice(0,20);
+    if (reaction === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, reaction);
+  }
+
+  function updateReactionButtons(active) {
+    const btnLike = document.getElementById('btn-like');
+    const btnDislike = document.getElementById('btn-dislike');
+    if (!btnLike || !btnDislike) return;
+
+    btnLike.style.background = active === 'like' ? '#166534' : '#f0fdf4';
+    btnLike.style.color = active === 'like' ? 'white' : '#166534';
+    btnLike.style.borderColor = active === 'like' ? '#166534' : '#86efac';
+
+    btnDislike.style.background = active === 'dislike' ? '#991b1b' : '#fef2f2';
+    btnDislike.style.color = active === 'dislike' ? 'white' : '#991b1b';
+    btnDislike.style.borderColor = active === 'dislike' ? '#991b1b' : '#fca5a5';
+  }
+
   async function react(type) {
     if (!_currentArticleUrl) return;
+    const current = getUserReaction(_currentArticleUrl);
+
+    let newReaction = type;
+    if (current === type) newReaction = null;
+
     try {
       const res = await fetch('https://pitchos-fetch-agent.gencerali.workers.dev/react', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ article_url: _currentArticleUrl, reaction: type })
+        body: JSON.stringify({
+          article_url: _currentArticleUrl,
+          reaction: newReaction,
+          previous: current
+        })
       });
       const data = await res.json();
+      setUserReaction(_currentArticleUrl, newReaction);
       document.getElementById('like-count').textContent = data.likes || 0;
       document.getElementById('dislike-count').textContent = data.dislikes || 0;
-
-      document.getElementById('btn-like').style.fontWeight = type === 'like' ? '700' : '500';
-      document.getElementById('btn-dislike').style.fontWeight = type === 'dislike' ? '700' : '500';
+      updateReactionButtons(newReaction);
     } catch(e) { console.error('react error:', e); }
   }
 

@@ -32,16 +32,22 @@ export default {
     if (url.pathname === '/react') {
       if (request.method !== 'POST') return new Response('POST only', {status:405});
       const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
-      const { article_url, reaction } = await request.json();
-      if (!article_url || !['like','dislike'].includes(reaction))
-        return Response.json({ error: 'invalid' }, { headers });
+      const { article_url, reaction, previous } = await request.json();
+      if (!article_url) return Response.json({ error: 'invalid' }, { headers });
 
       const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
       const ip_hash = ip.split('.').slice(0,3).join('.') + '.x';
 
-      await supabase(env, 'POST', '/rest/v1/article_reactions', {
-        article_url, reaction, ip_hash
-      });
+      if (previous) {
+        await supabase(env, 'DELETE',
+          `/rest/v1/article_reactions?article_url=eq.${encodeURIComponent(article_url)}&ip_hash=eq.${ip_hash}&reaction=eq.${previous}`);
+      }
+
+      if (reaction) {
+        await supabase(env, 'POST', '/rest/v1/article_reactions', {
+          article_url, reaction, ip_hash
+        });
+      }
 
       const counts = await supabase(env, 'GET',
         `/rest/v1/article_reactions?article_url=eq.${encodeURIComponent(article_url)}&select=reaction`);
