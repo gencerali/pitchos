@@ -19,6 +19,73 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        }
+      });
+    }
+
+    if (url.pathname === '/react') {
+      if (request.method !== 'POST') return new Response('POST only', {status:405});
+      const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
+      const { article_url, reaction } = await request.json();
+      if (!article_url || !['like','dislike'].includes(reaction))
+        return Response.json({ error: 'invalid' }, { headers });
+
+      const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+      const ip_hash = ip.split('.').slice(0,3).join('.') + '.x';
+
+      await supabase(env, 'POST', '/rest/v1/article_reactions', {
+        article_url, reaction, ip_hash
+      });
+
+      const counts = await supabase(env, 'GET',
+        `/rest/v1/article_reactions?article_url=eq.${encodeURIComponent(article_url)}&select=reaction`);
+      const likes = (counts||[]).filter(r => r.reaction === 'like').length;
+      const dislikes = (counts||[]).filter(r => r.reaction === 'dislike').length;
+      return Response.json({ likes, dislikes }, { headers });
+    }
+
+    if (url.pathname === '/comment') {
+      if (request.method !== 'POST') return new Response('POST only', {status:405});
+      const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
+      const { article_url, name, surname, comment, honeypot } = await request.json();
+      if (honeypot) return Response.json({ error: 'spam' }, { headers });
+      if (!article_url || !name?.trim() || !comment?.trim() || comment.length < 3)
+        return Response.json({ error: 'invalid' }, { headers });
+      if (/https?:\/\//.test(comment))
+        return Response.json({ error: 'no links allowed' }, { headers });
+
+      await supabase(env, 'POST', '/rest/v1/article_comments', {
+        article_url,
+        name: name.trim().slice(0,50),
+        surname: (surname||'').trim().slice(0,50),
+        comment: comment.trim().slice(0,500),
+        approved: true,
+      });
+      return Response.json({ success: true }, { headers });
+    }
+
+    if (url.pathname === '/comments') {
+      const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
+      const article_url = url.searchParams.get('article_url');
+      if (!article_url) return Response.json([], { headers });
+
+      const comments = await supabase(env, 'GET',
+        `/rest/v1/article_comments?article_url=eq.${encodeURIComponent(article_url)}&approved=eq.true&order=created_at.desc&limit=50&select=name,surname,comment,created_at`);
+
+      const reactions = await supabase(env, 'GET',
+        `/rest/v1/article_reactions?article_url=eq.${encodeURIComponent(article_url)}&select=reaction`);
+      const likes = (reactions||[]).filter(r => r.reaction === 'like').length;
+      const dislikes = (reactions||[]).filter(r => r.reaction === 'dislike').length;
+
+      return Response.json({ comments: comments||[], likes, dislikes }, { headers });
+    }
+
     if (url.pathname === '/run') {
       ctx.waitUntil(runAllSites(env));
       return Response.json({ status: 'started', message: 'Running in background — check /cache in ~60s' });

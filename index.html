@@ -844,6 +844,40 @@
       </div>
       <div class="modal-article" id="modalArticle"></div>
       <div class="modal-sources" id="modalSources"></div>
+
+      <!-- Reactions -->
+      <div class="reactions" style="display:flex;gap:1rem;padding:1rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:1.5rem 0">
+        <button id="btn-like" onclick="react('like')" style="display:flex;align-items:center;gap:0.5rem;background:#f0fdf4;border:1px solid #86efac;color:#166534;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">
+          👍 <span id="like-count">0</span>
+        </button>
+        <button id="btn-dislike" onclick="react('dislike')" style="display:flex;align-items:center;gap:0.5rem;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">
+          👎 <span id="dislike-count">0</span>
+        </button>
+      </div>
+
+      <!-- Comments -->
+      <div style="margin-top:1.5rem">
+        <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:700;letter-spacing:0.05em;margin-bottom:1rem;color:var(--text)">YORUMLAR <span id="comment-count" style="color:var(--muted);font-weight:400"></span></h3>
+
+        <div id="comments-list" style="margin-bottom:1.5rem"></div>
+
+        <!-- Comment form -->
+        <div style="background:var(--section-alt,#f5f3ef);border-radius:8px;padding:1.25rem">
+          <h4 style="font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:1rem;color:var(--text)">YORUM YAP</h4>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem">
+            <input id="comment-name" placeholder="Adınız *" maxlength="50" style="padding:0.6rem 0.75rem;border:1px solid var(--border);border-radius:6px;font-size:0.875rem;background:white;color:#111;outline:none"/>
+            <input id="comment-surname" placeholder="Soyadınız" maxlength="50" style="padding:0.6rem 0.75rem;border:1px solid var(--border);border-radius:6px;font-size:0.875rem;background:white;color:#111;outline:none"/>
+          </div>
+          <textarea id="comment-text" placeholder="Yorumunuz... (max 500 karakter)" maxlength="500" rows="3" style="width:100%;padding:0.6rem 0.75rem;border:1px solid var(--border);border-radius:6px;font-size:0.875rem;resize:vertical;background:white;color:#111;outline:none;box-sizing:border-box"></textarea>
+          <!-- Honeypot hidden field -->
+          <input id="comment-honeypot" style="display:none" tabindex="-1" autocomplete="off"/>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.75rem">
+            <span style="font-size:0.7rem;color:var(--muted)">* zorunlu alan</span>
+            <button onclick="submitComment()" style="background:var(--accent);color:white;border:none;padding:0.6rem 1.5rem;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;letter-spacing:0.05em;cursor:pointer">GÖNDER →</button>
+          </div>
+          <div id="comment-msg" style="margin-top:0.5rem;font-size:0.8rem"></div>
+        </div>
+      </div>
     </div>
     <div class="modal-footer">
       <a class="modal-read-link" id="modalReadLink" href="#" target="_blank" rel="noopener">Kaynağa git →</a>
@@ -1359,6 +1393,8 @@
       link.classList.add('hidden');
     }
 
+    loadReactions(a.url || a.original_url || '');
+
     document.getElementById('modalOverlay').classList.add('open');
     document.body.style.overflow = 'hidden';
   }
@@ -1376,6 +1412,99 @@
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') closeModal();
   });
+
+  // ── REACTIONS & COMMENTS ─────────────────────────────────────
+  let _currentArticleUrl = '';
+
+  async function loadReactions(articleUrl) {
+    _currentArticleUrl = articleUrl;
+    document.getElementById('like-count').textContent = 0;
+    document.getElementById('dislike-count').textContent = 0;
+    document.getElementById('comment-count').textContent = '';
+    document.getElementById('comments-list').innerHTML = '';
+    document.getElementById('comment-msg').textContent = '';
+    if (!articleUrl) return;
+    try {
+      const res = await fetch(`https://pitchos-fetch-agent.gencerali.workers.dev/comments?article_url=${encodeURIComponent(articleUrl)}`);
+      const data = await res.json();
+
+      document.getElementById('like-count').textContent = data.likes || 0;
+      document.getElementById('dislike-count').textContent = data.dislikes || 0;
+
+      const comments = data.comments || [];
+      document.getElementById('comment-count').textContent = `(${comments.length})`;
+
+      const list = document.getElementById('comments-list');
+      if (comments.length === 0) {
+        list.innerHTML = '<p style="color:var(--muted);font-size:0.85rem;text-align:center;padding:1rem">Henüz yorum yok. İlk yorumu sen yap!</p>';
+      } else {
+        list.innerHTML = comments.map(c => {
+          const name = (c.name + ' ' + (c.surname?.[0]||'') + '.').trim();
+          const date = new Date(c.created_at).toLocaleDateString('tr-TR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+          return `<div style="padding:0.875rem 0;border-bottom:1px solid var(--border)">
+            <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem">
+              <span style="font-weight:600;font-size:0.85rem;color:var(--text)">${esc(name)}</span>
+              <span style="font-size:0.72rem;color:var(--muted)">${date}</span>
+            </div>
+            <p style="font-size:0.875rem;color:var(--text);line-height:1.5;margin:0">${esc(c.comment)}</p>
+          </div>`;
+        }).join('');
+      }
+    } catch(e) {
+      console.error('loadReactions error:', e);
+    }
+  }
+
+  async function react(type) {
+    if (!_currentArticleUrl) return;
+    try {
+      const res = await fetch('https://pitchos-fetch-agent.gencerali.workers.dev/react', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ article_url: _currentArticleUrl, reaction: type })
+      });
+      const data = await res.json();
+      document.getElementById('like-count').textContent = data.likes || 0;
+      document.getElementById('dislike-count').textContent = data.dislikes || 0;
+
+      document.getElementById('btn-like').style.fontWeight = type === 'like' ? '700' : '500';
+      document.getElementById('btn-dislike').style.fontWeight = type === 'dislike' ? '700' : '500';
+    } catch(e) { console.error('react error:', e); }
+  }
+
+  async function submitComment() {
+    if (!_currentArticleUrl) return;
+    const name = document.getElementById('comment-name').value.trim();
+    const surname = document.getElementById('comment-surname').value.trim();
+    const comment = document.getElementById('comment-text').value.trim();
+    const honeypot = document.getElementById('comment-honeypot').value;
+    const msg = document.getElementById('comment-msg');
+
+    if (!name) { msg.style.color='#E30A17'; msg.textContent='Lütfen adınızı girin.'; return; }
+    if (comment.length < 3) { msg.style.color='#E30A17'; msg.textContent='Yorum en az 3 karakter olmalı.'; return; }
+
+    msg.style.color='var(--muted)'; msg.textContent='Gönderiliyor...';
+
+    try {
+      const res = await fetch('https://pitchos-fetch-agent.gencerali.workers.dev/comment', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ article_url: _currentArticleUrl, name, surname, comment, honeypot })
+      });
+      const data = await res.json();
+      if (data.success) {
+        msg.style.color='#166534'; msg.textContent='Yorumunuz eklendi!';
+        document.getElementById('comment-name').value = '';
+        document.getElementById('comment-surname').value = '';
+        document.getElementById('comment-text').value = '';
+        setTimeout(() => loadReactions(_currentArticleUrl), 500);
+      } else {
+        msg.style.color='#E30A17'; msg.textContent='Hata: ' + (data.error || 'Tekrar deneyin');
+      }
+    } catch(e) {
+      msg.style.color='#E30A17'; msg.textContent='Bağlantı hatası.';
+    }
+  }
 
   init();
 </script>
