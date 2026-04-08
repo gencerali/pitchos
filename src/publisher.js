@@ -268,10 +268,14 @@ export function mergeAndDedupe(articles, limit) {
 // ─── WEATHER ─────────────────────────────────────────────────
 async function fetchWeather(lat, lon, env) {
   try {
+    console.log('WEATHER: fetching for', lat, lon);
+    console.log('WEATHER: key available:', !!env.OPENWEATHER_KEY);
     const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${env.OPENWEATHER_KEY}&units=metric&lang=tr`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    console.log('WEATHER: response status', res.status);
     if (!res.ok) return null;
     const data = await res.json();
+    console.log('WEATHER: result', JSON.stringify(data));
     return {
       temp:        Math.round(data.main?.temp || 0),
       feels_like:  Math.round(data.main?.feels_like || 0),
@@ -346,9 +350,11 @@ ${injuryArticles.map(a => `Başlık: ${a.title}\n${(a.summary||'').slice(0,200)}
       const text = data.content?.[0]?.text || '{}';
       const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
 
+      const cezalilar = parsed.cezalilar || [];
+      const sakatlıklar = (parsed.sakatlıklar || []).filter(p => !cezalilar.includes(p));
       const parts = [];
-      if (parsed.cezalilar?.length) parts.push(`🚫 Cezalı: ${parsed.cezalilar.join(', ')}`);
-      if (parsed.sakatlıklar?.length) parts.push(`🏥 Sakat: ${parsed.sakatlıklar.join(', ')}`);
+      if (cezalilar.length) parts.push(`🚫 Cezalı: ${cezalilar.join(', ')}`);
+      if (sakatlıklar.length) parts.push(`🏥 Sakat: ${sakatlıklar.join(', ')}`);
       if (parts.length) injuryInfo = parts.join(' | ');
       else if (parsed.ozet) injuryInfo = parsed.ozet;
     } catch(e) {
