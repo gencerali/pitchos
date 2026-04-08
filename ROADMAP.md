@@ -435,31 +435,218 @@ engagement_events:   clicks, time-on-page, polls
 
 ---
 
-## Match Day Automation (Sprint 5 target)
+## Match Template System (Sprint 3-4)
 
-```
-T-60min  Pre-match card auto-published:
-         Lineups (from bjk.com.tr), injuries, suspensions,
-         H2H stats, TV channel, weather, referee
+### Core Principles
+- Templates fire INSTANTLY on RSS trigger detection
+- No scheduled delays except time-based templates
+- Pipeline runs every 15 min on match days (vs 2h normal)
+- Maximum publish delay = pipeline interval
+- All templates generic — work for any team via Supabase config
+- Each template has: enabled toggle, NVS override, social toggles,
+  trigger keywords, time window, min confidence threshold
+- Stored in: sites table → match_config JSONB column (Sprint 6)
 
-T+0      Kickoff auto-tweet: "⚽ Maç başladı! #BJK"
+### YouTube Channel IDs (confirmed)
+BJK Official:    UCLJVUlpsxZcIMECVDcZaM2g
+beIN Sports TR:  UCPe9vNjHF1kEExT5kHwc7aw
+RSS format: https://www.youtube.com/feeds/videos.xml?channel_id={ID}
 
-T+45     Half-time report auto-published:
-         Score, goals, cards, possession stats
+### Match Day Cron Schedule
+Normal days:   every 120 min
+Match day:     every 15 min (T-3h to FT+2h)
+Config in:     sites table → match_config JSONB
+  match_day_cron_interval_minutes: 15
+  normal_cron_interval_minutes: 120
+  match_window_start_hours_before: 3
+  match_window_end_hours_after: 2
 
-T+90+    Full-time result auto-published in 30 seconds:
-         Score, scorers, assists, cards, ratings
+### Complete Template List (24 templates)
 
-T+10min  Manager quotes published (from press feed)
-         Fan reaction poll launched
+#### GROUP 1 — PRE-MATCH TIME-BASED (scheduled)
+01 Fixture Announcement    T-48h    social:✅  nvs:70
+   Title: "[Team] [Day] Akşamı [Opponent]'u Ağırlıyor"
+   Source: NEXT_MATCH config in Supabase
 
-T+2h     Full post-match analysis:
-         All source articles via Readability
-         Best quotes highlighted
-         Next match preview
-```
+02 Form Guide              T-48h    social:❌  nvs:60
+   Title: "[Team] Son 5 Maçta X Galibiyet Aldı"
+   Source: RSS last results articles
 
-All automated. Zero human input required on match days.
+03 Head to Head            T-48h    social:❌  nvs:60
+   Title: "[Team] - [Opponent]: Son Karşılaşmalar"
+   Source: RSS H2H articles
+
+04 Opponent Analysis       T-24h    social:❌  nvs:60
+   Title: "Rakip Analizi: [Opponent] Bu Sezon..."
+   Source: RSS articles about opponent
+
+05 Match Day Card          match    social:✅  nvs:85
+   morning 08:00
+   Title: "Maç Günü! [Team] - [Opponent] | [Time]"
+   Content: venue, TV channel, injuries, weather
+   Source: NEXT_MATCH config + injury RSS
+
+#### GROUP 2 — PRE-MATCH RSS-TRIGGERED (instant)
+06 Referee Announced       instant  social:✅  nvs:70
+   Keywords: "hakem atandı/belli/açıklandı"
+   Title: "[Team]-[Opponent] Maçını [Referee] Yönetecek"
+   Include VAR referee if in same article
+
+07 Injury & Suspension     instant  social:✅  nvs:80
+   Report
+   Keywords: "cezalı/sakatlık/yok/kadro dışı"
+             + squad_member match
+   Title: "[Team]'da Eksikler Belli Oldu: [Player] Yok!"
+
+08 Press Conference        instant  social:✅  nvs:75
+   Quotes
+   Keywords: "basın toplantısı/açıklama yaptı/konuştu"
+   Title: "[Coach]: '[Quote]'"
+
+09 Confirmed Lineup        instant  social:✅  nvs:85
+   Keywords: "ilk 11/kadro belli/sahaya çıkıyor/muhtemel 11"
+   Title: "[Team]'ın 11'i Belli Oldu!"
+   Requires: Claude extracts min 8 player names
+             from squad_members table
+
+#### GROUP 3 — LIVE (single updating article)
+10 Live Match Blog         instant  social:   nvs:90
+                                    per event
+   Title: "CANLI | [Team] - [Opponent] Maç Anlatımı"
+   Format: reverse chronological, max 20 updates
+   Poll: every 3 min during match window
+   Source: NTV Spor / A Spor / Hürriyet live RSS
+
+   Update triggers (with social):
+   ⚽ Goal (fan team)        → ✅ tweet
+   ⚽ Goal (opponent)        → ❌
+   🟥 Red card               → ✅ tweet
+   🏥 Serious injury         → ✅ tweet
+   🔴 VAR controversial      → ✅ tweet
+   ⚠️ Penalty awarded/missed → ✅ tweet
+   😡 Fan reaction/scandal   → ✅ tweet
+   ⏸️ Half time summary      → ❌
+   🏁 Full time note         → ❌
+
+   NOT triggered by:
+   Substitutions, yellow cards, corners, normal stats
+
+#### GROUP 4 — POST-MATCH RSS-TRIGGERED (instant)
+11 Result Flash            instant  social:✅  nvs:90
+   Keywords: "maç sona erdi/final/bitti/sonuçlandı"
+   Title: "🦅 [Team] [Score] [Opponent] | Maç Sona Erdi"
+
+12 Match Report            instant  social:✅  nvs:85
+   Trigger: 2+ post-match articles available
+   Title: "[Team] [Opponent]'u [Score] Mağlup Etti"
+   Content: full report from Readability + Claude
+
+13 Manager Quotes          instant  social:✅  nvs:80
+   Keywords: "maç sonu/teknik direktör/basın toplantısı"
+   Title: "[Coach]: '[Post-match quote]'"
+
+14 Fan Reaction Roundup    instant  social:❌  nvs:65
+   Keywords: "taraftar/sosyal medya/tepki/yorum"
+   Title: "Taraftarlar Ne Dedi? Sosyal Medya Yıkıldı"
+
+#### GROUP 5 — NEXT DAY RSS-TRIGGERED
+15 Injury Assessment       instant  social:✅  nvs:80
+   Keywords: "sakatlık/durum belli/hafta"
+             + squad_member match
+   Title: "[Player]'ın Durumu Belli Oldu: X Hafta Yok"
+
+16 Press Review            instant  social:❌  nvs:65
+   Keywords: "köşe yazısı/yorum/değerlendirdi"
+   Title: "Spor Yazarları Maçı Değerlendirdi"
+
+17 Standings Update        instant  social:✅  nvs:70
+   Keywords: league table articles post-match
+   Title: "[Team] [N]. Sıraya [Yükseldi/Düştü]"
+
+18 Next Match Preview      T+24h    social:✅  nvs:70
+   after FT
+   Title: "Gözler Şimdi [Next Opponent]'a Çevrildi"
+
+#### GROUP 6 — VIDEO TEMPLATES (YouTube RSS, instant)
+RSS Sources:
+  BJK Official:    feeds/videos.xml?channel_id=UCLJVUlpsxZcIMECVDcZaM2g
+  beIN Sports TR:  feeds/videos.xml?channel_id=UCPe9vNjHF1kEExT5kHwc7aw
+
+19 Post-Match Coach Video  instant  social:✅  nvs:85
+   Keywords: "maç sonu/sonrası/basın toplantısı"
+             + coach name in title
+   Title: "[Coach] Maç Sonrası Konuştu [VİDEO]"
+   Source: BJK Official + beIN Sports (BJK filter)
+   Content: YouTube embed + 2-3 transcript quotes
+   Window: FT+0 to FT+120min
+
+20 Player Interview Video  instant  social:✅  nvs:75
+   Keywords: squad_member name
+             + "röportaj/konuştu/açıkladı"
+   Title: "[Player]: '[Quote]' [VİDEO]"
+   Source: BJK Official + beIN Sports (BJK filter)
+   Window: any time
+
+21 Pre-Match Interview     instant  social:✅  nvs:80
+   Video
+   Keywords: "maç öncesi/hazırlık/yarın"
+             + squad_member OR coach name
+   Title: "[Player] [Opponent] Maçı Öncesi Konuştu [VİDEO]"
+   Window: T-48h to kickoff
+
+22 Match Highlights Video  instant  social:✅  nvs:90
+   Keywords: "özet/highlights/maç özeti"
+             + team name in title
+   Title: "Maçın Özeti: [Team] [Score] [Opponent] [VİDEO]"
+   Source: BJK Official + beIN Sports
+   Window: FT+0 to FT+180min
+   Note: highest fan engagement
+
+23 Training Video          instant  social:❌  nvs:55
+   Keywords: "antrenman/idman/hazırlık çalışması"
+   Title: "[Team] [Opponent] Hazırlıklarını Sürdürüyor [VİDEO]"
+   Source: BJK Official only
+   Window: T-72h to T-24h
+
+24 Official Announcement   instant  social:✅  nvs:90
+   Video
+   Keywords: "açıklama/duyuru/resmi/transfer/imza/veda"
+   Title: "[Team]'tan Resmi Açıklama [VİDEO]"
+   Source: BJK Official only
+   Window: any time
+
+### Summary
+Total templates: 24
+Fully automatic: 24/24
+Social enabled:  18/24
+Sprint 3 (before April 10): Templates 05, 09, 10, 11, 12
+Sprint 3 (after April 10):  Templates 01-04, 06-08, 13-18
+Sprint 4:                    Templates 19-24 (video)
+
+### Sprint 3 Implementation Order (match timeline)
+1. Template 05 — Match Day Card (today)
+2. Template 09 — Confirmed Lineup (today)
+3. Template 10 — Live Match Blog (Thursday)
+4. Template 11 — Result Flash (Thursday)
+5. Template 12 — Match Report (already works)
+Live test: Beşiktaş vs Antalyaspor, April 10 2026, 20:00
+
+### Video Display (index.html)
+publish_mode: 'video'
+Card: YouTube thumbnail + 📹 badge + title
+Modal: YouTube iframe (16:9) + transcript quotes
+Legal: ✅ YouTube embeds explicitly permitted in YouTube ToS
+
+### Transcript Extraction (Sprint 4)
+Render proxy: /transcript?video_id=ID endpoint
+Library: youtube-transcript-api
+Claude Haiku: extracts 2-3 key quotes
+Cost: ~€0.001 per video
+
+### Supabase: youtube_sources table (Sprint 4)
+id, site_id, channel_id, channel_name, channel_url,
+trust_tier, filter_keywords (JSONB),
+filter_squad_members (bool), enabled, added_at
 
 ---
 
