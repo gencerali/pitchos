@@ -97,18 +97,53 @@ export async function scoreArticles(articles, site, env) {
   let totalUsage = { input_tokens: 0, output_tokens: 0 };
 
   for (const chunk of chunks) {
-    const slim = chunk.map(a => ({
-      t:  (a.title || '').slice(0, 100),
-      s:  a.source || a.source_name,
-      tt: a.trust_tier || 'unknown',
-      sp: a.sport || 'football',
-      c:  (a.full_body || a.summary || '').slice(0, 400),
-    }));
-    const prompt = `Score these ${site.team_name} news items. Return JSON array (same order), each: nvs(0-100), content_type("fact"|"rumor"|"analysis"), golden_score(1-5 for facts, "eye1"|"eye2"|"eye3" for rumors), nvs_notes(max 8 words). No markdown.
-nvs guide: match result/confirmed=80+, press/injury=60+, rumor known journalist=50, vague rumor=30, analysis=40.
-golden_score: 5=official confirmed, 4=verified journalist, 3=reliable media, 2=plausible unverified, 1=weak; eye3=known journalist rumor, eye2=unverified rumor, eye1=speculation.
-Fields: t=title, s=source, tt=trust_tier, sp=sport, c=content.
-Items: ${JSON.stringify(slim)}`;
+    const prompt = `You are the editorial AI for Kartalix, a Beşiktaş JK fan news site.
+Evaluate each article for BJK fans. Return ONLY a JSON array, no other text.
+
+Articles to evaluate:
+${chunk.map((a, i) => `${i}. Title: "${a.title}" | Source: ${a.source_name || a.source} (${a.trust_tier || a.trust || 'unknown'}) | Summary: "${(a.summary || '').slice(0, 200)}"`).join('\n')}
+
+For each article return:
+{
+  "i": index,
+  "relevant": true/false,
+  "relevance_reason": "one sentence why",
+  "sentiment": "positive" | "neutral" | "negative" | "rival_celebration",
+  "rival_pov": true/false,
+  "category": "Match" | "Transfer" | "Injury" | "Squad" | "Club" | "European" | "Other",
+  "content_type": "fact" | "rumor" | "analysis",
+  "nvs": 0-100,
+  "golden_score": 1-5,
+  "nvs_notes": "one sentence explanation"
+}
+
+SCORING RULES (apply strictly):
+- If rival_pov=true (article celebrates rival win over BJK): nvs maximum 25
+- If relevant=false (BJK only mentioned in passing): nvs maximum 20
+- If sentiment=rival_celebration: nvs maximum 30
+- "Siyah-beyaz" or "Kartal" alone without BJK player/club name = relevant:false
+- General Süper Lig table news mentioning BJK = relevant:false
+- Fenerbahçe winning article with BJK losing = rival_pov:true
+
+HIGH VALUE (nvs 70-100):
+- Match result with score and scorers: nvs 80-90
+- Confirmed injury with player name and timeline: nvs 70-80
+- Official club statement or press conference quote: nvs 75-90
+- Confirmed transfer (official or journalist tier): nvs 75-85
+- Lineup announcement day of match: nvs 80
+
+MEDIUM VALUE (nvs 40-69):
+- Pre-match analysis with named players: nvs 50-65
+- Credible transfer rumor (journalist source): nvs 45-60
+- Squad training news: nvs 40-55
+- League table with BJK position explained: nvs 40-50
+
+LOW VALUE (nvs 20-39):
+- General speculation without named source: nvs 20-35
+- Passing mention of BJK in rival article: nvs 15-25
+- Old news angle already covered: nvs 20-30
+
+Return JSON array only. No markdown. No explanation outside JSON.`;
 
     const response = await callClaude(env, MODEL_SCORE, prompt, false, 2000);
     if (totalUsage && response.usage) {
@@ -127,6 +162,14 @@ Items: ${JSON.stringify(slim)}`;
           ? 1
           : s.golden_score,
       }));
+      // Apply post-processing rules
+      normalized.forEach(a => {
+        if (a.rival_pov) a.nvs = Math.min(a.nvs, 25);
+        if (!a.relevant) a.nvs = Math.min(a.nvs, 20);
+        if (a.sentiment === 'rival_celebration') a.nvs = Math.min(a.nvs, 30);
+        if (a.nvs === undefined || isNaN(a.nvs)) a.nvs = 0;
+        if (a.golden_score === undefined) a.golden_score = Math.ceil(a.nvs / 20);
+      });
       // Pad if response was short
       while (normalized.length < chunk.length) {
         normalized.push({ nvs: 50, content_type: 'fact', golden_score: 2, nvs_notes: 'Truncated' });
