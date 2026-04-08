@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, sleep, isTodayArticle, supabase, MODEL_FETCH, MODEL_SCORE } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, RSS_FEEDS } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup } from './src/publisher.js';
 
 // ─── NEXT MATCH CONFIG ────────────────────────────────────────
 const NEXT_MATCH = {
@@ -310,6 +310,31 @@ export default {
           preview: card.full_body
         }, { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
       }
+      if (templateId === '08b') {
+        const card = await generateMuhtemel11(NEXT_MATCH, articles, null, env);
+        if (!card) return Response.json({
+          template: templateId, result: null,
+          message: 'No muhtemel 11 articles found or confidence too low'
+        }, { headers: { 'Access-Control-Allow-Origin': '*' } });
+        return Response.json({ template: templateId, result: card, preview: card.full_body },
+          { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+      }
+      if (templateId === '09') {
+        const force = url.searchParams.get('force') === 'true';
+        // force=true: use all cached articles (skip 2h recency for testing)
+        const articlesForTest = force
+          ? articles.map(a => ({ ...a, published_at: new Date().toISOString() }))
+          : articles;
+        const card = await generateConfirmedLineup(NEXT_MATCH, articlesForTest, null, env);
+        if (!card) return Response.json({
+          template: templateId, result: null,
+          message: force
+            ? 'No confirmed lineup found even with force mode (try id=08b for muhtemel)'
+            : 'No confirmed lineup articles in last 2h (use ?force=true to bypass recency)'
+        }, { headers: { 'Access-Control-Allow-Origin': '*' } });
+        return Response.json({ template: templateId, result: card, preview: card.full_body },
+          { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+      }
       return Response.json({ error: 'unknown template id' }, { headers: { 'Access-Control-Allow-Origin': '*' } });
     }
     return new Response('Kartalix Fetch Agent — OK', { status: 200 });
@@ -402,6 +427,37 @@ async function processSite(site, env) {
       const card = await generateMatchDayCard(NEXT_MATCH, preFiltered, env);
       preFiltered.unshift(card);
       console.log('TEMPLATE 05: generated:', card.title);
+    }
+  }
+
+  // ── TEMPLATE 08b & 09 — LINEUP WINDOWS ──────────────────────
+  const matchDateTime = new Date(`${NEXT_MATCH.date}T${NEXT_MATCH.time}:00+03:00`);
+  const now = new Date();
+  const hoursToKickoff = (matchDateTime - now) / (1000 * 60 * 60);
+
+  // Template 08b — Muhtemel 11: T-24h to T-3h
+  if (hoursToKickoff <= 24 && hoursToKickoff > 3) {
+    const existingMuhtemel = existing?.find(a => a.template_id === '08b');
+    if (!existingMuhtemel) {
+      console.log('TEMPLATE 08b: checking for muhtemel 11...');
+      const muhtemelCard = await generateMuhtemel11(NEXT_MATCH, preFiltered, site, env);
+      if (muhtemelCard) {
+        preFiltered.unshift(muhtemelCard);
+        console.log('TEMPLATE 08b: muhtemel 11 generated:', muhtemelCard.title);
+      }
+    }
+  }
+
+  // Template 09 — Confirmed Lineup: T-2h to kickoff ONLY
+  if (hoursToKickoff <= 2 && hoursToKickoff >= 0) {
+    const existingLineup = existing?.find(a => a.template_id === '09');
+    if (!existingLineup) {
+      console.log('TEMPLATE 09: within 2h window, scanning for confirmed lineup...');
+      const lineupCard = await generateConfirmedLineup(NEXT_MATCH, preFiltered, site, env);
+      if (lineupCard) {
+        preFiltered.unshift(lineupCard);
+        console.log('TEMPLATE 09: confirmed lineup generated:', lineupCard.title);
+      }
     }
   }
 

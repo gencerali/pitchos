@@ -409,3 +409,247 @@ ${injuryArticles.map(a => `Başlık: ${a.title}\n${(a.summary||'').slice(0,200)}
     template_id:  '05',
   };
 }
+
+// ─── TEMPLATE 08b — MUHTEMEL 11 ──────────────────────────────
+export async function generateMuhtemel11(match, articles, site, env) {
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  const lineupArticles = (articles || [])
+    .filter(a => {
+      const ts = a.published_at || a.fetched_at;
+      if (ts && (now - new Date(ts).getTime()) > TWENTY_FOUR_HOURS) return false;
+      const text = ((a.title || '') + ' ' + (a.full_body || a.summary || '')).toLowerCase();
+      return (text.includes('muhtemel 11') || text.includes('beklenen kadro') ||
+              text.includes('ilk 11') || text.includes('kadro belli') ||
+              text.includes('sahaya çıkıyor') || text.includes('ilk kadro')) &&
+             (text.includes('beşiktaş') || text.includes('bjk'));
+    })
+    .slice(0, 3);
+
+  if (lineupArticles.length === 0) return null;
+
+  const SQUAD = [
+    'ersin', 'vasquez', 'murillo', 'agbadou', 'djalo', 'uduokhai',
+    'emirhan', 'rıdvan', 'taylan', 'sazdağı', 'özcan',
+    'orkun', 'kökçü', 'ndidi', 'asllani', 'salih', 'kartal kayra',
+    'rashica', 'olaitan', 'cerny', 'abraham', 'el bilal', 'oh',
+    'jota', 'cengiz', 'hekimoğlu', 'sergen', 'yalçın'
+  ];
+
+  const prompt = `Aşağıdaki haberlerden Beşiktaş'ın ${match.opponent} maçı için muhtemel 11'ini çıkar.
+Sadece JSON döndür:
+{
+  "players": ["isim1", "isim2", ...],
+  "formation": "4-2-3-1",
+  "confidence": 0-100,
+  "type": "muhtemel",
+  "source_quote": "haberdeki ilgili cümle"
+}
+En az 8 oyuncu bulamazsan confidence: 0 yaz.
+ASLA uydurma. Sadece haberde geçen isimler.
+
+Bilinen kadro: ${SQUAD.join(', ')}
+
+${lineupArticles.map(a =>
+  `Kaynak: ${a.source_name || a.source}\nBaşlık: ${a.title}\n${(a.full_body || a.summary || '').slice(0, 400)}`
+).join('\n\n')}`;
+
+  let lineupData = { players: [], formation: null, confidence: 0, type: 'muhtemel' };
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data = await response.json();
+    const text = data.content?.[0]?.text || '{}';
+    lineupData = JSON.parse(text.replace(/```json|```/g, '').trim());
+    console.log('TEMPLATE 08b: confidence', lineupData.confidence, 'players', lineupData.players?.length);
+  } catch(e) {
+    console.error('Muhtemel 11 extraction error:', e.message);
+    return null;
+  }
+
+  if (lineupData.confidence < 50 || (lineupData.players?.length || 0) < 8) {
+    console.log('TEMPLATE 08b: confidence too low or not enough players, skipping');
+    return null;
+  }
+
+  const playersList = lineupData.players.map((p, i) => `${i + 1}. ${p}`).join('\n');
+
+  const body = [
+    `🦅 ${match.team.toUpperCase()}'IN MUHTEMEL 11'İ`,
+    ``,
+    `⚽ ${match.team} - ${match.opponent}`,
+    `🏆 ${match.league} · ${match.week}. Hafta`,
+    `📅 ${match.date.split('-').reverse().join('.')} · ${match.time}`,
+    ``,
+    lineupData.formation ? `📋 Beklenen Diziliş: ${lineupData.formation}` : '',
+    ``,
+    `👕 MUHTEMEL 11:`,
+    playersList,
+    ``,
+    lineupData.source_quote ? `"${lineupData.source_quote}"` : '',
+    ``,
+    `⚠️ Bu muhtemel kadrodur, resmi açıklama bekleniyor.`,
+    ``,
+    `Hadi Beşiktaş! 🖤🤍`,
+  ].filter(l => l !== null && l !== undefined).join('\n');
+
+  const summary = `${match.team}'ın ${match.opponent} maçı için muhtemel 11'i belli oldu. ${lineupData.formation ? 'Beklenen diziliş: ' + lineupData.formation : ''}`;
+
+  return {
+    title:        `${match.team}'ın Muhtemel 11'i: ${match.opponent} Maçı İçin Beklenen Kadro`,
+    summary,
+    full_body:    body,
+    source_name:  'Kartalix',
+    source:       'Kartalix',
+    trust:        'official',
+    sport:        'football',
+    category:     'Match',
+    content_type: 'template',
+    publish_mode: 'muhtemel_lineup_template',
+    nvs:          75,
+    golden_score: 4,
+    url:          `https://kartalix.com/mac/${match.date}-besiktas-${match.opponent.toLowerCase().replace(/\s/g,'-')}-muhtemel`,
+    image_url:    '',
+    is_template:  true,
+    template_id:  '08b',
+  };
+}
+
+// ─── TEMPLATE 09 — CONFIRMED LINEUP ──────────────────────────
+export async function generateConfirmedLineup(match, articles, site, env) {
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  // Only articles from last 2 hours qualify for confirmed lineup
+  const lineupArticles = (articles || [])
+    .filter(a => {
+      const ts = a.published_at || a.fetched_at;
+      if (ts && (now - new Date(ts).getTime()) > TWO_HOURS) return false;
+      const text = ((a.title || '') + ' ' + (a.full_body || a.summary || '')).toLowerCase();
+      return (text.includes('ilk 11') || text.includes('kadro belli') ||
+              text.includes('sahaya çıkıyor') || text.includes('ilk kadro') ||
+              text.includes('startın')) &&
+             (text.includes('beşiktaş') || text.includes('bjk'));
+    })
+    .slice(0, 3);
+
+  if (lineupArticles.length === 0) return null;
+
+  const SQUAD = [
+    'ersin', 'vasquez', 'murillo', 'agbadou', 'djalo', 'uduokhai',
+    'emirhan', 'rıdvan', 'taylan', 'sazdağı', 'özcan',
+    'orkun', 'kökçü', 'ndidi', 'asllani', 'salih', 'kartal kayra',
+    'rashica', 'olaitan', 'cerny', 'abraham', 'el bilal', 'oh',
+    'jota', 'cengiz', 'hekimoğlu', 'sergen', 'yalçın'
+  ];
+
+  const prompt = `Aşağıdaki haberlerden Beşiktaş'ın ${match.opponent} maçı için RESMI ilk 11'ini çıkar.
+Sadece JSON döndür:
+{
+  "players": ["isim1", "isim2", ...],
+  "formation": "4-2-3-1",
+  "confidence": 0-100,
+  "type": "confirmed" veya "muhtemel",
+  "source_quote": "haberdeki ilgili cümle"
+}
+type: "confirmed" → sadece resmi açıklama veya kesin kadro haberleri.
+type: "muhtemel" → tahmin veya spekülasyon.
+En az 8 oyuncu bulamazsan confidence: 0 yaz.
+ASLA uydurma. Sadece haberde geçen isimler.
+
+Bilinen kadro: ${SQUAD.join(', ')}
+
+${lineupArticles.map(a =>
+  `Kaynak: ${a.source_name}\nBaşlık: ${a.title}\n${(a.full_body || a.summary || '').slice(0, 400)}`
+).join('\n\n')}`;
+
+  let lineupData = { players: [], formation: null, confidence: 0 };
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const data = await response.json();
+    const text = data.content?.[0]?.text || '{}';
+    lineupData = JSON.parse(text.replace(/```json|```/g, '').trim());
+    console.log('TEMPLATE 09: confidence', lineupData.confidence, 'type', lineupData.type, 'players', lineupData.players?.length);
+  } catch(e) {
+    console.error('Lineup extraction error:', e.message);
+    return null;
+  }
+
+  // Require confirmed type, min confidence 70, min 8 players
+  if (lineupData.type === 'muhtemel') {
+    console.log('TEMPLATE 09: type is muhtemel, not confirmed — skipping (use 08b instead)');
+    return null;
+  }
+  if (lineupData.confidence < 70 || (lineupData.players?.length || 0) < 8) {
+    console.log('TEMPLATE 09: confidence too low or not enough players, skipping');
+    return null;
+  }
+
+  const playersList = lineupData.players
+    .map((p, i) => `${i + 1}. ${p}`)
+    .join('\n');
+
+  const body = [
+    `🦅 ${match.team.toUpperCase()}'IN 11'İ BELLİ OLDU!`,
+    ``,
+    `⚽ ${match.team} - ${match.opponent}`,
+    `🏆 ${match.league} · ${match.week}. Hafta`,
+    `📅 ${match.date.split('-').reverse().join('.')} · ${match.time}`,
+    ``,
+    lineupData.formation ? `📋 Diziliş: ${lineupData.formation}` : '',
+    ``,
+    `👕 İLK 11:`,
+    playersList,
+    ``,
+    lineupData.source_quote ? `"${lineupData.source_quote}"` : '',
+    ``,
+    `✅ Resmi kadro açıklandı.`,
+    ``,
+    `Hadi Beşiktaş! 🖤🤍`,
+  ].filter(l => l !== null && l !== undefined).join('\n');
+
+  const summary = `${match.team} ${match.opponent} maçı için ${lineupData.players?.length} oyuncudan oluşan ilk 11'ini belirledi. ${lineupData.formation ? 'Diziliş: ' + lineupData.formation : ''}`;
+
+  return {
+    title:        `${match.team}'ın 11'i Belli Oldu! ${match.opponent} Maçı Başlıyor`,
+    summary,
+    full_body:    body,
+    source_name:  'Kartalix',
+    source:       'Kartalix',
+    trust:        'official',
+    sport:        'football',
+    category:     'Match',
+    content_type: 'template',
+    publish_mode: 'lineup_template',
+    nvs:          85,
+    golden_score: 5,
+    url:          `https://kartalix.com/mac/${match.date}-besiktas-${match.opponent.toLowerCase().replace(/\s/g,'-')}-lineup`,
+    image_url:    '',
+    is_template:  true,
+    template_id:  '09',
+  };
+}

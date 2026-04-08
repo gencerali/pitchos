@@ -1029,11 +1029,12 @@
       articles = MOCK_ARTICLES;
     }
 
-    // Pin template_id==='05' to top, rest sorted by NVS
+    // Pin template cards to top: 09 → 08b → 05, rest by NVS
     articles.sort((a, b) => {
-      if (a.template_id === '05') return -1;
-      if (b.template_id === '05') return 1;
-      return 0;
+      const rank = id => id === '09' ? 0 : id === '08b' ? 1 : id === '05' ? 2 : 99;
+      const ra = rank(a.template_id), rb = rank(b.template_id);
+      if (ra !== rb) return ra - rb;
+      return (b.nvs || 0) - (a.nvs || 0);
     });
     _articles = articles;
 
@@ -1210,7 +1211,11 @@
       el.innerHTML = `
         <div class="card-img-wrap">
           <div style="${cardImgStyle(a)}"></div>
-          <span class="card-cat-badge" style="background:${a.template_id === '05' ? '#E30A17' : catColor(a)}">${a.template_id === '05' ? 'MAÇ GÜNÜ' : esc(a.category || 'Haber')}</span>
+          <span class="card-cat-badge" style="background:${'0508b09'.includes(a.template_id||'') ? '#E30A17' : catColor(a)}">${
+            a.template_id === '05' ? 'MAÇ GÜNÜ' :
+            a.template_id === '08b' ? 'MUHTEMEL 11' :
+            a.template_id === '09' ? '11 BELLİ OLDU' :
+            esc(a.category || 'Haber')}</span>
           ${scoreHTML}
         </div>
         <div class="card-body">
@@ -1400,7 +1405,8 @@
     document.getElementById('modalSources').textContent  = a.source ? `Kaynak: ${a.source}` : '';
 
     const bodyText = a.full_body || a.summary || '';
-    document.getElementById('modalArticle').innerHTML = a.publish_mode === 'match_day_template'
+    const isTemplateBody = ['match_day_template','lineup_template','muhtemel_lineup_template'].includes(a.publish_mode);
+    document.getElementById('modalArticle').innerHTML = isTemplateBody
       ? bodyText.split('\n').map(l => l.trim() ? `<p style="margin:0.25rem 0">${esc(l)}</p>` : '<br>').join('')
       : formatArticleBody(bodyText);
 
