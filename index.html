@@ -118,14 +118,19 @@
       background-size: cover; background-position: center 30%;
       background-color: #0a0a0a;
     }
+    @media(min-width: 768px)  { .carousel-slide { height: 360px; } }
+    @media(min-width: 1024px) { .carousel-slide { height: 480px; } }
     .carousel-slide .slide-gradient {
       position: absolute; inset: 0;
       background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.6) 50%, transparent 100%);
     }
     .carousel-slide * { color: #ffffff !important; }
     .slide-top {
-      position: absolute; top: 1rem; left: 1.25rem; right: 1.25rem;
-      display: flex; justify-content: space-between; align-items: flex-start; z-index: 2;
+      position: absolute; top: 1rem; left: 0; right: 0; z-index: 2;
+    }
+    .slide-top-inner {
+      max-width: 900px; margin: 0 auto; padding: 0 2rem;
+      display: flex; justify-content: space-between; align-items: flex-start;
     }
     .slide-cat-badge {
       font-family: 'Barlow Condensed', sans-serif;
@@ -140,8 +145,11 @@
       padding: 0.2rem 0.5rem; border-radius: 1px;
     }
     .slide-content {
-      position: absolute; bottom: 0; left: 0; right: 0;
-      padding: 1rem 1.25rem 1.25rem; z-index: 2;
+      position: absolute; bottom: 0; left: 0; right: 0; z-index: 2;
+    }
+    .carousel-content {
+      max-width: 900px; margin: 0 auto;
+      padding: 0 2rem 2rem;
     }
     .slide-title {
       font-family: 'Barlow Condensed', Impact, sans-serif;
@@ -286,14 +294,18 @@
       text-transform: uppercase;
       color: var(--muted);
     }
-    .ad-leaderboard { max-width: 1300px; margin: 1rem auto; }
+    .ad-leaderboard { margin: 1rem 0; }
+
+    /* ── PAGE CONTAINER ── */
+    .page-container {
+      max-width: 1400px; margin: 0 auto; padding: 0 1.5rem;
+    }
 
     /* ── CONTENT WITH SIDEBAR ── */
     .content-with-sidebar {
-      max-width: 1300px; margin: 0 auto;
-      padding: 0 1.5rem 2.5rem;
       display: grid; grid-template-columns: 1fr;
       gap: 1.5rem; position: relative; z-index: 1;
+      padding-bottom: 2.5rem;
     }
     .main-content { min-width: 0; }
 
@@ -344,7 +356,7 @@
     .news-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 0.75rem;
+      gap: 1.25rem;
       margin-bottom: 0;
     }
 
@@ -641,10 +653,7 @@
     .btn-kapat:hover { background: var(--surface); border-color: var(--muted); }
 
     /* ── RESPONSIVE ── */
-    @media(min-width: 768px) {
-      .carousel-slide { height: 420px; }
-      .hero-split { display: none !important; }
-    }
+    .hero-split { display: none !important; }
     @media(min-width: 1024px) {
       .content-with-sidebar { grid-template-columns: 1fr 300px; }
     }
@@ -662,8 +671,7 @@
       .slide-summary { display: none; }
       .carousel-arrow { display: none; }
       .card-img-wrap { height: 130px; }
-      .ad-leaderboard { margin: 0.5rem 1rem; }
-      .content-with-sidebar { padding: 0 1rem 2rem; }
+      .page-container { padding: 0 1rem; }
     }
   </style>
 </head>
@@ -712,6 +720,9 @@
   <div class="hero-main" id="heroMain"></div>
   <div class="hero-side" id="heroSide"></div>
 </div>
+
+<!-- ── BELOW CAROUSEL: PAGE CONTAINER ── -->
+<div class="page-container">
 
 <!-- ── AD: LEADERBOARD ── -->
 <div class="ad-slot ad-leaderboard" data-slot="leaderboard">
@@ -811,6 +822,8 @@
   </aside>
 
 </div><!-- /content-with-sidebar -->
+
+</div><!-- /page-container -->
 
 <!-- ── ARTICLE MODAL ── -->
 <div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalHeadline">
@@ -1058,18 +1071,22 @@
            style="${a.image_url ? `background-image:url('${esc(a.image_url)}')` : `background:${catGrad(a)}`}">
         <div class="slide-gradient"></div>
         <div class="slide-top">
-          <span class="slide-cat-badge" style="background:${catColor(a)}">${esc(a.category || 'Haber')}</span>
-          ${a.golden_score ? `<span class="slide-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : ''}
+          <div class="slide-top-inner">
+            <span class="slide-cat-badge" style="background:${catColor(a)}">${esc(a.category || 'Haber')}</span>
+            ${a.golden_score ? `<span class="slide-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : ''}
+          </div>
         </div>
         <div class="slide-content">
-          <div class="slide-title">${esc(cleanForDisplay(a.title))}</div>
-          <div class="slide-summary">${esc(cleanForDisplay(a.summary || '').slice(0, 120))}</div>
-          <div class="slide-meta">
-            <div class="slide-source">
-              <div class="slide-src-dot" style="background:${trustColor(a)}"></div>
-              ${esc(a.source || '')} · ${esc(a.time_ago || 'Güncel')}
+          <div class="carousel-content">
+            <div class="slide-title">${esc(cleanForDisplay(a.title))}</div>
+            <div class="slide-summary">${esc(cleanForDisplay(a.summary || '').slice(0, 120))}</div>
+            <div class="slide-meta">
+              <div class="slide-source">
+                <div class="slide-src-dot" style="background:${trustColor(a)}"></div>
+                ${esc(a.source || '')} · ${esc(a.time_ago || 'Güncel')}
+              </div>
+              <span class="slide-read">Oku →</span>
             </div>
-            <span class="slide-read">Oku →</span>
           </div>
         </div>
       </div>
