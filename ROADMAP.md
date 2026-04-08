@@ -258,6 +258,84 @@ NVS < 40  → website only
 
 ---
 
+## Human-in-the-Loop Learning (Sprint 5-6)
+
+### Idea 1 — Admin Feedback per Article
+Console shows each published article with:
+- Full scoring breakdown: relevance verdict, sentiment verdict, NVS score, golden score, nvs_notes
+- Why it was published: which rules triggered
+- Admin feedback buttons: 
+  👍 Correct decision  
+  👎 Should not have published
+  ⬆️ Should have scored higher
+  ⬇️ Should have scored lower
+  + Free text comment field
+
+Admin feedback writes directly to agent_learnings table:
+- agent_name: 'qualify_agent'
+- learning_type: 'admin_feedback'
+- pattern_text: the feedback text
+- example_title: article title
+- verdict: admin verdict
+- confidence: 1.0 (human = highest confidence)
+- team_id: NULL if global, site_id if team-specific
+
+At next scoring run, Qualify Agent reads recent admin learnings
+and injects them into the prompt as examples:
+"Recent editorial feedback:
+- Article 'X' was scored too high — rival celebration framing
+- Article 'Y' was correctly identified as injury news
+Apply these learnings to similar articles."
+
+This creates a direct human → agent feedback loop.
+Admin spends 5 minutes reviewing after each match day.
+Agent gets smarter every week from real editorial judgment.
+
+### Idea 2 — Fan Comments as Learning Signal
+Reader comments contain valuable signal about what fans care about.
+
+Learn Agent (weekly) analyzes comments:
+- High comment count + positive tone → article topic fans love
+- Negative comments about article quality → adjust scoring
+- Specific player names mentioned frequently → update squad keywords
+- Transfer rumors in comments that appear in news later → journalist accuracy
+
+Comment analysis prompt (Haiku, weekly):
+"Analyze these comments and extract:
+1. Topics fans are passionate about
+2. Content quality complaints
+3. Player/transfer names mentioned
+4. General sentiment about the site"
+
+Output written to agent_learnings as:
+- learning_type: 'fan_signal'
+- team_id: site specific
+- Examples: 'Fans want more Orkun Kökçü coverage'
+             'Fans complain about rival celebration articles'
+             'Transfer rumor X mentioned in comments 3 days before confirmed'
+
+### Idea 3 — Cross-Team Learning Propagation
+Learnings are tagged global (team_id=NULL) or team-specific.
+
+Global learnings (apply to all teams):
+- "Rival celebration articles → max NVS 25" 
+- "Injury news with player name → minimum NVS 60"
+- "Source trust hierarchy rules"
+
+Team-specific learnings:
+- "BJK fans care more about European competition"
+- "GS fans respond more to transfer news than match analysis"
+- "FB fans highly engaged with derby content specifically"
+
+When Team 2 onboards:
+→ Inherits ALL global learnings immediately
+→ Starts building team-specific learnings from day 1
+→ Gets smarter faster than Team 1 did
+
+### Learning Flywheel (target state Sprint 7):
+
+---
+
 ## Supabase Schema (additions for agent architecture)
 
 ```sql
