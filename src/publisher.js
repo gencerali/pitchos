@@ -304,7 +304,9 @@ function weatherEmoji(icon) {
 }
 
 // ─── TEMPLATE 05 — MATCH DAY CARD ────────────────────────────
-export async function generateMatchDayCard(match, cachedArticles, env) {
+export async function generateMatchDayCard(match, cachedArticles, site, env) {
+  const platformName  = site?.display_name || site?.name || 'Kartalix';
+  const platformEmoji = site?.emoji || '🦅';
   // Extract injury/suspension info from cached articles
   const injuryArticles = (cachedArticles || [])
     .filter(a => {
@@ -370,7 +372,7 @@ ${injuryArticles.map(a => `Başlık: ${a.title}\n${(a.summary||'').slice(0,200)}
     : `${match.opponent} vs ${match.team} (Deplasman)`;
 
   const body = [
-    `🦅 MAÇ GÜNÜ`,
+    `${platformEmoji} MAÇ GÜNÜ`,
     ``,
     `⚽ ${matchup}`,
     `🏆 ${match.league} · ${match.week}. Hafta`,
@@ -391,27 +393,31 @@ ${injuryArticles.map(a => `Başlık: ${a.title}\n${(a.summary||'').slice(0,200)}
   const summary = `${match.team} bugün ${match.time}'de ${isHome ? 'Tüpraş Stadyumu\'nda' : match.venue_city + "'de"} ${match.opponent} ile karşılaşıyor. ${weatherLine || ''} ${injuryInfo}`;
 
   return {
-    title:        `Maç Günü! ${match.team} - ${match.opponent} | ${match.time}`,
-    summary:      summary.slice(0, 300),
-    full_body:    body,
-    source_name:  'Kartalix',
-    source:       'Kartalix',
-    trust:        'official',
-    sport:        'football',
-    category:     'Match',
-    content_type: 'template',
-    publish_mode: 'match_day_template',
-    nvs:          85,
-    golden_score: 5,
-    url:          `https://kartalix.com/mac/${match.date}-${match.team.toLowerCase()}-${match.opponent.toLowerCase().replace(/\s/g,'-')}`,
-    image_url:    '',
-    is_template:  true,
-    template_id:  '05',
+    title:               `Maç Günü! ${match.team} - ${match.opponent} | ${match.time}`,
+    summary:             summary.slice(0, 300),
+    full_body:           body,
+    source_name:         platformName,
+    source:              platformName,
+    source_emoji:        platformEmoji,
+    is_kartalix_content: true,
+    trust:               'official',
+    sport:               'football',
+    category:            'Match',
+    content_type:        'template',
+    publish_mode:        'match_day_template',
+    nvs:                 85,
+    golden_score:        5,
+    url:                 `https://kartalix.com/mac/${match.date}-${match.team.toLowerCase()}-${match.opponent.toLowerCase().replace(/\s/g,'-')}`,
+    image_url:           '',
+    is_template:         true,
+    template_id:         '05',
   };
 }
 
 // ─── TEMPLATE 08b — MUHTEMEL 11 ──────────────────────────────
 export async function generateMuhtemel11(match, articles, site, env) {
+  const platformName  = site?.display_name || site?.name || 'Kartalix';
+  const platformEmoji = site?.emoji || '🦅';
   const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
   const now = Date.now();
 
@@ -487,7 +493,7 @@ ${lineupArticles.map(a =>
   const playersList = lineupData.players.map((p, i) => `${i + 1}. ${p}`).join('\n');
 
   const body = [
-    `🦅 ${match.team.toUpperCase()}'IN MUHTEMEL 11'İ`,
+    `${platformEmoji} ${match.team.toUpperCase()}'IN MUHTEMEL 11'İ`,
     ``,
     `⚽ ${match.team} - ${match.opponent}`,
     `🏆 ${match.league} · ${match.week}. Hafta`,
@@ -508,27 +514,31 @@ ${lineupArticles.map(a =>
   const summary = `${match.team}'ın ${match.opponent} maçı için muhtemel 11'i belli oldu. ${lineupData.formation ? 'Beklenen diziliş: ' + lineupData.formation : ''}`;
 
   return {
-    title:        `${match.team}'ın Muhtemel 11'i: ${match.opponent} Maçı İçin Beklenen Kadro`,
+    title:               `${match.team}'ın Muhtemel 11'i: ${match.opponent} Maçı İçin Beklenen Kadro`,
     summary,
-    full_body:    body,
-    source_name:  'Kartalix',
-    source:       'Kartalix',
-    trust:        'official',
-    sport:        'football',
-    category:     'Match',
-    content_type: 'template',
-    publish_mode: 'muhtemel_lineup_template',
-    nvs:          75,
-    golden_score: 4,
-    url:          `https://kartalix.com/mac/${match.date}-besiktas-${match.opponent.toLowerCase().replace(/\s/g,'-')}-muhtemel`,
-    image_url:    '',
-    is_template:  true,
-    template_id:  '08b',
+    full_body:           body,
+    source_name:         platformName,
+    source:              platformName,
+    source_emoji:        platformEmoji,
+    is_kartalix_content: true,
+    trust:               'official',
+    sport:               'football',
+    category:            'Match',
+    content_type:        'template',
+    publish_mode:        'muhtemel_lineup_template',
+    nvs:                 75,
+    golden_score:        4,
+    url:                 `https://kartalix.com/mac/${match.date}-besiktas-${match.opponent.toLowerCase().replace(/\s/g,'-')}-muhtemel`,
+    image_url:           '',
+    is_template:         true,
+    template_id:         '08b',
   };
 }
 
 // ─── TEMPLATE 09 — CONFIRMED LINEUP ──────────────────────────
 export async function generateConfirmedLineup(match, articles, site, env) {
+  const platformName  = site?.display_name || site?.name || 'Kartalix';
+  const platformEmoji = site?.emoji || '🦅';
   const TWO_HOURS = 2 * 60 * 60 * 1000;
   const now = Date.now();
 
@@ -614,7 +624,7 @@ ${lineupArticles.map(a =>
     .join('\n');
 
   const body = [
-    `🦅 ${match.team.toUpperCase()}'IN 11'İ BELLİ OLDU!`,
+    `${platformEmoji} ${match.team.toUpperCase()}'IN 11'İ BELLİ OLDU!`,
     ``,
     `⚽ ${match.team} - ${match.opponent}`,
     `🏆 ${match.league} · ${match.week}. Hafta`,
@@ -635,21 +645,23 @@ ${lineupArticles.map(a =>
   const summary = `${match.team} ${match.opponent} maçı için ${lineupData.players?.length} oyuncudan oluşan ilk 11'ini belirledi. ${lineupData.formation ? 'Diziliş: ' + lineupData.formation : ''}`;
 
   return {
-    title:        `${match.team}'ın 11'i Belli Oldu! ${match.opponent} Maçı Başlıyor`,
+    title:               `${match.team}'ın 11'i Belli Oldu! ${match.opponent} Maçı Başlıyor`,
     summary,
-    full_body:    body,
-    source_name:  'Kartalix',
-    source:       'Kartalix',
-    trust:        'official',
-    sport:        'football',
-    category:     'Match',
-    content_type: 'template',
-    publish_mode: 'lineup_template',
-    nvs:          85,
-    golden_score: 5,
-    url:          `https://kartalix.com/mac/${match.date}-besiktas-${match.opponent.toLowerCase().replace(/\s/g,'-')}-lineup`,
-    image_url:    '',
-    is_template:  true,
-    template_id:  '09',
+    full_body:           body,
+    source_name:         platformName,
+    source:              platformName,
+    source_emoji:        platformEmoji,
+    is_kartalix_content: true,
+    trust:               'official',
+    sport:               'football',
+    category:            'Match',
+    content_type:        'template',
+    publish_mode:        'lineup_template',
+    nvs:                 85,
+    golden_score:        5,
+    url:                 `https://kartalix.com/mac/${match.date}-besiktas-${match.opponent.toLowerCase().replace(/\s/g,'-')}-lineup`,
+    image_url:           '',
+    is_template:         true,
+    template_id:         '09',
   };
 }

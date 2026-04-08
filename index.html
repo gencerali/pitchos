@@ -1222,8 +1222,10 @@
           <div class="card-title">${esc(cleanForDisplay(a.title))}</div>
           <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || '').slice(0, 120))}</div>
           <div class="card-source-line">
-            <span class="src-dot" style="background:${trustColor(a)}"></span>
-            <span>${esc(a.source || '')}</span> · ${esc(a.time_ago || 'Güncel')}
+            ${a.is_kartalix_content
+              ? `<span style="font-weight:700;color:#E30A17">${esc(a.source_emoji||'🦅')} ${esc(a.source_name||a.source||'')}</span> · ${esc(a.time_ago||'Güncel')}`
+              : `<span class="src-dot" style="background:${trustColor(a)}"></span><span>${esc(a.source||'')}</span> · ${esc(a.time_ago||'Güncel')}`
+            }
           </div>
         </div>`;
 

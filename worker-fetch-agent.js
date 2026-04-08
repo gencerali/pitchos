@@ -303,7 +303,7 @@ export default {
       const articles = cached ? JSON.parse(cached) : [];
 
       if (templateId === '05') {
-        const card = await generateMatchDayCard(NEXT_MATCH, articles, env);
+        const card = await generateMatchDayCard(NEXT_MATCH, articles, null, env);
         return Response.json({
           template: templateId,
           result: card,
@@ -424,7 +424,7 @@ async function processSite(site, env) {
     const existingCard = existing?.find(a => a.template_id === '05');
     if (!existingCard) {
       console.log('TEMPLATE 05: generating match day card...');
-      const card = await generateMatchDayCard(NEXT_MATCH, preFiltered, env);
+      const card = await generateMatchDayCard(NEXT_MATCH, preFiltered, site, env);
       preFiltered.unshift(card);
       console.log('TEMPLATE 05: generated:', card.title);
     }
