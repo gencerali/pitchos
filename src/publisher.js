@@ -256,6 +256,150 @@ export function mergeAndDedupe(articles, limit) {
       seen.add(hash);
       return true;
     })
-    .sort((a, b) => (b.nvs || 0) - (a.nvs || 0))
+    .sort((a, b) => {
+      // Pin template cards to top regardless of NVS
+      if (a.template_id && !b.template_id) return -1;
+      if (!a.template_id && b.template_id) return 1;
+      return (b.nvs || 0) - (a.nvs || 0);
+    })
     .slice(0, limit);
+}
+
+// ─── WEATHER ─────────────────────────────────────────────────
+async function fetchWeather(lat, lon, env) {
+  try {
+    const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${env.OPENWEATHER_KEY}&units=metric&lang=tr`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      temp:        Math.round(data.main?.temp || 0),
+      feels_like:  Math.round(data.main?.feels_like || 0),
+      description: data.weather?.[0]?.description || '',
+      wind:        Math.round((data.wind?.speed || 0) * 3.6),
+      icon:        data.weather?.[0]?.main || '',
+    };
+  } catch(e) {
+    console.error('Weather fetch failed:', e.message);
+    return null;
+  }
+}
+
+function weatherEmoji(icon) {
+  const map = {
+    'Clear':        '☀️',
+    'Clouds':       '☁️',
+    'Rain':         '🌧️',
+    'Drizzle':      '🌦️',
+    'Thunderstorm': '⛈️',
+    'Snow':         '🌨️',
+    'Mist':         '🌫️',
+    'Fog':          '🌫️',
+  };
+  return map[icon] || '🌤️';
+}
+
+// ─── TEMPLATE 05 — MATCH DAY CARD ────────────────────────────
+export async function generateMatchDayCard(match, cachedArticles, env) {
+  // Extract injury/suspension info from cached articles
+  const injuryArticles = (cachedArticles || [])
+    .filter(a => {
+      const text = ((a.title || '') + ' ' + (a.summary || '')).toLowerCase();
+      return (text.includes('cezalı') || text.includes('sakatlık') ||
+              text.includes('kadro dışı') || text.includes('yok')) &&
+             (text.includes('beşiktaş') || text.includes('bjk'));
+    })
+    .slice(0, 3);
+
+  // Fetch weather for match location
+  const weather = await fetchWeather(match.venue_lat, match.venue_lon, env);
+
+  // Build weather line
+  const weatherLine = weather
+    ? `${weatherEmoji(weather.icon)} Hava Durumu: ${weather.temp}°C, ${weather.description}, Rüzgar ${weather.wind} km/s`
+    : null;
+
+  // Extract injury info via Haiku if we have articles
+  let injuryInfo = 'Kadro bilgisi bekleniyor';
+  if (injuryArticles.length > 0) {
+    try {
+      const injuryPrompt = `Aşağıdaki haberlerden Beşiktaş'ın ${match.opponent} maçı için eksik oyuncularını çıkar.
+Sadece JSON döndür: {"cezalilar": ["isim"], "sakatlıklar": ["isim"], "ozet": "1 cümle özet"}
+Bilmiyorsan null yaz, ASLA uydurma.
+
+${injuryArticles.map(a => `Başlık: ${a.title}\n${(a.summary||'').slice(0,200)}`).join('\n\n')}`;
+
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 200,
+          messages: [{ role: 'user', content: injuryPrompt }],
+        }),
+      });
+      const data = await response.json();
+      const text = data.content?.[0]?.text || '{}';
+      const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+
+      const parts = [];
+      if (parsed.cezalilar?.length) parts.push(`🚫 Cezalı: ${parsed.cezalilar.join(', ')}`);
+      if (parsed.sakatlıklar?.length) parts.push(`🏥 Sakat: ${parsed.sakatlıklar.join(', ')}`);
+      if (parts.length) injuryInfo = parts.join(' | ');
+      else if (parsed.ozet) injuryInfo = parsed.ozet;
+    } catch(e) {
+      console.error('Injury extraction error:', e.message);
+    }
+  }
+
+  // Build match day card body
+  const matchDate = match.date.split('-').reverse().join('.');
+  const isHome = match.home;
+  const matchup = isHome
+    ? `${match.team} vs ${match.opponent}`
+    : `${match.opponent} vs ${match.team} (Deplasman)`;
+
+  const body = [
+    `🦅 MAÇ GÜNÜ`,
+    ``,
+    `⚽ ${matchup}`,
+    `🏆 ${match.league} · ${match.week}. Hafta`,
+    ``,
+    `📅 ${matchDate} · ${match.time} (İstanbul)`,
+    `🏟️ ${match.venue} · ${match.venue_city}`,
+    `📺 ${match.tv}`,
+    weatherLine ? weatherLine : '',
+    ``,
+    `⚠️ KADRO DURUMU:`,
+    injuryInfo,
+    ``,
+    `🔵 Muhtemel 11 ve hakem açıklamaları yakında...`,
+    ``,
+    `Herkese iyi seyirler! 🖤🤍`,
+  ].filter(l => l !== null).join('\n');
+
+  const summary = `${match.team} bugün ${match.time}'de ${isHome ? 'Tüpraş Stadyumu\'nda' : match.venue_city + "'de"} ${match.opponent} ile karşılaşıyor. ${weatherLine || ''} ${injuryInfo}`;
+
+  return {
+    title:        `Maç Günü! ${match.team} - ${match.opponent} | ${match.time}`,
+    summary:      summary.slice(0, 300),
+    full_body:    body,
+    source_name:  'Kartalix',
+    source:       'Kartalix',
+    trust:        'official',
+    sport:        'football',
+    category:     'Match',
+    content_type: 'template',
+    publish_mode: 'match_day_template',
+    nvs:          85,
+    golden_score: 5,
+    url:          `https://kartalix.com/mac/${match.date}-${match.team.toLowerCase()}-${match.opponent.toLowerCase().replace(/\s/g,'-')}`,
+    image_url:    '',
+    is_template:  true,
+    template_id:  '05',
+  };
 }

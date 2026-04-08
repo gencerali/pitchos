@@ -8,6 +8,7 @@ id = "dedaea653ed542cca25e6cc2551dd1c3"
 
 [vars]
 SUPABASE_URL = "https://qfgstxswcsodaaksjztz.supabase.co"
+OPENWEATHER_KEY = ""
 
 [triggers]
 crons = ["0 */2 * * *"]

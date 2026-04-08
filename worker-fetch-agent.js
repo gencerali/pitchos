@@ -12,7 +12,27 @@
 import { getActiveSites, addUsagePhase, sleep, isTodayArticle, supabase, MODEL_FETCH, MODEL_SCORE } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, RSS_FEEDS } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard } from './src/publisher.js';
+
+// ─── NEXT MATCH CONFIG ────────────────────────────────────────
+const NEXT_MATCH = {
+  home: true,
+  team: 'Beşiktaş',
+  team_short: 'BJK',
+  opponent: 'Antalyaspor',
+  opponent_short: 'Antalyaspor',
+  league: 'Trendyol Süper Lig',
+  week: 29,
+  date: '2026-04-10',
+  time: '20:00',
+  venue: 'Tüpraş Stadyumu',
+  venue_city: 'İstanbul',
+  venue_lat: 41.0428,
+  venue_lon: 28.9877,
+  tv: 'beIN Sports 1',
+  match_day: '2026-04-10',
+  cup: null,
+};
 
 // ─── MAIN ENTRY POINT ────────────────────────────────────────
 export default {
@@ -277,6 +297,21 @@ export default {
         { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET' } }
       );
     }
+    if (url.pathname === '/test-template') {
+      const templateId = url.searchParams.get('id') || '05';
+      const cached = await env.PITCHOS_CACHE.get('articles:BJK');
+      const articles = cached ? JSON.parse(cached) : [];
+
+      if (templateId === '05') {
+        const card = await generateMatchDayCard(NEXT_MATCH, articles, env);
+        return Response.json({
+          template: templateId,
+          result: card,
+          preview: card.full_body
+        }, { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+      }
+      return Response.json({ error: 'unknown template id' }, { headers: { 'Access-Control-Allow-Origin': '*' } });
+    }
     return new Response('Kartalix Fetch Agent — OK', { status: 200 });
   },
 
@@ -357,6 +392,19 @@ async function processSite(site, env) {
     ` (RSS:${rssArticles.length} web:${webArticles.length} beIN:${beINArticles.length} twitter:${twitterArticles.length})`
   );
 
+  // ── TEMPLATE 05 — MATCH DAY CARD ─────────────────────────────
+  const existing = await getCachedArticles(env, site.short_code);
+  const today = new Date().toISOString().split('T')[0];
+  if (NEXT_MATCH.match_day === today) {
+    const existingCard = existing?.find(a => a.template_id === '05');
+    if (!existingCard) {
+      console.log('TEMPLATE 05: generating match day card...');
+      const card = await generateMatchDayCard(NEXT_MATCH, preFiltered, env);
+      preFiltered.unshift(card);
+      console.log('TEMPLATE 05: generated:', card.title);
+    }
+  }
+
   if (preFiltered.length === 0) {
     await logFetch(env, site.id, 'partial', stats, 'No articles after pre-filter', funnelStats);
     return stats;
@@ -397,7 +445,6 @@ async function processSite(site, env) {
   if (toQueue.length > 0)   await saveArticles(env, site.id, toQueue,   'pending');
 
   // Cache top 30 — merge published + queued + rest of scored, dedupe, map to KV shape
-  const existing   = await getCachedArticles(env, site.short_code);
   const allForKV   = mergeAndDedupe([...toPublish, ...toQueue, ...top30.slice(8), ...existing], 30);
   const kvArticles = allForKV.map(a => ({
     title:        a.title        || '',
@@ -415,6 +462,7 @@ async function processSite(site, env) {
     sport:        a.sport        || 'football',
     publish_mode: a.publish_mode || 'rss_summary',
     image_url:    a.image_url    || '',
+    template_id:  a.template_id  || null,
   }));
   console.log('Calling cacheToKV with', kvArticles.length, 'articles for site', site.short_code);
   await cacheToKV(env, site.short_code, kvArticles);

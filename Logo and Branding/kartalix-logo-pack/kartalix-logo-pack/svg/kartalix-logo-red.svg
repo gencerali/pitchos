@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 64" width="340" height="64">
+  <rect width="340" height="64" fill="#E30A17"/>
+  <!-- K Icon -->
+  <rect x="12" y="6" width="10" height="50" fill="#ffffff"/>
+  <polygon points="22,31 56,6 47,6 22,22" fill="#ffffff"/>
+  <polygon points="22,31 58,56 67,56 22,35" fill="#0d0d0d"/>
+  <rect x="12" y="28" width="10" height="6" fill="#0d0d0d"/>
+  <!-- Wordmark -->
+  <text x="79" y="40" font-family="'Barlow Condensed',Impact,Arial Narrow,sans-serif" font-size="32" font-weight="900" letter-spacing="3" fill="#ffffff">KARTALIX</text>
+  <!-- Subtitle -->
+  <text x="80" y="54" font-family="Arial,Helvetica,sans-serif" font-size="8" letter-spacing="2" fill="rgba(255,255,255,0.65)">BEŞİKTAŞ HABERLERİ · SON DAKİKA</text>
+</svg>

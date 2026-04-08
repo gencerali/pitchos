@@ -1,0 +1,137 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 580" width="800" height="580">
+
+  <!-- Background -->
+  <rect width="800" height="580" fill="#0d0d0d"/>
+
+  <!-- Title -->
+  <text x="400" y="32" text-anchor="middle" font-family="Arial,sans-serif" font-size="10" letter-spacing="4" fill="#444444">KARTALIX · BRAND IDENTITY SHEET · 2026</text>
+  <line x1="40" y1="42" x2="760" y2="42" stroke="#222" stroke-width="1"/>
+
+  <!-- PRIMARY DARK -->
+  <text x="50" y="62" font-family="Arial,sans-serif" font-size="8" letter-spacing="2" fill="#444">PRIMARY — DARK</text>
+  <rect x="40" y="70" width="350" height="75" rx="4" fill="#111111"/>
+  <g transform="translate(68,84)">
+    <rect x="0" y="0" width="10" height="50" fill="#ffffff"/>
+    <polygon points="10,25 44,0 36,0 10,18" fill="#ffffff"/>
+    <polygon points="10,25 46,50 55,50 10,29" fill="#E30A17"/>
+    <rect x="0" y="22" width="10" height="6" fill="#E30A17"/>
+    <text x="64" y="31" font-family="'Barlow Condensed',Impact,sans-serif" font-size="28" font-weight="900" letter-spacing="3" fill="#ffffff">KARTALIX</text>
+    <text x="65" y="45" font-family="Arial,sans-serif" font-size="7" letter-spacing="2.5" fill="#555555">BEŞİKTAŞ HABERLERİ · SON DAKİKA</text>
+  </g>
+
+  <!-- PRIMARY LIGHT -->
+  <text x="420" y="62" font-family="Arial,sans-serif" font-size="8" letter-spacing="2" fill="#444">PRIMARY — LIGHT</text>
+  <rect x="410" y="70" width="350" height="75" rx="4" fill="#f0ede6"/>
+  <g transform="translate(438,84)">
+    <rect x="0" y="0" width="10" height="50" fill="#0d0d0d"/>
+    <polygon points="10,25 44,0 36,0 10,18" fill="#0d0d0d"/>
+    <polygon points="10,25 46,50 55,50 10,29" fill="#E30A17"/>
+    <rect x="0" y="22" width="10" height="6" fill="#E30A17"/>
+    <text x="64" y="31" font-family="'Barlow Condensed',Impact,sans-serif" font-size="28" font-weight="900" letter-spacing="3" fill="#0d0d0d">KARTALIX</text>
+    <text x="65" y="45" font-family="Arial,sans-serif" font-size="7" letter-spacing="2.5" fill="#888888">BEŞİKTAŞ HABERLERİ · SON DAKİKA</text>
+  </g>
+
+  <!-- RED VARIANT -->
+  <text x="50" y="168" font-family="Arial,sans-serif" font-size="8" letter-spacing="2" fill="#444">BREAKING NEWS VARIANT</text>
+  <rect x="40" y="176" width="350" height="58" rx="4" fill="#E30A17"/>
+  <g transform="translate(68,188)">
+    <rect x="0" y="0" width="9" height="36" fill="#ffffff"/>
+    <polygon points="9,18 32,0 26,0 9,13" fill="#ffffff"/>
+    <polygon points="9,18 34,36 41,36 9,21" fill="#0d0d0d"/>
+    <rect x="0" y="16" width="9" height="4" fill="#0d0d0d"/>
+    <text x="50" y="22" font-family="'Barlow Condensed',Impact,sans-serif" font-size="20" font-weight="900" letter-spacing="2" fill="#ffffff">KARTALIX</text>
+    <text x="51" y="34" font-family="Arial,sans-serif" font-size="6" letter-spacing="2" fill="rgba(255,255,255,0.6)">BEŞİKTAŞ HABERLERİ · SON DAKİKA</text>
+  </g>
+
+  <!-- ICONS ROW -->
+  <text x="420" y="168" font-family="Arial,sans-serif" font-size="8" letter-spacing="2" fill="#444">ICON — DARK / LIGHT / RED / FAVICON</text>
+
+  <!-- Icon dark -->
+  <rect x="410" y="176" width="58" height="58" rx="4" fill="#111"/>
+  <g transform="translate(419,184)">
+    <rect x="0" y="0" width="8" height="42" fill="#fff"/>
+    <polygon points="8,21 32,0 26,0 8,15" fill="#fff"/>
+    <polygon points="8,21 34,42 41,42 8,24" fill="#E30A17"/>
+    <rect x="0" y="19" width="8" height="5" fill="#E30A17"/>
+  </g>
+
+  <!-- Icon light -->
+  <rect x="480" y="176" width="58" height="58" rx="4" fill="#f0ede6"/>
+  <g transform="translate(489,184)">
+    <rect x="0" y="0" width="8" height="42" fill="#0d0d0d"/>
+    <polygon points="8,21 32,0 26,0 8,15" fill="#0d0d0d"/>
+    <polygon points="8,21 34,42 41,42 8,24" fill="#E30A17"/>
+    <rect x="0" y="19" width="8" height="5" fill="#E30A17"/>
+  </g>
+
+  <!-- Icon red -->
+  <rect x="550" y="176" width="58" height="58" rx="4" fill="#E30A17"/>
+  <g transform="translate(559,184)">
+    <rect x="0" y="0" width="8" height="42" fill="#fff"/>
+    <polygon points="8,21 32,0 26,0 8,15" fill="#fff"/>
+    <polygon points="8,21 34,42 41,42 8,24" fill="#0d0d0d"/>
+    <rect x="0" y="19" width="8" height="5" fill="#0d0d0d"/>
+  </g>
+
+  <!-- Favicon 32x32 -->
+  <rect x="626" y="176" width="32" height="32" rx="4" fill="#0d0d0d" stroke="#333" stroke-width="1"/>
+  <g transform="translate(631,181)">
+    <rect x="0" y="0" width="5" height="22" fill="#fff"/>
+    <polygon points="5,11 18,0 15,0 5,8" fill="#fff"/>
+    <polygon points="5,11 19,22 23,22 5,13" fill="#E30A17"/>
+    <rect x="0" y="10" width="5" height="2" fill="#E30A17"/>
+  </g>
+  <text x="642" y="218" text-anchor="middle" font-family="Arial,sans-serif" font-size="7" fill="#444">32px</text>
+
+  <!-- WORDMARKS -->
+  <line x1="40" y1="254" x2="760" y2="254" stroke="#222" stroke-width="1"/>
+  <text x="50" y="272" font-family="Arial,sans-serif" font-size="8" letter-spacing="2" fill="#444">WORDMARK VARIANTS</text>
+  <text x="50" y="306" font-family="'Barlow Condensed',Impact,sans-serif" font-size="38" font-weight="900" letter-spacing="5" fill="#ffffff">KARTALIX</text>
+  <text x="420" y="306" font-family="'Barlow Condensed',Impact,sans-serif" font-size="38" font-weight="900" letter-spacing="5">
+    <tspan fill="#ffffff">KAR</tspan><tspan fill="#E30A17">TAL</tspan><tspan fill="#ffffff">IX</tspan>
+  </text>
+
+  <!-- COLOR PALETTE -->
+  <line x1="40" y1="330" x2="760" y2="330" stroke="#222" stroke-width="1"/>
+  <text x="50" y="350" font-family="Arial,sans-serif" font-size="8" letter-spacing="2" fill="#444">COLOR PALETTE</text>
+
+  <rect x="50" y="360" width="90" height="52" rx="4" fill="#0d0d0d" stroke="#333" stroke-width="1"/>
+  <text x="95" y="388" text-anchor="middle" font-family="Arial,sans-serif" font-size="9" font-weight="bold" fill="#555">Primary Black</text>
+  <text x="95" y="402" text-anchor="middle" font-family="Arial,sans-serif" font-size="7" fill="#444">#0D0D0D</text>
+
+  <rect x="158" y="360" width="90" height="52" rx="4" fill="#E30A17"/>
+  <text x="203" y="388" text-anchor="middle" font-family="Arial,sans-serif" font-size="9" font-weight="bold" fill="white">Beşiktaş Red</text>
+  <text x="203" y="402" text-anchor="middle" font-family="Arial,sans-serif" font-size="7" fill="rgba(255,255,255,0.7)">#E30A17</text>
+
+  <rect x="266" y="360" width="90" height="52" rx="4" fill="#ffffff"/>
+  <text x="311" y="388" text-anchor="middle" font-family="Arial,sans-serif" font-size="9" font-weight="bold" fill="#888">Pure White</text>
+  <text x="311" y="402" text-anchor="middle" font-family="Arial,sans-serif" font-size="7" fill="#888">#FFFFFF</text>
+
+  <rect x="374" y="360" width="90" height="52" rx="4" fill="#141414" stroke="#333" stroke-width="1"/>
+  <text x="419" y="388" text-anchor="middle" font-family="Arial,sans-serif" font-size="9" font-weight="bold" fill="#555">Surface</text>
+  <text x="419" y="402" text-anchor="middle" font-family="Arial,sans-serif" font-size="7" fill="#444">#141414</text>
+
+  <rect x="482" y="360" width="90" height="52" rx="4" fill="#555550"/>
+  <text x="527" y="388" text-anchor="middle" font-family="Arial,sans-serif" font-size="9" font-weight="bold" fill="#ccc">Muted</text>
+  <text x="527" y="402" text-anchor="middle" font-family="Arial,sans-serif" font-size="7" fill="#bbb">#555550</text>
+
+  <rect x="590" y="360" width="90" height="52" rx="4" fill="#f0ede6"/>
+  <text x="635" y="388" text-anchor="middle" font-family="Arial,sans-serif" font-size="9" font-weight="bold" fill="#888">Light Bg</text>
+  <text x="635" y="402" text-anchor="middle" font-family="Arial,sans-serif" font-size="7" fill="#888">#F0EDE6</text>
+
+  <!-- TYPOGRAPHY -->
+  <line x1="40" y1="432" x2="760" y2="432" stroke="#222" stroke-width="1"/>
+  <text x="50" y="452" font-family="Arial,sans-serif" font-size="8" letter-spacing="2" fill="#444">TYPOGRAPHY</text>
+
+  <text x="50" y="480" font-family="'Barlow Condensed',Impact,sans-serif" font-size="26" font-weight="900" letter-spacing="1" fill="#ffffff">Barlow Condensed 900</text>
+  <text x="50" y="496" font-family="Arial,sans-serif" font-size="10" fill="#555">Headlines, logo wordmark, section labels, article titles</text>
+
+  <text x="420" y="476" font-family="Arial,Helvetica,sans-serif" font-size="16" fill="#ffffff">Inter / Arial Regular</text>
+  <text x="420" y="492" font-family="Arial,sans-serif" font-size="10" fill="#555">Body text, metadata, UI labels, subtitles</text>
+
+  <!-- Footer -->
+  <line x1="40" y1="516" x2="760" y2="516" stroke="#1a1a1a" stroke-width="1"/>
+  <text x="400" y="534" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" letter-spacing="2" fill="#333">KARTALIX · FAN MEDIA PLATFORM · 2026 · kartalix.com</text>
+  <text x="400" y="550" text-anchor="middle" font-family="Arial,sans-serif" font-size="7" letter-spacing="1" fill="#2a2a2a">Bu site Beşiktaş JK ile resmi bir bağlantısı bulunmamaktadır. · Independent fan media.</text>
+
+</svg>

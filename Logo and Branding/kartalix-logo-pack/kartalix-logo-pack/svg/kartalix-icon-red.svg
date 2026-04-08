@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" fill="#E30A17"/>
+  <!-- K Icon centered in square -->
+  <rect x="8" y="4" width="12" height="56" fill="#ffffff"/>
+  <polygon points="20,32 56,4 46,4 20,22" fill="#ffffff"/>
+  <polygon points="20,32 58,60 68,60 20,36" fill="#0d0d0d"/>
+  <rect x="8" y="29" width="12" height="7" fill="#0d0d0d"/>
+</svg>

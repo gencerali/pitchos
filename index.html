@@ -1029,6 +1029,12 @@
       articles = MOCK_ARTICLES;
     }
 
+    // Pin template_id==='05' to top, rest sorted by NVS
+    articles.sort((a, b) => {
+      if (a.template_id === '05') return -1;
+      if (b.template_id === '05') return 1;
+      return 0;
+    });
     _articles = articles;
 
     const footballArticles = articles.filter(a => !a.sport || a.sport === 'football');
@@ -1204,7 +1210,7 @@
       el.innerHTML = `
         <div class="card-img-wrap">
           <div style="${cardImgStyle(a)}"></div>
-          <span class="card-cat-badge" style="background:${catColor(a)}">${esc(a.category || 'Haber')}</span>
+          <span class="card-cat-badge" style="background:${a.template_id === '05' ? '#E30A17' : catColor(a)}">${a.template_id === '05' ? 'MAÇ GÜNÜ' : esc(a.category || 'Haber')}</span>
           ${scoreHTML}
         </div>
         <div class="card-body">
@@ -1394,7 +1400,9 @@
     document.getElementById('modalSources').textContent  = a.source ? `Kaynak: ${a.source}` : '';
 
     const bodyText = a.full_body || a.summary || '';
-    document.getElementById('modalArticle').innerHTML = formatArticleBody(bodyText);
+    document.getElementById('modalArticle').innerHTML = a.publish_mode === 'match_day_template'
+      ? bodyText.split('\n').map(l => l.trim() ? `<p style="margin:0.25rem 0">${esc(l)}</p>` : '<br>').join('')
+      : formatArticleBody(bodyText);
 
     const link = document.getElementById('modalReadLink');
     if (a.url && a.url !== '#' && a.url !== '') {
