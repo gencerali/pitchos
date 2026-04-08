@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Disallow: /report.html
+Sitemap: https://kartalix.com/sitemap.xml

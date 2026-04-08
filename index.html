@@ -891,7 +891,7 @@
   <div class="footer-logo">Kartalix</div>
   <div class="footer-links">
     <a href="#">Hakkında</a>
-    <a href="#">Gizlilik Politikası</a>
+    <a href="/privacy.html">Gizlilik Politikası</a>
     <a href="#">Kaynak Atıf</a>
     <a href="#">İletişim</a>
     <a href="/rss.xml">RSS</a>
@@ -1544,6 +1544,25 @@
   }
 
   init();
+</script>
+
+<div id="cookie-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#111;border-top:2px solid #E30A17;padding:1rem 1.5rem;z-index:999;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+  <p style="color:#ccc;font-size:0.8rem;margin:0;flex:1">
+    Bu site deneyiminizi iyileştirmek için çerezler kullanmaktadır.
+    Siteyi kullanmaya devam ederek çerez politikamızı kabul etmiş olursunuz.
+    <a href="/privacy.html" style="color:#E30A17;text-decoration:none">Gizlilik Politikası</a>
+  </p>
+  <button onclick="acceptCookies()" style="background:#E30A17;color:white;border:none;padding:0.5rem 1.25rem;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;cursor:pointer;white-space:nowrap">KABUL ET</button>
+</div>
+
+<script>
+function acceptCookies() {
+  localStorage.setItem('cookies_accepted', '1');
+  document.getElementById('cookie-banner').style.display = 'none';
+}
+if (!localStorage.getItem('cookies_accepted')) {
+  document.getElementById('cookie-banner').style.display = 'flex';
+}
 </script>
 </body>
 </html>
