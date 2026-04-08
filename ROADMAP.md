@@ -334,6 +334,21 @@ When Team 2 onboards:
 
 ### Learning Flywheel (target state Sprint 7):
 
+### Console UI for Learning (Sprint 6):
+- Article review queue: scored articles with full scoring breakdown
+- One-click feedback per article
+- Learning entries list: view/edit/delete learnings
+- Confidence scores per learning
+- Learning performance: which learnings improved scoring most
+- Global vs team-specific toggle
+- Fan signal dashboard: top comment themes this week
+
+### Implementation Timeline:
+Sprint 5: agent_learnings table + basic admin feedback endpoint
+Sprint 6: Console review UI + learning injection into prompts
+Sprint 7: Fan comment analysis + cross-team propagation
+Sprint 8: Learning performance tracking + auto-confidence scoring
+
 ---
 
 ## Supabase Schema (additions for agent architecture)
