@@ -153,7 +153,7 @@
     }
     .slide-title {
       font-family: 'Barlow Condensed', Impact, sans-serif;
-      font-size: 1.8rem; font-weight: 900; line-height: 1.05;
+      font-size: clamp(1.2rem, 2.5vw, 2rem); font-weight: 900; line-height: 1.05;
       color: #ffffff !important; letter-spacing: 0.02em; text-transform: uppercase;
       text-shadow: 0 2px 8px rgba(0,0,0,0.9); margin-bottom: 0.45rem;
       display: -webkit-box; -webkit-line-clamp: 3;
@@ -416,11 +416,11 @@
       display: flex; flex-direction: column; gap: 0.45rem; flex: 1;
     }
     .card-title {
-      font-family: 'Barlow Condensed', sans-serif;
+      font-family: 'Barlow Condensed', Impact, sans-serif;
       font-size: 1rem; font-weight: 700;
-      line-height: 1.25; color: #111111;
+      line-height: 1.3; color: #111111;
       transition: color 0.15s;
-      display: -webkit-box; -webkit-line-clamp: 2;
+      display: -webkit-box; -webkit-line-clamp: 3;
       -webkit-box-orient: vertical; overflow: hidden;
     }
     .card-summary {
@@ -980,8 +980,7 @@
       .replace(/BJK spor haberi[^)]*/gi, '')
       .replace(/Spor Haberleri.*/gi, '').replace(/HABERLER.*/g, '')
       .replace(/Futbol Haber.*/gi, '').replace(/- Spor.*/gi, '')
-      .replace(/\s*-\s*[A-Z]{2,}.*$/g, '').replace(/\s+/g, ' ').trim()
-      .replace(/^(.{1,120})\s.*$/, '$1').slice(0, 120);
+      .replace(/\s*-\s*[A-Z]{2,}.*$/g, '').replace(/\s+/g, ' ').trim();
   }
 
   function goldenScoreHTML(gs) {
@@ -1202,7 +1201,7 @@
         </div>
         <div class="card-body">
           <div class="card-title">${esc(cleanForDisplay(a.title))}</div>
-          <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || ''))}</div>
+          <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || '').slice(0, 120))}</div>
           <div class="card-source-line">
             <span class="src-dot" style="background:${trustColor(a)}"></span>
             <span>${esc(a.source || '')}</span> · ${esc(a.time_ago || 'Güncel')}
@@ -1260,7 +1259,7 @@
       const idx = _articles.indexOf(r);
       return `
         <div class="radar-item" onclick="openArticle(_articles[${idx}])">
-          ${esc(cleanForDisplay(r.title).slice(0, 60))}
+          ${esc(cleanForDisplay(r.title))}
           ${r.golden_score
             ? `<span class="radar-nvs med">${goldenScoreHTML(r.golden_score)}</span>`
             : `<span class="radar-nvs ${(r.nvs||0) >= 70 ? 'high' : 'med'}">${r.nvs}</span>`}
@@ -1328,7 +1327,7 @@
           </div>
           <div class="card-body">
             <div class="card-title">${esc(cleanForDisplay(a.title))}</div>
-            <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || ''))}</div>
+            <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || '').slice(0, 120))}</div>
             <div class="card-source-line">
               <span class="src-dot" style="background:${tc}"></span>
               <span>${esc(a.source || '')}</span> · ${esc(a.time_ago || 'Güncel')}
@@ -1358,6 +1357,20 @@
   }
 
   // ── MODAL ────────────────────────────────────────────────────
+  function formatArticleBody(text) {
+    if (!text) return '';
+    return text
+      .replace(/&amp;/g, '&')
+      .replace(/&#x27;/g, "'")
+      .replace(/&#\w+;/g, '')
+      .replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+      .split(/\n\n|\n(?=[A-ZÇĞİÖŞÜ]{2})/)
+      .filter(p => p.trim().length > 10)
+      .map(p => `<p style="margin:0 0 1rem;line-height:1.7;font-size:0.95rem">${p.trim()}</p>`)
+      .join('') || `<p style="margin:0 0 1rem;line-height:1.7;font-size:0.95rem">${text.trim()}</p>`;
+  }
+
   function openArticle(a) {
     if (!a) return;
     const gs = a.golden_score;
@@ -1372,18 +1385,8 @@
     document.getElementById('modalTimeAgo').textContent  = a.time_ago || '';
     document.getElementById('modalSources').textContent  = a.source ? `Kaynak: ${a.source}` : '';
 
-    const bodyText = a.full_body && a.full_body.length > 200
-      ? a.full_body : a.summary || '';
-    const bodyClean = bodyText
-      .replace(/&amp;/g, '&').replace(/&#x27;/g, "'").replace(/&quot;/g, '"')
-      .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-      .replace(/&#\w+;/g, '').replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ').trim();
-    document.getElementById('modalArticle').innerHTML = bodyClean
-      .split(/\n\n+|\.\s{2,}/)
-      .filter(p => p.trim().length > 10)
-      .map(p => `<p>${esc(p.trim())}</p>`)
-      .join('') || `<p>${esc(bodyClean)}</p>`;
+    const bodyText = a.full_body || a.summary || '';
+    document.getElementById('modalArticle').innerHTML = formatArticleBody(bodyText);
 
     const link = document.getElementById('modalReadLink');
     if (a.url && a.url !== '#' && a.url !== '') {
