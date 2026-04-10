@@ -762,6 +762,8 @@
       <button class="btn-load-more" id="loadMoreBtn">Daha Fazla Haber →</button>
     </div>
 
+    <div id="expiredRow" style="display:none;text-align:center;padding:0.75rem 0 0.25rem"></div>
+
     <!-- DİĞER SPORLAR -->
     <div class="other-sports-section" id="otherSportsSection" style="display:none">
       <div class="section-header">
@@ -967,6 +969,46 @@
   // ── HELPERS ──────────────────────────────────────────────────
   let _articles = [];
 
+  function timeAgo(publishedAt) {
+    if (!publishedAt) return 'Güncel';
+    const now = Date.now();
+    const pub = new Date(publishedAt).getTime();
+    const diffMin = Math.floor((now - pub) / 60000);
+    if (diffMin < 2) return 'Şimdi';
+    if (diffMin < 60) return diffMin + ' dakika önce';
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return diffH + ' saat önce';
+    const diffD = Math.floor(diffH / 24);
+    if (diffD === 1) return 'Dün';
+    return diffD + ' gün önce';
+  }
+
+  const SHELF_LIFE = {
+    Match: 24, Transfer: 72, Injury: 24,
+    Club: 48, European: 48, Other: 24, default: 24,
+  };
+
+  function isExpired(article) {
+    if (article.is_template) return false;
+    if (!article.published_at) return false;
+    const hours = SHELF_LIFE[article.category] || SHELF_LIFE.default;
+    return (Date.now() - new Date(article.published_at).getTime()) / 3600000 > hours;
+  }
+
+  const DECAY_RATE = {
+    Match: 1.5, Transfer: 0.5, Injury: 0.8,
+    Club: 1.0, Other: 1.2, default: 1.0,
+  };
+
+  function effectiveNvs(article) {
+    if (article.is_template) return 999;
+    const nvs = article.nvs || 50;
+    const pub = new Date(article.published_at || Date.now()).getTime();
+    const ageHours = (Date.now() - pub) / 3600000;
+    const decay = DECAY_RATE[article.category] || 1.0;
+    return Math.max(0, nvs - (ageHours * decay));
+  }
+
   function esc(s = '') {
     return String(s)
       .replace(/&/g,'&amp;').replace(/</g,'&lt;')
@@ -1029,17 +1071,26 @@
       articles = MOCK_ARTICLES;
     }
 
-    // Pin template cards to top: 09 → 08b → 05, rest by NVS
-    articles.sort((a, b) => {
-      const rank = id => id === '09' ? 0 : id === '08b' ? 1 : id === '05' ? 2 : 99;
-      const ra = rank(a.template_id), rb = rank(b.template_id);
-      if (ra !== rb) return ra - rb;
-      return (b.nvs || 0) - (a.nvs || 0);
-    });
-    _articles = articles;
+    // Shelf-life filter
+    const visible = articles.filter(a => !isExpired(a));
+    const expired = articles.filter(a => isExpired(a));
 
-    const footballArticles = articles.filter(a => !a.sport || a.sport === 'football');
-    const otherArticles    = articles.filter(a => a.sport && a.sport !== 'football');
+    // Time-decayed sort (templates pin at 999)
+    visible.sort((a, b) => effectiveNvs(b) - effectiveNvs(a));
+
+    _articles = articles; // keep all for index lookups
+
+    // Show expired count
+    const expiredRow = document.getElementById('expiredRow');
+    if (expired.length > 0) {
+      expiredRow.style.display = 'block';
+      expiredRow.innerHTML = `<a href="#" onclick="alert('Yakında!');return false" style="color:var(--muted);font-family:'Barlow Condensed',sans-serif;font-size:0.8rem;letter-spacing:0.06em">+ ${expired.length} eski haber →</a>`;
+    } else {
+      expiredRow.style.display = 'none';
+    }
+
+    const footballArticles = visible.filter(a => !a.sport || a.sport === 'football');
+    const otherArticles    = visible.filter(a => a.sport && a.sport !== 'football');
 
     renderCarousel(footballArticles.slice(0, 8));
     renderHeroSplit(footballArticles.slice(0, 4));
@@ -1079,7 +1130,7 @@
         <div class="hero-main-meta">
           <div class="slide-source">
             <div class="slide-src-dot" style="background:${tc}"></div>
-            ${esc(a.source || '')} · ${esc(a.time_ago || 'Güncel')}
+            ${esc(a.source || '')} · ${timeAgo(a.published_at)}
           </div>
           <span class="slide-read">Oku →</span>
         </div>
@@ -1096,7 +1147,7 @@
              onclick="openArticle(_articles[${idx}])">
           <div class="side-category">${esc(b.category || 'Haber')}</div>
           <div class="hero-side-title">${esc(cleanForDisplay(b.title))}</div>
-          <div class="hero-side-meta">Kaynak: ${esc(b.source || '')} · ${esc(b.time_ago || 'Güncel')}</div>
+          <div class="hero-side-meta">Kaynak: ${esc(b.source || '')} · ${timeAgo(b.published_at)}</div>
         </div>`;
     }).join('');
   }
@@ -1131,7 +1182,7 @@
             <div class="slide-meta">
               <div class="slide-source">
                 <div class="slide-src-dot" style="background:${trustColor(a)}"></div>
-                ${esc(a.source || '')} · ${esc(a.time_ago || 'Güncel')}
+                ${esc(a.source || '')} · ${timeAgo(a.published_at)}
               </div>
               <span class="slide-read">Oku →</span>
             </div>
@@ -1223,8 +1274,8 @@
           <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || '').slice(0, 120))}</div>
           <div class="card-source-line">
             ${a.is_kartalix_content
-              ? `<span style="font-weight:700;color:#E30A17">${esc(a.source_emoji||'🦅')} ${esc(a.source_name||a.source||'')}</span> · ${esc(a.time_ago||'Güncel')}`
-              : `<span class="src-dot" style="background:${trustColor(a)}"></span><span>${esc(a.source||'')}</span> · ${esc(a.time_ago||'Güncel')}`
+              ? `<span style="font-weight:700;color:#E30A17">${esc(a.source_emoji||'🦅')} ${esc(a.source_name||a.source||'')}</span> · ${timeAgo(a.published_at)}`
+              : `<span class="src-dot" style="background:${trustColor(a)}"></span><span>${esc(a.source||'')}</span> · ${timeAgo(a.published_at)}`
             }
           </div>
         </div>`;
@@ -1351,7 +1402,7 @@
             <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || '').slice(0, 120))}</div>
             <div class="card-source-line">
               <span class="src-dot" style="background:${tc}"></span>
-              <span>${esc(a.source || '')}</span> · ${esc(a.time_ago || 'Güncel')}
+              <span>${esc(a.source || '')}</span> · ${timeAgo(a.published_at)}
             </div>
           </div>
         </div>`;
@@ -1403,7 +1454,7 @@
       : (a.nvs ? `<span class="nvs-badge ${nvsClass}">NVS ${a.nvs}</span>` : '');
     document.getElementById('modalHeadline').textContent = cleanForDisplay(a.title || '');
     document.getElementById('modalSource').textContent   = `Kaynak: ${a.source || ''}`;
-    document.getElementById('modalTimeAgo').textContent  = a.time_ago || '';
+    document.getElementById('modalTimeAgo').textContent  = timeAgo(a.published_at);
     document.getElementById('modalSources').textContent  = a.source ? `Kaynak: ${a.source}` : '';
 
     const bodyText = a.full_body || a.summary || '';
