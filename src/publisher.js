@@ -320,20 +320,34 @@ export async function generateMatchDayCard(match, cachedArticles, site, env) {
   // Fetch weather for match location
   const weather = await fetchWeather(match.venue_lat, match.venue_lon, env);
 
-  // Build weather line
-  const weatherLine = weather
-    ? `${weatherEmoji(weather.icon)} Hava Durumu: ${weather.temp}°C, ${weather.description}, Rüzgar ${weather.wind} km/s`
-    : null;
 
   // Extract injury info via Haiku if we have articles
-  let injuryInfo = 'Kadro bilgisi bekleniyor';
+  const squadNames = [
+    'Ersin Destanoğlu', 'Mert Günok', 'Vasquez', 'Murillo', 'Agbadou', 'Djalo', 'Uduokhai',
+    'Emirhan İlkhan', 'Rıdvan Yılmaz', 'Taylan Antalyalı', 'Sazdağı', 'Salih Uçan',
+    'Orkun Kökçü', 'Ndidi', 'Asllani', 'Kartal Kayra', 'Rashica', 'Olaitan',
+    'Cerny', 'Abraham', 'El Bilal Touré', 'Oh Se-hun', 'Jota', 'Cengiz Ünder',
+    'Hekimoğlu', 'Sergen', 'Yalçın',
+  ];
+  let parsed = { cezalilar: [], sakatlıklar: [] };
   if (injuryArticles.length > 0) {
     try {
-      const injuryPrompt = `Aşağıdaki haberlerden Beşiktaş'ın ${match.opponent} maçı için eksik oyuncularını çıkar.
-Sadece JSON döndür: {"cezalilar": ["isim"], "sakatlıklar": ["isim"], "ozet": "1 cümle özet"}
-Bilmiyorsan null yaz, ASLA uydurma.
+      const injuryPrompt = `Aşağıdaki Beşiktaş haberlerinden
+${match.opponent} maçı için kesin olarak eksik olan
+oyuncuları çıkar.
 
-${injuryArticles.map(a => `Başlık: ${a.title}\n${(a.summary||'').slice(0,200)}`).join('\n\n')}`;
+SADECE bu listedeki oyuncu isimlerini kullan:
+${squadNames.slice(0,30).join(', ')}
+
+Listede olmayan isim YAZMA. Emin değilsen null yaz.
+Sadece JSON döndür:
+{"cezalilar": ["tam isim"], "sakatlıklar": ["tam isim"]}
+
+Haberler:
+${injuryArticles.map(a =>
+  'Başlık: ' + a.title + '\n' +
+  (a.full_body || a.summary || '').slice(0, 300)
+).join('\n\n')}`;
 
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -350,15 +364,9 @@ ${injuryArticles.map(a => `Başlık: ${a.title}\n${(a.summary||'').slice(0,200)}
       });
       const data = await response.json();
       const text = data.content?.[0]?.text || '{}';
-      const parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
-
-      const cezalilar = parsed.cezalilar || [];
-      const sakatlıklar = (parsed.sakatlıklar || []).filter(p => !cezalilar.includes(p));
-      const parts = [];
-      if (cezalilar.length) parts.push(`🚫 Cezalı: ${cezalilar.join(', ')}`);
-      if (sakatlıklar.length) parts.push(`🏥 Sakat: ${sakatlıklar.join(', ')}`);
-      if (parts.length) injuryInfo = parts.join(' | ');
-      else if (parsed.ozet) injuryInfo = parsed.ozet;
+      parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+      parsed.cezalilar = parsed.cezalilar || [];
+      parsed.sakatlıklar = (parsed.sakatlıklar || []).filter(p => !parsed.cezalilar.includes(p));
     } catch(e) {
       console.error('Injury extraction error:', e.message);
     }
@@ -366,35 +374,41 @@ ${injuryArticles.map(a => `Başlık: ${a.title}\n${(a.summary||'').slice(0,200)}
 
   // Build match day card body
   const matchDate = match.date.split('-').reverse().join('.');
-  const isHome = match.home;
-  const matchup = isHome
-    ? `${match.team} vs ${match.opponent}`
-    : `${match.opponent} vs ${match.team} (Deplasman)`;
+  const homeAway = match.home ? 'ev sahibi sıfatıyla' : 'deplasmanda';
+  const venueText = match.home
+    ? `Tüpraş Stadyumu'nda`
+    : `${match.venue_city}'de ${match.venue}'da`;
 
-  const body = [
-    `${platformEmoji} MAÇ GÜNÜ`,
-    ``,
-    `⚽ ${matchup}`,
-    `🏆 ${match.league} · ${match.week}. Hafta`,
-    ``,
-    `📅 ${matchDate} · ${match.time} (İstanbul)`,
-    `🏟️ ${match.venue} · ${match.venue_city}`,
-    `📺 ${match.tv}`,
-    weatherLine ? weatherLine : '',
-    ``,
-    `⚠️ KADRO DURUMU:`,
-    injuryInfo,
-    ``,
-    `🔵 Muhtemel 11 ve hakem açıklamaları yakında...`,
-    ``,
-    `Herkese iyi seyirler! 🖤🤍`,
-  ].filter(l => l !== null).join('\n');
+  const injuryText = [];
+  if (parsed.cezalilar?.length)
+    injuryText.push(`${parsed.cezalilar.join(' ve ')} cezalı`);
+  if (parsed.sakatlıklar?.length)
+    injuryText.push(`${parsed.sakatlıklar.join(' ve ')} sakat`);
+  const eksikText = injuryText.length
+    ? injuryText.join(', ') + ' olduğu için kadroda yer alamayacak.'
+    : 'Kadro eksiği bulunmuyor.';
 
-  const summary = `${match.team} bugün ${match.time}'de ${isHome ? 'Tüpraş Stadyumu\'nda' : match.venue_city + "'de"} ${match.opponent} ile karşılaşıyor. ${weatherLine || ''} ${injuryInfo}`;
+  const weatherText = weather
+    ? `Maç saatinde ${match.venue_city} genelinde ${weather.description} bekleniyor, sıcaklık ${weather.temp}°C.`
+    : '';
+
+  const body = `Trendyol Süper Lig'in ${match.week}. haftasında ${match.team}, bu akşam saat ${match.time}'de ${venueText} ${match.opponent}'u ağırlayacak.
+
+${weatherText}
+
+Maç ${match.tv} ekranlarından canlı yayınlanacak.
+
+${eksikText}
+
+Muhtemel 11 ve hakem açıklamaları önümüzdeki saatlerde belli olacak. Kartalix tüm gelişmeleri takip etmeye devam edecek.
+
+Hadi Beşiktaş! 🖤🤍`;
+
+  const summary = `${match.team} bu akşam ${match.time}'de ${venueText} ${match.opponent} ile karşılaşıyor. ${weatherText} ${eksikText}`.slice(0, 300);
 
   return {
-    title:               `Maç Günü! ${match.team} - ${match.opponent} | ${match.time}`,
-    summary:             summary.slice(0, 300),
+    title:               `${match.team} Bu Akşam ${match.opponent}'a Karşı | Maç Günü`,
+    summary:             summary,
     full_body:           body,
     source_name:         platformName,
     source:              platformName,
