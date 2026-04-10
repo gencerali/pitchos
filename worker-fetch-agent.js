@@ -117,6 +117,19 @@ export default {
         const sites = await getActiveSites(env);
         if (!sites || sites.length === 0) return Response.json({ error: 'No active sites' }, { status: 500 });
         const result = await processSite(sites[0], env, ctx);
+
+        const cached = await env.PITCHOS_CACHE.get('articles:BJK');
+        if (cached) {
+          const articles = JSON.parse(cached);
+          const fixed = articles.map(a => {
+            if (a.is_template && !a.published_at) {
+              return { ...a, published_at: new Date(Date.now() - 14 * 3600000).toISOString() };
+            }
+            return a;
+          });
+          await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(fixed), { expirationTtl: 7200 });
+        }
+
         return Response.json({
           success: true,
           articles: result?.cached || 0,
