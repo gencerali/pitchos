@@ -604,20 +604,22 @@
       overscroll-behavior: contain;
       -webkit-overflow-scrolling: touch;
       touch-action: pan-y;
+      color: #111111;
     }
+    .modal-body p, .modal-body div { color: #111111; }
     #modalOverlay .modal {
       overscroll-behavior: contain;
     }
     .modal-headline {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 1.65rem; font-weight: 800;
-      line-height: 1.2; color: var(--text);
+      line-height: 1.2; color: #0d0d0d !important;
       margin-bottom: 0.7rem; text-transform: uppercase;
       letter-spacing: 0.01em;
     }
     .modal-source-line {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.7rem; color: var(--muted); letter-spacing: 0.06em;
+      font-size: 0.7rem; color: #555555; letter-spacing: 0.06em;
       display: flex; align-items: center; gap: 0.5rem;
       margin-bottom: 1.25rem;
       padding-bottom: 0.9rem; border-bottom: 1px solid var(--border);
@@ -625,12 +627,12 @@
     .modal-article p {
       font-family: 'Inter', sans-serif;
       font-size: 0.9rem; line-height: 1.75;
-      color: #bbb; margin-bottom: 1rem;
+      color: #111111 !important; margin-bottom: 1rem;
     }
     .modal-article p:last-child { margin-bottom: 0; }
     .modal-sources {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.68rem; color: var(--muted); letter-spacing: 0.06em;
+      font-size: 0.68rem; color: #555555; letter-spacing: 0.06em;
       border-top: 1px solid var(--border);
       padding-top: 0.9rem; margin-top: 1.1rem;
     }
@@ -857,6 +859,7 @@
         <span id="modalSource"></span>
         <span>·</span>
         <span id="modalTimeAgo"></span>
+        <span id="modalFullDate" style="font-size:0.7rem;color:#888;margin-left:0.25rem"></span>
       </div>
       <div class="modal-article" id="modalArticle"></div>
       <div class="modal-sources" id="modalSources"></div>
@@ -873,7 +876,7 @@
 
       <!-- Comments -->
       <div style="margin-top:1.5rem">
-        <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:700;letter-spacing:0.05em;margin-bottom:1rem;color:var(--text)">YORUMLAR <span id="comment-count" style="color:var(--muted);font-weight:400"></span></h3>
+        <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:700;letter-spacing:0.05em;margin-bottom:1rem;color:#0d0d0d">YORUMLAR <span id="comment-count" style="color:#555555;font-weight:400"></span></h3>
 
         <div id="comments-list" style="margin-bottom:1.5rem"></div>
 
@@ -976,17 +979,36 @@
   let _articles = [];
 
   function timeAgo(publishedAt) {
-    if (!publishedAt) return 'Güncel';
+    if (!publishedAt) return '';
     const now = Date.now();
     const pub = new Date(publishedAt).getTime();
+    if (isNaN(pub)) return '';
     const diffMin = Math.floor((now - pub) / 60000);
-    if (diffMin < 2) return 'Şimdi';
-    if (diffMin < 60) return diffMin + ' dakika önce';
+
+    if (diffMin < 1) return 'Şimdi';
+    if (diffMin < 60) return diffMin + ' dk önce';
+
     const diffH = Math.floor(diffMin / 60);
-    if (diffH < 24) return diffH + ' saat önce';
-    const diffD = Math.floor(diffH / 24);
-    if (diffD === 1) return 'Dün';
-    return diffD + ' gün önce';
+    if (diffH < 6) return diffH + ' saat önce';
+
+    const d = new Date(pub);
+    const today = new Date();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() === today.toDateString()) return 'Bugün ' + timeStr;
+    if (d.toDateString() === yesterday.toDateString()) return 'Dün ' + timeStr;
+    return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' }) + ' ' + timeStr;
+  }
+
+  function fullDateTime(publishedAt) {
+    if (!publishedAt) return '';
+    const d = new Date(publishedAt);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('tr-TR', {
+      day: 'numeric', month: 'long', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
   }
 
   const SHELF_LIFE = {
@@ -1471,6 +1493,7 @@
     document.getElementById('modalHeadline').textContent = cleanForDisplay(a.title || '');
     document.getElementById('modalSource').textContent   = `Kaynak: ${a.source || ''}`;
     document.getElementById('modalTimeAgo').textContent  = timeAgo(a.published_at);
+    document.getElementById('modalFullDate').textContent = fullDateTime(a.published_at) ? '· ' + fullDateTime(a.published_at) : '';
     document.getElementById('modalSources').textContent  = a.source ? `Kaynak: ${a.source}` : '';
 
     const bodyText = a.full_body || a.summary || '';
