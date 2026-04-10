@@ -485,46 +485,61 @@ async function processSite(site, env) {
   funnelStats.scored  = mergedScored.length;
   console.log(`${site.short_code}: scored ${mergedScored.length} → top 30 NVS: ${top30.map(a => a.nvs).join(', ')}`);
 
-  // ── WRITE PHASE — only top 8 get expensive HTTP fetches ──────
-  const top8forWrite = top30.slice(0, 8);
-  const allWritten = await writeArticles(top8forWrite, site, env);
-  console.log(`Write phase: modes ${allWritten.map(a => a.publish_mode).join(', ')} | scout ${stats.scout_tokens_in}in €${stats.costEur.toFixed(4)}`);
-
-  // ── ROUTE & SAVE ──────────────────────────────────────────────
-  const publishThreshold = Math.min(site.auto_publish_threshold, 20);
-  const toPublish = allWritten.filter(a => a.nvs >= publishThreshold);
-  const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < publishThreshold);
-  stats.published = toPublish.length;
-  stats.queued    = toQueue.length;
-
-  if (toPublish.length > 0) await saveArticles(env, site.id, toPublish, 'published');
-  if (toQueue.length > 0)   await saveArticles(env, site.id, toQueue,   'pending');
-
-  // Cache top 30 — merge published + queued + rest of scored, dedupe, map to KV shape
-  const allForKV   = mergeAndDedupe([...toPublish, ...toQueue, ...top30.slice(8), ...existing], 30);
-  const kvArticles = allForKV.map(a => ({
-    title:        a.title        || '',
-    summary:      a.summary      || a.description || '',
-    full_body:    a.full_body && a.full_body.length > 300
+  // ── KV SHAPE HELPER ──────────────────────────────────────────
+  const toKVShape = a => ({
+    title:               a.title        || '',
+    summary:             a.summary      || a.description || '',
+    full_body:           a.full_body && a.full_body.length > 300
       ? a.full_body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000)
       : (a.summary || a.description || ''),
-    source:       a.source       || a.source_name || '',
-    url:          a.url          || a.original_url || '',
-    category:     a.category     || 'Haber',
-    nvs:          a.nvs          || a.nvs_score   || 0,
-    golden_score: a.golden_score || null,
-    time_ago:     a.time_ago     || 'Güncel',
-    is_fresh:     a.is_fresh     ?? true,
-    sport:        a.sport        || 'football',
-    publish_mode: a.publish_mode || 'rss_summary',
-    image_url:    a.image_url    || '',
-    template_id:  a.template_id  || null,
-  }));
-  console.log('Calling cacheToKV with', kvArticles.length, 'articles for site', site.short_code);
-  await cacheToKV(env, site.short_code, kvArticles);
-  await saveSeenHashes(env, site.short_code, toPublish);
-  await logFetch(env, site.id, 'success', stats, null, funnelStats);
+    source:              a.source       || a.source_name || '',
+    source_name:         a.source_name  || a.source || '',
+    source_emoji:        a.source_emoji || '',
+    url:                 a.url          || a.original_url || '',
+    category:            a.category     || 'Haber',
+    nvs:                 a.nvs          || a.nvs_score   || 0,
+    golden_score:        a.golden_score || null,
+    published_at:        a.published_at || a.fetched_at  || null,
+    is_fresh:            a.is_fresh     ?? true,
+    is_kartalix_content: a.is_kartalix_content || false,
+    sport:               a.sport        || 'football',
+    publish_mode:        a.publish_mode || 'rss_summary',
+    image_url:           a.image_url    || '',
+    template_id:         a.template_id  || null,
+  });
 
+  // ── PRELIMINARY KV WRITE (before enrichment — ensures cache even if timeout) ──
+  const preliminaryKV = mergeAndDedupe([...top30, ...existing], 30).map(toKVShape);
+  await cacheToKV(env, site.short_code, preliminaryKV);
+  console.log('KV: preliminary write done', preliminaryKV.length, 'articles');
+
+  // ── WRITE PHASE + ROUTE + SAVE + FINAL KV ────────────────────
+  try {
+    const top8forWrite = top30.slice(0, 8);
+    const allWritten = await writeArticles(top8forWrite, site, env);
+    console.log(`Write phase: modes ${allWritten.map(a => a.publish_mode).join(', ')} | scout ${stats.scout_tokens_in}in €${stats.costEur.toFixed(4)}`);
+
+    const publishThreshold = Math.min(site.auto_publish_threshold, 20);
+    const toPublish = allWritten.filter(a => a.nvs >= publishThreshold);
+    const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < publishThreshold);
+    stats.published = toPublish.length;
+    stats.queued    = toQueue.length;
+
+    if (toPublish.length > 0) await saveArticles(env, site.id, toPublish, 'published');
+    if (toQueue.length > 0)   await saveArticles(env, site.id, toQueue,   'pending');
+
+    const allForKV = mergeAndDedupe([...toPublish, ...toQueue, ...top30.slice(8), ...existing], 30);
+    const kvArticles = allForKV.map(toKVShape);
+    await cacheToKV(env, site.short_code, kvArticles);
+    console.log('KV: enriched write done', kvArticles.length, 'articles');
+
+    await saveSeenHashes(env, site.short_code, toPublish);
+  } catch(e) {
+    console.error('Write/enrich phase failed:', e.message);
+    // preliminary cache still available
+  }
+
+  await logFetch(env, site.id, 'success', stats, null, funnelStats);
   stats.durationMs = Date.now() - startTime;
   return stats;
 }

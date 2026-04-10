@@ -356,6 +356,7 @@ ${injuryArticles.map(a =>
           'x-api-key': env.ANTHROPIC_API_KEY,
           'anthropic-version': '2023-06-01',
         },
+        signal: AbortSignal.timeout(8000),
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 200,
@@ -363,8 +364,16 @@ ${injuryArticles.map(a =>
         }),
       });
       const data = await response.json();
-      const text = data.content?.[0]?.text || '{}';
-      parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
+      try {
+        const rawText = data.content?.[0]?.text || '{}';
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0]);
+        }
+      } catch(e) {
+        console.error('Injury JSON parse error:', e.message);
+        console.error('Raw text was:', data.content?.[0]?.text?.slice(0, 200));
+      }
       parsed.cezalilar = parsed.cezalilar || [];
       parsed.sakatlıklar = (parsed.sakatlıklar || []).filter(p => !parsed.cezalilar.includes(p));
     } catch(e) {
@@ -447,7 +456,10 @@ export async function generateMuhtemel11(match, articles, site, env) {
     })
     .slice(0, 3);
 
-  if (lineupArticles.length === 0) return null;
+  if (lineupArticles.length === 0) {
+    console.log('TEMPLATE 08b: no lineup articles found, skipping');
+    return null;
+  }
 
   const SQUAD = [
     'ersin', 'vasquez', 'murillo', 'agbadou', 'djalo', 'uduokhai',
@@ -484,15 +496,25 @@ ${lineupArticles.map(a =>
         'x-api-key': env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
       },
+      signal: AbortSignal.timeout(8000),
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
+        max_tokens: 200,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
     const data = await response.json();
-    const text = data.content?.[0]?.text || '{}';
-    lineupData = JSON.parse(text.replace(/```json|```/g, '').trim());
+    try {
+      const text = data.content?.[0]?.text || '{}';
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        lineupData = JSON.parse(jsonMatch[0]);
+      }
+    } catch(e) {
+      console.error('Muhtemel 11 JSON parse error:', e.message);
+      console.error('Raw text was:', data.content?.[0]?.text?.slice(0, 200));
+      return null;
+    }
     console.log('TEMPLATE 08b: confidence', lineupData.confidence, 'players', lineupData.players?.length);
   } catch(e) {
     console.error('Muhtemel 11 extraction error:', e.message);
@@ -608,15 +630,25 @@ ${lineupArticles.map(a =>
         'x-api-key': env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
       },
+      signal: AbortSignal.timeout(8000),
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
+        max_tokens: 200,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
     const data = await response.json();
-    const text = data.content?.[0]?.text || '{}';
-    lineupData = JSON.parse(text.replace(/```json|```/g, '').trim());
+    try {
+      const text = data.content?.[0]?.text || '{}';
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        lineupData = JSON.parse(jsonMatch[0]);
+      }
+    } catch(e) {
+      console.error('Lineup JSON parse error:', e.message);
+      console.error('Raw text was:', data.content?.[0]?.text?.slice(0, 200));
+      return null;
+    }
     console.log('TEMPLATE 09: confidence', lineupData.confidence, 'type', lineupData.type, 'players', lineupData.players?.length);
   } catch(e) {
     console.error('Lineup extraction error:', e.message);
