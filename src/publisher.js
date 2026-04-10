@@ -433,6 +433,7 @@ Hadi Beşiktaş! 🖤🤍`;
     url:                 `https://kartalix.com/mac/${match.date}-${match.team.toLowerCase()}-${match.opponent.toLowerCase().replace(/\s/g,'-')}`,
     image_url:           '',
     is_template:         true,
+    published_at:        new Date().toISOString(),
     template_id:         '05',
   };
 }
@@ -567,6 +568,7 @@ ${lineupArticles.map(a =>
     url:                 `https://kartalix.com/mac/${match.date}-besiktas-${match.opponent.toLowerCase().replace(/\s/g,'-')}-muhtemel`,
     image_url:           '',
     is_template:         true,
+    published_at:        new Date().toISOString(),
     template_id:         '08b',
   };
 }
@@ -708,6 +710,7 @@ ${lineupArticles.map(a =>
     url:                 `https://kartalix.com/mac/${match.date}-besiktas-${match.opponent.toLowerCase().replace(/\s/g,'-')}-lineup`,
     image_url:           '',
     is_template:         true,
+    published_at:        new Date().toISOString(),
     template_id:         '09',
   };
 }
