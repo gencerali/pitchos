@@ -112,8 +112,22 @@ export default {
       return Response.json({ comments: comments||[], likes, dislikes }, { headers });
     }
 
+    if (url.pathname === '/force-cache') {
+      try {
+        const sites = await getActiveSites(env);
+        if (!sites || sites.length === 0) return Response.json({ error: 'No active sites' }, { status: 500 });
+        const result = await processSite(sites[0], env, ctx);
+        return Response.json({
+          success: true,
+          articles: result?.cached || 0,
+          message: 'Cache written synchronously',
+        });
+      } catch(e) {
+        return Response.json({ error: e.message }, { status: 500 });
+      }
+    }
     if (url.pathname === '/run') {
-      ctx.waitUntil(runAllSites(env));
+      ctx.waitUntil(runAllSites(env, ctx));
       return Response.json({ status: 'started', message: 'Running in background — check /cache in ~60s' });
     }
     if (url.pathname === '/cache') {
@@ -341,12 +355,12 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runAllSites(env));
+    ctx.waitUntil(runAllSites(env, ctx));
   },
 };
 
 // ─── ORCHESTRATOR ────────────────────────────────────────────
-async function runAllSites(env) {
+async function runAllSites(env, ctx) {
   const sites = await getActiveSites(env);
   console.log('Sites found:', JSON.stringify(sites));
   if (!sites || sites.length === 0) {
@@ -355,7 +369,7 @@ async function runAllSites(env) {
   const results = [];
   for (const site of sites) {
     try {
-      const result = await processSite(site, env);
+      const result = await processSite(site, env, ctx);
       results.push({ site: site.short_code, ...result });
     } catch (err) {
       console.error(`Failed site ${site.short_code}:`, err);
@@ -367,7 +381,7 @@ async function runAllSites(env) {
 }
 
 // ─── PROCESS ONE SITE ────────────────────────────────────────
-async function processSite(site, env) {
+async function processSite(site, env, ctx) {
   const startTime = Date.now();
   const stats = {
     raw_fetched: 0, after_date: 0, after_keyword: 0, after_hash: 0, after_title: 0,
@@ -417,56 +431,12 @@ async function processSite(site, env) {
     ` (RSS:${rssArticles.length} web:${webArticles.length} beIN:${beINArticles.length} twitter:${twitterArticles.length})`
   );
 
-  // ── TEMPLATE 05 — MATCH DAY CARD ─────────────────────────────
-  const existing = await getCachedArticles(env, site.short_code);
-  const today = new Date().toISOString().split('T')[0];
-  if (NEXT_MATCH.match_day === today) {
-    const existingCard = existing?.find(a => a.template_id === '05');
-    if (!existingCard) {
-      console.log('TEMPLATE 05: generating match day card...');
-      const card = await generateMatchDayCard(NEXT_MATCH, preFiltered, site, env);
-      preFiltered.unshift(card);
-      console.log('TEMPLATE 05: generated:', card.title);
-    }
-  }
-
-  // ── TEMPLATE 08b & 09 — LINEUP WINDOWS ──────────────────────
-  const matchDateTime = new Date(`${NEXT_MATCH.date}T${NEXT_MATCH.time}:00+03:00`);
-  const now = new Date();
-  const hoursToKickoff = (matchDateTime - now) / (1000 * 60 * 60);
-
-  // Template 08b — Muhtemel 11: T-24h to T-3h
-  if (hoursToKickoff <= 24 && hoursToKickoff > 3) {
-    const existingMuhtemel = existing?.find(a => a.template_id === '08b');
-    if (!existingMuhtemel) {
-      console.log('TEMPLATE 08b: checking for muhtemel 11...');
-      const muhtemelCard = await generateMuhtemel11(NEXT_MATCH, preFiltered, site, env);
-      if (muhtemelCard) {
-        preFiltered.unshift(muhtemelCard);
-        console.log('TEMPLATE 08b: muhtemel 11 generated:', muhtemelCard.title);
-      }
-    }
-  }
-
-  // Template 09 — Confirmed Lineup: T-2h to kickoff ONLY
-  if (hoursToKickoff <= 2 && hoursToKickoff >= 0) {
-    const existingLineup = existing?.find(a => a.template_id === '09');
-    if (!existingLineup) {
-      console.log('TEMPLATE 09: within 2h window, scanning for confirmed lineup...');
-      const lineupCard = await generateConfirmedLineup(NEXT_MATCH, preFiltered, site, env);
-      if (lineupCard) {
-        preFiltered.unshift(lineupCard);
-        console.log('TEMPLATE 09: confirmed lineup generated:', lineupCard.title);
-      }
-    }
-  }
-
   if (preFiltered.length === 0) {
     await logFetch(env, site.id, 'partial', stats, 'No articles after pre-filter', funnelStats);
-    return stats;
+    return { ...stats, cached: 0 };
   }
 
-  // ── SCOUT PHASE ───────────────────────────────────────────────
+  // ── SCORE ARTICLES ────────────────────────────────────────────
   await sleep(500);
   const { scored, usage: scoreUsage } = await scoreArticles(preFiltered, site, env);
   const mergedScored = preFiltered.map((orig, i) => ({
@@ -480,9 +450,9 @@ async function processSite(site, env) {
   addUsagePhase(stats, scoreUsage, MODEL_SCORE, 'scout');
 
   const top30 = mergedScored.sort((a, b) => (b.nvs || 0) - (a.nvs || 0)).slice(0, 30);
-  stats.scored        = top30.length;
-  stats.rejected      = mergedScored.slice(30).length;
-  funnelStats.scored  = mergedScored.length;
+  stats.scored       = top30.length;
+  stats.rejected     = mergedScored.slice(30).length;
+  funnelStats.scored = mergedScored.length;
   console.log(`${site.short_code}: scored ${mergedScored.length} → top 30 NVS: ${top30.map(a => a.nvs).join(', ')}`);
 
   // ── KV SHAPE HELPER ──────────────────────────────────────────
@@ -508,40 +478,81 @@ async function processSite(site, env) {
     template_id:         a.template_id  || null,
   });
 
-  // ── PRELIMINARY KV WRITE (before enrichment — ensures cache even if timeout) ──
-  const preliminaryKV = mergeAndDedupe([...top30, ...existing], 30).map(toKVShape);
-  await cacheToKV(env, site.short_code, preliminaryKV);
-  console.log('KV: preliminary write done', preliminaryKV.length, 'articles');
+  // ── KV WRITE IMMEDIATELY (before templates, enrichment, Supabase) ──
+  const existing = await getCachedArticles(env, site.short_code);
+  const immediateKV = mergeAndDedupe([...top30, ...existing], 30).map(toKVShape);
+  await cacheToKV(env, site.short_code, immediateKV);
+  console.log('KV WRITE IMMEDIATE: done', immediateKV.length, 'articles');
 
-  // ── WRITE PHASE + ROUTE + SAVE + FINAL KV ────────────────────
-  try {
-    const top8forWrite = top30.slice(0, 8);
-    const allWritten = await writeArticles(top8forWrite, site, env);
-    console.log(`Write phase: modes ${allWritten.map(a => a.publish_mode).join(', ')} | scout ${stats.scout_tokens_in}in €${stats.costEur.toFixed(4)}`);
+  // ── BACKGROUND WORK: templates + supabase (after KV is safe) ─
+  const backgroundWork = async () => {
+    // Template 05 — Match Day Card
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      if (NEXT_MATCH.match_day === today && !immediateKV.find(a => a.template_id === '05')) {
+        console.log('TEMPLATE 05: generating...');
+        const card = await generateMatchDayCard(NEXT_MATCH, preFiltered, site, env);
+        if (card) {
+          const withT = mergeAndDedupe([toKVShape(card), ...immediateKV], 30);
+          await cacheToKV(env, site.short_code, withT);
+          console.log('KV WRITE WITH TEMPLATE 05: done');
+        }
+      }
+    } catch(e) { console.error('Template 05 failed:', e.message); }
 
-    const publishThreshold = Math.min(site.auto_publish_threshold, 20);
-    const toPublish = allWritten.filter(a => a.nvs >= publishThreshold);
-    const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < publishThreshold);
-    stats.published = toPublish.length;
-    stats.queued    = toQueue.length;
+    // Template 08b & 09 — Lineup Windows
+    try {
+      const matchDateTime = new Date(`${NEXT_MATCH.date}T${NEXT_MATCH.time}:00+03:00`);
+      const hoursToKickoff = (matchDateTime - new Date()) / (1000 * 60 * 60);
 
-    if (toPublish.length > 0) await saveArticles(env, site.id, toPublish, 'published');
-    if (toQueue.length > 0)   await saveArticles(env, site.id, toQueue,   'pending');
+      if (hoursToKickoff <= 24 && hoursToKickoff > 3 && !immediateKV.find(a => a.template_id === '08b')) {
+        console.log('TEMPLATE 08b: checking for muhtemel 11...');
+        const card = await generateMuhtemel11(NEXT_MATCH, preFiltered, site, env);
+        if (card) {
+          const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+          const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
+          await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 30));
+          console.log('KV WRITE WITH TEMPLATE 08b: done');
+        }
+      }
 
-    const allForKV = mergeAndDedupe([...toPublish, ...toQueue, ...top30.slice(8), ...existing], 30);
-    const kvArticles = allForKV.map(toKVShape);
-    await cacheToKV(env, site.short_code, kvArticles);
-    console.log('KV: enriched write done', kvArticles.length, 'articles');
+      if (hoursToKickoff <= 2 && hoursToKickoff >= 0 && !immediateKV.find(a => a.template_id === '09')) {
+        console.log('TEMPLATE 09: within 2h window, scanning for confirmed lineup...');
+        const card = await generateConfirmedLineup(NEXT_MATCH, preFiltered, site, env);
+        if (card) {
+          const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+          const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
+          await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 30));
+          console.log('KV WRITE WITH TEMPLATE 09: done');
+        }
+      }
+    } catch(e) { console.error('Template 08b/09 failed:', e.message); }
 
-    await saveSeenHashes(env, site.short_code, toPublish);
-  } catch(e) {
-    console.error('Write/enrich phase failed:', e.message);
-    // preliminary cache still available
-  }
+    // Save to Supabase (best effort)
+    try {
+      const top8forWrite = top30.slice(0, 8);
+      const allWritten = await writeArticles(top8forWrite, site, env);
+      console.log(`Write phase: ${allWritten.map(a => a.publish_mode).join(', ')}`);
 
-  await logFetch(env, site.id, 'success', stats, null, funnelStats);
-  stats.durationMs = Date.now() - startTime;
-  return stats;
+      const publishThreshold = Math.min(site.auto_publish_threshold, 20);
+      const toPublish = allWritten.filter(a => a.nvs >= publishThreshold);
+      const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < publishThreshold);
+      stats.published = toPublish.length;
+      stats.queued    = toQueue.length;
+
+      if (toPublish.length > 0) await saveArticles(env, site.id, toPublish, 'published');
+      if (toQueue.length > 0)   await saveArticles(env, site.id, toQueue,   'pending');
+      await saveSeenHashes(env, site.short_code, toPublish);
+    } catch(e) { console.error('Supabase save failed:', e.message); }
+
+    await logFetch(env, site.id, 'success', stats, null, funnelStats);
+    stats.durationMs = Date.now() - startTime;
+  };
+
+  if (ctx) ctx.waitUntil(backgroundWork());
+  else await backgroundWork();
+
+  return { ...stats, cached: immediateKV.length };
 }
 
 // ─── REPORT ──────────────────────────────────────────────────

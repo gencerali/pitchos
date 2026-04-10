@@ -601,6 +601,12 @@
     .modal-body {
       padding: 1rem 1.4rem 1.4rem;
       overflow-y: auto; flex: 1;
+      overscroll-behavior: contain;
+      -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;
+    }
+    #modalOverlay .modal {
+      overscroll-behavior: contain;
     }
     .modal-headline {
       font-family: 'Barlow Condensed', sans-serif;
@@ -995,17 +1001,27 @@
     return (Date.now() - new Date(article.published_at).getTime()) / 3600000 > hours;
   }
 
-  const DECAY_RATE = {
-    Match: 1.5, Transfer: 0.5, Injury: 0.8,
-    Club: 1.0, Other: 1.2, default: 1.0,
-  };
-
   function effectiveNvs(article) {
-    if (article.is_template) return 999;
     const nvs = article.nvs || 50;
     const pub = new Date(article.published_at || Date.now()).getTime();
     const ageHours = (Date.now() - pub) / 3600000;
-    const decay = DECAY_RATE[article.category] || 1.0;
+
+    const TEMPLATE_DECAY = {
+      '05': 3.0,
+      '08b': 2.0,
+      '09': 1.5,
+      '11': 0.5,
+      '12': 0.5,
+    };
+    const CATEGORY_DECAY = {
+      Match: 1.5, Transfer: 0.3, Injury: 0.8,
+      Club: 1.0, Other: 1.2, default: 1.0,
+    };
+
+    const decay = article.template_id
+      ? (TEMPLATE_DECAY[article.template_id] || 1.0)
+      : (CATEGORY_DECAY[article.category] || 1.0);
+
     return Math.max(0, nvs - (ageHours * decay));
   }
 
@@ -1471,7 +1487,7 @@
       link.classList.add('hidden');
     }
 
-    loadReactions(a.url || a.original_url || '');
+    loadReactions(a);
 
     document.getElementById('modalOverlay').classList.add('open');
     document.body.style.overflow = 'hidden';
@@ -1491,24 +1507,48 @@
     if (e.key === 'Escape') closeModal();
   });
 
-  // ── REACTIONS & COMMENTS ─────────────────────────────────────
-  let _currentArticleUrl = '';
+  const _modalEl = document.querySelector('#modalOverlay .modal');
+  if (_modalEl) {
+    _modalEl.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+    _modalEl.addEventListener('touchmove',  e => e.stopPropagation(), { passive: true });
+    _modalEl.addEventListener('touchend',   e => e.stopPropagation(), { passive: true });
+  }
 
-  async function loadReactions(articleUrl) {
-    _currentArticleUrl = articleUrl;
+  // ── REACTIONS & COMMENTS ─────────────────────────────────────
+  let _currentArticle = null;
+
+  function getArticleKey(article) {
+    const identifier = article.url || article.original_url || article.title || '';
+    const key = identifier.slice(-40).replace(/[^a-zA-Z0-9]/g, '_');
+    return 'rxn_' + key;
+  }
+
+  function getUserReaction(article) {
+    return localStorage.getItem(getArticleKey(article));
+  }
+
+  function setUserReaction(article, reaction) {
+    const key = getArticleKey(article);
+    if (reaction === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, reaction);
+  }
+
+  async function loadReactions(article) {
+    _currentArticle = article;
     document.getElementById('like-count').textContent = 0;
     document.getElementById('dislike-count').textContent = 0;
     document.getElementById('comment-count').textContent = '';
     document.getElementById('comments-list').innerHTML = '';
     document.getElementById('comment-msg').textContent = '';
-    if (!articleUrl) return;
+    if (!article) return;
+    const articleUrl = article.url || article.original_url || '';
     try {
       const res = await fetch(`https://pitchos-fetch-agent.gencerali.workers.dev/comments?article_url=${encodeURIComponent(articleUrl)}`);
       const data = await res.json();
 
       document.getElementById('like-count').textContent = data.likes || 0;
       document.getElementById('dislike-count').textContent = data.dislikes || 0;
-      updateReactionButtons(getUserReaction(_currentArticleUrl));
+      updateReactionButtons(getUserReaction(_currentArticle));
 
       const comments = data.comments || [];
       document.getElementById('comment-count').textContent = `(${comments.length})`;
@@ -1534,17 +1574,6 @@
     }
   }
 
-  function getUserReaction(articleUrl) {
-    const key = 'reaction_' + btoa(articleUrl).slice(0,20);
-    return localStorage.getItem(key);
-  }
-
-  function setUserReaction(articleUrl, reaction) {
-    const key = 'reaction_' + btoa(articleUrl).slice(0,20);
-    if (reaction === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, reaction);
-  }
-
   function updateReactionButtons(active) {
     const btnLike = document.getElementById('btn-like');
     const btnDislike = document.getElementById('btn-dislike');
@@ -1560,24 +1589,22 @@
   }
 
   async function react(type) {
-    if (!_currentArticleUrl) return;
-    const current = getUserReaction(_currentArticleUrl);
-
-    let newReaction = type;
-    if (current === type) newReaction = null;
+    if (!_currentArticle) return;
+    const current = getUserReaction(_currentArticle);
+    const newReaction = current === type ? null : type;
 
     try {
       const res = await fetch('https://pitchos-fetch-agent.gencerali.workers.dev/react', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
-          article_url: _currentArticleUrl,
+          article_url: _currentArticle.url || _currentArticle.original_url,
           reaction: newReaction,
-          previous: current
+          previous: current,
         })
       });
       const data = await res.json();
-      setUserReaction(_currentArticleUrl, newReaction);
+      setUserReaction(_currentArticle, newReaction);
       document.getElementById('like-count').textContent = data.likes || 0;
       document.getElementById('dislike-count').textContent = data.dislikes || 0;
       updateReactionButtons(newReaction);
@@ -1585,7 +1612,7 @@
   }
 
   async function submitComment() {
-    if (!_currentArticleUrl) return;
+    if (!_currentArticle) return;
     const name = document.getElementById('comment-name').value.trim();
     const surname = document.getElementById('comment-surname').value.trim();
     const comment = document.getElementById('comment-text').value.trim();
@@ -1601,7 +1628,7 @@
       const res = await fetch('https://pitchos-fetch-agent.gencerali.workers.dev/comment', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ article_url: _currentArticleUrl, name, surname, comment, honeypot })
+        body: JSON.stringify({ article_url: _currentArticle.url || _currentArticle.original_url, name, surname, comment, honeypot })
       });
       const data = await res.json();
       if (data.success) {
@@ -1609,7 +1636,7 @@
         document.getElementById('comment-name').value = '';
         document.getElementById('comment-surname').value = '';
         document.getElementById('comment-text').value = '';
-        setTimeout(() => loadReactions(_currentArticleUrl), 500);
+        setTimeout(() => loadReactions(_currentArticle), 500);
       } else {
         msg.style.color='#E30A17'; msg.textContent='Hata: ' + (data.error || 'Tekrar deneyin');
       }
