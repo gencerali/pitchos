@@ -11,7 +11,7 @@
  */
 import { getActiveSites, addUsagePhase, sleep, isTodayArticle, supabase, MODEL_FETCH, MODEL_SCORE } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, RSS_FEEDS } from './src/fetcher.js';
-import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls } from './src/processor.js';
+import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup } from './src/publisher.js';
 
 // ─── NEXT MATCH CONFIG ────────────────────────────────────────
@@ -472,11 +472,14 @@ async function processSite(site, env, ctx) {
   stats.claudeCalls++;
   addUsagePhase(stats, scoreUsage, MODEL_SCORE, 'scout');
 
-  const top50 = mergedScored.sort((a, b) => (b.nvs || 0) - (a.nvs || 0)).slice(0, 50);
-  stats.scored       = top50.length;
-  stats.rejected     = mergedScored.slice(50).length;
-  funnelStats.scored = mergedScored.length;
-  console.log(`${site.short_code}: scored ${mergedScored.length} → top 50 NVS: ${top50.map(a => a.nvs).join(', ')}`);
+  const sortedScored = mergedScored.sort((a, b) => (b.nvs || 0) - (a.nvs || 0));
+  const storyDeduped = dedupeByStory(sortedScored);
+  const top50 = storyDeduped.slice(0, 50);
+  stats.scored           = top50.length;
+  stats.rejected         = mergedScored.length - storyDeduped.length + (storyDeduped.length > 50 ? storyDeduped.length - 50 : 0);
+  funnelStats.scored     = mergedScored.length;
+  funnelStats.after_story_dedup = storyDeduped.length;
+  console.log(`${site.short_code}: scored ${mergedScored.length} → story-deduped ${storyDeduped.length} → top 50 NVS: ${top50.map(a => a.nvs).join(', ')}`);
 
   // ── KV SHAPE HELPER ──────────────────────────────────────────
   const toKVShape = a => ({

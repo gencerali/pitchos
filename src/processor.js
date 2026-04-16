@@ -85,6 +85,28 @@ export function dedupeByTitle(articles) {
   return kept;
 }
 
+// ─── POST-SCORING STORY DEDUP ─────────────────────────────────
+// Deduplicates scored articles by story cluster, keeping highest-NVS per story.
+// Input must already be sorted by NVS descending.
+export function dedupeByStory(articles) {
+  const kept = [];
+  for (const a of articles) {
+    const aNorm = normalizeTitle(a.title);
+    const aKeys = extractKeyTokens(a.title);
+    const isDupe = kept.some(k => {
+      // Same story: ≥25% word overlap
+      if (titleSimilarity(aNorm, normalizeTitle(k.title)) > 0.25) return true;
+      // Same story: 2+ shared named tokens (player name, club, event)
+      const kKeys = extractKeyTokens(k.title);
+      let shared = 0;
+      for (const t of aKeys) if (kKeys.has(t)) shared++;
+      return shared >= 2;
+    });
+    if (!isDupe) kept.push(a);
+  }
+  return kept;
+}
+
 // ─── FETCH RECENTLY PUBLISHED TITLES (for story-aware scoring) ──
 export async function getRecentPublishedTitles(env, siteId) {
   try {
