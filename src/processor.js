@@ -96,54 +96,45 @@ export async function scoreArticles(articles, site, env) {
   const allScored = [];
   let totalUsage = { input_tokens: 0, output_tokens: 0 };
 
+  const now = Date.now();
+
   for (const chunk of chunks) {
     const prompt = `You are the editorial AI for Kartalix, a Beşiktaş JK fan news site.
-Evaluate each article for BJK fans. Return ONLY a JSON array, no other text.
+Score each article for BJK fans using the NVS bands below. Return ONLY a JSON array, no other text.
 
 Articles to evaluate:
-${chunk.map((a, i) => `${i}. Title: "${a.title}" | Source: ${a.source_name || a.source} (${a.trust_tier || a.trust || 'unknown'}) | Summary: "${(a.summary || '').slice(0, 200)}"`).join('\n')}
+${chunk.map((a, i) => {
+  const ageH = a.published_at ? Math.round((now - new Date(a.published_at).getTime()) / 3600000) : null;
+  const ageTag = ageH === null ? '' : ageH < 6 ? ' [FRESH]' : ageH < 24 ? ` [${ageH}h ago]` : ageH < 48 ? ` [${Math.floor(ageH/24)}d ago]` : ` [${Math.floor(ageH/24)}d ago — OLD]`;
+  return `${i}. Title: "${a.title}"${ageTag} | Source: ${a.source_name || a.source} (${a.trust_tier || a.trust || 'unknown'}) | Summary: "${(a.summary || '').slice(0, 200)}"`;
+}).join('\n')}
 
 For each article return:
-{
-  "i": index,
-  "relevant": true/false,
-  "relevance_reason": "one sentence why",
-  "sentiment": "positive" | "neutral" | "negative" | "rival_celebration",
-  "rival_pov": true/false,
-  "category": "Match" | "Transfer" | "Injury" | "Squad" | "Club" | "European" | "Other",
-  "content_type": "fact" | "rumor" | "analysis",
-  "nvs": 0-100,
-  "golden_score": 1-5,
-  "nvs_notes": "one sentence explanation"
-}
+{"i":index,"relevant":true/false,"rival_pov":true/false,"sentiment":"positive"|"neutral"|"negative"|"rival_celebration","category":"Match"|"Transfer"|"Injury"|"Squad"|"Club","content_type":"fact"|"rumor"|"analysis","nvs":0-100,"golden_score":1-5,"nvs_notes":"one sentence"}
 
-SCORING RULES (apply strictly):
-- If rival_pov=true (article celebrates rival win over BJK): nvs maximum 25
-- If relevant=false (BJK only mentioned in passing): nvs maximum 20
-- If sentiment=rival_celebration: nvs maximum 30
-- "Siyah-beyaz" or "Kartal" alone without BJK player/club name = relevant:false
-- General Süper Lig table news mentioning BJK = relevant:false
-- Fenerbahçe winning article with BJK losing = rival_pov:true
+NVS BANDS — pick the band that fits, then fine-tune within it:
+BAND 0-19 IRRELEVANT: BJK only mentioned in passing; rival team article; general Süper Lig table without BJK focus; "Siyah-beyaz"/"Kartal" alone with no BJK player/club name
+BAND 20-39 LOW: Unnamed-source speculation; rumor with no journalist credibility; repackaged old story; general squad filler
+BAND 40-59 MEDIUM-LOW: Pre-match preview with named players; training/fitness update; squad availability (unconfirmed); credible transfer rumor from known journalist
+BAND 60-74 MEDIUM-HIGH: Press conference quote or coach statement; post-match reaction; confirmed squad news; journalist-sourced transfer with named player and club
+BAND 75-84 HIGH: Match result with score + scorers; confirmed injury with player name and timeline; confirmed transfer (official source or senior journalist)
+BAND 85-94 VERY HIGH: Major signing/departure officially confirmed; dramatic result vs top rival; official club statement on key issue (coach firing, board decision)
+BAND 95-100 ELITE: Transfer contract officially signed and announced; BJK wins trophy; breaking news of historic significance
 
-HIGH VALUE (nvs 70-100):
-- Match result with score and scorers: nvs 80-90
-- Confirmed injury with player name and timeline: nvs 70-80
-- Official club statement or press conference quote: nvs 75-90
-- Confirmed transfer (official or journalist tier): nvs 75-85
-- Lineup announcement day of match: nvs 80
+CATEGORY GUIDE (assign exactly one):
+Match — fixtures, results, lineups, referee, pre/post-match, European match
+Transfer — signings, departures, loans, contract extensions, transfer rumors (confirmed or rumor)
+Injury — injuries, suspensions, fitness, return timelines
+Squad — training, youth, non-transfer roster management, tactical news, coach work
+Club — board, finance, stadium, fan groups, management, sponsor, official statements
 
-MEDIUM VALUE (nvs 40-69):
-- Pre-match analysis with named players: nvs 50-65
-- Credible transfer rumor (journalist source): nvs 45-60
-- Squad training news: nvs 40-55
-- League table with BJK position explained: nvs 40-50
+EXCLUSION RULES:
+- rival_pov=true (rival beats BJK, rival celebration): nvs ≤ 25
+- relevant=false (BJK barely mentioned): nvs ≤ 19
+- sentiment=rival_celebration: nvs ≤ 30
+- Fenerbahçe/Galatasaray win article mentioning BJK loss: rival_pov=true
 
-LOW VALUE (nvs 20-39):
-- General speculation without named source: nvs 20-35
-- Passing mention of BJK in rival article: nvs 15-25
-- Old news angle already covered: nvs 20-30
-
-Return JSON array only. No markdown. No explanation outside JSON.`;
+Return JSON array only. No markdown. No text outside JSON.`;
 
     const response = await callClaude(env, MODEL_SCORE, prompt, false, 2000);
     if (totalUsage && response.usage) {
@@ -162,12 +153,21 @@ Return JSON array only. No markdown. No explanation outside JSON.`;
           ? 1
           : s.golden_score,
       }));
-      // Apply post-processing rules
-      normalized.forEach(a => {
+      // Apply post-processing rules + age penalty
+      normalized.forEach((a, idx) => {
         if (a.rival_pov) a.nvs = Math.min(a.nvs, 25);
-        if (!a.relevant) a.nvs = Math.min(a.nvs, 20);
+        if (!a.relevant) a.nvs = Math.min(a.nvs, 19);
         if (a.sentiment === 'rival_celebration') a.nvs = Math.min(a.nvs, 30);
         if (a.nvs === undefined || isNaN(a.nvs)) a.nvs = 0;
+
+        // Age penalty (applied after model score, before final NVS)
+        const orig = chunk[idx];
+        if (orig?.published_at) {
+          const ageH = (now - new Date(orig.published_at).getTime()) / 3600000;
+          if (ageH >= 48) a.nvs = Math.max(0, a.nvs - 30);
+          else if (ageH >= 24) a.nvs = Math.max(0, a.nvs - 15);
+        }
+
         if (a.golden_score === undefined) a.golden_score = Math.ceil(a.nvs / 20);
       });
       // Pad if response was short
