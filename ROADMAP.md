@@ -806,6 +806,8 @@ Sprint 9-10: €5000+/month (platform scale)
 - RSS feed at kartalix.com/rss
 - Cron 2h → 30min (breaking news lag reduction)
 - WhatsApp + Twitter share buttons on every article
+- GDPR/KVKK cookie banner
+- Privacy policy page + source attribution footer
 - **Apply for Google AdSense** (needs real pages — start 6-week approval clock here)
 - **Submit to Google Search Console + Google News**
 
@@ -814,12 +816,18 @@ Sprint 9-10: €5000+/month (platform scale)
 **Goal: zero manual intervention on match days. NEXT_MATCH never hardcoded again.**
 
 - NEXT_MATCH auto-fetched from a football data API (API-Football or similar)
-- Post-Match result template: score + scorers auto-published at full time
 - Match day cron: auto-switches to 15min interval on match days (T-3h to FT+2h)
+- Post-Match result template: score + scorers auto-published at full time
 - Result Flash template (T11): instant publish when final whistle detected in RSS
+- Match day live blog: minute-by-minute updating article (T10)
+- Produce Agent v1: move Readability enrichment to Render.com async job (no Worker timeout risk, all articles get full content)
+- Qualify Agent v1: replace single-prompt scoring with 3-judgment system (2A Relevance, 2B Sentiment, 2C Value) — see Agent Architecture section
+- agent_learnings table in Supabase + manual entry for first false positives
 - Squad keywords auto-rebuild when player row added/updated in Supabase
+- Squad auto-update via Transfermarkt RSS (departed players flagged automatically)
 - Pageview/click tracking per article (engagement_events table)
 - Source performance dashboard (which sources drive best NVS)
+- Journalist accuracy tracker (transfer rumors confirmed/failed)
 - AdSense should be live and earning by end of this sprint
 
 ### 📋 Sprint 6 — "Make it scalable" (2nd team gate)
@@ -836,6 +844,9 @@ Sprint 9-10: €5000+/month (platform scale)
 - Transfer window auto-expand: targets/rumored keywords active May–Aug, Jan–Feb
 - Team 2 onboarding end-to-end (Galatasaray or Fenerbahçe)
 - Learn Agent v1: weekly pattern extraction from engagement signals
+- Transfer prediction history dashboard (rumor → confirmed/denied timeline)
+- scoring_config JSONB per team (NVS thresholds configurable without deploy)
+- Squad members seed: populate squad_members table via console
 
 ### 📋 Sprint 7 — Growth + Distribution
 
