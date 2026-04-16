@@ -221,8 +221,8 @@ export async function logFetch(env, siteId, status, stats, errorMsg, funnelStats
     tokens_output:      stats.tokensOut           || 0,
     estimated_cost_eur: stats.costEur             || 0,
     model_used:         `${MODEL_FETCH}`,
-    error_message:      status === 'success' && funnelStats
-      ? JSON.stringify(funnelStats)
+    error_message:      funnelStats
+      ? JSON.stringify({ ...funnelStats, _error: errorMsg || null })
       : errorMsg || null,
     duration_ms:        stats.durationMs          || null,
   };

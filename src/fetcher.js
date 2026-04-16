@@ -46,13 +46,15 @@ async function fetchViaRss2Json(feed) {
                 || item.match(/<description>([^<]+)<\/description>/i)?.[1] || '';
       const img = item.match(/<enclosure[^>]+url="([^"]+)"/i)?.[1]
                || item.match(/<media:content[^>]+url="([^"]+)"/i)?.[1] || '';
-      const pub = item.match(/<pubDate>([^<]+)<\/pubDate>/i)?.[1] || '';
+      const pubRaw = item.match(/<pubDate>([^<]+)<\/pubDate>/i)?.[1] || '';
+      const pubDate = pubRaw ? new Date(pubRaw) : null;
+      const published_at = pubDate && !isNaN(pubDate.getTime()) ? pubDate.toISOString() : null;
       return {
         title:        title.trim(),
         url:          url.trim(),
         summary:      desc.replace(/<[^>]+>/g, '').slice(0, 300),
         image_url:    img,
-        published_at: pub,
+        published_at,
         source_name:  feed.name,
         source:       feed.name,
         trust_tier:   feed.trust,

@@ -641,20 +641,25 @@ async function buildReport(env) {
 
   const lastRun = lastRuns?.[0] || {};
   const lastSuccess = (lastRuns || []).find(r => r.status === 'success');
+  // Prefer most-recent run's funnelStats (now saved on both success and partial)
   let funnelData = {};
-  if (lastSuccess?.error_message) {
-    try { funnelData = JSON.parse(lastSuccess.error_message); } catch (e) {}
+  for (const run of (lastRuns || [])) {
+    if (run.error_message) {
+      try { const d = JSON.parse(run.error_message); if (d.raw_fetched) { funnelData = d; break; } } catch (e) {}
+    }
   }
+
+  const fd = (key) => funnelData[key] ?? null;
 
   return {
     funnel: {
-      total_fetched:        funnelData.raw_fetched   || lastRun.items_fetched  || 0,
-      after_date_filter:    funnelData.after_date    || funnelData.raw_fetched || 0,
-      after_keyword_filter: funnelData.after_keyword || funnelData.after_date  || 0,
-      after_hash_dedup:     funnelData.after_hash    || funnelData.after_keyword || 0,
-      after_title_dedup:    funnelData.after_title        || funnelData.after_hash  || 0,
-      after_url_dedup:      funnelData.after_url_dedup   || funnelData.after_title || 0,
-      after_scoring:        funnelData.scored             || lastRun.items_scored   || 0,
+      total_fetched:        fd('raw_fetched')      ?? lastRun.items_fetched ?? 0,
+      after_date_filter:    fd('after_date')       ?? 0,
+      after_keyword_filter: fd('after_keyword')    ?? 0,
+      after_hash_dedup:     fd('after_hash')       ?? 0,
+      after_title_dedup:    fd('after_title')      ?? 0,
+      after_url_dedup:      fd('after_url_dedup')  ?? 0,
+      after_scoring:        fd('scored')           ?? lastRun.items_scored ?? 0,
       auto_published:       lastRun.items_published  || 0,
       queued_for_review:    lastRun.items_queued     || 0,
       rejected:             lastRun.items_rejected   || 0,
