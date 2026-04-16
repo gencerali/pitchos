@@ -1,5 +1,5 @@
 # Kartalix — Product Roadmap
-Last updated: April 7, 2026
+Last updated: April 17, 2026
 
 ---
 
@@ -714,7 +714,7 @@ Departed (monitor 1yr): Mert Günok (→ Fenerbahçe), Jean Onana (→ Genoa loa
 
 ## Revenue Model
 
-- **AdSense:** all tiers, apply Sprint 3 (site must be live)
+- **AdSense:** apply end of Sprint 4 (once individual article pages exist), approval ~6 weeks, live by Sprint 5
 - **Transfer Radar Pro:** early access + confidence history €3.99/month (Sprint 9)
 - **Club newsletter:** weekly digest €2.99/month per team (Sprint 9)
 - **White-label:** sell platform to club media teams (Sprint 10+)
@@ -774,92 +774,85 @@ Sprint 9-10: €5000+/month (platform scale)
 - Transfer Radar, Fan Pulse live from real article data
 - Code split: src/fetcher.js, src/processor.js, src/publisher.js, src/utils.js
 
-### 📋 Sprint 3 — Agent Foundation + Content Quality
+### ✅ Sprint 3 — Pipeline Reliability + Content Quality (COMPLETE — April 17, 2026)
 
-**Priority 1 — Qualify Agent v1 (most important)**
-Replace current single-prompt scoring with 3-judgment system:
-- 2A Relevance: Is BJK the primary subject? (not passing mention)
-- 2B Sentiment: Fan-friendly framing? Rival celebration?
-- 2C Value: NVS score with explicit fan priority rules
-- Create agent_learnings table in Supabase
-- Manual learning entry for first false positives caught
+**What was built:**
+- KV ceiling raised 8 → 30 → 50 articles (articles no longer silently dropped)
+- Permanent URL dedup against Supabase content_items (eliminated re-scoring cost, was €17/mo)
+- pubDate fix: original RSS published_at stored everywhere (KV + Supabase), no more fetch-time timestamps
+- Scoring prompt rewritten: 7 explicit NVS bands, age penalty (−15 at 24h, −30 at 48h), story-aware (last 24h published titles injected)
+- Post-scoring story dedup: highest-NVS article kept per story cluster, duplicates suppressed
+- feed_config + keyword_config moved to Supabase sites table (configurable without deploy)
+- Match templates T05/T08b/T09 rewritten as natural Turkish news prose via Haiku (SEO titles, clean URL slugs, fallback bodies)
+- Funnel reporting fixed (funnelStats saved on all run types, not just success)
+- Proxy feed pubDate bug fixed (empty string → null fallback)
 
-**Priority 2 — Produce Agent v1 (Readability pipeline)**
-- Move Readability enrichment to Render.com async job
-- Render fetches all published articles after Worker completes
-- Updates Supabase full_body + KV cache
-- No Worker timeout risk
-- All articles get full content (not just top 3)
+**Known gaps carrying forward:**
+- NEXT_MATCH is still hardcoded in worker — must update manually per match
+- Cron runs every 2h — breaking news lag up to 2h
+- No individual article pages — everything is SPA, nothing is shareable or indexable
+- No AdSense, no Google News, no sitemap
 
-**Priority 3 — Match Day template**
-- Auto-detect match day from bjk.com.tr
-- Extract: opponent, time (Istanbul), venue, TV channel, expected lineup, injuries
-- Publish structured match card at T-60min
+---
 
-**Priority 4 — Move config to Supabase**
-- feed_config JSONB: RSS feeds per team (remove from worker code)
-- keyword_config JSONB: BJK_KEYWORDS per team
-- scoring_config JSONB: NVS thresholds per team
-- Worker reads all config at runtime
-- Second team = INSERT one sites row only
+### 📋 Sprint 4 — "Make it shareable" (NEXT — unlock ads + SEO)
 
-**Priority 5 — Squad members seed**
-- Seed squad_members table with full BJK April 2026 roster
-- source_performance table created and populated
+**Goal: a fan should be able to share a specific article URL. Google should be able to index every story.**
 
-**Priority 6 — Legal + Monetization**
-- GDPR/KVKK cookie banner
-- Privacy policy page
-- Source attribution on every article
-- AdSense application (after kartalix.com live)
-- Google Search Console + Google News submission
-- Sitemap.xml auto-generated
+- Individual article pages: `/haber/[slug]` with full content
+- Meta tags + Open Graph per article (title, description, image)
+- NewsArticle structured data (JSON-LD) — Google News eligibility
+- Sitemap.xml auto-generated and submitted
+- RSS feed at kartalix.com/rss
+- Cron 2h → 30min (breaking news lag reduction)
+- WhatsApp + Twitter share buttons on every article
+- **Apply for Google AdSense** (needs real pages — start 6-week approval clock here)
+- **Submit to Google Search Console + Google News**
 
-**Known issues carrying from Sprint 2:**
-- NTV Spor Atom titles still empty in some cases
-- A Haber only 3 recent articles (feed has old content)
-- Rival content (FB celebrations) still appearing as top stories → fixed by Qualify Agent
+### 📋 Sprint 5 — "Make it reliable" (before 2nd team)
 
-### 📋 Sprint 4 — Distribution + SEO
-- NewsArticle structured data per article
-- Meta tags + Open Graph per article
-- RSS feed for kartalix.com/rss
-- Auto-tweet high NVS articles (@kartalix)
-- WhatsApp share buttons
-- Article URLs with SEO-friendly slugs
-- Distribute Agent v1: rules-based channel routing
+**Goal: zero manual intervention on match days. NEXT_MATCH never hardcoded again.**
 
-### 📋 Sprint 5 — Learning Engine + Match Automation
+- NEXT_MATCH auto-fetched from a football data API (API-Football or similar)
+- Post-Match result template: score + scorers auto-published at full time
+- Match day cron: auto-switches to 15min interval on match days (T-3h to FT+2h)
+- Result Flash template (T11): instant publish when final whistle detected in RSS
+- Squad keywords auto-rebuild when player row added/updated in Supabase
 - Pageview/click tracking per article (engagement_events table)
-- Learn Agent v1: weekly Supabase review, pattern extraction
-- Source engagement dashboard (source_performance updates)
-- Journalist accuracy tracker (rumor confirmed/failed)
-- Match day live blog (score API integration)
-- Full match day automation: pre-match → kickoff → half-time → full-time → analysis
-- Post-Match template
-- Squad auto-update via Transfermarkt RSS
-- Transfer prediction history dashboard
+- Source performance dashboard (which sources drive best NVS)
+- AdSense should be live and earning by end of this sprint
 
-### 📋 Sprint 6 — Console + Multi-Team Config
-- Console: source management UI per team (add/remove RSS feeds, test feed health)
-- Console: fetch schedule configuration per team
-- Console: squad management (add/edit/remove players, set status/role)
-- Console: keyword management — editable tag list, "Regenerate from squad" button, per-keyword article hit count
-- Console: agent learnings review and approval UI
-- Console: scoring threshold configuration (publish/review NVS thresholds per team)
-- fetch_config JSONB column in sites table
-- Auto-generate keyword_config from squad_members on player add/edit (Supabase function)
-- Scheduled weekly keyword refresh via Claude (name variations, nicknames, transliterations)
-- Transfer window auto-expand: targets/rumored players added to keywords during May–Aug, Jan–Feb
-- Qualify Agent v2: 3 sub-agents running in parallel
-- Learn Agent v2: automatic cross-team propagation
-- Team 2 onboarding (Galatasaray or Fenerbahçe)
+### 📋 Sprint 6 — "Make it scalable" (2nd team gate)
 
-### 📋 Sprint 7 — Scale to 5 Teams
+**Goal: onboard Team 2 from a console UI. Zero code changes.**
+
+- Console: add team (name, feeds, keywords, squad, thresholds)
+- Console: squad management (add/edit/remove players, status, position)
+- Console: keyword management — editable tag list, "Regenerate from squad" button
+- Console: scoring threshold configuration per team
+- Console: article review queue with admin feedback (→ agent_learnings)
+- Auto-generate keyword_config from squad_members (Supabase function)
+- Weekly keyword refresh via Claude (name variations, nicknames, transliterations)
+- Transfer window auto-expand: targets/rumored keywords active May–Aug, Jan–Feb
+- Team 2 onboarding end-to-end (Galatasaray or Fenerbahçe)
+- Learn Agent v1: weekly pattern extraction from engagement signals
+
+### 📋 Sprint 7 — Growth + Distribution
+
+- Auto-tweet high NVS articles (@kartalix)
+- Transfer Radar Pro (paid tier, €3.99/mo)
 - 3 more Turkish teams from console
 - Revenue dashboard cross-team
-- Social account discovery engine
-- Global vs team-specific learning split refined
+- Fan comment integration as learning signal
+- Cross-team learning propagation (global learnings applied to all teams)
+
+**Revenue checkpoint:**
+```
+After Sprint 4:  AdSense applied
+After Sprint 5:  AdSense live, €20-80/month
+After Sprint 6:  2 teams, €100-300/month
+After Sprint 7:  5 teams, €500-1500/month
+```
 - Onboarding playbook documented
 
 ### 📋 Sprint 8 — International Expansion
