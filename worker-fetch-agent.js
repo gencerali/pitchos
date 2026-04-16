@@ -543,8 +543,8 @@ async function processSite(site, env, ctx) {
 
     // Save to Supabase (best effort)
     try {
-      const top8forWrite = top30.slice(0, 8);
-      const allWritten = await writeArticles(top8forWrite, site, env);
+      const top30forWrite = top30.slice(0, 30);
+      const allWritten = await writeArticles(top30forWrite, site, env);
       console.log(`Write phase: ${allWritten.map(a => a.publish_mode).join(', ')}`);
 
       const publishThreshold = Math.min(site.auto_publish_threshold, 20);
@@ -652,7 +652,7 @@ async function buildReport(env) {
     by_content_type,
     scoring_distribution: dist,
     last_runs: lastRuns || [],
-    top_published: published.slice(0, 20),
+    top_published: published.slice(0, 30),
     top_rejected: rejected.slice(0, 10),
     all_fetched: items,
     queued_items: pending,

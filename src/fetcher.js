@@ -37,7 +37,7 @@ async function fetchViaRss2Json(feed) {
     const items = text.match(/<item[\s\S]*?<\/item>/g) || [];
     console.log(`PROXY [${feed.name}]: ${items.length} items parsed`);
 
-    return items.slice(0, 20).map(item => {
+    return items.slice(0, 30).map(item => {
       const title = item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i)?.[1]
                  || item.match(/<title>([^<]+)<\/title>/i)?.[1] || '';
       const url = item.match(/<link>([^<]+)<\/link>/i)?.[1]
