@@ -73,7 +73,10 @@ export async function fetchRSSArticles(site) {
   const allArticles = [];
   const bySource = {};
 
-  for (const feed of RSS_FEEDS) {
+  const feeds    = site.feed_config?.feeds       || RSS_FEEDS;
+  const keywords = site.keyword_config?.keywords || BJK_KEYWORDS;
+
+  for (const feed of feeds) {
     if (feed.proxy) {
       const proxyItems = await fetchViaRss2Json(feed);
       allArticles.push(...proxyItems);
@@ -82,7 +85,7 @@ export async function fetchRSSArticles(site) {
     }
 
     try {
-      const result = await fetchOneFeed(feed, site);
+      const result = await fetchOneFeed(feed, site, keywords);
       allArticles.push(...result.articles);
       const fs = result.feedStats;
       bySource[fs.name] = { raw: fs.raw, after_date: fs.after_date, after_keyword: fs.after_keyword };
@@ -94,7 +97,7 @@ export async function fetchRSSArticles(site) {
   return { articles: allArticles.slice(0, 100), bySource };
 }
 
-async function fetchOneFeed(feed, site) {
+async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS) {
   const sourceName = feed.name || feed.source;
   const trustTier  = feed.trust || feed.trust_tier || 'unknown';
   const feedSport  = feed.sport || 'football';
@@ -165,12 +168,12 @@ async function fetchOneFeed(feed, site) {
     // journalist/international feeds: BJK_KEYWORDS filter
     // general press feeds with keywordFilter flag: same filter
     if (trustTier === 'journalist' || trustTier === 'international' || feed.keywordFilter) {
-      if (!BJK_KEYWORDS.some(kw => haystack.includes(kw))) continue;
+      if (!keywords.some(kw => haystack.includes(kw))) continue;
     }
 
     // Sky Sports and other mixed-sport international feeds: must mention football or BJK
     if (feed.footballOnly) {
-      if (!haystack.includes('football') && !BJK_KEYWORDS.some(kw => haystack.includes(kw))) continue;
+      if (!haystack.includes('football') && !keywords.some(kw => haystack.includes(kw))) continue;
     }
 
     const summary   = stripHTML(rawDesc).slice(0, 500) || title;
