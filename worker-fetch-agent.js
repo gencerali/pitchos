@@ -462,11 +462,11 @@ async function processSite(site, env, ctx) {
   stats.claudeCalls++;
   addUsagePhase(stats, scoreUsage, MODEL_SCORE, 'scout');
 
-  const top30 = mergedScored.sort((a, b) => (b.nvs || 0) - (a.nvs || 0)).slice(0, 30);
-  stats.scored       = top30.length;
-  stats.rejected     = mergedScored.slice(30).length;
+  const top50 = mergedScored.sort((a, b) => (b.nvs || 0) - (a.nvs || 0)).slice(0, 50);
+  stats.scored       = top50.length;
+  stats.rejected     = mergedScored.slice(50).length;
   funnelStats.scored = mergedScored.length;
-  console.log(`${site.short_code}: scored ${mergedScored.length} → top 30 NVS: ${top30.map(a => a.nvs).join(', ')}`);
+  console.log(`${site.short_code}: scored ${mergedScored.length} → top 50 NVS: ${top50.map(a => a.nvs).join(', ')}`);
 
   // ── KV SHAPE HELPER ──────────────────────────────────────────
   const toKVShape = a => ({
@@ -493,7 +493,7 @@ async function processSite(site, env, ctx) {
 
   // ── KV WRITE IMMEDIATELY (before templates, enrichment, Supabase) ──
   const existing = await getCachedArticles(env, site.short_code);
-  const immediateKV = mergeAndDedupe([...top30, ...existing], 30).map(toKVShape);
+  const immediateKV = mergeAndDedupe([...top50, ...existing], 50).map(toKVShape);
   await cacheToKV(env, site.short_code, immediateKV);
   console.log('KV WRITE IMMEDIATE: done', immediateKV.length, 'articles');
 
@@ -506,7 +506,7 @@ async function processSite(site, env, ctx) {
         console.log('TEMPLATE 05: generating...');
         const card = await generateMatchDayCard(NEXT_MATCH, preFiltered, site, env);
         if (card) {
-          const withT = mergeAndDedupe([toKVShape(card), ...immediateKV], 30);
+          const withT = mergeAndDedupe([toKVShape(card), ...immediateKV], 50);
           await cacheToKV(env, site.short_code, withT);
           console.log('KV WRITE WITH TEMPLATE 05: done');
         }
@@ -524,7 +524,7 @@ async function processSite(site, env, ctx) {
         if (card) {
           const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
           const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-          await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 30));
+          await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 50));
           console.log('KV WRITE WITH TEMPLATE 08b: done');
         }
       }
@@ -535,7 +535,7 @@ async function processSite(site, env, ctx) {
         if (card) {
           const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
           const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-          await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 30));
+          await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 50));
           console.log('KV WRITE WITH TEMPLATE 09: done');
         }
       }
@@ -543,8 +543,8 @@ async function processSite(site, env, ctx) {
 
     // Save to Supabase (best effort)
     try {
-      const top30forWrite = top30.slice(0, 30);
-      const allWritten = await writeArticles(top30forWrite, site, env);
+      const top50forWrite = top50.slice(0, 50);
+      const allWritten = await writeArticles(top50forWrite, site, env);
       console.log(`Write phase: ${allWritten.map(a => a.publish_mode).join(', ')}`);
 
       const publishThreshold = Math.min(site.auto_publish_threshold, 20);
