@@ -675,6 +675,20 @@ Dynamic database of players, coaches, staff per team.
 - targets/rumored: active during transfer windows
 - Auto-generate name_variations for non-Latin names
 
+**Auto-generation of keyword_config (Sprint 6 target):**
+- On each squad_members INSERT/UPDATE, a Supabase function rebuilds keyword_config for that site
+- Generates name + name_variations + transliteration for every current/departed_1y/target member
+- Scheduled weekly Claude call: "Given this squad list, generate all name variations, nicknames, and common misspellings" → writes back to keyword_config JSONB
+- Departures automatically stop being monitored after 1 year (status → departed_2y drops them from active keywords)
+- Transfer window mode: targets + rumored players added to keyword list automatically during May–Aug and Jan–Feb windows
+
+**Team Console — keyword management (Sprint 6):**
+- Console shows keyword_config as an editable tag list per team
+- Add/remove individual keywords without touching SQL
+- "Regenerate from squad" button triggers the auto-generation flow above
+- Shows last updated timestamp and which keywords matched articles in the last 7 days (so dead keywords are visible)
+- Keyword performance: click through to articles each keyword triggered
+
 **Active BJK_KEYWORDS (April 2026):**
 beşiktaş, besiktas, bjk, kartal,
 ersin destanoğlu, devis vasquez, amir murillo, emmanuel agbadou,
@@ -827,12 +841,16 @@ Replace current single-prompt scoring with 3-judgment system:
 - Transfer prediction history dashboard
 
 ### 📋 Sprint 6 — Console + Multi-Team Config
-- Console: source management UI per team
+- Console: source management UI per team (add/remove RSS feeds, test feed health)
 - Console: fetch schedule configuration per team
-- Console: squad management (add/edit/remove players)
+- Console: squad management (add/edit/remove players, set status/role)
+- Console: keyword management — editable tag list, "Regenerate from squad" button, per-keyword article hit count
 - Console: agent learnings review and approval UI
-- Console: scoring threshold configuration
+- Console: scoring threshold configuration (publish/review NVS thresholds per team)
 - fetch_config JSONB column in sites table
+- Auto-generate keyword_config from squad_members on player add/edit (Supabase function)
+- Scheduled weekly keyword refresh via Claude (name variations, nicknames, transliterations)
+- Transfer window auto-expand: targets/rumored players added to keywords during May–Aug, Jan–Feb
 - Qualify Agent v2: 3 sub-agents running in parallel
 - Learn Agent v2: automatic cross-team propagation
 - Team 2 onboarding (Galatasaray or Fenerbahçe)
