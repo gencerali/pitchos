@@ -11,7 +11,7 @@
  */
 import { getActiveSites, addUsagePhase, sleep, isTodayArticle, supabase, MODEL_FETCH, MODEL_SCORE } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, RSS_FEEDS } from './src/fetcher.js';
-import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes } from './src/processor.js';
+import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup } from './src/publisher.js';
 
 // ─── NEXT MATCH CONFIG ────────────────────────────────────────
@@ -420,16 +420,25 @@ async function processSite(site, env, ctx) {
   const seenHashes = await getSeenHashes(env, site.short_code);
   const allFetched = [...rssArticles, ...webArticles, ...beINArticles, ...twitterArticles];
 
-  const { articles: preFiltered, counts: filterCounts } = preFilter(allFetched, seenHashes);
+  const { articles: afterPreFilter, counts: filterCounts } = preFilter(allFetched, seenHashes);
+
+  // ── URL DEDUP against Supabase (permanent, prevents re-scoring) ──
+  const seenUrls = await getSeenUrls(env, site.id);
+  const preFiltered = afterPreFilter.filter(a => {
+    const url = a.url || a.original_url || '';
+    if (!url || url === '#') return true;
+    return !seenUrls.has(url);
+  });
 
   const funnelStats = {
-    raw_fetched:   allFetched.length,
-    after_date:    filterCounts.after_date,
-    after_keyword: filterCounts.after_keyword,
-    after_hash:    filterCounts.after_hash,
-    after_title:   filterCounts.after_title,
-    scored:        0,
-    by_source:     bySource,
+    raw_fetched:      allFetched.length,
+    after_date:       filterCounts.after_date,
+    after_keyword:    filterCounts.after_keyword,
+    after_hash:       filterCounts.after_hash,
+    after_title:      filterCounts.after_title,
+    after_url_dedup:  preFiltered.length,
+    scored:           0,
+    by_source:        bySource,
   };
 
   stats.raw_fetched   = funnelStats.raw_fetched;
@@ -441,6 +450,7 @@ async function processSite(site, env, ctx) {
     ` → ${funnelStats.after_keyword} keyword` +
     ` → ${funnelStats.after_hash} hash` +
     ` → ${funnelStats.after_title} title-dedup` +
+    ` → ${funnelStats.after_url_dedup} url-dedup` +
     ` (RSS:${rssArticles.length} web:${webArticles.length} beIN:${beINArticles.length} twitter:${twitterArticles.length})`
   );
 
@@ -639,8 +649,9 @@ async function buildReport(env) {
       after_date_filter:    funnelData.after_date    || funnelData.raw_fetched || 0,
       after_keyword_filter: funnelData.after_keyword || funnelData.after_date  || 0,
       after_hash_dedup:     funnelData.after_hash    || funnelData.after_keyword || 0,
-      after_title_dedup:    funnelData.after_title   || funnelData.after_hash  || 0,
-      after_scoring:        funnelData.scored        || lastRun.items_scored   || 0,
+      after_title_dedup:    funnelData.after_title        || funnelData.after_hash  || 0,
+      after_url_dedup:      funnelData.after_url_dedup   || funnelData.after_title || 0,
+      after_scoring:        funnelData.scored             || lastRun.items_scored   || 0,
       auto_published:       lastRun.items_published  || 0,
       queued_for_review:    lastRun.items_queued     || 0,
       rejected:             lastRun.items_rejected   || 0,

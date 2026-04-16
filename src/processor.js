@@ -1,4 +1,4 @@
-import { simpleHash, callClaude, extractText, MODEL_SCORE } from './utils.js';
+import { simpleHash, callClaude, extractText, MODEL_SCORE, supabase } from './utils.js';
 
 export const BJK_REGEX  = /beşiktaş|besiktas|bjk|kartal|siyah.beyaz/i;
 export const CUTOFF_48H = 72 * 60 * 60 * 1000;
@@ -186,6 +186,12 @@ Return JSON array only. No markdown. No explanation outside JSON.`;
   return { scored: allScored, usage: totalUsage };
 }
 
+// ─── PERMANENT URL DEDUP (against Supabase) ──────────────────
+export async function getSeenUrls(env, siteId) {
+  const result = await supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${siteId}&select=original_url&limit=2000&order=created_at.desc`);
+  return new Set((result || []).map(r => r.original_url).filter(Boolean));
+}
+
 // ─── SEEN HASH CACHE ─────────────────────────────────────────
 export async function getSeenHashes(env, siteCode) {
   try {
@@ -201,7 +207,7 @@ export async function saveSeenHashes(env, siteCode, articles) {
       existing.add(simpleHash(a.title + (a.summary || '').slice(0, 100)));
     }
     const trimmed = [...existing].slice(-50);
-    await env.PITCHOS_CACHE.put(`seen:${siteCode}`, JSON.stringify(trimmed), { expirationTtl: 3600 });
+    await env.PITCHOS_CACHE.put(`seen:${siteCode}`, JSON.stringify(trimmed), { expirationTtl: 172800 });
   } catch (e) {
     console.error('saveSeenHashes failed:', e.message);
   }
