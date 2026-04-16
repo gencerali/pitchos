@@ -183,7 +183,7 @@ export async function saveArticles(env, siteId, articles) {
     publish_mode: a.publish_mode || 'rss_summary',
     status:       'published',
     reviewed_by:  'auto',
-    fetched_at:   a.fetched_at || new Date().toISOString(),
+    fetched_at:   a.published_at || a.fetched_at || new Date().toISOString(),
     reviewed_at:  new Date().toISOString(),
   }));
 

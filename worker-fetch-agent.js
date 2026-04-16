@@ -492,7 +492,7 @@ async function processSite(site, env, ctx) {
     category:            a.category     || 'Haber',
     nvs:                 a.nvs          || a.nvs_score   || 0,
     golden_score:        a.golden_score || null,
-    published_at:        a.published_at || a.fetched_at  || null,
+    published_at:        a.published_at || a.fetched_at  || new Date().toISOString(),
     is_fresh:            a.is_fresh     ?? true,
     is_kartalix_content: a.is_kartalix_content || false,
     sport:               a.sport        || 'football',
