@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Kartalix — Funnel Report</title>
+<title>Kartalix — Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet"/>
 <style>
 :root {
@@ -120,7 +121,7 @@ body {
 }
 
 .topbar-left {
-  display: flex; align-items: center; gap: 1rem;
+  display: flex; align-items: center; gap: 1.5rem;
 }
 
 .logo {
@@ -132,14 +133,27 @@ body {
 
 .logo span { color: var(--accent); }
 
-.badge {
-  font-size: 0.6rem;
-  letter-spacing: 0.15em;
-  text-transform: uppercase;
-  padding: 0.2rem 0.5rem;
-  border: 1px solid var(--border2);
-  color: var(--muted);
+.tab-nav {
+  display: flex; gap: 0;
 }
+
+.tab-btn {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  background: none;
+  border: none;
+  color: var(--muted);
+  padding: 0 1rem;
+  height: 52px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 .topbar-right {
   display: flex; align-items: center; gap: 1rem;
@@ -197,7 +211,6 @@ body {
 }
 
 .search-bar input:focus { border-color: var(--accent); }
-
 .search-bar input::placeholder { color: var(--muted); }
 
 .search-hint {
@@ -434,6 +447,12 @@ body {
 .tag.fact { background: var(--accent-dim); color: var(--accent); }
 .tag.rumor { background: var(--amber-dim); color: var(--amber); }
 .tag.analysis { background: var(--blue-dim); color: var(--blue); }
+
+/* release tags */
+.rtag { display: inline-block; font-size: 0.62rem; font-weight: 700; padding: 2px 7px; border-radius: 3px; margin-right: 6px; vertical-align: middle; letter-spacing: 0.08em; }
+.rtag-feat { background: var(--blue-dim); color: var(--blue); border: 1px solid #1d4ed850; }
+.rtag-fix  { background: var(--accent-dim); color: var(--accent); border: 1px solid #c8f13550; }
+.rtag-perf { background: var(--amber-dim); color: var(--amber); border: 1px solid #ffaa0050; }
 
 .nvs-badge {
   font-size: 0.58rem;
@@ -688,6 +707,36 @@ body {
   margin-top: 0.25rem;
 }
 
+/* ── ROADMAP MARKDOWN ── */
+.md-body { font-family: var(--mono); font-size: 14px; line-height: 1.75; color: #ccc; }
+.md-body h1 { font-family: var(--display); font-size: 26px; font-weight: 800; margin: 40px 0 16px; padding-bottom: 10px; border-bottom: 2px solid var(--accent); color: #fff; }
+.md-body h2 { font-family: var(--display); font-size: 18px; font-weight: 700; margin: 36px 0 12px; color: #fff; }
+.md-body h3 { font-family: var(--display); font-size: 15px; font-weight: 700; margin: 28px 0 10px; color: var(--text); }
+.md-body h4 { font-size: 12px; font-weight: 600; margin: 20px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.md-body p  { margin-bottom: 14px; }
+.md-body ul, .md-body ol { padding-left: 24px; margin-bottom: 14px; }
+.md-body li { margin-bottom: 5px; }
+.md-body strong { color: #fff; font-weight: 600; }
+.md-body em { color: var(--muted); }
+.md-body code { background: #1e1e1e; border: 1px solid var(--border2); padding: 2px 6px; border-radius: 3px; font-size: 12px; color: var(--accent); }
+.md-body pre  { background: #161616; border: 1px solid var(--border); padding: 16px; border-radius: 4px; overflow-x: auto; margin-bottom: 16px; }
+.md-body pre code { background: none; border: none; padding: 0; color: #a8d8a8; }
+.md-body hr  { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+.md-body blockquote { border-left: 3px solid var(--accent); padding: 10px 16px; background: #161616; border-radius: 0 4px 4px 0; margin-bottom: 14px; color: var(--muted); }
+.md-body table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
+.md-body th { background: #161616; padding: 9px 14px; text-align: left; font-weight: 600; color: #fff; border-bottom: 1px solid var(--border); }
+.md-body td { padding: 8px 14px; border-bottom: 1px solid var(--border2); }
+.md-body tr:hover td { background: #141414; }
+.sprint-done { color: var(--accent) !important; }
+.sprint-next { color: var(--amber) !important; }
+
+/* ── RELEASES ── */
+.release-card { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 24px; margin-bottom: 16px; }
+.release-card h3 { font-family: var(--display); font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.release-card .date { color: var(--muted); font-size: 12px; margin-bottom: 16px; letter-spacing: 0.06em; }
+.release-card ul { padding-left: 20px; }
+.release-card li { color: #ccc; font-size: 13px; margin-bottom: 6px; line-height: 1.5; }
+
 /* SCROLLBAR */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
@@ -709,7 +758,7 @@ body {
 <div id="auth-screen">
   <div class="auth-box">
     <div class="auth-logo">Kartalix<span style="color:var(--accent)">.</span></div>
-    <div class="auth-sub">Funnel Report · Internal</div>
+    <div class="auth-sub">Admin · Internal</div>
     <input type="password" id="pwd-input" placeholder="Enter password" onkeydown="if(event.key==='Enter')checkAuth()"/>
     <button class="auth-btn" onclick="checkAuth()">Access Dashboard</button>
     <div class="auth-err" id="auth-err">Incorrect password</div>
@@ -723,7 +772,11 @@ body {
   <div class="topbar">
     <div class="topbar-left">
       <div class="logo">Kartalix<span>.</span></div>
-      <div class="badge">Funnel Report</div>
+      <nav class="tab-nav">
+        <button class="tab-btn active" id="tab-report-btn" onclick="switchTab('report')">Report</button>
+        <button class="tab-btn" id="tab-roadmap-btn" onclick="switchTab('roadmap')">Roadmap</button>
+        <button class="tab-btn" id="tab-releases-btn" onclick="switchTab('releases')">Releases</button>
+      </nav>
       <div class="status-dot" id="status-dot"></div>
     </div>
     <div class="topbar-right">
@@ -732,17 +785,81 @@ body {
     </div>
   </div>
 
-  <!-- SEARCH -->
-  <div class="search-bar">
+  <!-- SEARCH (report only) -->
+  <div class="search-bar" id="search-bar">
     <input type="text" id="search-input" placeholder="Search articles across all sections..." oninput="filterArticles(this.value)"/>
     <div class="search-hint" id="search-hint">Type to filter all expanded articles</div>
   </div>
 
-  <!-- CONTENT -->
-  <div class="content" id="content">
-    <div class="loading-state">
-      <div class="loading-spinner"></div>
-      <div>Loading funnel data...</div>
+  <!-- TAB: REPORT -->
+  <div id="tab-report">
+    <div class="content" id="content">
+      <div class="loading-state">
+        <div class="loading-spinner"></div>
+        <div>Loading funnel data...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: ROADMAP -->
+  <div id="tab-roadmap" style="display:none">
+    <div class="content">
+      <div id="roadmap-content" class="md-body loading-state">
+        <div class="loading-spinner"></div>
+        <div>Loading roadmap...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TAB: RELEASES -->
+  <div id="tab-releases" style="display:none">
+    <div class="content">
+      <h2 style="font-family:var(--display);font-size:22px;font-weight:800;margin-bottom:8px">Release Notes</h2>
+      <p style="color:var(--muted);font-size:12px;letter-spacing:0.06em;margin-bottom:28px">Sprint changelog — updated per deployment.</p>
+
+      <div class="release-card">
+        <h3>Sprint 3 — Pipeline Reliability + Content Quality</h3>
+        <div class="date">April 17, 2026 &nbsp;·&nbsp; 12 commits</div>
+        <ul>
+          <li><span class="rtag rtag-fix">fix</span> KV ceiling raised 8 → 50 articles — no more silent article drops</li>
+          <li><span class="rtag rtag-perf">perf</span> Permanent URL dedup against Supabase — eliminated re-scoring cost (~€17/mo saved)</li>
+          <li><span class="rtag rtag-fix">fix</span> pubDate: original RSS published_at stored in KV + Supabase (was storing fetch time)</li>
+          <li><span class="rtag rtag-feat">feat</span> Scoring: 7-band NVS, age penalty (−15 @ 24h, −30 @ 48h), story-aware dedup prompt</li>
+          <li><span class="rtag rtag-feat">feat</span> Post-scoring story dedup — one article per story cluster (highest NVS wins)</li>
+          <li><span class="rtag rtag-feat">feat</span> feed_config + keyword_config moved to Supabase — configurable without deploy</li>
+          <li><span class="rtag rtag-feat">feat</span> Match templates T05/T08b/T09 rewritten as Haiku-generated Turkish news prose</li>
+          <li><span class="rtag rtag-fix">fix</span> Funnel reporting: funnelStats saved on all run types, ?? coalescing for 0 values</li>
+          <li><span class="rtag rtag-fix">fix</span> Proxy feed pubDate: empty string → null (was dropping all proxy articles)</li>
+          <li><span class="rtag rtag-feat">feat</span> Admin portal: Report + Roadmap + Releases in one page</li>
+        </ul>
+      </div>
+
+      <div class="release-card">
+        <h3>Sprint 2 — Content Quality</h3>
+        <div class="date">April 6, 2026 &nbsp;·&nbsp; 18 commits</div>
+        <ul>
+          <li><span class="rtag rtag-feat">feat</span> 12 RSS sources (team-specific + general with BJK filter)</li>
+          <li><span class="rtag rtag-feat">feat</span> Render.com proxy for blocked feeds (Fotomaç, A Spor)</li>
+          <li><span class="rtag rtag-feat">feat</span> Readability content extraction (Mozilla, self-hosted)</li>
+          <li><span class="rtag rtag-feat">feat</span> Golden Score + NVS scoring (Haiku, batch 10)</li>
+          <li><span class="rtag rtag-feat">feat</span> Hero carousel + article grid + modal</li>
+          <li><span class="rtag rtag-feat">feat</span> Real images via og:image extraction</li>
+          <li><span class="rtag rtag-feat">feat</span> Report dashboard</li>
+          <li><span class="rtag rtag-feat">feat</span> Transfer Radar + Fan Pulse from real article data</li>
+          <li><span class="rtag rtag-feat">feat</span> Code split: fetcher / processor / publisher / utils</li>
+        </ul>
+      </div>
+
+      <div class="release-card">
+        <h3>Sprint 1 — Live Pipeline</h3>
+        <div class="date">March 2026</div>
+        <ul>
+          <li><span class="rtag rtag-feat">feat</span> Cloudflare Worker fetch agent live</li>
+          <li><span class="rtag rtag-feat">feat</span> Claude API connected (Haiku scoring)</li>
+          <li><span class="rtag rtag-feat">feat</span> KV cache → fan site reads live news</li>
+          <li><span class="rtag rtag-feat">feat</span> Cron trigger, Supabase logging, NVS scoring</li>
+        </ul>
+      </div>
     </div>
   </div>
 
@@ -750,9 +867,11 @@ body {
 
 <script>
 const REPORT_URL = 'https://pitchos-fetch-agent.gencerali.workers.dev/report';
+const RAW_ROADMAP = 'https://raw.githubusercontent.com/gencerali/pitchos/main/ROADMAP.md';
 const PASSWORD = 'kartalix2026';
 let reportData = null;
 let searchTerm = '';
+let roadmapLoaded = false;
 
 // ── AUTH ──────────────────────────────────────────────────────
 function checkAuth() {
@@ -773,6 +892,17 @@ if (sessionStorage.getItem('kartalix-auth')) {
   document.getElementById('app').style.display = 'block';
 }
 
+// ── TABS ──────────────────────────────────────────────────────
+function switchTab(name) {
+  ['report','roadmap','releases'].forEach(t => {
+    document.getElementById('tab-' + t).style.display = t === name ? 'block' : 'none';
+    document.getElementById('tab-' + t + '-btn').classList.toggle('active', t === name);
+  });
+  document.getElementById('search-bar').style.display = name === 'report' ? 'flex' : 'none';
+  document.getElementById('refresh-btn').style.display = name === 'report' ? 'block' : 'none';
+  if (name === 'roadmap' && !roadmapLoaded) loadRoadmap();
+}
+
 // ── LOAD REPORT ──────────────────────────────────────────────
 async function loadReport() {
   const btn = document.getElementById('refresh-btn');
@@ -791,7 +921,6 @@ async function loadReport() {
       <div class="error-state">
         ⚠ Could not load report<br>
         <small style="color:var(--muted);margin-top:0.5rem;display:block">${e.message}</small>
-        <small style="color:var(--muted);display:block">Make sure /report endpoint is deployed</small>
       </div>`;
   } finally {
     btn.disabled = false;
@@ -799,7 +928,26 @@ async function loadReport() {
   }
 }
 
-// ── RENDER ───────────────────────────────────────────────────
+// ── LOAD ROADMAP ──────────────────────────────────────────────
+async function loadRoadmap() {
+  const el = document.getElementById('roadmap-content');
+  try {
+    const r = await fetch(RAW_ROADMAP + '?t=' + Date.now());
+    if (!r.ok) throw new Error('fetch failed');
+    const md = await r.text();
+    el.innerHTML = marked.parse(md);
+    el.className = 'md-body';
+    el.querySelectorAll('h3').forEach(h => {
+      if (h.textContent.includes('✅')) h.classList.add('sprint-done');
+      if (h.textContent.includes('📋')) h.classList.add('sprint-next');
+    });
+    roadmapLoaded = true;
+  } catch(e) {
+    el.innerHTML = '<div class="error-state">Could not load roadmap — check GitHub repo visibility.</div>';
+  }
+}
+
+// ── RENDER REPORT ─────────────────────────────────────────────
 function renderReport(d) {
   const f = d.funnel || {};
   const sources = d.by_source || [];
@@ -810,6 +958,7 @@ function renderReport(d) {
   const published = d.top_published || [];
   const rejected = d.top_rejected || [];
   const all_fetched = d.all_fetched || [];
+  const publishedCount = d.published_count ?? published.length;
 
   const maxFetched = f.total_fetched || 1;
 
@@ -828,9 +977,9 @@ function renderReport(d) {
         <div class="stat-sub">${pct(f.after_title_dedup, f.total_fetched)}% passed filters</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Published</div>
-        <div class="stat-value green">${f.auto_published || 0}</div>
-        <div class="stat-sub">${pct(f.auto_published, f.after_title_dedup)}% of filtered</div>
+        <div class="stat-label">Published (All Time)</div>
+        <div class="stat-value green">${publishedCount}</div>
+        <div class="stat-sub">${pct(f.auto_published, f.after_title_dedup)}% of filtered this run</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Last Run Cost</div>
@@ -1101,11 +1250,18 @@ function articleCards(items, limit) {
       <div class="article-timestamps">
         ${a.fetched_at ? `<div class="ts-item">Fetched <strong>${fmtDateTime(a.fetched_at)}</strong></div>` : ''}
         ${a.reviewed_at ? `<div class="ts-item">Published <strong>${fmtDateTime(a.reviewed_at)}</strong></div>` : ''}
-        ${a.time_in_queue_seconds ? `<div class="ts-item">Queue time <strong>${a.time_in_queue_seconds}s</strong></div>` : ''}
         ${a.original_url && a.original_url !== '#' ? `<a class="article-url" href="${esc(a.original_url)}" target="_blank" rel="noopener">↗ Source</a>` : ''}
       </div>
     </div>
-  `).join('') + (remaining > 0 ? `<div class="load-more"><button onclick="loadMore(this, ${JSON.stringify(items).replace(/'/g,"\\'")} )">Load ${remaining} more</button></div>` : '');
+  `).join('') + (remaining > 0 ? `<div class="load-more"><button onclick="loadMoreCards(this, ${JSON.stringify(items.slice(limit))})">Load ${remaining} more</button></div>` : '');
+}
+
+function loadMoreCards(btn, items) {
+  const wrap = btn.parentElement.parentElement;
+  const newCards = document.createElement('div');
+  newCards.innerHTML = articleCards(items, items.length);
+  btn.parentElement.remove();
+  wrap.appendChild(newCards);
 }
 
 function distRow(label, val, dist, color) {
@@ -1203,7 +1359,10 @@ function filterArticles(term) {
 
 // ── AUTO REFRESH ──────────────────────────────────────────────
 setInterval(() => {
-  if (document.getElementById('app').style.display !== 'none') loadReport();
+  if (document.getElementById('app').style.display !== 'none' &&
+      document.getElementById('tab-report').style.display !== 'none') {
+    loadReport();
+  }
 }, 5 * 60 * 1000);
 
 // Init if already authed

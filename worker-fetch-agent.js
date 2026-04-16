@@ -583,10 +583,11 @@ async function processSite(site, env, ctx) {
 
 // ─── REPORT ──────────────────────────────────────────────────
 async function buildReport(env) {
-  const [lastRuns, contentItems, cachedRaw] = await Promise.all([
+  const [lastRuns, contentItems, cachedRaw, publishedCountResult] = await Promise.all([
     supabase(env, 'GET', '/rest/v1/fetch_logs?site_id=eq.2b5cfe49-b69a-4143-8323-ca29fff6502e&order=created_at.desc&limit=5&select=*'),
     supabase(env, 'GET', '/rest/v1/content_items?site_id=eq.2b5cfe49-b69a-4143-8323-ca29fff6502e&order=created_at.desc&limit=200&select=id,title,source_name,category,content_type,nvs_score,status,fetched_at,reviewed_at,original_url,nvs_notes'),
     env.PITCHOS_CACHE.get('articles:BJK'),
+    supabase(env, 'GET', '/rest/v1/content_items?site_id=eq.2b5cfe49-b69a-4143-8323-ca29fff6502e&status=eq.published&select=count()'),
   ]);
 
   const cached = cachedRaw ? JSON.parse(cachedRaw) : [];
@@ -675,5 +676,6 @@ async function buildReport(env) {
     top_rejected: rejected.slice(0, 10),
     all_fetched: items,
     queued_items: pending,
+    published_count: parseInt(publishedCountResult?.[0]?.count || 0),
   };
 }
