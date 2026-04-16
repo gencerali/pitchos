@@ -85,6 +85,15 @@ export function dedupeByTitle(articles) {
   return kept;
 }
 
+// ─── FETCH RECENTLY PUBLISHED TITLES (for story-aware scoring) ──
+export async function getRecentPublishedTitles(env, siteId) {
+  try {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const result = await supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${siteId}&status=eq.published&fetched_at=gte.${since}&select=title&limit=50&order=fetched_at.desc`);
+    return (result || []).map(r => r.title).filter(Boolean);
+  } catch { return []; }
+}
+
 // ─── SCORE ARTICLES (batch NVS) ──────────────────────────────
 export async function scoreArticles(articles, site, env) {
   const CHUNK = 10;
@@ -97,11 +106,15 @@ export async function scoreArticles(articles, site, env) {
   let totalUsage = { input_tokens: 0, output_tokens: 0 };
 
   const now = Date.now();
+  const recentTitles = await getRecentPublishedTitles(env, site.id);
+  const recentBlock = recentTitles.length > 0
+    ? `\nALREADY PUBLISHED in last 24h (avoid scoring duplicates high — same story covered = band -1):\n${recentTitles.map((t, i) => `- ${t}`).join('\n')}\n`
+    : '';
 
   for (const chunk of chunks) {
     const prompt = `You are the editorial AI for Kartalix, a Beşiktaş JK fan news site.
 Score each article for BJK fans using the NVS bands below. Return ONLY a JSON array, no other text.
-
+${recentBlock}
 Articles to evaluate:
 ${chunk.map((a, i) => {
   const ageH = a.published_at ? Math.round((now - new Date(a.published_at).getTime()) / 3600000) : null;
