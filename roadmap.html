@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kartalix — Internal Portal</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    :root {
+      --red:    #E30A17;
+      --black:  #1a1a1a;
+      --bg:     #0f0f0f;
+      --surface:#1c1c1c;
+      --border: #2e2e2e;
+      --text:   #e8e8e8;
+      --muted:  #888;
+      --green:  #22c55e;
+      --yellow: #eab308;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 15px; line-height: 1.7; }
+
+    /* ── Auth Gate ── */
+    #gate {
+      position: fixed; inset: 0; background: var(--bg);
+      display: flex; align-items: center; justify-content: center; z-index: 999;
+    }
+    .gate-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 40px; width: 340px; text-align: center; }
+    .gate-box h2 { font-size: 22px; margin-bottom: 6px; }
+    .gate-box p  { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+    .gate-box input { width: 100%; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 15px; outline: none; }
+    .gate-box input:focus { border-color: var(--red); }
+    .gate-box button { width: 100%; margin-top: 12px; background: var(--red); color: #fff; border: none; padding: 11px; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .gate-box button:hover { opacity: 0.9; }
+    .gate-err { color: var(--red); font-size: 13px; margin-top: 10px; display: none; }
+
+    /* ── Layout ── */
+    #app { display: none; }
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 32px; display: flex; align-items: center; justify-content: space-between; height: 56px; position: sticky; top: 0; z-index: 100; }
+    .logo { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; color: #fff; }
+    .logo span { color: var(--red); }
+    .badge { background: var(--red); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 4px; margin-left: 10px; letter-spacing: 0.5px; }
+    nav { display: flex; gap: 4px; }
+    nav button { background: none; border: none; color: var(--muted); padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.15s; }
+    nav button:hover { color: var(--text); background: var(--border); }
+    nav button.active { color: #fff; background: var(--border); }
+
+    main { max-width: 900px; margin: 0 auto; padding: 40px 24px 80px; }
+
+    /* ── Markdown styles ── */
+    .md-body h1 { font-size: 28px; font-weight: 800; margin: 40px 0 16px; padding-bottom: 10px; border-bottom: 2px solid var(--red); color: #fff; }
+    .md-body h2 { font-size: 20px; font-weight: 700; margin: 36px 0 12px; color: #fff; }
+    .md-body h3 { font-size: 16px; font-weight: 700; margin: 28px 0 10px; color: var(--text); }
+    .md-body h4 { font-size: 14px; font-weight: 600; margin: 20px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .md-body p  { margin-bottom: 14px; color: #ccc; }
+    .md-body ul, .md-body ol { padding-left: 24px; margin-bottom: 14px; }
+    .md-body li { margin-bottom: 5px; color: #ccc; }
+    .md-body li li { margin-bottom: 3px; }
+    .md-body strong { color: #fff; font-weight: 600; }
+    .md-body em { color: var(--muted); }
+    .md-body code { background: #2a2a2a; border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #f87171; font-family: 'Cascadia Code', 'Fira Code', monospace; }
+    .md-body pre  { background: #1a1a1a; border: 1px solid var(--border); padding: 18px; border-radius: 8px; overflow-x: auto; margin-bottom: 18px; }
+    .md-body pre code { background: none; border: none; padding: 0; color: #a8d8a8; font-size: 13px; }
+    .md-body hr  { border: none; border-top: 1px solid var(--border); margin: 36px 0; }
+    .md-body blockquote { border-left: 3px solid var(--red); padding: 10px 16px; background: #1e1e1e; border-radius: 0 6px 6px 0; margin-bottom: 14px; color: var(--muted); }
+    .md-body table { width: 100%; border-collapse: collapse; margin-bottom: 18px; font-size: 14px; }
+    .md-body th { background: #222; padding: 10px 14px; text-align: left; font-weight: 600; color: #fff; border-bottom: 1px solid var(--border); }
+    .md-body td { padding: 9px 14px; border-bottom: 1px solid #222; color: #ccc; }
+    .md-body tr:hover td { background: #1e1e1e; }
+
+    /* ── Sprint status badges ── */
+    .md-body h3 { position: relative; }
+    .sprint-done  { color: var(--green) !important; }
+    .sprint-next  { color: var(--yellow) !important; }
+
+    /* ── Releases tab ── */
+    .release-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin-bottom: 20px; }
+    .release-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+    .release-card .date { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
+    .release-card ul { padding-left: 20px; }
+    .release-card li { color: #ccc; font-size: 14px; margin-bottom: 5px; }
+    .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; margin-right: 6px; vertical-align: middle; }
+    .tag-feat  { background: #1d4ed820; color: #60a5fa; border: 1px solid #1d4ed850; }
+    .tag-fix   { background: #15803d20; color: #4ade80; border: 1px solid #15803d50; }
+    .tag-perf  { background: #92400e20; color: #fbbf24; border: 1px solid #92400e50; }
+
+    /* ── Status tab ── */
+    .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+    .stat-card .label { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .stat-card .value { font-size: 28px; font-weight: 800; color: #fff; }
+    .stat-card .sub   { font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .dot-green  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot-yellow { background: var(--yellow); }
+    .dot-red    { background: var(--red); }
+
+    .loading { color: var(--muted); text-align: center; padding: 60px 0; font-size: 14px; }
+  </style>
+</head>
+<body>
+
+<!-- Auth Gate -->
+<div id="gate">
+  <div class="gate-box">
+    <h2>🦅 Kartalix Portal</h2>
+    <p>Internal roadmap &amp; release notes</p>
+    <input type="password" id="pwInput" placeholder="Password" onkeydown="if(event.key==='Enter')checkPw()">
+    <button onclick="checkPw()">Enter</button>
+    <div class="gate-err" id="gateErr">Wrong password</div>
+  </div>
+</div>
+
+<!-- App -->
+<div id="app">
+  <header>
+    <div style="display:flex;align-items:center">
+      <div class="logo">Kartal<span>ix</span></div>
+      <div class="badge">INTERNAL</div>
+    </div>
+    <nav>
+      <button class="active" onclick="showTab('roadmap',this)">Roadmap</button>
+      <button onclick="showTab('releases',this)">Releases</button>
+      <button onclick="showTab('status',this)">Status</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Roadmap -->
+    <div id="tab-roadmap">
+      <div id="roadmapContent" class="md-body loading">Loading roadmap...</div>
+    </div>
+
+    <!-- Releases -->
+    <div id="tab-releases" style="display:none">
+      <h2 style="font-size:24px;font-weight:800;margin-bottom:8px">Release Notes</h2>
+      <p style="color:var(--muted);margin-bottom:32px;font-size:14px">Auto-generated from git commits on deploy.</p>
+
+      <div class="release-card">
+        <h3>Sprint 3 — Pipeline Reliability + Content Quality</h3>
+        <div class="date">April 17, 2026 &nbsp;·&nbsp; 12 commits</div>
+        <ul>
+          <li><span class="tag tag-fix">fix</span> KV ceiling raised 8 → 50 articles — no more silent drops</li>
+          <li><span class="tag tag-perf">perf</span> Permanent URL dedup against Supabase — eliminated €17/mo re-scoring cost</li>
+          <li><span class="tag tag-fix">fix</span> pubDate: original RSS published_at stored in KV + Supabase (was fetch time)</li>
+          <li><span class="tag tag-feat">feat</span> Scoring: 7-band NVS, age penalty (−15@24h, −30@48h), story-aware dedup</li>
+          <li><span class="tag tag-feat">feat</span> Post-scoring story dedup — highest-NVS article per story cluster only</li>
+          <li><span class="tag tag-feat">feat</span> feed_config + keyword_config moved to Supabase (configurable without deploy)</li>
+          <li><span class="tag tag-feat">feat</span> Match templates T05/T08b/T09 rewritten as Haiku-generated Turkish news prose</li>
+          <li><span class="tag tag-fix">fix</span> Funnel reporting: funnelStats saved on all run types, ?? coalescing for 0 values</li>
+          <li><span class="tag tag-fix">fix</span> Proxy feed pubDate: empty string → null (was causing all proxy articles to fail date filter)</li>
+        </ul>
+      </div>
+
+      <div class="release-card">
+        <h3>Sprint 2 — Content Quality</h3>
+        <div class="date">April 6, 2026 &nbsp;·&nbsp; 18 commits</div>
+        <ul>
+          <li><span class="tag tag-feat">feat</span> 12 RSS sources (team-specific + general with BJK filter)</li>
+          <li><span class="tag tag-feat">feat</span> Render.com proxy for blocked feeds (Fotomaç, A Spor)</li>
+          <li><span class="tag tag-feat">feat</span> Readability content extraction (Mozilla, self-hosted)</li>
+          <li><span class="tag tag-feat">feat</span> Golden Score + NVS scoring (Haiku, batch 10)</li>
+          <li><span class="tag tag-feat">feat</span> Hero carousel + article grid + modal</li>
+          <li><span class="tag tag-feat">feat</span> Real images via og:image extraction</li>
+          <li><span class="tag tag-feat">feat</span> Report dashboard (report.html)</li>
+          <li><span class="tag tag-feat">feat</span> Transfer Radar + Fan Pulse from real article data</li>
+          <li><span class="tag tag-feat">feat</span> Code split: fetcher / processor / publisher / utils</li>
+        </ul>
+      </div>
+
+      <div class="release-card">
+        <h3>Sprint 1 — Live Pipeline</h3>
+        <div class="date">March 2026</div>
+        <ul>
+          <li><span class="tag tag-feat">feat</span> Cloudflare Worker fetch agent live</li>
+          <li><span class="tag tag-feat">feat</span> Claude API connected (Haiku scoring)</li>
+          <li><span class="tag tag-feat">feat</span> KV cache → fan site reads live news</li>
+          <li><span class="tag tag-feat">feat</span> Cron trigger, Supabase logging, NVS scoring</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div id="tab-status" style="display:none">
+      <h2 style="font-size:24px;font-weight:800;margin-bottom:8px">System Status</h2>
+      <p style="color:var(--muted);margin-bottom:28px;font-size:14px">Live data from pipeline endpoints.</p>
+
+      <div class="status-grid" id="statusGrid">
+        <div class="stat-card"><div class="label">Pipeline</div><div class="value" id="st-pipeline">—</div><div class="sub" id="st-pipeline-sub">checking...</div></div>
+        <div class="stat-card"><div class="label">KV Cache</div><div class="value" id="st-kv">—</div><div class="sub">articles in cache</div></div>
+        <div class="stat-card"><div class="label">Last Run Funnel</div><div class="value" id="st-fetched">—</div><div class="sub" id="st-funnel-sub">fetched → scored</div></div>
+        <div class="stat-card"><div class="label">Published (DB)</div><div class="value" id="st-published">—</div><div class="sub">total in Supabase</div></div>
+      </div>
+
+      <div id="statusDetail" class="md-body" style="color:var(--muted);font-size:14px"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+  const PW = 'kartalix2026';
+  const WORKER = 'https://pitchos-fetch-agent.gencerali.workers.dev';
+  const RAW_ROADMAP = 'https://raw.githubusercontent.com/gencerali/pitchos/main/ROADMAP.md';
+
+  function checkPw() {
+    const val = document.getElementById('pwInput').value;
+    if (val === PW) {
+      document.getElementById('gate').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      loadRoadmap();
+    } else {
+      document.getElementById('gateErr').style.display = 'block';
+    }
+  }
+
+  function showTab(name, btn) {
+    ['roadmap','releases','status'].forEach(t => {
+      document.getElementById('tab-' + t).style.display = t === name ? 'block' : 'none';
+    });
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    if (name === 'status') loadStatus();
+  }
+
+  async function loadRoadmap() {
+    const el = document.getElementById('roadmapContent');
+    try {
+      const r = await fetch(RAW_ROADMAP + '?t=' + Date.now());
+      if (!r.ok) throw new Error('fetch failed');
+      const md = await r.text();
+      el.innerHTML = marked.parse(md);
+      el.className = 'md-body';
+      // Colour sprint status headings
+      el.querySelectorAll('h3').forEach(h => {
+        if (h.textContent.includes('✅')) h.classList.add('sprint-done');
+        if (h.textContent.includes('📋')) h.classList.add('sprint-next');
+      });
+    } catch(e) {
+      el.innerHTML = '<p style="color:var(--red)">Could not load roadmap. Check GitHub repo visibility or try again.</p>';
+    }
+  }
+
+  async function loadStatus() {
+    try {
+      const r = await fetch(WORKER + '/report');
+      const data = await r.json();
+      const f = data.funnel || {};
+      const pub = data.top_published || [];
+
+      document.getElementById('st-kv').textContent       = f.final_in_cache ?? '—';
+      document.getElementById('st-fetched').textContent  = f.total_fetched ?? '—';
+      document.getElementById('st-published').textContent = (data.all_fetched || []).filter(a => a.status === 'published').length || pub.length || '—';
+      document.getElementById('st-pipeline').innerHTML   = '<span class="status-dot dot-green"></span>Live';
+      document.getElementById('st-pipeline-sub').textContent = 'cron every 2h';
+      document.getElementById('st-funnel-sub').textContent =
+        `${f.total_fetched??0} fetched → ${f.after_url_dedup??0} new → ${f.after_scoring??0} scored`;
+
+      const lastRun = (data.last_runs || [])[0];
+      if (lastRun) {
+        document.getElementById('statusDetail').innerHTML =
+          `<p>Last run: <strong>${new Date(lastRun.created_at).toLocaleString('tr-TR')}</strong> &nbsp;·&nbsp; ` +
+          `Status: <strong style="color:${lastRun.status==='success'?'var(--green)':'var(--yellow)'}">` +
+          `${lastRun.status}</strong> &nbsp;·&nbsp; ` +
+          `Cost: <strong>€${(lastRun.estimated_cost_eur||0).toFixed(4)}</strong></p>`;
+      }
+    } catch(e) {
+      document.getElementById('st-pipeline').innerHTML = '<span class="status-dot dot-red"></span>Error';
+      document.getElementById('statusDetail').innerHTML = `<p style="color:var(--red)">Could not reach worker: ${e.message}</p>`;
+    }
+  }
+</script>
+</body>
+</html>
