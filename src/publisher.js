@@ -307,7 +307,7 @@ function weatherEmoji(icon) {
 export async function generateMatchDayCard(match, cachedArticles, site, env) {
   const platformName  = site?.display_name || site?.name || 'Kartalix';
   const platformEmoji = site?.emoji || '🦅';
-  // Extract injury/suspension info from cached articles
+
   const injuryArticles = (cachedArticles || [])
     .filter(a => {
       const text = ((a.title || '') + ' ' + (a.summary || '')).toLowerCase();
@@ -315,109 +315,95 @@ export async function generateMatchDayCard(match, cachedArticles, site, env) {
               text.includes('kadro dışı') || text.includes('yok')) &&
              (text.includes('beşiktaş') || text.includes('bjk'));
     })
-    .slice(0, 3);
+    .slice(0, 4);
 
-  // Fetch weather for match location
   const weather = await fetchWeather(match.venue_lat, match.venue_lon, env);
 
-
-  // Extract injury info via Haiku if we have articles
   const squadNames = [
-    'Ersin Destanoğlu', 'Mert Günok', 'Vasquez', 'Murillo', 'Agbadou', 'Djalo', 'Uduokhai',
-    'Emirhan İlkhan', 'Rıdvan Yılmaz', 'Taylan Antalyalı', 'Sazdağı', 'Salih Uçan',
-    'Orkun Kökçü', 'Ndidi', 'Asllani', 'Kartal Kayra', 'Rashica', 'Olaitan',
-    'Cerny', 'Abraham', 'El Bilal Touré', 'Oh Se-hun', 'Jota', 'Cengiz Ünder',
-    'Hekimoğlu', 'Sergen', 'Yalçın',
+    'Ersin Destanoğlu', 'Vasquez', 'Murillo', 'Agbadou', 'Djalo', 'Uduokhai',
+    'Emirhan Topçu', 'Rıdvan Yılmaz', 'Taylan Bulut', 'Sazdağı', 'Salih Uçan',
+    'Orkun Kökçü', 'Ndidi', 'Asllani', 'Kartal Kayra Yılmaz', 'Rashica', 'Olaitan',
+    'Cerny', 'Abraham', 'El Bilal Touré', 'Hyeon-gyu Oh', 'Jota', 'Cengiz Ünder', 'Hekimoğlu',
   ];
+
   let parsed = { cezalilar: [], sakatlıklar: [] };
   if (injuryArticles.length > 0) {
     try {
-      const injuryPrompt = `Aşağıdaki Beşiktaş haberlerinden
-${match.opponent} maçı için kesin olarak eksik olan
-oyuncuları çıkar.
+      const injuryPrompt = `Aşağıdaki Beşiktaş haberlerinden ${match.opponent} maçı için kesin eksik oyuncuları çıkar.
+SADECE bu listeden isim kullan: ${squadNames.join(', ')}
+Emin değilsen o ismi yazma. Sadece JSON döndür:
+{"cezalilar":["tam isim"],"sakatlıklar":["tam isim"]}
 
-SADECE bu listedeki oyuncu isimlerini kullan:
-${squadNames.slice(0,30).join(', ')}
+${injuryArticles.map(a => `Başlık: ${a.title}\n${(a.full_body||a.summary||'').slice(0,300)}`).join('\n\n')}`;
 
-Listede olmayan isim YAZMA. Emin değilsen null yaz.
-Sadece JSON döndür:
-{"cezalilar": ["tam isim"], "sakatlıklar": ["tam isim"]}
-
-Haberler:
-${injuryArticles.map(a =>
-  'Başlık: ' + a.title + '\n' +
-  (a.full_body || a.summary || '').slice(0, 300)
-).join('\n\n')}`;
-
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': env.ANTHROPIC_API_KEY,
-          'anthropic-version': '2023-06-01',
-        },
-        signal: AbortSignal.timeout(8000),
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 200,
-          messages: [{ role: 'user', content: injuryPrompt }],
-        }),
-      });
-      const data = await response.json();
-      try {
-        const rawText = data.content?.[0]?.text || '{}';
-        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          parsed = JSON.parse(jsonMatch[0]);
-        }
-      } catch(e) {
-        console.error('Injury JSON parse error:', e.message);
-        console.error('Raw text was:', data.content?.[0]?.text?.slice(0, 200));
-      }
-      parsed.cezalilar = parsed.cezalilar || [];
+      const res  = await callClaude(env, 'claude-haiku-4-5-20251001', injuryPrompt, false, 300);
+      const text = extractText(res.content);
+      const m    = text.match(/\{[\s\S]*\}/);
+      if (m) parsed = JSON.parse(m[0]);
+      parsed.cezalilar  = parsed.cezalilar  || [];
       parsed.sakatlıklar = (parsed.sakatlıklar || []).filter(p => !parsed.cezalilar.includes(p));
-    } catch(e) {
-      console.error('Injury extraction error:', e.message);
-    }
+    } catch(e) { console.error('Injury extraction error:', e.message); }
   }
 
-  // Build match day card body
-  const matchDate = match.date.split('-').reverse().join('.');
-  const homeAway = match.home ? 'ev sahibi sıfatıyla' : 'deplasmanda';
-  const venueText = match.home
-    ? `Tüpraş Stadyumu'nda`
-    : `${match.venue_city}'de ${match.venue}'da`;
-
-  const injuryText = [];
-  if (parsed.cezalilar?.length)
-    injuryText.push(`${parsed.cezalilar.join(' ve ')} cezalı`);
-  if (parsed.sakatlıklar?.length)
-    injuryText.push(`${parsed.sakatlıklar.join(' ve ')} sakat`);
-  const eksikText = injuryText.length
-    ? injuryText.join(', ') + ' olduğu için kadroda yer alamayacak.'
-    : 'Kadro eksiği bulunmuyor.';
-
-  const weatherText = weather
-    ? `Maç saatinde ${match.venue_city} genelinde ${weather.description} bekleniyor, sıcaklık ${weather.temp}°C.`
+  // Build context strings for the prose prompt
+  const matchDate   = new Date(match.date).toLocaleDateString('tr-TR', { day:'numeric', month:'long', year:'numeric' });
+  const homeAway    = match.home ? 'ev sahibi olarak' : 'deplasmanda';
+  const venueText   = match.home ? `Tüpraş Stadyumu` : `${match.venue}, ${match.venue_city}`;
+  const eksikler    = [
+    ...(parsed.cezalilar||[]).map(p => `${p} (cezalı)`),
+    ...(parsed.sakatlıklar||[]).map(p => `${p} (sakat)`),
+  ];
+  const eksikText   = eksikler.length ? eksikler.join(', ') : 'yok';
+  const weatherCtx  = weather
+    ? `Hava durumu: ${weather.description}, ${weather.temp}°C, rüzgar ${weather.wind} km/s`
     : '';
 
-  const body = `Trendyol Süper Lig'in ${match.week}. haftasında ${match.team}, bu akşam saat ${match.time}'de ${venueText} ${match.opponent}'u ağırlayacak.
+  // Haiku writes the full article body as natural Turkish news prose
+  const prosePrompt = `Sen Kartalix'in spor editörüsün. Aşağıdaki bilgileri kullanarak doğal, akıcı Türkçe bir maç önizleme haberi yaz.
 
-${weatherText}
+MAÇ BİLGİLERİ:
+- Ev sahibi/Deplasman: Beşiktaş ${homeAway}
+- Rakip: ${match.opponent}
+- Tarih: ${matchDate}, Saat: ${match.time}
+- Stat: ${venueText}
+- Lig/Kupa: ${match.league}${match.week ? ', ' + match.week + '. Hafta' : ''}
+- Yayıncı: ${match.tv}
+- Eksik oyuncular: ${eksikText}
+${weatherCtx ? '- ' + weatherCtx : ''}
 
-Maç ${match.tv} ekranlarından canlı yayınlanacak.
+YAZI KURALLARI:
+- 3-4 kısa paragraf, toplam ~180-220 kelime
+- İlk paragraf: maçı ve önemi tanıt (ne zaman, nerede, ne için)
+- İkinci paragraf: kısa bağlam — Beşiktaş'ın bu maçtaki durumu, puan tablosundaki yeri veya kupa hedefi
+- Üçüncü paragraf: eksik oyuncular ve kadro durumu (yoksa "tam kadro" de)
+- Son cümle: yayın bilgisi + taraftara çağrı
+- Emoji KULLANMA, başlık/madde listesi KULLANMA — düz paragraf
+- SEO için şu kelimeleri doğal kullan: "${match.team}", "${match.opponent}", "maç önizlemesi", "${match.league}"${match.week ? ', "' + match.week + '. hafta"' : ''}
 
-${eksikText}
+Sadece haber metnini yaz, başlık ekleme.`;
 
-Muhtemel 11 ve hakem açıklamaları önümüzdeki saatlerde belli olacak. Kartalix tüm gelişmeleri takip etmeye devam edecek.
+  let body = '';
+  try {
+    const res = await callClaude(env, 'claude-haiku-4-5-20251001', prosePrompt, false, 600);
+    body = extractText(res.content).trim();
+  } catch(e) {
+    console.error('T05 prose generation failed:', e.message);
+  }
 
-Hadi Beşiktaş! 🖤🤍`;
+  // Fallback if Claude call fails
+  if (!body) {
+    const wText = weather ? ` Maç saatinde ${weather.description} bekleniyor, sıcaklık ${weather.temp}°C.` : '';
+    body = `${match.league}${match.week ? ' ' + match.week + '. haftasında' : ''} Beşiktaş, ${matchDate} tarihinde saat ${match.time}'de ${venueText}'nda ${homeAway} ${match.opponent} ile karşılaşıyor.${wText}\n\nMaç ${match.tv} ekranlarından canlı yayınlanacak.\n\n${eksikler.length ? 'Eksik oyuncular: ' + eksikText + '.' : 'Beşiktaş maça tam kadro çıkıyor.'}\n\nKartalix tüm gelişmeleri takip etmeye devam edecek. Hadi Beşiktaş!`;
+  }
 
-  const summary = `${match.team} bu akşam ${match.time}'de ${venueText} ${match.opponent} ile karşılaşıyor. ${weatherText} ${eksikText}`.slice(0, 300);
+  const oppSlug   = match.opponent.toLowerCase().replace(/\s+/g, '-').replace(/[ğ]/g,'g').replace(/[ü]/g,'u').replace(/[ş]/g,'s').replace(/[ı]/g,'i').replace(/[ö]/g,'o').replace(/[ç]/g,'c');
+  const weekSlug  = match.week ? `-super-lig-${match.week}-hafta` : '';
+  const title     = `Beşiktaş - ${match.opponent} Maç Önizlemesi | ${matchDate}${match.week ? ', ' + match.week + '. Hafta' : ''}`;
+  const summary   = `Beşiktaş, ${matchDate} tarihinde saat ${match.time}'de ${venueText}'nda ${match.opponent} ile ${match.league} kapsamında karşılaşıyor. ${eksikler.length ? 'Eksikler: ' + eksikText + '.' : 'Tam kadro.'}`.slice(0, 300);
 
   return {
-    title:               `${match.team} Bu Akşam ${match.opponent}'a Karşı | Maç Günü`,
-    summary:             summary,
+    title,
+    summary,
     full_body:           body,
     source_name:         platformName,
     source:              platformName,
@@ -430,7 +416,7 @@ Hadi Beşiktaş! 🖤🤍`;
     publish_mode:        'match_day_template',
     nvs:                 85,
     golden_score:        5,
-    url:                 `https://kartalix.com/mac/${match.date}-${match.team.toLowerCase()}-${match.opponent.toLowerCase().replace(/\s/g,'-')}`,
+    url:                 `https://kartalix.com/mac/${match.date}-besiktas-${oppSlug}${weekSlug}-mac-onizlemesi`,
     image_url:           '',
     is_template:         true,
     published_at:        new Date().toISOString(),
@@ -527,33 +513,45 @@ ${lineupArticles.map(a =>
     return null;
   }
 
-  const playersList = lineupData.players.map((p, i) => `${i + 1}. ${p}`).join('\n');
+  const matchDate  = new Date(match.date).toLocaleDateString('tr-TR', { day:'numeric', month:'long', year:'numeric' });
+  const oppSlug    = match.opponent.toLowerCase().replace(/\s+/g,'-').replace(/[ğ]/g,'g').replace(/[ü]/g,'u').replace(/[ş]/g,'s').replace(/[ı]/g,'i').replace(/[ö]/g,'o').replace(/[ç]/g,'c');
+  const formation  = lineupData.formation || '';
+  const players    = lineupData.players || [];
 
-  const body = [
-    `${platformEmoji} ${match.team.toUpperCase()}'IN MUHTEMEL 11'İ`,
-    ``,
-    `⚽ ${match.team} - ${match.opponent}`,
-    `🏆 ${match.league} · ${match.week}. Hafta`,
-    `📅 ${match.date.split('-').reverse().join('.')} · ${match.time}`,
-    ``,
-    lineupData.formation ? `📋 Beklenen Diziliş: ${lineupData.formation}` : '',
-    ``,
-    `👕 MUHTEMEL 11:`,
-    playersList,
-    ``,
-    lineupData.source_quote ? `"${lineupData.source_quote}"` : '',
-    ``,
-    `⚠️ Bu muhtemel kadrodur, resmi açıklama bekleniyor.`,
-    ``,
-    `Hadi Beşiktaş! 🖤🤍`,
-  ].filter(l => l !== null && l !== undefined).join('\n');
+  // Prose intro + structured lineup
+  const prosePrompt = `Sen Kartalix'in spor editörüsün. Aşağıdaki bilgilerle kısa, doğal Türkçe bir "muhtemel 11" haberi yaz.
 
-  const summary = `${match.team}'ın ${match.opponent} maçı için muhtemel 11'i belli oldu. ${lineupData.formation ? 'Beklenen diziliş: ' + lineupData.formation : ''}`;
+MAÇ: Beşiktaş - ${match.opponent} | ${matchDate} ${match.time} | ${match.league}${match.week ? ' ' + match.week + '. Hafta' : ''}
+MUHTEMEL 11 (${formation}): ${players.join(', ')}
+${lineupData.source_quote ? 'KAYNAK ALINTILAR: "' + lineupData.source_quote + '"' : ''}
+
+KURALLAR:
+- 2 kısa paragraf (toplam ~80-100 kelime), sonra ayrı satırda kadro listesi
+- 1. paragraf: maçı tanıt, muhtemel 11'in nasıl belirlendiğini yaz
+- 2. paragraf: dizilişi ve dikkat çeken seçimleri yorumla (varsa)
+- Ardından: "Beşiktaş'ın Muhtemel 11'i (${formation}):" başlığı ve oyuncu listesi
+- Emoji KULLANMA, resmi açıklama bekleniyor notunu ekle
+- SEO: "Beşiktaş muhtemel 11", "${match.opponent} maçı", "${matchDate}" doğal geçsin
+
+Sadece haber metnini yaz.`;
+
+  let prose = '';
+  try {
+    const res = await callClaude(env, 'claude-haiku-4-5-20251001', prosePrompt, false, 500);
+    prose = extractText(res.content).trim();
+  } catch(e) { console.error('T08b prose failed:', e.message); }
+
+  if (!prose) {
+    prose = `${match.team}, ${matchDate} tarihinde oynayacağı ${match.opponent} maçı için ${formation ? formation + ' dizilişiyle' : ''} sahaya çıkması bekleniyor.\n\nBeşiktaş'ın Muhtemel 11'i (${formation}):\n${players.map((p,i)=>`${i+1}. ${p}`).join('\n')}\n\nBu muhtemel kadrodur, resmi açıklama bekleniyor.`;
+  }
+
+  const title   = `Beşiktaş'ın ${match.opponent} Maçı Muhtemel 11'i – ${matchDate}`;
+  const summary = `Beşiktaş, ${matchDate} tarihinde ${match.opponent} karşısında ${formation ? formation + ' dizilişiyle' : ''} sahaya çıkması bekleniyor. Muhtemel 11: ${players.slice(0,5).join(', ')} ve diğerleri.`.slice(0, 300);
 
   return {
-    title:               `${match.team}'ın Muhtemel 11'i: ${match.opponent} Maçı İçin Beklenen Kadro`,
+    title,
     summary,
-    full_body:           body,
+    full_body:           prose,
     source_name:         platformName,
     source:              platformName,
     source_emoji:        platformEmoji,
@@ -565,7 +563,7 @@ ${lineupArticles.map(a =>
     publish_mode:        'muhtemel_lineup_template',
     nvs:                 75,
     golden_score:        4,
-    url:                 `https://kartalix.com/mac/${match.date}-besiktas-${match.opponent.toLowerCase().replace(/\s/g,'-')}-muhtemel`,
+    url:                 `https://kartalix.com/mac/${match.date}-besiktas-${oppSlug}-muhtemel-11`,
     image_url:           '',
     is_template:         true,
     published_at:        new Date().toISOString(),
@@ -667,35 +665,45 @@ ${lineupArticles.map(a =>
     return null;
   }
 
-  const playersList = lineupData.players
-    .map((p, i) => `${i + 1}. ${p}`)
-    .join('\n');
+  const matchDate = new Date(match.date).toLocaleDateString('tr-TR', { day:'numeric', month:'long', year:'numeric' });
+  const oppSlug   = match.opponent.toLowerCase().replace(/\s+/g,'-').replace(/[ğ]/g,'g').replace(/[ü]/g,'u').replace(/[ş]/g,'s').replace(/[ı]/g,'i').replace(/[ö]/g,'o').replace(/[ç]/g,'c');
+  const formation = lineupData.formation || '';
+  const players   = lineupData.players || [];
 
-  const body = [
-    `${platformEmoji} ${match.team.toUpperCase()}'IN 11'İ BELLİ OLDU!`,
-    ``,
-    `⚽ ${match.team} - ${match.opponent}`,
-    `🏆 ${match.league} · ${match.week}. Hafta`,
-    `📅 ${match.date.split('-').reverse().join('.')} · ${match.time}`,
-    ``,
-    lineupData.formation ? `📋 Diziliş: ${lineupData.formation}` : '',
-    ``,
-    `👕 İLK 11:`,
-    playersList,
-    ``,
-    lineupData.source_quote ? `"${lineupData.source_quote}"` : '',
-    ``,
-    `✅ Resmi kadro açıklandı.`,
-    ``,
-    `Hadi Beşiktaş! 🖤🤍`,
-  ].filter(l => l !== null && l !== undefined).join('\n');
+  const prosePrompt = `Sen Kartalix'in spor editörüsün. Beşiktaş'ın resmi ilk 11'i açıklandı. Kısa, haber dilinde Türkçe yaz.
 
-  const summary = `${match.team} ${match.opponent} maçı için ${lineupData.players?.length} oyuncudan oluşan ilk 11'ini belirledi. ${lineupData.formation ? 'Diziliş: ' + lineupData.formation : ''}`;
+MAÇ: Beşiktaş - ${match.opponent} | ${matchDate} ${match.time} | ${match.league}${match.week ? ' ' + match.week + '. Hafta' : ''}
+RESMİ İLK 11 (${formation}): ${players.join(', ')}
+${lineupData.source_quote ? 'KAYNAK: "' + lineupData.source_quote + '"' : ''}
+
+KURALLAR:
+- 2 kısa paragraf (~80 kelime), ardından kadro listesi
+- 1. paragraf: ilk 11'in açıklandığını haber ver, maçı tanıt
+- 2. paragraf: dikkat çekici seçim veya sürpriz varsa yorumla, yoksa Sergen Yalçın'ın tercihleri olarak çerçevele
+- Ardından "Beşiktaş'ın İlk 11'i (${formation}):" + liste
+- "Resmi kadro açıklandı" bilgisini ekle
+- SEO: "Beşiktaş ilk 11", "${match.opponent} maçı", "Sergen Yalçın" doğal geçsin
+- Emoji KULLANMA
+
+Sadece haber metnini yaz.`;
+
+  let prose = '';
+  try {
+    const res = await callClaude(env, 'claude-haiku-4-5-20251001', prosePrompt, false, 500);
+    prose = extractText(res.content).trim();
+  } catch(e) { console.error('T09 prose failed:', e.message); }
+
+  if (!prose) {
+    prose = `Beşiktaş, ${matchDate} tarihinde oynayacağı ${match.opponent} maçının ilk 11'ini açıkladı. Sergen Yalçın, ${formation ? formation + ' dizilişini' : 'kadrosunu'} belirledi.\n\nBeşiktaş'ın İlk 11'i (${formation}):\n${players.map((p,i)=>`${i+1}. ${p}`).join('\n')}\n\nResmi kadro açıklandı.`;
+  }
+
+  const title   = `Beşiktaş'ın ${match.opponent} Maçı İlk 11'i Belli Oldu | ${matchDate}`;
+  const summary = `Sergen Yalçın, ${matchDate} tarihindeki ${match.opponent} maçı için ilk 11'i açıkladı. ${formation ? 'Diziliş: ' + formation + '.' : ''} ${players.slice(0,5).join(', ')} ve diğerleri sahada.`.slice(0, 300);
 
   return {
-    title:               `${match.team}'ın 11'i Belli Oldu! ${match.opponent} Maçı Başlıyor`,
+    title,
     summary,
-    full_body:           body,
+    full_body:           prose,
     source_name:         platformName,
     source:              platformName,
     source_emoji:        platformEmoji,
@@ -705,9 +713,9 @@ ${lineupArticles.map(a =>
     category:            'Match',
     content_type:        'template',
     publish_mode:        'lineup_template',
-    nvs:                 85,
+    nvs:                 88,
     golden_score:        5,
-    url:                 `https://kartalix.com/mac/${match.date}-besiktas-${match.opponent.toLowerCase().replace(/\s/g,'-')}-lineup`,
+    url:                 `https://kartalix.com/mac/${match.date}-besiktas-${oppSlug}-ilk-11`,
     image_url:           '',
     is_template:         true,
     published_at:        new Date().toISOString(),
