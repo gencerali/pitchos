@@ -1480,20 +1480,36 @@
   // ── MODAL ────────────────────────────────────────────────────
   function formatArticleBody(text) {
     if (!text) return '';
-    return text
-      .replace(/&amp;/g, '&')
-      .replace(/&#x27;/g, "'")
-      .replace(/&#\w+;/g, '')
-      .replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-      .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
-      .split(/\n\n|\n(?=[A-ZÇĞİÖŞÜ]{2})/)
+    // If Readability HTML — render it directly
+    if (/<(p|h[1-6]|ul|ol|img|blockquote|figure)\b/i.test(text)) {
+      // Strip only dangerous tags, keep structure + images
+      return text
+        .replace(/<script[\s\S]*?<\/script>/gi, '')
+        .replace(/<style[\s\S]*?<\/style>/gi, '')
+        .replace(/\son\w+="[^"]*"/gi, '')
+        .replace(/javascript:/gi, '')
+        .replace(/<img([^>]*?)>/gi, (_, attrs) => {
+          const src = (attrs.match(/src="([^"]+)"/) || [])[1] || '';
+          const alt = (attrs.match(/alt="([^"]+)"/) || [])[1] || '';
+          return src ? `<img src="${src}" alt="${alt}" style="max-width:100%;height:auto;border-radius:4px;margin:1rem 0;display:block" loading="lazy">` : '';
+        });
+    }
+    // Plain text fallback
+    const clean = text.replace(/&amp;/g,'&').replace(/&#x27;/g,"'").replace(/&quot;/g,'"')
+      .replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+    return clean.split(/\n\n+/)
       .filter(p => p.trim().length > 10)
       .map(p => `<p style="margin:0 0 1rem;line-height:1.7;font-size:0.95rem">${p.trim()}</p>`)
-      .join('') || `<p style="margin:0 0 1rem;line-height:1.7;font-size:0.95rem">${text.trim()}</p>`;
+      .join('') || `<p style="margin:0 0 1rem;line-height:1.7;font-size:0.95rem">${clean}</p>`;
   }
 
   function openArticle(a) {
     if (!a) return;
+    // Navigate to dedicated article page when available
+    if (a.slug) {
+      window.location.href = `/haber/${a.slug}`;
+      return;
+    }
     const gs = a.golden_score;
     const nvsClass = (a.nvs||0) >= 75 ? 'high' : (a.nvs||0) >= 55 ? 'med' : '';
 
@@ -1700,7 +1716,7 @@
   init();
 </script>
 
-<div id="cookie-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;background:#111;border-top:2px solid #E30A17;padding:1rem 1.5rem;z-index:999;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+<div id="cookie-banner" style="position:fixed;bottom:0;left:0;right:0;background:#111;border-top:2px solid #E30A17;padding:1rem 1.5rem;z-index:999;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;display:none">
   <p style="color:#ccc;font-size:0.8rem;margin:0;flex:1">
     Bu site deneyiminizi iyileştirmek için çerezler kullanmaktadır.
     Siteyi kullanmaya devam ederek çerez politikamızı kabul etmiş olursunuz.

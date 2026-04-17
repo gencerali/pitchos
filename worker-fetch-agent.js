@@ -497,7 +497,7 @@ async function processSite(site, env, ctx) {
     title:               a.title        || '',
     summary:             a.summary      || a.description || '',
     full_body:           a.full_body && a.full_body.length > 300
-      ? a.full_body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000)
+      ? sanitizeBodyHtml(a.full_body).slice(0, 8000)
       : (a.summary || a.description || ''),
     source:              a.source       || a.source_name || '',
     source_name:         a.source_name  || a.source || '',
@@ -879,7 +879,16 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
 .article-img{width:100%;max-height:420px;object-fit:cover;border-radius:6px;margin-bottom:1.5rem;display:block}
 .article-body{color:#d0cec8;font-size:1rem;line-height:1.8}
 .article-body p{margin-bottom:1rem}
-.article-body h2,.article-body h3{color:#fff;margin:1.5rem 0 0.5rem;font-size:1.1rem}
+.article-body h2{color:#fff;font-size:1.2rem;font-weight:700;margin:2rem 0 0.75rem;line-height:1.3}
+.article-body h3{color:#e8e6e0;font-size:1.05rem;font-weight:600;margin:1.5rem 0 0.5rem}
+.article-body h4{color:#aaa;font-size:0.95rem;font-weight:600;margin:1.25rem 0 0.4rem}
+.article-body img{max-width:100%;height:auto;border-radius:6px;margin:1.25rem 0;display:block}
+.article-body figure{margin:1.5rem 0}
+.article-body figcaption{font-size:0.8rem;color:#888;margin-top:0.4rem;font-style:italic}
+.article-body ul,.article-body ol{padding-left:1.5rem;margin:1rem 0}
+.article-body li{margin-bottom:0.5rem}
+.article-body a{color:#E30A17}
+.article-body blockquote{border-left:3px solid #E30A17;padding:0.75rem 1rem;background:#161616;margin:1.5rem 0;border-radius:0 4px 4px 0;color:#aaa}
 .source-attr{font-size:0.75rem;color:#666;margin-top:2rem;padding-top:1rem;border-top:1px solid #222}
 .source-link{color:#888;font-size:0.75rem;display:inline-block;margin-top:0.5rem}
 .share-box{margin-top:2.5rem;padding:1.5rem;background:#141414;border:1px solid #222;border-radius:6px}
@@ -946,6 +955,14 @@ function renderArticleNotFound(slug) {
 <p>Bu haber artık mevcut değil ya da taşınmış olabilir.</p>
 <a href="/">← Ana Sayfaya Dön</a>
 </body></html>`;
+}
+
+function sanitizeBodyHtml(html) {
+  return (html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/\son\w+="[^"]*"/gi, '')
+    .replace(/javascript:/gi, '');
 }
 
 function escHtml(s = '') {
