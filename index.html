@@ -1114,13 +1114,59 @@
 
   // ── INIT ─────────────────────────────────────────────────────
   // ── ARTICLE PAGE (client-side routing) ──────────────────────
+
+  const CAT_ICONS = {
+    Match:    '⚽', Transfer: '🔄', Injury: '🏥',
+    Club:     '🦅', European: '🏆', Squad: '👥',
+    Basket:   '🏀', Basketball: '🏀', default: '📰',
+  };
+
+  const TRUST_LABELS = {
+    official:   'Resmi Kaynak',
+    broadcast:  'Yayın Kuruluşu',
+    press:      'Basın',
+    journalist: 'Gazeteci',
+  };
+
+  function sanitizeForView(html) {
+    if (!html) return '';
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi,'')
+      .replace(/<style[\s\S]*?<\/style>/gi,'')
+      .replace(/\son\w+="[^"]*"/gi,'')
+      .replace(/javascript:/gi,'')
+      .replace(/<img([^>]*?)>/gi, (_,attrs) => {
+        const src = (attrs.match(/src="([^"]+)"/) || [])[1] || '';
+        const alt = (attrs.match(/alt="([^"]+)"/) || [])[1] || '';
+        return src ? `<img src="${esc(src)}" alt="${esc(alt)}" loading="lazy">` : '';
+      });
+  }
+
+  function buildBodyHtml(bodyRaw) {
+    if (!bodyRaw) return '';
+    if (/<(p|h[1-6]|ul|ol|img|blockquote|figure)\b/i.test(bodyRaw)) {
+      return sanitizeForView(bodyRaw);
+    }
+    const clean = bodyRaw.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+    return clean.split(/\n\n+/).filter(p=>p.trim().length>10)
+      .map(p=>`<p>${esc(p.trim())}</p>`).join('') || `<p>${esc(clean)}</p>`;
+  }
+
+  function firstSentence(bodyRaw) {
+    if (!bodyRaw) return '';
+    const stripped = bodyRaw.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+    const m = stripped.match(/^.{40,200}?[.!?]/);
+    return m ? m[0] : stripped.slice(0, 160);
+  }
+
   function renderArticleView(a) {
     const slug    = a.slug || '';
     const title   = a.title || '';
     const source  = a.source || a.source_name || '';
     const cat     = a.category || 'Haber';
     const image   = a.image_url || '';
-    const nvs     = a.nvs || 0;
+    const nvs     = +(a.nvs || 0);
+    const trust   = a.trust || '';
     const bodyRaw = a.full_body || a.summary || '';
     const srcUrl  = a.url && a.url.startsWith('http') ? a.url : null;
     const pubDate = a.published_at ? new Date(a.published_at) : new Date();
@@ -1128,69 +1174,220 @@
     const pageUrl = slug ? `https://kartalix.com/haber/${slug}` : '';
     const waUrl   = pageUrl ? `https://wa.me/?text=${encodeURIComponent(title + ' ' + pageUrl)}` : '';
     const twUrl   = pageUrl ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(pageUrl)}` : '';
+    const cc      = catColor(a);
+    const tc      = trustColor(a);
+    const icon    = CAT_ICONS[cat] || CAT_ICONS.default;
+    const trustLabel = TRUST_LABELS[trust] || '';
 
-    // Body: preserve HTML or wrap plain text
-    let bodyHtml;
-    if (/<(p|h[1-6]|ul|ol|img|blockquote|figure)\b/i.test(bodyRaw)) {
-      bodyHtml = bodyRaw
-        .replace(/<script[\s\S]*?<\/script>/gi,'')
-        .replace(/<style[\s\S]*?<\/style>/gi,'')
-        .replace(/\son\w+="[^"]*"/gi,'')
-        .replace(/javascript:/gi,'')
-        .replace(/<img([^>]*?)>/gi, (_,attrs) => {
-          const src = (attrs.match(/src="([^"]+)"/) || [])[1] || '';
-          const alt = (attrs.match(/alt="([^"]+)"/) || [])[1] || '';
-          return src ? `<img src="${esc(src)}" alt="${esc(alt)}" style="max-width:100%;height:auto;border-radius:6px;margin:1.25rem 0;display:block" loading="lazy">` : '';
-        });
-    } else {
-      const clean = bodyRaw.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-      bodyHtml = clean.split(/\n\n+/).filter(p=>p.trim().length>10)
-        .map(p=>`<p>${esc(p.trim())}</p>`).join('') || `<p>${esc(clean)}</p>`;
-    }
+    // NVS bar: 0–100 → width %
+    const nvsPct = Math.min(100, nvs);
+    const nvsColor = nvs >= 70 ? '#10B981' : nvs >= 40 ? '#F59E0B' : '#6B7280';
+
+    // Hero: image or gradient
+    const heroStyle = image
+      ? `background:linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.75) 100%), url('${esc(image)}') center/cover no-repeat`
+      : `background:${catGrad(a)}`;
+
+    // Body HTML
+    const bodyHtml = buildBodyHtml(bodyRaw);
+
+    // Key quote (first sentence)
+    const quote = firstSentence(bodyRaw);
+
+    // Related articles (same category, exclude self)
+    const related = (_articles || [])
+      .filter(x => x.category === cat && x.slug !== slug)
+      .slice(0, 3);
 
     const av = document.getElementById('articleView');
+
     av.innerHTML = `
-      <div style="background:#111;border-bottom:1px solid #222;padding:0 1.5rem;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10">
-        <a href="/" style="font-size:1.25rem;font-weight:900;letter-spacing:-0.03em;color:#fff;text-decoration:none">Kartal<span style="color:#E30A17">ix</span></a>
-        <a href="/" style="font-size:0.75rem;color:#888;text-decoration:none;letter-spacing:0.06em">← Ana Sayfa</a>
+      <style>
+        #articleView .av-progress{position:fixed;top:0;left:0;height:3px;background:#E30A17;width:0%;z-index:9999;transition:width 0.1s linear}
+        #articleView .av-header{background:#0d0d0d;border-bottom:1px solid #1f1f1f;padding:0 1.5rem;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+        #articleView .av-logo{font-size:1.3rem;font-weight:900;letter-spacing:-0.04em;color:#fff;text-decoration:none;font-family:'Barlow Condensed',sans-serif}
+        #articleView .av-logo span{color:#E30A17}
+        #articleView .av-breadcrumb{font-size:0.7rem;color:#666;letter-spacing:0.06em;display:flex;align-items:center;gap:0.4rem}
+        #articleView .av-breadcrumb a{color:#666;text-decoration:none}
+        #articleView .av-breadcrumb a:hover{color:#E30A17}
+        #articleView .av-hero{min-height:52vw;max-height:70vh;display:flex;align-items:flex-end;padding:2.5rem 1.5rem 2rem;position:relative}
+        @media(min-width:640px){#articleView .av-hero{min-height:340px;max-height:480px}}
+        #articleView .av-hero-icon{position:absolute;top:50%;left:50%;transform:translate(-50%,-60%);font-size:min(18vw,120px);opacity:0.12;pointer-events:none;user-select:none;line-height:1}
+        #articleView .av-hero-content{position:relative;z-index:2;max-width:720px;margin:0 auto;width:100%}
+        #articleView .av-cat-pill{display:inline-block;padding:3px 12px;border-radius:2px;font-size:0.6rem;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;margin-bottom:0.75rem}
+        #articleView .av-title{font-size:clamp(1.4rem,4vw,2rem);font-weight:900;line-height:1.2;color:#fff;font-family:'Barlow Condensed',sans-serif;letter-spacing:-0.01em}
+        #articleView .av-meta-strip{max-width:720px;margin:0 auto;padding:0.875rem 1.5rem;border-bottom:1px solid #1a1a1a;display:flex;flex-wrap:wrap;align-items:center;gap:0.75rem;font-size:0.72rem;color:#888}
+        #articleView .av-src-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;display:inline-block}
+        #articleView .av-trust-badge{padding:2px 8px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.1em;border:1px solid currentColor}
+        #articleView .av-nvs-wrap{display:flex;align-items:center;gap:0.4rem;margin-left:auto}
+        #articleView .av-nvs-bar-bg{width:50px;height:4px;background:#222;border-radius:2px;overflow:hidden}
+        #articleView .av-nvs-bar-fill{height:100%;border-radius:2px;transition:width 0.6s ease}
+        #articleView .av-body-wrap{max-width:720px;margin:0 auto;padding:2rem 1.5rem 1rem}
+        #articleView .av-quote{border-left:3px solid #E30A17;background:#130808;padding:1rem 1.25rem;border-radius:0 4px 4px 0;margin-bottom:2rem;font-size:0.95rem;line-height:1.65;color:#c8bfb8;font-style:italic}
+        #articleView .av-body{color:#ccc;font-size:0.975rem;line-height:1.85}
+        #articleView .av-body p{margin-bottom:1.1rem}
+        #articleView .av-body p:first-of-type::first-letter{float:left;font-size:3.6rem;font-weight:900;line-height:0.8;margin:0.1rem 0.2rem 0 0;color:#E30A17;font-family:'Barlow Condensed',sans-serif}
+        #articleView .av-body h2{color:#fff;font-size:1.2rem;font-weight:700;margin:2rem 0 0.6rem;line-height:1.3;font-family:'Barlow Condensed',sans-serif;letter-spacing:0.02em;text-transform:uppercase}
+        #articleView .av-body h3{color:#e0ddd8;font-size:1.05rem;font-weight:600;margin:1.5rem 0 0.5rem;line-height:1.35}
+        #articleView .av-body h4{color:#c8c5c0;font-size:0.95rem;font-weight:600;margin:1.25rem 0 0.4rem}
+        #articleView .av-body img{max-width:100%;height:auto;border-radius:6px;margin:1.25rem 0;display:block}
+        #articleView .av-body figure{margin:1.5rem 0}
+        #articleView .av-body figcaption{font-size:0.72rem;color:#666;margin-top:0.4rem;font-style:italic}
+        #articleView .av-body ul,#articleView .av-body ol{padding-left:1.5rem;margin:0.75rem 0 1rem}
+        #articleView .av-body li{margin-bottom:0.4rem}
+        #articleView .av-body a{color:#E30A17;text-decoration:underline;text-decoration-color:rgba(227,10,23,0.35)}
+        #articleView .av-body blockquote{border-left:3px solid #333;padding:0.75rem 1rem;background:#141414;margin:1.5rem 0;border-radius:0 4px 4px 0;color:#aaa;font-style:italic}
+        #articleView .av-attr{max-width:720px;margin:0 auto;padding:1rem 1.5rem 1.5rem;border-top:1px solid #1a1a1a;font-size:0.72rem;color:#555;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap}
+        #articleView .av-share{max-width:720px;margin:0 auto;padding:1.5rem;background:#111;border-top:1px solid #1f1f1f;border-bottom:1px solid #1f1f1f}
+        #articleView .av-share-label{font-size:0.65rem;letter-spacing:0.15em;text-transform:uppercase;color:#555;margin-bottom:0.875rem;font-family:'Barlow Condensed',sans-serif}
+        #articleView .av-share-btns{display:flex;gap:0.6rem;flex-wrap:wrap}
+        #articleView .av-share-btn{padding:8px 18px;border-radius:4px;font-size:0.78rem;font-weight:700;text-decoration:none;font-family:'Barlow Condensed',sans-serif;letter-spacing:0.05em;border:none;cursor:pointer;transition:opacity 0.15s}
+        #articleView .av-share-btn:hover{opacity:0.85}
+        #articleView .av-related{max-width:720px;margin:0 auto;padding:2rem 1.5rem}
+        #articleView .av-related-title{font-family:'Barlow Condensed',sans-serif;font-size:0.75rem;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:#555;margin-bottom:1.25rem;display:flex;align-items:center;gap:0.75rem}
+        #articleView .av-related-title::after{content:'';flex:1;height:1px;background:#1f1f1f}
+        #articleView .av-related-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.875rem}
+        #articleView .av-rel-card{background:#111;border:1px solid #1f1f1f;border-radius:4px;overflow:hidden;cursor:pointer;transition:border-color 0.15s}
+        #articleView .av-rel-card:hover{border-color:#333}
+        #articleView .av-rel-thumb{height:100px;background-size:cover;background-position:center}
+        #articleView .av-rel-body{padding:0.75rem}
+        #articleView .av-rel-ttl{font-size:0.82rem;font-weight:700;color:#ddd;line-height:1.35;margin-bottom:0.4rem}
+        #articleView .av-rel-src{font-size:0.65rem;color:#666}
+        #articleView .av-back{max-width:720px;margin:0 auto;padding:1rem 1.5rem 3rem}
+        #articleView .av-back a{font-size:0.75rem;color:#555;letter-spacing:0.06em;text-decoration:none;font-family:'Barlow Condensed',sans-serif}
+        #articleView .av-back a:hover{color:#E30A17}
+        #articleView .av-slide-in{opacity:0;transform:translateY(18px);transition:opacity 0.35s ease,transform 0.35s ease}
+        #articleView .av-slide-in.av-visible{opacity:1;transform:translateY(0)}
+      </style>
+
+      <div class="av-progress" id="avProgress"></div>
+
+      <div class="av-header">
+        <a href="/" class="av-logo">Kartal<span>ix</span></a>
+        <div class="av-breadcrumb">
+          <a href="/">Ana Sayfa</a>
+          <span>/</span>
+          <span style="color:#aaa">${esc(cat)}</span>
+        </div>
       </div>
-      <div style="max-width:720px;margin:0 auto;padding:2rem 1.5rem 4rem">
-        <div style="display:inline-block;background:#E30A17;color:#fff;font-size:0.6rem;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;padding:3px 10px;border-radius:2px;margin-bottom:1rem">${esc(cat)}</div>
-        <h1 style="font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1rem">${esc(title)}</h1>
-        <div style="font-size:0.75rem;color:#888;margin-bottom:1.5rem;display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center">
-          <span>📰 ${esc(source)}</span>
-          <span>${dateStr}</span>
-          ${nvs>=40?`<span style="background:#1a1a1a;border:1px solid #333;padding:2px 8px;border-radius:10px;font-size:0.65rem">NVS ${nvs}</span>`:''}
+
+      <div class="av-hero av-slide-in" style="${heroStyle}">
+        ${!image ? `<div class="av-hero-icon">${icon}</div>` : ''}
+        <div class="av-hero-content">
+          <div class="av-cat-pill" style="background:${cc};color:#fff">${esc(cat)}</div>
+          <div class="av-title">${esc(title)}</div>
         </div>
-        ${image?`<img src="${esc(image)}" alt="${esc(title)}" style="width:100%;max-height:420px;object-fit:cover;border-radius:6px;margin-bottom:1.5rem;display:block" loading="lazy">`:''}
-        <div style="color:#d0cec8;font-size:1rem;line-height:1.8" class="av-body">${bodyHtml}</div>
-        <div style="font-size:0.75rem;color:#666;margin-top:2rem;padding-top:1rem;border-top:1px solid #222">
-          Bu içerik <strong style="color:#aaa">${esc(source)}</strong> kaynağından derlendi.
-          ${srcUrl?`<a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#888;display:inline-block;margin-top:0.4rem">Haberin kaynağına git →</a>`:''}
-        </div>
-        ${pageUrl?`<div style="margin-top:2.5rem;padding:1.5rem;background:#141414;border:1px solid #222;border-radius:6px">
-          <div style="font-size:0.7rem;letter-spacing:0.12em;text-transform:uppercase;color:#888;margin-bottom:1rem">Bu haberi paylaş</div>
-          <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
-            <a href="${esc(waUrl)}" target="_blank" rel="noopener" style="background:#1aad1a;color:#fff;padding:9px 18px;border-radius:4px;font-size:0.78rem;font-weight:600;text-decoration:none">WhatsApp</a>
-            <a href="${esc(twUrl)}" target="_blank" rel="noopener" style="background:#1DA1F2;color:#fff;padding:9px 18px;border-radius:4px;font-size:0.78rem;font-weight:600;text-decoration:none">Twitter / X</a>
-            <button onclick="navigator.clipboard.writeText('${esc(pageUrl)}').then(()=>{this.textContent='Kopyalandı!';setTimeout(()=>this.textContent='Linki Kopyala',2500)})" style="background:#333;color:#fff;padding:9px 18px;border-radius:4px;font-size:0.78rem;font-weight:600;border:none;cursor:pointer">Linki Kopyala</button>
+      </div>
+
+      <div class="av-meta-strip av-slide-in" style="animation-delay:0.05s">
+        <span class="av-src-dot" style="background:${tc}"></span>
+        <span>${esc(source)}</span>
+        <span style="color:#444">·</span>
+        <span>${dateStr}</span>
+        ${trustLabel ? `<span class="av-trust-badge" style="color:${tc}">${esc(trustLabel)}</span>` : ''}
+        ${nvs >= 30 ? `
+        <div class="av-nvs-wrap">
+          <span style="font-size:0.6rem;letter-spacing:0.1em;text-transform:uppercase;color:#444">NVS</span>
+          <div class="av-nvs-bar-bg">
+            <div class="av-nvs-bar-fill" id="nvsBarFill" style="width:0%;background:${nvsColor}"></div>
           </div>
-        </div>`:''}
-        <a href="/" style="display:inline-block;margin-top:2rem;font-size:0.8rem;color:#888;letter-spacing:0.06em;text-decoration:none">← Kartalix — Tüm Haberler</a>
+          <span style="color:${nvsColor};font-weight:700;font-size:0.7rem">${nvs}</span>
+        </div>` : ''}
+      </div>
+
+      <div class="av-body-wrap av-slide-in" style="animation-delay:0.1s">
+        ${quote ? `<blockquote class="av-quote">${esc(quote)}</blockquote>` : ''}
+        <div class="av-body" id="avBodyContent">${bodyHtml}</div>
+      </div>
+
+      <div class="av-attr av-slide-in">
+        <span class="av-src-dot" style="background:${tc}"></span>
+        <span>Bu içerik <strong style="color:#888">${esc(source)}</strong> kaynağından derlendi.</span>
+        ${srcUrl ? `<a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#E30A17;margin-left:0.25rem">Kaynağa git →</a>` : ''}
+      </div>
+
+      ${pageUrl ? `
+      <div class="av-share av-slide-in">
+        <div class="av-share-label">Bu haberi paylaş</div>
+        <div class="av-share-btns">
+          <a href="${esc(waUrl)}" target="_blank" rel="noopener" class="av-share-btn" style="background:#1aad1a;color:#fff">WhatsApp</a>
+          <a href="${esc(twUrl)}" target="_blank" rel="noopener" class="av-share-btn" style="background:#1DA1F2;color:#fff">Twitter / X</a>
+          <button id="avCopyBtn" class="av-share-btn" style="background:#222;color:#ccc">Linki Kopyala</button>
+        </div>
+      </div>` : ''}
+
+      ${related.length ? `
+      <div class="av-related av-slide-in">
+        <div class="av-related-title">İlgili Haberler</div>
+        <div class="av-related-grid" id="avRelatedGrid"></div>
+      </div>` : ''}
+
+      <div class="av-back av-slide-in">
+        <a href="/" onclick="history.back();return false">← Tüm Haberlere Dön</a>
       </div>`;
 
-    // style headings and images inside av-body
-    av.querySelectorAll('.av-body h2').forEach(el => Object.assign(el.style, {color:'#fff',fontSize:'1.2rem',fontWeight:'700',margin:'2rem 0 0.75rem',lineHeight:'1.3'}));
-    av.querySelectorAll('.av-body h3').forEach(el => Object.assign(el.style, {color:'#e8e6e0',fontSize:'1.05rem',fontWeight:'600',margin:'1.5rem 0 0.5rem'}));
-    av.querySelectorAll('.av-body p').forEach(el => Object.assign(el.style, {marginBottom:'1rem'}));
-    av.querySelectorAll('.av-body ul, .av-body ol').forEach(el => Object.assign(el.style, {paddingLeft:'1.5rem',margin:'1rem 0'}));
-    av.querySelectorAll('.av-body a').forEach(el => Object.assign(el.style, {color:'#E30A17'}));
-    av.querySelectorAll('.av-body blockquote').forEach(el => Object.assign(el.style, {borderLeft:'3px solid #E30A17',padding:'0.75rem 1rem',background:'#161616',margin:'1.5rem 0',borderRadius:'0 4px 4px 0',color:'#aaa'}));
+    // Wire copy button
+    const copyBtn = document.getElementById('avCopyBtn');
+    if (copyBtn && pageUrl) {
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(pageUrl).then(() => {
+          copyBtn.textContent = 'Kopyalandı!';
+          setTimeout(() => copyBtn.textContent = 'Linki Kopyala', 2500);
+        });
+      });
+    }
+
+    // Animate NVS bar
+    if (nvs >= 30) {
+      setTimeout(() => {
+        const fill = document.getElementById('nvsBarFill');
+        if (fill) fill.style.width = nvsPct + '%';
+      }, 300);
+    }
+
+    // Related cards
+    const relGrid = document.getElementById('avRelatedGrid');
+    if (relGrid) {
+      relGrid.innerHTML = related.map((r) => {
+        const thumbStyle = r.image_url
+          ? `background-image:url('${esc(r.image_url)}');background-size:cover;background-position:center`
+          : `background:${catGrad(r)}`;
+        const ridx = (_articles || []).indexOf(r);
+        return `<div class="av-rel-card" data-ridx="${ridx}" style="border-top:2px solid ${catColor(r)}">
+          <div class="av-rel-thumb" style="${thumbStyle}"></div>
+          <div class="av-rel-body">
+            <div class="av-rel-ttl">${esc(cleanForDisplay(r.title))}</div>
+            <div class="av-rel-src">${esc(r.source||'')} · ${timeAgo(r.published_at)}</div>
+          </div>
+        </div>`;
+      }).join('');
+      relGrid.addEventListener('click', e => {
+        const card = e.target.closest('.av-rel-card');
+        if (!card) return;
+        const ridx = parseInt(card.dataset.ridx);
+        const art = !isNaN(ridx) && ridx >= 0 ? _articles[ridx] : null;
+        if (art) openArticle(art);
+      });
+    }
 
     av.style.display = 'block';
     document.body.style.overflow = 'hidden';
-    // Update page title + canonical
+    av.scrollTop = 0;
     document.title = `${title} | Kartalix`;
+
+    // Scroll progress bar
+    av._progressHandler = () => {
+      const bar = document.getElementById('avProgress');
+      if (!bar) return;
+      const h = av.scrollHeight - av.clientHeight;
+      bar.style.width = h > 0 ? (av.scrollTop / h * 100) + '%' : '0%';
+    };
+    av.addEventListener('scroll', av._progressHandler);
+
+    // Slide-in animation
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      av.querySelectorAll('.av-slide-in').forEach(el => el.classList.add('av-visible'));
+    }));
   }
 
   async function init() {
@@ -1404,6 +1601,9 @@
       const scoreHTML = a.golden_score
         ? `<span class="card-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : '';
 
+      const ageMs  = Date.now() - new Date(a.published_at || 0).getTime();
+      const isNew  = ageMs > 0 && ageMs < 30 * 60 * 1000;
+
       el.innerHTML = `
         <div class="card-img-wrap">
           <div style="${cardImgStyle(a)}"></div>
@@ -1412,6 +1612,7 @@
             a.template_id === '08b' ? 'MUHTEMEL 11' :
             a.template_id === '09' ? '11 BELLİ OLDU' :
             esc(a.category || 'Haber')}</span>
+          ${isNew ? `<span style="position:absolute;top:6px;right:6px;background:#E30A17;color:#fff;font-size:0.55rem;font-weight:800;letter-spacing:0.12em;padding:2px 7px;border-radius:10px;font-family:'Barlow Condensed',sans-serif;text-transform:uppercase;box-shadow:0 1px 4px rgba(0,0,0,0.4)">YENİ</span>` : ''}
           ${scoreHTML}
         </div>
         <div class="card-body">
@@ -1663,15 +1864,22 @@
     history.replaceState(null, '', '/');
   }
 
+  function closeArticleView() {
+    const av = document.getElementById('articleView');
+    if (!av || av.style.display === 'none') return;
+    if (av._progressHandler) {
+      av.removeEventListener('scroll', av._progressHandler);
+      av._progressHandler = null;
+    }
+    av.style.display = 'none';
+    av.innerHTML = '';
+    document.body.style.overflow = '';
+    document.title = 'Kartalix';
+  }
+
   // Browser back button support
   window.addEventListener('popstate', () => {
-    const av = document.getElementById('articleView');
-    if (av && av.style.display !== 'none') {
-      av.style.display = 'none';
-      av.innerHTML = '';
-      document.body.style.overflow = '';
-      document.title = 'Kartalix';
-    }
+    closeArticleView();
   });
 
   document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
@@ -1680,7 +1888,11 @@
     if (e.target === e.currentTarget) closeModal();
   });
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') {
+      const av = document.getElementById('articleView');
+      if (av && av.style.display !== 'none') { history.back(); return; }
+      closeModal();
+    }
   });
 
   const _modalEl = document.querySelector('#modalOverlay .modal');
