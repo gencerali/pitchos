@@ -282,19 +282,33 @@
 
     /* ── AD SLOTS ── */
     .ad-slot {
-      background: #222;
-      border: 1px dashed #444;
-      min-height: 90px;
-      display: flex; align-items: center; justify-content: center;
+      background: #141414;
+      border: 1px dashed #2a2a2a;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 0.3rem;
       margin: 1rem 0;
+      border-radius: 4px;
+      color: #3a3a3a;
+      position: relative;
+    }
+    .ad-slot::before {
+      content: attr(data-size);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #2e2e2e;
     }
     .ad-label {
-      font-size: 0.6rem;
-      letter-spacing: 0.15em;
+      font-size: 0.55rem;
+      letter-spacing: 0.18em;
       text-transform: uppercase;
-      color: var(--muted);
+      color: #2e2e2e;
+      font-family: 'Barlow Condensed', sans-serif;
     }
-    .ad-leaderboard { margin: 1rem 0; }
+    .ad-leaderboard { min-height: 90px; margin: 1rem 0; }
+    .ad-infeed { min-height: 250px; }
+    .sidebar-ad-box { min-height: 250px; }
 
     /* ── PAGE CONTAINER ── */
     .page-container {
@@ -747,7 +761,7 @@
 <div class="page-container">
 
 <!-- ── AD: LEADERBOARD ── -->
-<div class="ad-slot ad-leaderboard" data-slot="leaderboard">
+<div class="ad-slot ad-leaderboard" data-slot="leaderboard" data-size="728 × 90 — Leaderboard">
   <span class="ad-label">Reklam</span>
 </div>
 
@@ -825,7 +839,7 @@
       </div>
     </div>
 
-    <div class="ad-slot" data-slot="infeed-2">
+    <div class="ad-slot ad-infeed" data-slot="infeed-2" data-size="300 × 250 — In-Feed">
       <span class="ad-label">Reklam</span>
     </div>
 
@@ -840,7 +854,7 @@
       </div>
     </div>
 
-    <div class="ad-slot sidebar-ad-box" data-slot="box-300" style="margin-top:1.5rem">
+    <div class="ad-slot sidebar-ad-box" data-slot="box-300" data-size="300 × 250 — Box" style="margin-top:1.5rem">
       <span class="ad-label">Reklam</span>
     </div>
   </aside>
@@ -1106,7 +1120,7 @@
   function catGrad(a) { return CAT_GRAD[a.category] || 'linear-gradient(135deg, #111, #0d0d0d)'; }
 
   function cardImgStyle(a) {
-    const base = 'width:100%;height:100%;background-size:cover;background-position:center;';
+    const base = 'width:100%;height:100%;background-size:cover;background-position:top center;';
     return a.image_url
       ? `${base}background-image:url('${esc(a.image_url)}')`
       : `${base}background:${catGrad(a)}`;
@@ -1185,7 +1199,7 @@
 
     // Hero: image or gradient
     const heroStyle = image
-      ? `background:linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.75) 100%), url('${esc(image)}') center/cover no-repeat`
+      ? `background:linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.78) 100%), url('${esc(image)}') top center/cover no-repeat`
       : `background:${catGrad(a)}`;
 
     // Body HTML
@@ -1635,6 +1649,7 @@
         const adSlot = document.createElement('div');
         adSlot.className = 'ad-slot ad-infeed';
         adSlot.dataset.slot = 'infeed-1';
+        adSlot.dataset.size = '970 × 250 — In-Feed';
         adSlot.style.gridColumn = '1 / -1';
         adSlot.innerHTML = '<span class="ad-label">Reklam</span>';
         grid.appendChild(adSlot);
