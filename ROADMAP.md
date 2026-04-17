@@ -795,21 +795,24 @@ Sprint 9-10: €5000+/month (platform scale)
 
 ---
 
-### 📋 Sprint 4 — "Make it shareable" (NEXT — unlock ads + SEO)
+### 🔄 Sprint 4 — "Make it shareable" (IN PROGRESS — April 17, 2026)
 
 **Goal: a fan should be able to share a specific article URL. Google should be able to index every story.**
 
-- Individual article pages: `/haber/[slug]` with full content
-- Meta tags + Open Graph per article (title, description, image)
-- NewsArticle structured data (JSON-LD) — Google News eligibility
-- Sitemap.xml auto-generated and submitted
-- RSS feed at kartalix.com/rss
-- Cron 2h → 30min (breaking news lag reduction)
-- WhatsApp + Twitter share buttons on every article
-- GDPR/KVKK cookie banner
-- Privacy policy page + source attribution footer
-- **Apply for Google AdSense** (needs real pages — start 6-week approval clock here)
-- **Submit to Google Search Console + Google News**
+- ✅ Individual article pages: `/haber/[slug]` — Worker serves full HTML, canonical URL
+- ✅ Meta tags + Open Graph per article (title, description, image)
+- ✅ NewsArticle structured data (JSON-LD) — Google News eligibility
+- ✅ Sitemap.xml dynamic at kartalix.com/sitemap.xml (Google News tags)
+- ✅ RSS feed at kartalix.com/rss (30 latest articles)
+- ✅ Cron 2h → 30min (breaking news lag reduced from 120min to 30min)
+- ✅ WhatsApp + Twitter share buttons on article pages + modal
+- ✅ GDPR/KVKK cookie banner (already in place)
+- ✅ Privacy policy page (already in place)
+- ✅ slug column added to Supabase content_items + URL pushState in SPA
+- 📋 **Run** `supabase-migration-sprint4.sql` (add slug column to DB)
+- 📋 **Submit** sitemap to Google Search Console
+- 📋 **Submit** to Google News Publisher Center
+- 📋 **Apply for Google AdSense** — start 6-week approval clock
 
 ### 📋 Sprint 5 — "Make it reliable" (before 2nd team)
 
