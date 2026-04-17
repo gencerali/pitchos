@@ -694,7 +694,7 @@ async function buildReport(env) {
 
 // ─── SPRINT 4: ARTICLE PAGES ─────────────────────────────────
 
-const BASE_URL = 'https://kartalix.com';
+const BASE_URL = 'https://app.kartalix.com';
 
 async function serveArticlePage(slug, env) {
   const cached = await env.PITCHOS_CACHE.get('articles:BJK');

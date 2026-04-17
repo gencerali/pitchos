@@ -14,13 +14,13 @@ SUPABASE_URL = "https://qfgstxswcsodaaksjztz.supabase.co"
 crons = ["*/30 * * * *"]
 
 [[routes]]
-pattern = "kartalix.com/haber/*"
+pattern = "app.kartalix.com/haber/*"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "kartalix.com/rss"
+pattern = "app.kartalix.com/rss"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "kartalix.com/sitemap.xml"
+pattern = "app.kartalix.com/sitemap.xml"
 zone_name = "kartalix.com"

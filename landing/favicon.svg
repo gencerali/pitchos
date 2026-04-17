@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <rect width="32" height="32" rx="4" fill="#0d0d0d"/>
+  <!-- K Icon scaled for 32px -->
+  <rect x="4" y="2" width="5" height="28" fill="#ffffff"/>
+  <polygon points="9,16 26,2 22,2 9,11" fill="#ffffff"/>
+  <polygon points="9,16 27,30 31,30 9,18" fill="#E30A17"/>
+  <rect x="4" y="14" width="5" height="4" fill="#E30A17"/>
+</svg>

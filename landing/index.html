@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kartalix — Beşiktaş taraftar medyası</title>
+  <meta name="description" content="Kartalix; Beşiktaş JK için özgün gazetecilik, taraftar bakışı ve veri odaklı maç haberciliği sunan bağımsız bir medya platformu. Yakında geliyor.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://kartalix.com/">
+  <meta property="og:title" content="Kartalix — Beşiktaş taraftar medyası">
+  <meta property="og:description" content="Beşiktaş için yeni bir taraftar sesi. Özgün gazetecilik, veri odaklı maç haberciliği, siyah-beyaz bakış açısı.">
+  <meta property="og:image" content="https://kartalix.com/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Kartalix — Beşiktaş taraftar medyası">
+  <meta name="twitter:description" content="Beşiktaş için yeni bir taraftar sesi. Yakında.">
+  <meta name="twitter:image" content="https://kartalix.com/og-image.png">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://kartalix.com/">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;700;900&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --red:    #E30A17;
+      --bg:     #111111;
+      --bg2:    #1a1a1a;
+      --border: #242424;
+      --text:   #e8e6e2;
+      --muted:  #888;
+      --dim:    #555;
+    }
+
+    html { font-size: 16px; scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── HEADER ── */
+    .site-header {
+      padding: 2rem 1.5rem 0;
+      display: flex;
+      justify-content: center;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 1.5rem 2rem;
+      text-align: center;
+      max-width: 680px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .logo-wrap {
+      margin-bottom: 2.5rem;
+    }
+
+    .logo-wrap svg {
+      width: min(320px, 80vw);
+      height: auto;
+    }
+
+    .headline {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: clamp(1.75rem, 5vw, 2.5rem);
+      font-weight: 900;
+      line-height: 1.15;
+      letter-spacing: -0.01em;
+      color: #fff;
+      margin-bottom: 0.6rem;
+    }
+
+    .tagline {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: clamp(1.1rem, 3vw, 1.4rem);
+      font-weight: 400;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      margin-bottom: 2rem;
+    }
+
+    .tagline em {
+      color: var(--red);
+      font-style: normal;
+      font-weight: 700;
+    }
+
+    .manifesto {
+      font-size: 0.925rem;
+      line-height: 1.75;
+      color: #999;
+      margin-bottom: 2.75rem;
+      max-width: 520px;
+    }
+
+    .manifesto strong {
+      color: #ccc;
+      font-weight: 500;
+    }
+
+    /* ── FORM ── */
+    .form-wrap {
+      width: 100%;
+      max-width: 440px;
+      margin-bottom: 2.5rem;
+    }
+
+    .form-label {
+      display: block;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-bottom: 0.6rem;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .form-row:focus-within {
+      border-color: var(--red);
+    }
+
+    .form-row input[type="email"] {
+      flex: 1;
+      background: var(--bg2);
+      border: none;
+      outline: none;
+      padding: 0.75rem 1rem;
+      font-size: 0.9rem;
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-width: 0;
+    }
+
+    .form-row input[type="email"]::placeholder {
+      color: var(--dim);
+    }
+
+    /* honeypot */
+    .hp-field { position: absolute; left: -9999px; opacity: 0; pointer-events: none; tabindex: -1; }
+
+    .form-row button {
+      background: var(--red);
+      color: #fff;
+      border: none;
+      padding: 0.75rem 1.25rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+
+    .form-row button:hover { background: #c00012; }
+    .form-row button:disabled { background: #555; cursor: default; }
+
+    .form-msg {
+      margin-top: 0.6rem;
+      font-size: 0.78rem;
+      min-height: 1.2em;
+      text-align: left;
+    }
+
+    .form-msg.ok  { color: #4ade80; }
+    .form-msg.err { color: #f87171; }
+
+    .form-note {
+      font-size: 0.67rem;
+      color: var(--dim);
+      margin-top: 0.4rem;
+    }
+
+    /* ── SOCIAL ── */
+    .social-row {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 2rem;
+      align-items: center;
+    }
+
+    .social-link {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      text-decoration: none;
+      color: var(--dim);
+      font-size: 0.78rem;
+      letter-spacing: 0.05em;
+      transition: color 0.15s;
+      padding: 0.4rem 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+    }
+
+    .social-link:hover { color: var(--text); border-color: #444; }
+
+    .social-link svg { width: 15px; height: 15px; fill: currentColor; }
+
+    /* ── DIVIDER ── */
+    .divider {
+      width: 32px;
+      height: 2px;
+      background: var(--red);
+      border-radius: 1px;
+      margin: 0 auto 2rem;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 1.5rem 1.5rem;
+      text-align: center;
+    }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.75rem;
+    }
+
+    .footer-links a {
+      text-decoration: none;
+      color: var(--dim);
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      transition: color 0.15s;
+    }
+
+    .footer-links a:hover { color: var(--text); }
+
+    .footer-copy {
+      font-size: 0.65rem;
+      color: #333;
+      letter-spacing: 0.08em;
+    }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 480px) {
+      .form-row button {
+        padding: 0.75rem 0.9rem;
+        font-size: 0.78rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <a href="/" aria-label="Kartalix Ana Sayfa">
+      <!-- Kartalix logo dark SVG inline -->
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 64" role="img" aria-label="Kartalix">
+        <title>Kartalix</title>
+        <rect x="0" y="4" width="11" height="56" fill="#ffffff"/>
+        <polygon points="11,32 50,4 40,4 11,22" fill="#ffffff"/>
+        <polygon points="11,32 52,60 62,60 11,36" fill="#E30A17"/>
+        <rect x="0" y="29" width="11" height="7" fill="#E30A17"/>
+        <text x="74" y="42" font-family="'Barlow Condensed',Impact,'Arial Narrow',sans-serif" font-size="36" font-weight="900" letter-spacing="4" fill="#ffffff">KARTALIX</text>
+        <text x="75" y="57" font-family="Arial,Helvetica,sans-serif" font-size="8.5" letter-spacing="2.5" fill="#666666">BEŞİKTAŞ HABERLERİ · SON DAKİKA</text>
+      </svg>
+    </a>
+  </header>
+
+  <main class="hero" role="main">
+
+    <h1 class="headline">Beşiktaş için yeni bir taraftar sesi</h1>
+    <p class="tagline"><em>Kartalix</em> yakında.</p>
+
+    <div class="divider" aria-hidden="true"></div>
+
+    <p class="manifesto">
+      Olgulara dayalı, <strong>özgün gazetecilik</strong> anlayışıyla Beşiktaş haberlerini takip eden bağımsız bir platform.
+      Reklam hedefli içerik değil, <strong>taraftar bakışıyla</strong> yazılmış derinlikli analizler ve siyah-beyaz perspektif.
+      Veri odaklı maç değerlendirmeleri, transfer takibi ve kulüp haberciliği — hiçbir şeyi kaçırmadan.
+    </p>
+
+    <div class="form-wrap">
+      <label for="waitlist-email" class="form-label">Lansmanda haberdar ol</label>
+      <form id="waitlistForm" novalidate>
+        <!-- honeypot: bots fill this, humans don't -->
+        <input class="hp-field" type="text" name="website" id="hp-website" autocomplete="off" tabindex="-1" aria-hidden="true">
+        <div class="form-row">
+          <input
+            type="email"
+            id="waitlist-email"
+            name="email"
+            placeholder="e-posta adresiniz"
+            autocomplete="email"
+            required
+            maxlength="254"
+          >
+          <button type="submit" id="waitlistBtn">Kaydol</button>
+        </div>
+      </form>
+      <p class="form-msg" id="formMsg" aria-live="polite"></p>
+      <p class="form-note">Spam yok. İstediğiniz zaman çıkabilirsiniz.</p>
+    </div>
+
+    <div class="social-row" aria-label="Sosyal medya">
+      <a href="https://x.com/kartalixcom" target="_blank" rel="noopener" class="social-link" aria-label="X (Twitter)">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.737-8.834L1.254 2.25H8.08l4.253 5.622 5.91-5.622Zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+        @kartalixcom
+      </a>
+      <a href="https://instagram.com/kartalixcom" target="_blank" rel="noopener" class="social-link" aria-label="Instagram">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>
+        @kartalixcom
+      </a>
+    </div>
+
+  </main>
+
+  <footer>
+    <nav class="footer-links" aria-label="Alt gezinme">
+      <a href="/kunye">Künye</a>
+      <a href="/gizlilik">Gizlilik Politikası</a>
+      <a href="/iletisim">İletişim</a>
+    </nav>
+    <p class="footer-copy">© 2026 Kartalix · Tüm hakları saklıdır</p>
+  </footer>
+
+  <script>
+    // ── WAITLIST FORM ──────────────────────────────────────────────
+    // Replace SUPABASE_ANON_KEY below with your project's anon/public key
+    // Found in: Supabase Dashboard → Settings → API → "anon public"
+    const SUPABASE_URL  = 'https://qfgstxswcsodaaksjztz.supabase.co';
+    const SUPABASE_ANON = '__SUPABASE_ANON_KEY__'; // ← fill in before deploy
+
+    const form    = document.getElementById('waitlistForm');
+    const btn     = document.getElementById('waitlistBtn');
+    const msgEl   = document.getElementById('formMsg');
+
+    function setMsg(text, type) {
+      msgEl.textContent = text;
+      msgEl.className   = 'form-msg ' + type;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      // Honeypot check
+      if (document.getElementById('hp-website').value) return;
+
+      const email = document.getElementById('waitlist-email').value.trim().toLowerCase();
+
+      // Basic validation
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setMsg('Lütfen geçerli bir e-posta adresi girin.', 'err');
+        return;
+      }
+
+      btn.disabled   = true;
+      btn.textContent = '...';
+      setMsg('', '');
+
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/launch_waitlist`, {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            'apikey':        SUPABASE_ANON,
+            'Authorization': `Bearer ${SUPABASE_ANON}`,
+            'Prefer':        'return=minimal',
+          },
+          body: JSON.stringify({
+            email,
+            locale: navigator.language?.slice(0, 2) || 'tr',
+            source: 'landing',
+          }),
+        });
+
+        if (res.status === 201 || res.status === 200) {
+          setMsg('Kaydedildi! Lansmanımızda sizi haberdar edeceğiz.', 'ok');
+          form.reset();
+        } else if (res.status === 409) {
+          setMsg('Bu e-posta zaten kayıtlı.', 'ok');
+        } else {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.message || `HTTP ${res.status}`);
+        }
+      } catch (err) {
+        setMsg('Bir hata oluştu, lütfen tekrar deneyin.', 'err');
+        console.error('Waitlist error:', err);
+      } finally {
+        btn.disabled    = false;
+        btn.textContent = 'Kaydol';
+      }
+    });
+  </script>
+
+</body>
+</html>
