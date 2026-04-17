@@ -659,6 +659,12 @@
       cursor: pointer; transition: background 0.15s, border-color 0.15s;
     }
     .btn-kapat:hover { background: var(--surface); border-color: var(--muted); }
+    .modal-share { display: flex; gap: 0.5rem; align-items: center; }
+    .share-mini { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 10px; border-radius: 3px; text-decoration: none; }
+    .share-wa { background: #1aad1a20; color: #1aad1a; border: 1px solid #1aad1a50; }
+    .share-wa:hover { background: #1aad1a; color: #fff; }
+    .share-tw { background: #1DA1F220; color: #1DA1F2; border: 1px solid #1DA1F250; }
+    .share-tw:hover { background: #1DA1F2; color: #fff; }
 
     /* ── RESPONSIVE ── */
     .hero-split { display: none !important; }
@@ -900,6 +906,11 @@
     </div>
     <div class="modal-footer">
       <a class="modal-read-link" id="modalReadLink" href="#" target="_blank" rel="noopener">Kaynağa git →</a>
+      <a class="modal-read-link" id="modalPageLink" href="#" style="display:none">Haberin sayfası ↗</a>
+      <div class="modal-share" id="modalShare" style="display:none">
+        <a id="shareWa" href="#" target="_blank" rel="noopener" class="share-mini share-wa" title="WhatsApp'ta paylaş">WhatsApp</a>
+        <a id="shareTw" href="#" target="_blank" rel="noopener" class="share-mini share-tw" title="Twitter'da paylaş">Twitter</a>
+      </div>
       <button class="btn-kapat" id="modalKapatBtn">Kapat</button>
     </div>
   </div>
@@ -1510,6 +1521,23 @@
       link.classList.add('hidden');
     }
 
+    // Article page link + share buttons
+    const pageLink = document.getElementById('modalPageLink');
+    const shareBox = document.getElementById('modalShare');
+    if (a.slug) {
+      const pageUrl = `/haber/${a.slug}`;
+      pageLink.href = pageUrl;
+      pageLink.style.display = 'inline';
+      const fullUrl = `https://kartalix.com/haber/${a.slug}`;
+      document.getElementById('shareWa').href = `https://wa.me/?text=${encodeURIComponent(a.title + ' ' + fullUrl)}`;
+      document.getElementById('shareTw').href = `https://twitter.com/intent/tweet?text=${encodeURIComponent(a.title)}&url=${encodeURIComponent(fullUrl)}`;
+      shareBox.style.display = 'flex';
+      history.replaceState(null, '', pageUrl);
+    } else {
+      pageLink.style.display = 'none';
+      shareBox.style.display = 'none';
+    }
+
     loadReactions(a);
 
     document.getElementById('modalOverlay').classList.add('open');
@@ -1519,6 +1547,7 @@
   function closeModal() {
     document.getElementById('modalOverlay').classList.remove('open');
     document.body.style.overflow = '';
+    history.replaceState(null, '', '/');
   }
 
   document.getElementById('modalCloseBtn').addEventListener('click', closeModal);

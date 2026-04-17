@@ -94,6 +94,22 @@ export async function getActiveSites(env) {
   return res || [];
 }
 
+// ─── SLUG GENERATION ─────────────────────────────────────────
+export function generateSlug(title, published_at) {
+  const date = (published_at || new Date().toISOString()).slice(0, 10);
+  const s = (title || '')
+    .toLowerCase()
+    .replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ş/g, 's')
+    .replace(/ı/g, 'i').replace(/ö/g, 'o').replace(/ç/g, 'c')
+    .replace(/â/g, 'a').replace(/î/g, 'i').replace(/û/g, 'u')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 70)
+    .replace(/-$/, '');
+  return `${date}-${s}`;
+}
+
 // ─── TEXT / USAGE HELPERS ────────────────────────────────────
 export function extractText(content = []) {
   return content

@@ -9,7 +9,7 @@
  *   4. Caches articles to KV (fan site reads from here)
  *   5. Logs cost + results to Supabase
  */
-import { getActiveSites, addUsagePhase, sleep, isTodayArticle, supabase, MODEL_FETCH, MODEL_SCORE } from './src/utils.js';
+import { getActiveSites, addUsagePhase, sleep, isTodayArticle, supabase, MODEL_FETCH, MODEL_SCORE, generateSlug } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, RSS_FEEDS } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup } from './src/publisher.js';
@@ -364,6 +364,17 @@ export default {
       }
       return Response.json({ error: 'unknown template id' }, { headers: { 'Access-Control-Allow-Origin': '*' } });
     }
+    if (url.pathname === '/rss') {
+      return serveRSSFeed(env);
+    }
+    if (url.pathname === '/sitemap.xml') {
+      return serveSitemap(env);
+    }
+    if (url.pathname.startsWith('/haber/')) {
+      const slug = url.pathname.replace('/haber/', '').replace(/\/$/, '');
+      return serveArticlePage(slug, env);
+    }
+
     return new Response('Kartalix Fetch Agent — OK', { status: 200 });
   },
 
@@ -502,6 +513,7 @@ async function processSite(site, env, ctx) {
     publish_mode:        a.publish_mode || 'rss_summary',
     image_url:           a.image_url    || '',
     template_id:         a.template_id  || null,
+    slug:                a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
   });
 
   // ── KV WRITE IMMEDIATELY (before templates, enrichment, Supabase) ──
@@ -678,4 +690,268 @@ async function buildReport(env) {
     queued_items: pending,
     published_count: parseInt(publishedCountResult?.[0]?.count || 0),
   };
+}
+
+// ─── SPRINT 4: ARTICLE PAGES ─────────────────────────────────
+
+const BASE_URL = 'https://kartalix.com';
+
+async function serveArticlePage(slug, env) {
+  const cached = await env.PITCHOS_CACHE.get('articles:BJK');
+  const articles = cached ? JSON.parse(cached) : [];
+
+  // Find by slug first, fall back to Supabase
+  let article = articles.find(a => a.slug === slug);
+
+  if (!article) {
+    const rows = await supabase(env, 'GET',
+      `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&select=*&limit=1`);
+    if (rows && rows.length > 0) {
+      const r = rows[0];
+      article = {
+        title: r.title, summary: r.summary || '', full_body: r.full_body || '',
+        source: r.source_name || '', category: r.category || 'Haber',
+        published_at: r.fetched_at, image_url: r.image_url || '',
+        nvs: r.nvs_score || 0, url: r.original_url || '#', slug,
+      };
+    }
+  }
+
+  if (!article) {
+    return new Response(renderArticleNotFound(slug), {
+      status: 404,
+      headers: { 'Content-Type': 'text/html;charset=UTF-8' },
+    });
+  }
+
+  return new Response(renderArticleHTML(article), {
+    headers: {
+      'Content-Type': 'text/html;charset=UTF-8',
+      'Cache-Control': 'public, max-age=900',
+    },
+  });
+}
+
+async function serveRSSFeed(env) {
+  const cached = await env.PITCHOS_CACHE.get('articles:BJK');
+  const articles = cached ? JSON.parse(cached) : [];
+  const items = articles.slice(0, 30).map(a => {
+    const url = a.slug ? `${BASE_URL}/haber/${a.slug}` : (a.url && a.url.startsWith('http') ? a.url : BASE_URL);
+    const desc = escXml(a.summary || a.full_body?.slice(0, 200) || '');
+    return `  <item>
+    <title>${escXml(a.title || '')}</title>
+    <link>${escXml(url)}</link>
+    <guid isPermaLink="true">${escXml(url)}</guid>
+    <description>${desc}</description>
+    <pubDate>${new Date(a.published_at || Date.now()).toUTCString()}</pubDate>
+    <source url="${escXml(BASE_URL)}">${escXml(a.source || 'Kartalix')}</source>
+  </item>`;
+  }).join('\n');
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+  <title>Kartalix — Beşiktaş JK Haber Akışı</title>
+  <link>${BASE_URL}</link>
+  <description>Beşiktaş JK ile ilgili en güncel haberler — Kartalix</description>
+  <language>tr</language>
+  <atom:link href="${BASE_URL}/rss" rel="self" type="application/rss+xml"/>
+  <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>
+${items}
+</channel>
+</rss>`;
+
+  return new Response(xml, {
+    headers: {
+      'Content-Type': 'application/rss+xml;charset=UTF-8',
+      'Cache-Control': 'public, max-age=1800',
+    },
+  });
+}
+
+async function serveSitemap(env) {
+  const cached = await env.PITCHOS_CACHE.get('articles:BJK');
+  const articles = cached ? JSON.parse(cached) : [];
+  const articleUrls = articles
+    .filter(a => a.slug)
+    .map(a => `  <url>
+    <loc>${BASE_URL}/haber/${escXml(a.slug)}</loc>
+    <lastmod>${(a.published_at || new Date().toISOString()).slice(0, 10)}</lastmod>
+    <changefreq>never</changefreq>
+    <news:news>
+      <news:publication><news:name>Kartalix</news:name><news:language>tr</news:language></news:publication>
+      <news:publication_date>${(a.published_at || new Date().toISOString()).slice(0, 10)}</news:publication_date>
+      <news:title>${escXml(a.title || '')}</news:title>
+    </news:news>
+  </url>`).join('\n');
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+  <url>
+    <loc>${BASE_URL}/</loc>
+    <changefreq>hourly</changefreq>
+    <priority>1.0</priority>
+  </url>
+${articleUrls}
+</urlset>`;
+
+  return new Response(xml, {
+    headers: {
+      'Content-Type': 'application/xml;charset=UTF-8',
+      'Cache-Control': 'public, max-age=1800',
+    },
+  });
+}
+
+// ─── ARTICLE PAGE HTML ────────────────────────────────────────
+function renderArticleHTML(a) {
+  const slug      = a.slug || '';
+  const title     = a.title || 'Haber';
+  const desc      = (a.summary || a.full_body || '').replace(/<[^>]+>/g, ' ').slice(0, 200).trim();
+  const image     = a.image_url || '';
+  const source    = a.source || a.source_name || '';
+  const category  = a.category || 'Haber';
+  const nvs       = a.nvs || a.nvs_score || 0;
+  const pageUrl   = `${BASE_URL}/haber/${slug}`;
+  const pubDate   = a.published_at ? new Date(a.published_at) : new Date();
+  const dateStr   = pubDate.toLocaleDateString('tr-TR', { day:'numeric', month:'long', year:'numeric' });
+  const isoDate   = pubDate.toISOString();
+  const srcUrl    = a.url && a.url.startsWith('http') ? a.url : null;
+
+  const bodyText  = a.full_body || a.summary || '';
+  const bodyHtml  = bodyText.includes('<') ? bodyText :
+    bodyText.split('\n').map(l => l.trim() ? `<p>${escHtml(l)}</p>` : '').join('');
+
+  const waText    = encodeURIComponent(`${title} ${pageUrl}`);
+  const twParams  = `text=${encodeURIComponent(title)}&url=${encodeURIComponent(pageUrl)}`;
+
+  const jsonLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'NewsArticle',
+    headline: title,
+    description: desc,
+    url: pageUrl,
+    datePublished: isoDate,
+    dateModified: isoDate,
+    image: image || undefined,
+    publisher: { '@type': 'Organization', name: 'Kartalix', url: BASE_URL },
+    author: { '@type': 'Organization', name: source || 'Kartalix' },
+    inLanguage: 'tr',
+    about: { '@type': 'SportsTeam', name: 'Beşiktaş JK' },
+  });
+
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>${escHtml(title)} | Kartalix</title>
+<meta name="description" content="${escHtml(desc)}"/>
+<meta property="og:title" content="${escHtml(title)}"/>
+<meta property="og:description" content="${escHtml(desc)}"/>
+${image ? `<meta property="og:image" content="${escHtml(image)}"/>` : ''}
+<meta property="og:url" content="${escHtml(pageUrl)}"/>
+<meta property="og:type" content="article"/>
+<meta property="og:site_name" content="Kartalix"/>
+<meta name="twitter:card" content="${image ? 'summary_large_image' : 'summary'}"/>
+<meta name="twitter:title" content="${escHtml(title)}"/>
+<meta name="twitter:description" content="${escHtml(desc)}"/>
+${image ? `<meta name="twitter:image" content="${escHtml(image)}"/>` : ''}
+<link rel="canonical" href="${escHtml(pageUrl)}"/>
+<link rel="alternate" type="application/rss+xml" title="Kartalix RSS" href="${BASE_URL}/rss"/>
+<script type="application/ld+json">${jsonLd}</script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0c0c0c;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:16px;line-height:1.7}
+a{color:#E30A17;text-decoration:none}
+a:hover{text-decoration:underline}
+header{background:#111;border-bottom:1px solid #222;padding:0 1.5rem;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
+.logo{font-size:1.25rem;font-weight:900;letter-spacing:-0.03em;color:#fff}
+.logo span{color:#E30A17}
+.back-link{font-size:0.75rem;color:#888;letter-spacing:0.06em}
+.back-link:hover{color:#E30A17;text-decoration:none}
+main{max-width:720px;margin:0 auto;padding:2rem 1.5rem 4rem}
+.cat-tag{display:inline-block;background:#E30A17;color:#fff;font-size:0.6rem;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;padding:3px 10px;border-radius:2px;margin-bottom:1rem}
+h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1rem}
+.article-meta{font-size:0.75rem;color:#888;letter-spacing:0.04em;margin-bottom:1.5rem;display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center}
+.nvs-pill{background:#1a1a1a;border:1px solid #333;padding:2px 8px;border-radius:10px;font-size:0.65rem}
+.article-img{width:100%;max-height:420px;object-fit:cover;border-radius:6px;margin-bottom:1.5rem;display:block}
+.article-body{color:#d0cec8;font-size:1rem;line-height:1.8}
+.article-body p{margin-bottom:1rem}
+.article-body h2,.article-body h3{color:#fff;margin:1.5rem 0 0.5rem;font-size:1.1rem}
+.source-attr{font-size:0.75rem;color:#666;margin-top:2rem;padding-top:1rem;border-top:1px solid #222}
+.source-link{color:#888;font-size:0.75rem;display:inline-block;margin-top:0.5rem}
+.share-box{margin-top:2.5rem;padding:1.5rem;background:#141414;border:1px solid #222;border-radius:6px}
+.share-title{font-size:0.7rem;letter-spacing:0.12em;text-transform:uppercase;color:#888;margin-bottom:1rem}
+.share-btns{display:flex;gap:0.75rem;flex-wrap:wrap}
+.share-btn{display:inline-block;font-size:0.78rem;font-weight:600;padding:9px 18px;border-radius:4px;cursor:pointer;border:none;text-decoration:none;transition:opacity 0.15s}
+.share-btn:hover{opacity:0.85;text-decoration:none}
+.btn-wa{background:#25D366;color:#fff}
+.btn-tw{background:#1DA1F2;color:#fff}
+.btn-copy{background:#333;color:#fff}
+.home-link{display:inline-block;margin-top:2rem;font-size:0.8rem;color:#888;letter-spacing:0.06em}
+.home-link:hover{color:#E30A17;text-decoration:none}
+@media(max-width:600px){main{padding:1.5rem 1rem 3rem}h1{font-size:1.35rem}}
+</style>
+</head>
+<body>
+<header>
+  <a href="/" class="logo">Kartal<span>ix</span></a>
+  <a href="/" class="back-link">← Ana Sayfa</a>
+</header>
+<main>
+  <article>
+    <div class="cat-tag">${escHtml(category)}</div>
+    <h1>${escHtml(title)}</h1>
+    <div class="article-meta">
+      <span>📰 ${escHtml(source)}</span>
+      <time datetime="${isoDate}">${dateStr}</time>
+      ${nvs >= 40 ? `<span class="nvs-pill">NVS ${nvs}</span>` : ''}
+    </div>
+    ${image ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
+    <div class="article-body">${bodyHtml}</div>
+    <div class="source-attr">Bu içerik <strong>${escHtml(source)}</strong> kaynağından derlendi.
+    ${srcUrl ? `<a class="source-link" href="${escHtml(srcUrl)}" target="_blank" rel="noopener">Haberin kaynağına git →</a>` : ''}
+    </div>
+  </article>
+  <div class="share-box">
+    <div class="share-title">Bu haberi paylaş</div>
+    <div class="share-btns">
+      <a class="share-btn btn-wa" href="https://wa.me/?text=${waText}" target="_blank" rel="noopener">WhatsApp</a>
+      <a class="share-btn btn-tw" href="https://twitter.com/intent/tweet?${twParams}" target="_blank" rel="noopener">Twitter / X</a>
+      <button class="share-btn btn-copy" onclick="copyLink(this)">Linki Kopyala</button>
+    </div>
+  </div>
+  <a href="/" class="home-link">← Kartalix — Tüm Haberler</a>
+</main>
+<script>
+function copyLink(btn){
+  navigator.clipboard.writeText(window.location.href).then(()=>{
+    btn.textContent='Kopyalandı!';
+    setTimeout(()=>btn.textContent='Linki Kopyala',2500);
+  });
+}
+</script>
+</body>
+</html>`;
+}
+
+function renderArticleNotFound(slug) {
+  return `<!DOCTYPE html>
+<html lang="tr"><head><meta charset="UTF-8"/><title>Haber Bulunamadı | Kartalix</title>
+<style>body{background:#0c0c0c;color:#888;font-family:system-ui;display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:1rem}a{color:#E30A17}</style>
+</head><body>
+<h2 style="color:#fff">Haber Bulunamadı</h2>
+<p>Bu haber artık mevcut değil ya da taşınmış olabilir.</p>
+<a href="/">← Ana Sayfaya Dön</a>
+</body></html>`;
+}
+
+function escHtml(s = '') {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function escXml(s = '') {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 }

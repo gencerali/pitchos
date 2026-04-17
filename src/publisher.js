@@ -1,4 +1,4 @@
-import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH } from './utils.js';
+import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, generateSlug } from './utils.js';
 import { normalizeTitle, titleSimilarity } from './processor.js';
 
 // ─── PUBLISH MODE DECISION ────────────────────────────────────
@@ -185,6 +185,7 @@ export async function saveArticles(env, siteId, articles) {
     reviewed_by:  'auto',
     fetched_at:   a.published_at || a.fetched_at || new Date().toISOString(),
     reviewed_at:  new Date().toISOString(),
+    slug:         a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
   }));
 
   console.log('SUPABASE INSERT: attempting', rows.length, 'rows');
