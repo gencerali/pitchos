@@ -849,6 +849,9 @@
 
 </div><!-- /page-container -->
 
+<!-- ── ARTICLE PAGE VIEW ── -->
+<div id="articleView" style="display:none;position:fixed;inset:0;background:#0c0c0c;overflow-y:auto;z-index:200"></div>
+
 <!-- ── ARTICLE MODAL ── -->
 <div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalHeadline">
   <div class="modal">
@@ -1110,6 +1113,86 @@
   }
 
   // ── INIT ─────────────────────────────────────────────────────
+  // ── ARTICLE PAGE (client-side routing) ──────────────────────
+  function renderArticleView(a) {
+    const slug    = a.slug || '';
+    const title   = a.title || '';
+    const source  = a.source || a.source_name || '';
+    const cat     = a.category || 'Haber';
+    const image   = a.image_url || '';
+    const nvs     = a.nvs || 0;
+    const bodyRaw = a.full_body || a.summary || '';
+    const srcUrl  = a.url && a.url.startsWith('http') ? a.url : null;
+    const pubDate = a.published_at ? new Date(a.published_at) : new Date();
+    const dateStr = pubDate.toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric'});
+    const pageUrl = slug ? `https://kartalix.com/haber/${slug}` : '';
+    const waUrl   = pageUrl ? `https://wa.me/?text=${encodeURIComponent(title + ' ' + pageUrl)}` : '';
+    const twUrl   = pageUrl ? `https://twitter.com/intent/tweet?text=${encodeURIComponent(title)}&url=${encodeURIComponent(pageUrl)}` : '';
+
+    // Body: preserve HTML or wrap plain text
+    let bodyHtml;
+    if (/<(p|h[1-6]|ul|ol|img|blockquote|figure)\b/i.test(bodyRaw)) {
+      bodyHtml = bodyRaw
+        .replace(/<script[\s\S]*?<\/script>/gi,'')
+        .replace(/<style[\s\S]*?<\/style>/gi,'')
+        .replace(/\son\w+="[^"]*"/gi,'')
+        .replace(/javascript:/gi,'')
+        .replace(/<img([^>]*?)>/gi, (_,attrs) => {
+          const src = (attrs.match(/src="([^"]+)"/) || [])[1] || '';
+          const alt = (attrs.match(/alt="([^"]+)"/) || [])[1] || '';
+          return src ? `<img src="${esc(src)}" alt="${esc(alt)}" style="max-width:100%;height:auto;border-radius:6px;margin:1.25rem 0;display:block" loading="lazy">` : '';
+        });
+    } else {
+      const clean = bodyRaw.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+      bodyHtml = clean.split(/\n\n+/).filter(p=>p.trim().length>10)
+        .map(p=>`<p>${esc(p.trim())}</p>`).join('') || `<p>${esc(clean)}</p>`;
+    }
+
+    const av = document.getElementById('articleView');
+    av.innerHTML = `
+      <div style="background:#111;border-bottom:1px solid #222;padding:0 1.5rem;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10">
+        <a href="/" style="font-size:1.25rem;font-weight:900;letter-spacing:-0.03em;color:#fff;text-decoration:none">Kartal<span style="color:#E30A17">ix</span></a>
+        <a href="/" style="font-size:0.75rem;color:#888;text-decoration:none;letter-spacing:0.06em">← Ana Sayfa</a>
+      </div>
+      <div style="max-width:720px;margin:0 auto;padding:2rem 1.5rem 4rem">
+        <div style="display:inline-block;background:#E30A17;color:#fff;font-size:0.6rem;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;padding:3px 10px;border-radius:2px;margin-bottom:1rem">${esc(cat)}</div>
+        <h1 style="font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1rem">${esc(title)}</h1>
+        <div style="font-size:0.75rem;color:#888;margin-bottom:1.5rem;display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center">
+          <span>📰 ${esc(source)}</span>
+          <span>${dateStr}</span>
+          ${nvs>=40?`<span style="background:#1a1a1a;border:1px solid #333;padding:2px 8px;border-radius:10px;font-size:0.65rem">NVS ${nvs}</span>`:''}
+        </div>
+        ${image?`<img src="${esc(image)}" alt="${esc(title)}" style="width:100%;max-height:420px;object-fit:cover;border-radius:6px;margin-bottom:1.5rem;display:block" loading="lazy">`:''}
+        <div style="color:#d0cec8;font-size:1rem;line-height:1.8" class="av-body">${bodyHtml}</div>
+        <div style="font-size:0.75rem;color:#666;margin-top:2rem;padding-top:1rem;border-top:1px solid #222">
+          Bu içerik <strong style="color:#aaa">${esc(source)}</strong> kaynağından derlendi.
+          ${srcUrl?`<a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#888;display:inline-block;margin-top:0.4rem">Haberin kaynağına git →</a>`:''}
+        </div>
+        ${pageUrl?`<div style="margin-top:2.5rem;padding:1.5rem;background:#141414;border:1px solid #222;border-radius:6px">
+          <div style="font-size:0.7rem;letter-spacing:0.12em;text-transform:uppercase;color:#888;margin-bottom:1rem">Bu haberi paylaş</div>
+          <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+            <a href="${esc(waUrl)}" target="_blank" rel="noopener" style="background:#1aad1a;color:#fff;padding:9px 18px;border-radius:4px;font-size:0.78rem;font-weight:600;text-decoration:none">WhatsApp</a>
+            <a href="${esc(twUrl)}" target="_blank" rel="noopener" style="background:#1DA1F2;color:#fff;padding:9px 18px;border-radius:4px;font-size:0.78rem;font-weight:600;text-decoration:none">Twitter / X</a>
+            <button onclick="navigator.clipboard.writeText('${esc(pageUrl)}').then(()=>{this.textContent='Kopyalandı!';setTimeout(()=>this.textContent='Linki Kopyala',2500)})" style="background:#333;color:#fff;padding:9px 18px;border-radius:4px;font-size:0.78rem;font-weight:600;border:none;cursor:pointer">Linki Kopyala</button>
+          </div>
+        </div>`:''}
+        <a href="/" style="display:inline-block;margin-top:2rem;font-size:0.8rem;color:#888;letter-spacing:0.06em;text-decoration:none">← Kartalix — Tüm Haberler</a>
+      </div>`;
+
+    // style headings and images inside av-body
+    av.querySelectorAll('.av-body h2').forEach(el => Object.assign(el.style, {color:'#fff',fontSize:'1.2rem',fontWeight:'700',margin:'2rem 0 0.75rem',lineHeight:'1.3'}));
+    av.querySelectorAll('.av-body h3').forEach(el => Object.assign(el.style, {color:'#e8e6e0',fontSize:'1.05rem',fontWeight:'600',margin:'1.5rem 0 0.5rem'}));
+    av.querySelectorAll('.av-body p').forEach(el => Object.assign(el.style, {marginBottom:'1rem'}));
+    av.querySelectorAll('.av-body ul, .av-body ol').forEach(el => Object.assign(el.style, {paddingLeft:'1.5rem',margin:'1rem 0'}));
+    av.querySelectorAll('.av-body a').forEach(el => Object.assign(el.style, {color:'#E30A17'}));
+    av.querySelectorAll('.av-body blockquote').forEach(el => Object.assign(el.style, {borderLeft:'3px solid #E30A17',padding:'0.75rem 1rem',background:'#161616',margin:'1.5rem 0',borderRadius:'0 4px 4px 0',color:'#aaa'}));
+
+    av.style.display = 'block';
+    document.body.style.overflow = 'hidden';
+    // Update page title + canonical
+    document.title = `${title} | Kartalix`;
+  }
+
   async function init() {
     let articles = [];
     try {
@@ -1118,6 +1201,19 @@
       articles   = Array.isArray(data) && data.length > 0 ? data : MOCK_ARTICLES;
     } catch {
       articles = MOCK_ARTICLES;
+    }
+
+    // Check for article page URL
+    const slugMatch = window.location.pathname.match(/^\/haber\/(.+?)\/?\s*$/);
+    if (slugMatch) {
+      const slug = decodeURIComponent(slugMatch[1]);
+      const article = articles.find(a => a.slug === slug);
+      if (article) {
+        renderArticleView(article);
+        return;
+      }
+      // Slug not in cache — redirect homepage gracefully
+      history.replaceState(null, '', '/');
     }
 
     // Shelf-life filter
@@ -1505,9 +1601,10 @@
 
   function openArticle(a) {
     if (!a) return;
-    // Navigate to dedicated article page when available
+    // Show article page view (in-SPA, no page reload)
     if (a.slug) {
-      window.location.href = `/haber/${a.slug}`;
+      history.pushState(null, '', `/haber/${a.slug}`);
+      renderArticleView(a);
       return;
     }
     const gs = a.golden_score;
@@ -1565,6 +1662,17 @@
     document.body.style.overflow = '';
     history.replaceState(null, '', '/');
   }
+
+  // Browser back button support
+  window.addEventListener('popstate', () => {
+    const av = document.getElementById('articleView');
+    if (av && av.style.display !== 'none') {
+      av.style.display = 'none';
+      av.innerHTML = '';
+      document.body.style.overflow = '';
+      document.title = 'Kartalix';
+    }
+  });
 
   document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
   document.getElementById('modalKapatBtn').addEventListener('click', closeModal);
