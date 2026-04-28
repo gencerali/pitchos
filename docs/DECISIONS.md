@@ -259,4 +259,20 @@
 
 ---
 
+### 2026-04-28 — PM agent and all agents built Kartalix-specific in v1, abstracted in v2
+
+**Decision**: All agents (PM, Facts Firewall, Produce, Visual Asset, etc.) are built with Kartalix/BJK context in v1. No multi-team abstraction until the second club onboarding (v2).
+
+**Alternatives considered**:
+- Build team-independent from day one — rejected; premature abstraction produces the wrong interfaces before real variation is known
+- Partial abstraction (config files per club) — rejected for v1; adds complexity before the shape of club-specific variation is understood from production use
+
+**Why this one**: The diff between BJK and Juventus configs — discovered during actual v2 onboarding — tells you exactly what to parameterize. Guessing now produces abstractions that don't match reality. Data models are kept clean enough to extend (e.g. `pm_sessions` can accept `site_id` via migration).
+
+**What would change our mind**: A second club onboarding opportunity arising before v1 ships — at which point a minimal config layer is justified.
+
+**Related**: SLICES.md v2 backlog (Pitchos onboarding for second club)
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*
