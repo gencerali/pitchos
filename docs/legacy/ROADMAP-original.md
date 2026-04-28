@@ -1,3 +1,23 @@
+# Original Roadmap — Archived 28 Apr 2026
+
+This document captures earlier architectural thinking before the
+v1 architecture was locked in `docs/architecture/pitchos-architecture.jsx`
+and `docs/SLICES.md`.
+
+Status: superseded as the active plan, but contains valuable operational
+detail not yet captured in v1 docs — particularly multi-LLM routing,
+cost economics, observability targets, and specific schema patterns.
+
+Mine this document when:
+- Building Slice 7 (Governance / CFO) — cost economics
+- Building Slice 8 (Self-Learning) — observability patterns
+- Designing v2 — multi-LLM routing strategy
+- Any time you need a more concrete operational detail than v1 docs provide
+
+Do NOT use this as the active plan. SLICES.md is the active plan.
+
+---
+
 # Kartalix — Product Roadmap
 Last updated: April 17, 2026
 
