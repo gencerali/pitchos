@@ -8,20 +8,19 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-Two manual tasks, then resume build:
+Create `@kartalix-pm` Telegram channel, then begin PM agent scaffold:
 
-1. **Deploy pitchos-proxy to Render** — auto-enrich cron is now disabled in code, needs to be re-deployed to take effect on the live server
-2. **Run `supabase-migration-legal-cleanup.sql`** in Supabase SQL editor — deletes stored P4 full text and IT3 images from content_items
-
-Once those two are done: create `@kartalix-pm` Telegram channel, note the chat ID, and begin PM agent scaffold (`pm_sessions` table + Cloudflare Worker, Monday kickoff message first).
+1. Create `@kartalix-pm` Telegram channel — note the chat ID (needed to wire the bot)
+2. Add `pm_sessions` migration to Supabase — columns: `id`, `created_at`, `type` (kickoff/close/drift/session/pause), `content` (text), `commitments` (jsonb), `slips` (jsonb)
+3. Scaffold PM agent Cloudflare Worker — start with Monday 09:00 kickoff message only, wire to `@kartalix-pm`
 
 ---
 
 ## CONTEXT IF NEEDED
 
-**Currently in flight**: Slice 0 (PM Agent) — legal compliance work completed first
-**Last session**: 2026-04-28 — lawyer feedback processed. IT3 images blocked, hot-news delay added, source attribution made mandatory, auto-enrich cron disabled, P4 full-text stripped from pipeline. Three new DECISIONS.md entries written.
-**Blockers**: Lawyer consultation complete ✅. Render re-deploy and Supabase cleanup SQL must run before next fetch cycle.
+**Currently in flight**: Slice 0 (PM Agent)
+**Last session**: 2026-04-28 — full audit, lawyer consultation processed, 48-hour legal compliance complete (IT3 blocked, enrich cron off, hot-news delay, source attribution). Render redeployed, Supabase cleanup SQL run.
+**Blockers**: None. All legal pre-conditions met.
 
 ---
 

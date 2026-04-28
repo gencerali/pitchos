@@ -8,10 +8,10 @@
 
 ## CURRENTLY IN FLIGHT
 
-**Slice 1 — Facts Extraction Firewall**
+**Slice 0 — Build Scaffold + PM Agent**
 Started: 2026-04-28
-Estimated: 2–4 weeks
-Status: `not-started`
+Estimated: 1–2 weeks
+Status: `in-progress`
 
 ---
 
@@ -19,15 +19,16 @@ Status: `not-started`
 
 **Goal**: ship the PM agent and the four tracking files before starting Slice 1.
 
-- [ ] Four tracking files in `docs/` (SLICES, DECISIONS, NEXT, README)
-- [ ] PM agent Cloudflare Worker scaffold
+- [x] Four tracking files in `docs/` (SLICES, DECISIONS, NEXT, AUDIT, BUILD-DISCIPLINE)
+- [x] Turkish IP lawyer consultation completed — feedback received, architecture adjusted
+- [x] 48-hour legal compliance actions done (IT3 block, enrich cron disabled, hot-news delay, source attribution)
 - [ ] Telegram channel `@kartalix-pm` created
+- [ ] PM agent Cloudflare Worker scaffold
 - [ ] Monday kickoff message wired
 - [ ] Friday close message wired
 - [ ] End-of-session logger wired
 - [ ] Drift detector daily cron wired
 - [ ] Pause command implemented
-- [ ] Turkish IP lawyer consultation booked
 
 **Done when**: Monday morning, you receive a kickoff message in Telegram with your committed deliverables for the week.
 
@@ -48,12 +49,15 @@ Status: `not-started`
 - [ ] Golden fixture: `rashica_transfer_5_contribs`
 - [ ] Golden fixture: `fotomac_403`
 - [ ] Golden fixture: `firewall_destroys_source_text` (legal core test)
-- [ ] Lawyer consultation outcome reviewed and architecture adjusted if needed
+- [ ] Lawyer consultation outcome reviewed and architecture adjusted if needed ✅ done 2026-04-28
+- [ ] Hot News delay (15 min for P4) — implemented 2026-04-28, golden fixture still needed
+- [ ] Source attribution mandatory on all derived articles — implemented 2026-04-28
+- [ ] Remove Cloudflare Access gate from `/haber/*` (open article pages to public when firewall ships)
 
-**Done when**: a P4 article goes through the pipeline and the published Kartalix article is provably non-derivative. You can show this to a lawyer.
+**Done when**: a P4 article goes through the pipeline and the published Kartalix article is provably non-derivative. You can show this to a lawyer. Article pages are publicly accessible.
 
 **Blockers**:
-- ⚠ Turkish IP lawyer consultation pending — must complete before Slice 1 ships
+- ~~Turkish IP lawyer consultation pending~~ ✅ resolved 2026-04-28
 
 ---
 
