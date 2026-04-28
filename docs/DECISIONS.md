@@ -30,7 +30,7 @@
 
 ## ENTRIES
 
-### 2026-04-XX — Story-centric over article-centric architecture
+### 2026-04-28 — Story-centric over article-centric architecture
 
 **Decision**: Stories are the primary entity. Articles are generated outputs of stories at specific lifecycle states. Multiple source contributions about the same event aggregate into one story, producing one Kartalix article that evolves with the story state.
 
@@ -46,7 +46,7 @@
 
 ---
 
-### 2026-04-XX — Facts-extraction firewall is non-negotiable
+### 2026-04-28 — Facts-extraction firewall is non-negotiable
 
 **Decision**: P4 source text is destroyed post-extraction. Only structured facts persist. The Produce Agent never sees P4 source text under any circumstance.
 
@@ -62,7 +62,7 @@
 
 ---
 
-### 2026-04-XX — Multi-tenant via JSONB config from day one
+### 2026-04-28 — Multi-tenant via JSONB config from day one
 
 **Decision**: All club-specific configuration lives in Supabase JSONB per `site_id`. No hardcoded club references in code. Onboarding a new club = adding a config row.
 
@@ -78,7 +78,7 @@
 
 ---
 
-### 2026-04-XX — Three story types in v1 (Match-extended, Transfer, Injury)
+### 2026-04-28 — Three story types in v1 (Match-extended, Transfer, Injury)
 
 **Decision**: Launch with three story types. Match story is one extended entity covering pre/live/post phases with sub-stories for non-routine events. Defer all other types to v2.
 
@@ -95,7 +95,7 @@
 
 ---
 
-### 2026-04-XX — Intelligent signal-driven match lifecycle
+### 2026-04-28 — Intelligent signal-driven match lifecycle
 
 **Decision**: Match story open/close is signal-driven, not calendar-driven. Story opens on first match-related contribution, closes when activity decays AND a newer match story dominates.
 
@@ -111,7 +111,7 @@
 
 ---
 
-### 2026-04-XX — Sub-stories preserve context after parent archives
+### 2026-04-28 — Sub-stories preserve context after parent archives
 
 **Decision**: Sub-stories are first-class with `parent_story_id` and `ancestry_path`. They survive parent archive if they have their own active narrative.
 
@@ -124,7 +124,7 @@
 
 ---
 
-### 2026-04-XX — User-addable sources via schema-first, UI-later
+### 2026-04-28 — User-addable sources via schema-first, UI-later
 
 **Decision**: Sources live in a `sources` table with `adapter_template_id`. v1 = manage via Supabase dashboard manually. v2 = admin UI.
 
@@ -138,7 +138,7 @@
 
 ---
 
-### 2026-04-XX — Trust score: auto / locked / hybrid modes
+### 2026-04-28 — Trust score: auto / locked / hybrid modes
 
 **Decision**: Source trust scores support three modes. Auto = Engage feedback adjusts. Locked = manual fixed value. Hybrid = bounded auto-adjust within a band.
 
@@ -148,7 +148,7 @@
 
 ---
 
-### 2026-04-XX — Editorial QA shows author first, then publisher
+### 2026-04-28 — Editorial QA shows author first, then publisher
 
 **Decision**: Two-stage approval flow. Author sees QA report and decides what to apply. Pre-final goes to publisher (you) for final approval. Bot proposes; bot never auto-applies.
 
@@ -162,7 +162,7 @@
 
 ---
 
-### 2026-04-XX — Image strategy: 6-tier with IT3 architecturally blocked
+### 2026-04-28 — Image strategy: 6-tier with IT3 architecturally blocked
 
 **Decision**: Images organized in 6 tiers (IT1–IT6). IT3 (wire/RSS images from P4) is blocked at the firewall, same as P4 text. v1 builds IT2 + IT6 only. IT1 deferred to v2. IT5 (AI-generated) limited to abstract/illustrative — no real people.
 
@@ -172,7 +172,7 @@
 
 ---
 
-### 2026-04-XX — Governance Layer (CLO + CFO) above pipeline, not within
+### 2026-04-28 — Governance Layer (CLO + CFO) above pipeline, not within
 
 **Decision**: CLO and CFO are oversight layers, not pipeline agents. Synchronous deterministic checks in v1, async LLM audit in v2.
 
@@ -186,7 +186,7 @@
 
 ---
 
-### 2026-04-XX — Test discipline: golden fixtures for every architectural decision
+### 2026-04-28 — Test discipline: golden fixtures for every architectural decision
 
 **Decision**: Every architectural decision in this log gets a corresponding golden fixture in `fixtures/cases/`. Tests live in repo as Vitest suites with `dev test` workflow command.
 
@@ -196,7 +196,7 @@
 
 ---
 
-### 2026-04-XX — PM agent built in v0, before Slice 1
+### 2026-04-28 — PM agent built in v0, before Slice 1
 
 **Decision**: Build PM scaffold (Telegram-based, four conversations, drift detection) before starting Slice 1. PM agent runs in `@kartalix-pm` channel, separate from operational channels.
 

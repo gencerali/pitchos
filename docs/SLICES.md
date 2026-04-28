@@ -9,7 +9,7 @@
 ## CURRENTLY IN FLIGHT
 
 **Slice 1 — Facts Extraction Firewall**
-Started: [DATE]
+Started: 2026-04-28
 Estimated: 2–4 weeks
 Status: `not-started`
 
@@ -244,4 +244,4 @@ Status: `not-started`
 
 ---
 
-*Last updated: [DATE] — update this every time you change anything above.*
+*Last updated: 2026-04-28 — update this every time you change anything above.*
