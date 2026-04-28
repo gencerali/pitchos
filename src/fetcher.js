@@ -53,7 +53,7 @@ async function fetchViaRss2Json(feed) {
         title:        title.trim(),
         url:          url.trim(),
         summary:      desc.replace(/<[^>]+>/g, '').slice(0, 300),
-        image_url:    img,
+        image_url:    null,   // IT3 block: P4 proxy feed images are never passed downstream
         published_at,
         source_name:  feed.name,
         source:       feed.name,
@@ -61,6 +61,7 @@ async function fetchViaRss2Json(feed) {
         sport:        feed.sport,
         is_fresh:     true,
         time_ago:     'Güncel',
+        is_p4:        true,
       };
     }).filter(a => a.title.length > 5);
   } catch(e) {
@@ -199,19 +200,26 @@ async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS) {
       else if (/voleybol/i.test(title + ' ' + (rawDesc || '')))       sport = 'volleyball';
     }
 
+    // IT3 block: P4 outlet images must never reach the pipeline.
+    // P4 trust tiers: 'press' covers Fotomaç, Sabah, Hürriyet, Milliyet, Fanatik.
+    // 'broadcast' covers A Spor, NTV Spor (mixed — NTV is P3-equivalent, A Spor is P4).
+    // Safe to strip image_url for all proxy=true feeds (all are P4).
+    const safeImageUrl = feed.proxy ? null : image_url;
+
     articles.push({
       title,
       summary,
-      full_text,
+      full_text:       feed.proxy ? null : full_text,  // P4 source text not passed downstream
       source:          sourceName,
       original_source,
       url:             url_,
-      image_url,
+      image_url:       safeImageUrl,
       category:        'Club',
       time_ago:        pubMs ? relativeTime(pubMs) : 'Güncel',
       published_at,
       is_fresh:        true,
       trust_tier:      trustTier,
+      is_p4:           !!feed.proxy,                   // flag for Hot News delay + firewall routing
       sport,
     });
   }

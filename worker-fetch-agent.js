@@ -502,6 +502,7 @@ async function processSite(site, env, ctx) {
     source:              a.source       || a.source_name || '',
     source_name:         a.source_name  || a.source || '',
     source_emoji:        a.source_emoji || '',
+    source_url:          a.url          || a.original_url || '',  // attribution link
     url:                 a.url          || a.original_url || '',
     category:            a.category     || 'Haber',
     nvs:                 a.nvs          || a.nvs_score   || 0,
@@ -509,9 +510,10 @@ async function processSite(site, env, ctx) {
     published_at:        a.published_at || a.fetched_at  || new Date().toISOString(),
     is_fresh:            a.is_fresh     ?? true,
     is_kartalix_content: a.is_kartalix_content || false,
+    is_p4:               a.is_p4        || false,
     sport:               a.sport        || 'football',
     publish_mode:        a.publish_mode || 'rss_summary',
-    image_url:           a.image_url    || '',
+    image_url:           a.is_p4 ? '' : (a.image_url || ''),  // IT3 block at KV boundary
     template_id:         a.template_id  || null,
     slug:                a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
   });
@@ -573,8 +575,8 @@ async function processSite(site, env, ctx) {
       console.log(`Write phase: ${allWritten.map(a => a.publish_mode).join(', ')}`);
 
       const publishThreshold = Math.min(site.auto_publish_threshold, 20);
-      const toPublish = allWritten.filter(a => a.nvs >= publishThreshold);
-      const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < publishThreshold);
+      const toPublish = allWritten.filter(a => a.nvs >= publishThreshold && a.publish_mode !== 'hot_news_hold');
+      const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < publishThreshold && a.publish_mode !== 'hot_news_hold');
       stats.published = toPublish.length;
       stats.queued    = toQueue.length;
 
@@ -920,8 +922,8 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
     </div>
     ${image ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
     <div class="article-body">${bodyHtml}</div>
-    <div class="source-attr">Bu içerik <strong>${escHtml(source)}</strong> kaynağından derlendi.
-    ${srcUrl ? `<a class="source-link" href="${escHtml(srcUrl)}" target="_blank" rel="noopener">Haberin kaynağına git →</a>` : ''}
+    <div class="source-attr">Kaynak: <a href="${escHtml(srcUrl || '#')}" target="_blank" rel="noopener"><strong>${escHtml(source)}</strong> →</a>
+    ${srcUrl ? `<span style="color:#555;font-size:0.7rem;display:block;margin-top:4px">Kartalix, bu haberdeki olgusal bilgileri bağımsız olarak derlemiştir. Orijinal haber için yukarıdaki kaynağı ziyaret edin.</span>` : ''}
     </div>
   </article>
   <div class="share-box">

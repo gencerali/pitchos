@@ -210,4 +210,53 @@
 
 ---
 
+### 2026-04-28 — Fact extraction scope: Names, Numbers, Dates only
+
+**Decision**: The Facts Firewall extracts exactly three categories from P4 source text: named entities (people, clubs, competitions), numbers (fees, contract length, goals, minutes), and dates/timestamps. No other content from P4 source text is retained.
+
+**Alternatives considered**:
+- Broader "key claims" extraction — rejected because scope creep leads back to paraphrase, which is legally indefensible
+- Sentence-level summarization — rejected for the same reason
+
+**Why this one**: Turkish IP lawyer confirmed this is the correct scope. Entities are facts, not expression. Expression is what FSEK protects.
+
+**What would change our mind**: Lawyer consultation outcome on appeal or updated FSEK interpretation.
+
+**Related**: SLICES.md Slice 1, `2026-04-28 — Facts-extraction firewall is non-negotiable`
+
+---
+
+### 2026-04-28 — Source attribution is mandatory on all derived articles
+
+**Decision**: Every Kartalix article derived from P4 source material must display a visible "Kaynak: [Outlet name]" attribution with a hyperlink to the original article. This applies to the article page, the KV cache shape, and the Supabase row.
+
+**Alternatives considered**:
+- Attribution optional / editorial discretion — rejected on legal advice
+- Attribution without hyperlink — rejected; hyperlink is what builds the Good Faith defense under Turkish Commercial Code
+
+**Why this one**: Turkish IP lawyer explicitly recommended this as a Good Faith defense. It also serves editorial transparency.
+
+**What would change our mind**: Nothing — this is now a legal requirement, not a design preference.
+
+**Related**: SLICES.md Slice 1, article page template in worker-fetch-agent.js
+
+---
+
+### 2026-04-28 — Hot News delay: P4 sources must not publish within 15 minutes of source pubDate
+
+**Decision**: Articles sourced from P4 outlets are held for a minimum of 15 minutes after the source's `pubDate` before being eligible for publication. This delay is applied in the publish routing logic, not at fetch time.
+
+**Alternatives considered**:
+- No delay — rejected; Turkish courts have recently protected "Exclusive News" under Unfair Competition law even when text is rewritten, if published within seconds of the original
+- 30-minute delay — considered; 15 minutes chosen as the minimum defensible buffer, can be increased per source via config
+- Delay only on transfer exclusives — rejected; too complex to classify at fetch time reliably
+
+**Why this one**: Turkish IP lawyer explicitly warned about "Hot News" misappropriation claims. A documented delay mechanism is evidence of compliance intent.
+
+**What would change our mind**: Lawyer providing a different specific threshold after reviewing case law.
+
+**Related**: SLICES.md Slice 1, `decidePublishMode()` in src/publisher.js
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*
