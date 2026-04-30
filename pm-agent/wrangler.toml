@@ -1,0 +1,19 @@
+name = "kartalix-pm-agent"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+workers_dev = true
+
+[vars]
+SUPABASE_URL = "https://qfgstxswcsodaaksjztz.supabase.co"
+
+# Secrets (set via: npx wrangler secret put <NAME>)
+# SUPABASE_SERVICE_KEY
+# TELEGRAM_BOT_TOKEN
+# TELEGRAM_PM_CHAT_ID
+
+[triggers]
+crons = [
+  "0 6 * * 1",    # Monday 09:00 IST (06:00 UTC) — kickoff
+  "0 14 * * 5",   # Friday 17:00 IST (14:00 UTC) — close
+  "0 5 * * *",    # Daily 08:00 IST (05:00 UTC)  — drift detector
+]

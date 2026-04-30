@@ -1,12 +1,27 @@
 import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, generateSlug } from './utils.js';
 import { normalizeTitle, titleSimilarity } from './processor.js';
 
+// ─── HOT NEWS DELAY ──────────────────────────────────────────
+// P4 articles must not publish within 15 minutes of source pubDate.
+// See DECISIONS.md 2026-04-28 — Hot News delay.
+const HOT_NEWS_DELAY_MS = 15 * 60 * 1000;
+
+export function isHotNewsHeld(article) {
+  if (!article.is_p4) return false;
+  if (!article.published_at) return false;
+  const age = Date.now() - new Date(article.published_at).getTime();
+  return age < HOT_NEWS_DELAY_MS;
+}
+
 // ─── PUBLISH MODE DECISION ────────────────────────────────────
 export function decidePublishMode(article) {
   const cat   = (article.category     || '').toLowerCase();
   const type  = (article.content_type || '').toLowerCase();
   const trust = (article.trust        || '').toLowerCase();
   const nvs   = article.nvs || 0;
+
+  // Hot News hold: P4 articles younger than 15 minutes are not published
+  if (isHotNewsHeld(article)) return 'hot_news_hold';
 
   const today   = new Date().toISOString().slice(0, 10);
   const pubDate = (article.published_at || '').slice(0, 10);
@@ -17,7 +32,8 @@ export function decidePublishMode(article) {
   if (cat === 'match' && type === 'fact' && !isToday) return 'template_postmatch';
   if (cat === 'injury')                               return 'template_injury';
   if (cat === 'transfer' && nvs >= 70)                return 'template_transfer';
-  if (nvs >= 55 && article.url && article.url !== '#') return 'copy_source';
+  // copy_source restricted to non-P4 sources only
+  if (nvs >= 55 && article.url && article.url !== '#' && !article.is_p4) return 'copy_source';
   return 'rss_summary';
 }
 
