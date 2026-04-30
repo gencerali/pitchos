@@ -215,7 +215,8 @@ Status: `in-progress`
 
 - IT1 licensed photography (AA subscription integration)
 - Async LLM audit modes for CLO/CFO
-- Source addition admin UI (currently Supabase dashboard manual)
+- ~~Source addition admin UI~~ — promoted to Slice 4 (2026-04-30)
+- Sub-story lineage (parent_story_id, ancestry_path) — deferred from Slice 2, not yet needed
 - Story type expansion: Disciplinary, Financial, Management, Commentary, Editorial
 - Cultural/fan story type
 - Infrastructure/stadium/academy/women's team coverage
@@ -248,4 +249,4 @@ Status: `in-progress`
 
 ---
 
-*Last updated: 2026-04-28 — update this every time you change anything above.*
+*Last updated: 2026-04-30 (session 4)*
