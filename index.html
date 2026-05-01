@@ -2123,16 +2123,18 @@
         { elId: 'wg-api-football-fixtures',  sectionId: 'fixturesSection'  },
         { elId: 'wg-api-football-team',      sectionId: 'teamStatsSection' },
       ];
-      widgets.forEach(({ elId, sectionId }) => {
+      // Reveal one widget at a time with a gap to avoid CDN 429s on burst loading
+      for (const { elId, sectionId } of widgets) {
         const el = document.getElementById(elId);
-        if (!el) return;
+        if (!el) continue;
         el.setAttribute('data-key', apiKey);
         document.getElementById(sectionId).style.display = 'block';
-      });
-      const s = document.createElement('script');
-      s.type = 'module';
-      s.src = 'https://widgets.api-sports.io/2.0.3/widgets.js';
-      document.body.appendChild(s);
+        const s = document.createElement('script');
+        s.type = 'module';
+        s.src = 'https://widgets.api-sports.io/2.0.3/widgets.js';
+        document.body.appendChild(s);
+        await new Promise(r => setTimeout(r, 1500));
+      }
     } catch(e) {}
   })();
 </script>
