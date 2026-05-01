@@ -2659,7 +2659,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
         data-show-logos="true"
         class="wg_loader">
       </div>
-      <script type="module" src="https://widgets.api-sports.io/2.0.3/widgets.js"></script>
+      <script type="module" src="https://widgets.api-sports.io/football/2.0.3/widgets.js"></script>
     </div>` : ''}
     <div class="source-attr">Kaynak: <a href="${escHtml(srcUrl || '#')}" target="_blank" rel="noopener"><strong>${escHtml(source)}</strong> →</a>
     ${srcUrl ? `<span style="color:#555;font-size:0.7rem;display:block;margin-top:4px">Kartalix, bu haberdeki olgusal bilgileri bağımsız olarak derlemiştir. Orijinal haber için yukarıdaki kaynağı ziyaret edin.</span>` : ''}
