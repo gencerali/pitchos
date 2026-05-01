@@ -2650,16 +2650,9 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
     ${image ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
     <div class="article-body">${bodyHtml}</div>
     ${apiKey && fixtureId && templateId ? `<div style="margin:1.5rem 0">
-      <div id="wg-api-football-fixture"
-        data-host="v3.football.api-sports.io"
-        data-key="${escHtml(apiKey)}"
-        data-id="${fixtureId}"
-        data-theme="dark"
-        data-show-errors="false"
-        data-show-logos="true"
-        class="wg_loader">
-      </div>
-      <script type="module" src="https://widgets.api-sports.io/football/2.0.3/widgets.js"></script>
+      <api-sports-widget data-type="game" data-id="${fixtureId}"></api-sports-widget>
+      <api-sports-widget data-type="config" data-key="${escHtml(apiKey)}" data-sport="football" data-theme="dark" data-show-errors="true"></api-sports-widget>
+      <script type="module" src="https://widgets.api-sports.io/3.1.0/widgets.js"></script>
     </div>` : ''}
     <div class="source-attr">Kaynak: <a href="${escHtml(srcUrl || '#')}" target="_blank" rel="noopener"><strong>${escHtml(source)}</strong> →</a>
     ${srcUrl ? `<span style="color:#555;font-size:0.7rem;display:block;margin-top:4px">Kartalix, bu haberdeki olgusal bilgileri bağımsız olarak derlemiştir. Orijinal haber için yukarıdaki kaynağı ziyaret edin.</span>` : ''}

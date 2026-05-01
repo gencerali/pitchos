@@ -866,17 +866,7 @@
         <span class="section-title">Puan Durumu</span>
         <div class="section-line"></div>
       </div>
-      <div id="wg-api-football-standings"
-        data-host="v3.football.api-sports.io"
-        data-key=""
-        data-league="203"
-        data-season="2025"
-        data-team="549"
-        data-theme="dark"
-        data-show-errors="true"
-        data-show-logos="true"
-        class="wg_loader">
-      </div>
+      <api-sports-widget data-type="standings" data-league="203" data-season="2025" data-team="549"></api-sports-widget>
     </div>
 
     <!-- FIXTURES WIDGET -->
@@ -886,17 +876,7 @@
         <span class="section-title">Maç Takvimi</span>
         <div class="section-line"></div>
       </div>
-      <div id="wg-api-football-fixtures"
-        data-host="v3.football.api-sports.io"
-        data-key=""
-        data-league="203"
-        data-season="2025"
-        data-team="549"
-        data-theme="dark"
-        data-show-errors="true"
-        data-show-logos="true"
-        class="wg_loader">
-      </div>
+      <api-sports-widget data-type="games" data-team="549" data-league="203" data-season="2025"></api-sports-widget>
     </div>
 
     <!-- TEAM STATS WIDGET -->
@@ -906,17 +886,7 @@
         <span class="section-title">Takım İstatistikleri</span>
         <div class="section-line"></div>
       </div>
-      <div id="wg-api-football-team"
-        data-host="v3.football.api-sports.io"
-        data-key=""
-        data-type="team"
-        data-team-id="549"
-        data-team-tab="statistics"
-        data-team-statistics="true"
-        data-theme="dark"
-        data-show-errors="true"
-        class="wg_loader">
-      </div>
+      <api-sports-widget data-type="team" data-team-id="549" data-league="203" data-season="2025"></api-sports-widget>
     </div>
   </aside>
 
@@ -2118,23 +2088,23 @@
       if (!res.ok) return;
       const { apiKey } = await res.json();
       if (!apiKey) return;
-      const widgets = [
-        { elId: 'wg-api-football-standings', sectionId: 'standingsSection' },
-        { elId: 'wg-api-football-fixtures',  sectionId: 'fixturesSection'  },
-        { elId: 'wg-api-football-team',      sectionId: 'teamStatsSection' },
-      ];
-      // Reveal one widget at a time with a gap to avoid CDN 429s on burst loading
-      for (const { elId, sectionId } of widgets) {
-        const el = document.getElementById(elId);
-        if (!el) continue;
-        el.setAttribute('data-key', apiKey);
-        document.getElementById(sectionId).style.display = 'block';
-        const s = document.createElement('script');
-        s.type = 'module';
-        s.src = 'https://widgets.api-sports.io/football/2.0.3/widgets.js';
-        document.body.appendChild(s);
-        await new Promise(r => setTimeout(r, 1500));
-      }
+      // Global config widget — all other widgets inherit key/sport/theme from this
+      const cfg = document.createElement('api-sports-widget');
+      cfg.setAttribute('data-type', 'config');
+      cfg.setAttribute('data-key', apiKey);
+      cfg.setAttribute('data-sport', 'football');
+      cfg.setAttribute('data-theme', 'dark');
+      cfg.setAttribute('data-show-errors', 'true');
+      document.body.appendChild(cfg);
+      // Load v3 widget script once
+      const s = document.createElement('script');
+      s.type = 'module';
+      s.src = 'https://widgets.api-sports.io/3.1.0/widgets.js';
+      document.body.appendChild(s);
+      // Reveal all sections
+      ['standingsSection', 'fixturesSection', 'teamStatsSection'].forEach(id => {
+        document.getElementById(id).style.display = 'block';
+      });
     } catch(e) {}
   })();
 </script>
