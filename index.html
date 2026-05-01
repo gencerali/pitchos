@@ -711,6 +711,7 @@
     gtag('js', new Date());
     gtag('config', 'G-3QK6G366J3');
   </script>
+  <script type="module" src="https://widgets.api-sports.io/3.1.0/widgets.js"></script>
 </head>
 <body>
 
@@ -858,6 +859,9 @@
     <div class="ad-slot sidebar-ad-box" data-slot="box-300" data-size="300 × 250 — Box" style="margin-top:1.5rem">
       <span class="ad-label">Reklam</span>
     </div>
+
+    <!-- Global config widget — key injected by JS after fetch -->
+    <api-sports-widget id="apiSportsConfig" data-type="config" data-key="" data-sport="football" data-theme="dark" data-show-errors="true"></api-sports-widget>
 
     <!-- STANDINGS WIDGET -->
     <div class="sidebar-section" id="standingsSection" style="margin-top:1.5rem;display:none">
@@ -2088,20 +2092,7 @@
       if (!res.ok) return;
       const { apiKey } = await res.json();
       if (!apiKey) return;
-      // Global config widget — all other widgets inherit key/sport/theme from this
-      const cfg = document.createElement('api-sports-widget');
-      cfg.setAttribute('data-type', 'config');
-      cfg.setAttribute('data-key', apiKey);
-      cfg.setAttribute('data-sport', 'football');
-      cfg.setAttribute('data-theme', 'dark');
-      cfg.setAttribute('data-show-errors', 'true');
-      document.body.appendChild(cfg);
-      // Load v3 widget script once
-      const s = document.createElement('script');
-      s.type = 'module';
-      s.src = 'https://widgets.api-sports.io/3.1.0/widgets.js';
-      document.body.appendChild(s);
-      // Reveal all sections
+      document.getElementById('apiSportsConfig').setAttribute('data-key', apiKey);
       ['standingsSection', 'fixturesSection', 'teamStatsSection'].forEach(id => {
         document.getElementById(id).style.display = 'block';
       });
