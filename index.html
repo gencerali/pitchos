@@ -859,9 +859,6 @@
       <span class="ad-label">Reklam</span>
     </div>
 
-    <!-- Global config widget — key injected by JS after fetch -->
-    <api-sports-widget id="apiSportsConfig" data-type="config" data-key="" data-sport="football" data-theme="dark" data-show-errors="true"></api-sports-widget>
-
     <!-- STANDINGS WIDGET -->
     <div class="sidebar-section" id="standingsSection" style="margin-top:1.5rem;display:none">
       <div class="section-header">
@@ -869,7 +866,7 @@
         <span class="section-title">Puan Durumu</span>
         <div class="section-line"></div>
       </div>
-      <api-sports-widget data-type="standings" data-league="203" data-season="2025" data-team="549"></api-sports-widget>
+      <div id="standingsMount"></div>
     </div>
 
     <!-- FIXTURES WIDGET -->
@@ -879,7 +876,7 @@
         <span class="section-title">Maç Takvimi</span>
         <div class="section-line"></div>
       </div>
-      <api-sports-widget data-type="games" data-team="549" data-league="203" data-season="2025"></api-sports-widget>
+      <div id="fixturesMount"></div>
     </div>
 
     <!-- TEAM STATS WIDGET -->
@@ -889,7 +886,7 @@
         <span class="section-title">Takım İstatistikleri</span>
         <div class="section-line"></div>
       </div>
-      <api-sports-widget data-type="team" data-team-id="549" data-league="203" data-season="2025"></api-sports-widget>
+      <div id="teamMount"></div>
     </div>
   </aside>
 
@@ -2087,20 +2084,35 @@
   // ── STANDINGS WIDGET ────────────────────────────────────────
   (async function initSidebarWidgets() {
     try {
-      const res = await fetch('https://app.kartalix.com/widgets/config');
-      if (!res.ok) return;
-      const { apiKey } = await res.json();
+      const { apiKey } = await fetch('https://app.kartalix.com/widgets/config').then(r => r.json());
       if (!apiKey) return;
-      // Set key before script loads so widgets initialise with the correct key
-      document.getElementById('apiSportsConfig').setAttribute('data-key', apiKey);
+      // Load script and wait for it to fully execute before touching the DOM
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.type = 'module';
+        s.src = 'https://widgets.api-sports.io/3.1.0/widgets.js';
+        s.onload = resolve;
+        s.onerror = reject;
+        document.head.appendChild(s);
+      });
+      // Script loaded + key ready — inject config then widget elements
+      const cfg = document.createElement('api-sports-widget');
+      cfg.setAttribute('data-type', 'config');
+      cfg.setAttribute('data-key', apiKey);
+      cfg.setAttribute('data-sport', 'football');
+      cfg.setAttribute('data-theme', 'dark');
+      cfg.setAttribute('data-show-errors', 'true');
+      document.body.appendChild(cfg);
+      document.getElementById('standingsMount').innerHTML =
+        '<api-sports-widget data-type="standings" data-league="203" data-season="2025" data-team="549"></api-sports-widget>';
+      document.getElementById('fixturesMount').innerHTML =
+        '<api-sports-widget data-type="games" data-team="549" data-league="203" data-season="2025"></api-sports-widget>';
+      document.getElementById('teamMount').innerHTML =
+        '<api-sports-widget data-type="team" data-team-id="549" data-league="203" data-season="2025"></api-sports-widget>';
       ['standingsSection', 'fixturesSection', 'teamStatsSection'].forEach(id => {
         document.getElementById(id).style.display = 'block';
       });
-      const s = document.createElement('script');
-      s.type = 'module';
-      s.src = 'https://widgets.api-sports.io/3.1.0/widgets.js';
-      document.body.appendChild(s);
-    } catch(e) {}
+    } catch(e) { console.error('widget init:', e); }
   })();
 </script>
 
