@@ -1,5 +1,6 @@
-import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, generateSlug } from './utils.js';
+import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes } from './utils.js';
 import { normalizeTitle, titleSimilarity } from './processor.js';
+import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
 
 // ─── HOT NEWS DELAY ──────────────────────────────────────────
 // P4 articles must not publish within 15 minutes of source pubDate.
@@ -82,7 +83,7 @@ async function fetchOGImage(url) {
 
 // ─── READABILITY PROXY ───────────────────────────────────────
 // Returns { content, image_url }
-async function fetchViaReadability(url) {
+export async function fetchViaReadability(url) {
   if (!url || url === '#') return { content: '', image_url: '' };
   try {
     const proxyUrl = `https://pitchos-proxy.onrender.com/article?url=${encodeURIComponent(url)}`;
@@ -109,7 +110,8 @@ async function fetchViaReadability(url) {
 
 // ─── MATCH DAY TEMPLATE (Haiku extracts facts) ───────────────
 async function writeMatchDay(article, env) {
-  const prompt = `Bu Beşiktaş maç haberinden aşağıdaki bilgileri çıkar ve JSON olarak döndür.
+  const notes = await getEditorialNotes(env, ['match', 'news']);
+  const prompt = `${notes}Bu Beşiktaş maç haberinden aşağıdaki bilgileri çıkar ve JSON olarak döndür.
 Sadece JSON döndür, başka hiçbir şey yazma.
 
 Haber: ${article.title} — ${cleanRSS(article.summary || article.description || '')}
@@ -150,8 +152,13 @@ Bilmiyorsan null yaz.`;
 }
 
 // ─── WRITE ARTICLES (Readability for top 3 only, rss_summary rest) ─
+// extractFacts is capped at MAX_FACTS_EXTRACTS per run — each is a Claude call.
+// Articles arrive sorted by NVS, so only the highest-value P4 articles get facts.
+const MAX_FACTS_EXTRACTS = 5;
+
 export async function writeArticles(articles, site, env) {
   const results = [];
+  let factsExtracted = 0;
 
   for (let i = 0; i < articles.length; i++) {
     const article = articles[i];
@@ -164,11 +171,42 @@ export async function writeArticles(articles, site, env) {
       else published.summary = cleanRSS(article.summary || article.description || '');
       await new Promise(r => setTimeout(r, 300));
 
+    } else if (mode === 'template_transfer') {
+      try {
+        const facts   = await extractFacts(article, env);
+        const written = await writeTransfer(facts, env);
+        published = { ...published, ...written, _facts: facts };
+      } catch (e) {
+        console.error('Firewall/writeTransfer failed:', e.message, '| article:', article.title?.slice(0, 60));
+        published.summary      = cleanRSS(article.summary || article.description || '');
+        published.full_body    = published.summary;
+        published.publish_mode = 'rss_summary';
+      }
+      await new Promise(r => setTimeout(r, 300));
+
     } else {
       // Use RSS summary — Readability runs separately via /enrich endpoint
       published.summary   = cleanRSS(article.summary || article.description || '');
       published.full_body = published.summary;
       published.publish_mode = 'rss_summary';
+
+      // Extract facts for story matching (top P4 articles only, capped at MAX_FACTS_EXTRACTS).
+      // Classifies story type first — skips match_result/squad (handled by templates).
+      if (article.is_p4 && factsExtracted < MAX_FACTS_EXTRACTS) {
+        try {
+          const facts = await extractFactsForStory(article, env);
+          if (!SKIP_STORY_TYPES.has(facts.story_type)) {
+            published._facts = facts;
+            console.log(`FACTS [${facts.story_type}]: "${article.title?.slice(0, 50)}"`);
+          } else {
+            console.log(`FACTS [${facts.story_type}]: skipped story intake — "${article.title?.slice(0, 50)}"`);
+          }
+          factsExtracted++;
+        } catch (e) {
+          console.error('extractFactsForStory failed:', e.message, '| article:', article.title?.slice(0, 60));
+        }
+        await new Promise(r => setTimeout(r, 200));
+      }
     }
 
     results.push(published);
@@ -321,54 +359,25 @@ function weatherEmoji(icon) {
 }
 
 // ─── TEMPLATE 05 — MATCH DAY CARD ────────────────────────────
-export async function generateMatchDayCard(match, cachedArticles, site, env) {
+// injuries: array from getInjuries() — used directly when provided.
+// cachedArticles: kept for weather context only (RSS fallback removed).
+export async function generateMatchDayCard(match, cachedArticles, site, env, injuries = null) {
   const platformName  = site?.display_name || site?.name || 'Kartalix';
   const platformEmoji = site?.emoji || '🦅';
 
-  const injuryArticles = (cachedArticles || [])
-    .filter(a => {
-      const text = ((a.title || '') + ' ' + (a.summary || '')).toLowerCase();
-      return (text.includes('cezalı') || text.includes('sakatlık') ||
-              text.includes('kadro dışı') || text.includes('yok')) &&
-             (text.includes('beşiktaş') || text.includes('bjk'));
-    })
-    .slice(0, 4);
-
   const weather = await fetchWeather(match.venue_lat, match.venue_lon, env);
 
-  const squadNames = [
-    'Ersin Destanoğlu', 'Vasquez', 'Murillo', 'Agbadou', 'Djalo', 'Uduokhai',
-    'Emirhan Topçu', 'Rıdvan Yılmaz', 'Taylan Bulut', 'Sazdağı', 'Salih Uçan',
-    'Orkun Kökçü', 'Ndidi', 'Asllani', 'Kartal Kayra Yılmaz', 'Rashica', 'Olaitan',
-    'Cerny', 'Abraham', 'El Bilal Touré', 'Hyeon-gyu Oh', 'Jota', 'Cengiz Ünder', 'Hekimoğlu',
-  ];
-
-  let parsed = { cezalilar: [], sakatlıklar: [] };
-  if (injuryArticles.length > 0) {
-    try {
-      const injuryPrompt = `Aşağıdaki Beşiktaş haberlerinden ${match.opponent} maçı için kesin eksik oyuncuları çıkar.
-SADECE bu listeden isim kullan: ${squadNames.join(', ')}
-Emin değilsen o ismi yazma. Sadece JSON döndür:
-{"cezalilar":["tam isim"],"sakatlıklar":["tam isim"]}
-
-${injuryArticles.map(a => `Başlık: ${a.title}\n${(a.full_body||a.summary||'').slice(0,300)}`).join('\n\n')}`;
-
-      const res  = await callClaude(env, 'claude-haiku-4-5-20251001', injuryPrompt, false, 300);
-      const text = extractText(res.content);
-      const m    = text.match(/\{[\s\S]*\}/);
-      if (m) parsed = JSON.parse(m[0]);
-      parsed.cezalilar  = parsed.cezalilar  || [];
-      parsed.sakatlıklar = (parsed.sakatlıklar || []).filter(p => !parsed.cezalilar.includes(p));
-    } catch(e) { console.error('Injury extraction error:', e.message); }
-  }
+  // Build absent player list from API injuries (authoritative)
+  const cezalilar   = (injuries || []).filter(i => i.type === 'Suspension').map(i => i.name);
+  const sakatlıklar = (injuries || []).filter(i => i.type !== 'Suspension').map(i => i.name);
 
   // Build context strings for the prose prompt
   const matchDate   = new Date(match.date).toLocaleDateString('tr-TR', { day:'numeric', month:'long', year:'numeric' });
   const homeAway    = match.home ? 'ev sahibi olarak' : 'deplasmanda';
   const venueText   = match.home ? `Tüpraş Stadyumu` : `${match.venue}, ${match.venue_city}`;
   const eksikler    = [
-    ...(parsed.cezalilar||[]).map(p => `${p} (cezalı)`),
-    ...(parsed.sakatlıklar||[]).map(p => `${p} (sakat)`),
+    ...cezalilar.map(p => `${p} (cezalı)`),
+    ...sakatlıklar.map(p => `${p} (sakat)`),
   ];
   const eksikText   = eksikler.length ? eksikler.join(', ') : 'yok';
   const weatherCtx  = weather
@@ -376,7 +385,8 @@ ${injuryArticles.map(a => `Başlık: ${a.title}\n${(a.full_body||a.summary||'').
     : '';
 
   // Haiku writes the full article body as natural Turkish news prose
-  const prosePrompt = `Sen Kartalix'in spor editörüsün. Aşağıdaki bilgileri kullanarak doğal, akıcı Türkçe bir maç önizleme haberi yaz.
+  const t05Notes = await getEditorialNotes(env, ['match', 'T05']);
+  const prosePrompt = `${t05Notes}Sen Kartalix'in spor editörüsün. Aşağıdaki bilgileri kullanarak doğal, akıcı Türkçe bir maç önizleme haberi yaz.
 
 MAÇ BİLGİLERİ:
 - Ev sahibi/Deplasman: Beşiktaş ${homeAway}
@@ -536,7 +546,8 @@ ${lineupArticles.map(a =>
   const players    = lineupData.players || [];
 
   // Prose intro + structured lineup
-  const prosePrompt = `Sen Kartalix'in spor editörüsün. Aşağıdaki bilgilerle kısa, doğal Türkçe bir "muhtemel 11" haberi yaz.
+  const t08bNotes = await getEditorialNotes(env, ['match', 'T08b']);
+  const prosePrompt = `${t08bNotes}Sen Kartalix'in spor editörüsün. Aşağıdaki bilgilerle kısa, doğal Türkçe bir "muhtemel 11" haberi yaz.
 
 MAÇ: Beşiktaş - ${match.opponent} | ${matchDate} ${match.time} | ${match.league}${match.week ? ' ' + match.week + '. Hafta' : ''}
 MUHTEMEL 11 (${formation}): ${players.join(', ')}
@@ -589,117 +600,38 @@ Sadece haber metnini yaz.`;
 }
 
 // ─── TEMPLATE 09 — CONFIRMED LINEUP ──────────────────────────
-export async function generateConfirmedLineup(match, articles, site, env) {
+// lineup: result of getFixtureLineup() from API-Football.
+// Returns null if lineup not yet available (cron retries next tick).
+// API provides confirmed starting XI ~60min before kickoff.
+export async function generateConfirmedLineup(match, lineup, site, env) {
+  if (!lineup || lineup.startXI.length < 8) return null;
+
   const platformName  = site?.display_name || site?.name || 'Kartalix';
   const platformEmoji = site?.emoji || '🦅';
-  const TWO_HOURS = 2 * 60 * 60 * 1000;
-  const now = Date.now();
-
-  // Only articles from last 2 hours qualify for confirmed lineup
-  const lineupArticles = (articles || [])
-    .filter(a => {
-      const ts = a.published_at || a.fetched_at;
-      if (ts && (now - new Date(ts).getTime()) > TWO_HOURS) return false;
-      const text = ((a.title || '') + ' ' + (a.full_body || a.summary || '')).toLowerCase();
-      return (text.includes('ilk 11') || text.includes('kadro belli') ||
-              text.includes('sahaya çıkıyor') || text.includes('ilk kadro') ||
-              text.includes('startın')) &&
-             (text.includes('beşiktaş') || text.includes('bjk'));
-    })
-    .slice(0, 3);
-
-  if (lineupArticles.length === 0) return null;
-
-  const SQUAD = [
-    'ersin', 'vasquez', 'murillo', 'agbadou', 'djalo', 'uduokhai',
-    'emirhan', 'rıdvan', 'taylan', 'sazdağı', 'özcan',
-    'orkun', 'kökçü', 'ndidi', 'asllani', 'salih', 'kartal kayra',
-    'rashica', 'olaitan', 'cerny', 'abraham', 'el bilal', 'oh',
-    'jota', 'cengiz', 'hekimoğlu', 'sergen', 'yalçın'
-  ];
-
-  const prompt = `Aşağıdaki haberlerden Beşiktaş'ın ${match.opponent} maçı için RESMI ilk 11'ini çıkar.
-Sadece JSON döndür:
-{
-  "players": ["isim1", "isim2", ...],
-  "formation": "4-2-3-1",
-  "confidence": 0-100,
-  "type": "confirmed" veya "muhtemel",
-  "source_quote": "haberdeki ilgili cümle"
-}
-type: "confirmed" → sadece resmi açıklama veya kesin kadro haberleri.
-type: "muhtemel" → tahmin veya spekülasyon.
-En az 8 oyuncu bulamazsan confidence: 0 yaz.
-ASLA uydurma. Sadece haberde geçen isimler.
-
-Bilinen kadro: ${SQUAD.join(', ')}
-
-${lineupArticles.map(a =>
-  `Kaynak: ${a.source_name}\nBaşlık: ${a.title}\n${(a.full_body || a.summary || '').slice(0, 400)}`
-).join('\n\n')}`;
-
-  let lineupData = { players: [], formation: null, confidence: 0 };
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      signal: AbortSignal.timeout(8000),
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 200,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    const data = await response.json();
-    try {
-      const text = data.content?.[0]?.text || '{}';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        lineupData = JSON.parse(jsonMatch[0]);
-      }
-    } catch(e) {
-      console.error('Lineup JSON parse error:', e.message);
-      console.error('Raw text was:', data.content?.[0]?.text?.slice(0, 200));
-      return null;
-    }
-    console.log('TEMPLATE 09: confidence', lineupData.confidence, 'type', lineupData.type, 'players', lineupData.players?.length);
-  } catch(e) {
-    console.error('Lineup extraction error:', e.message);
-    return null;
-  }
-
-  // Require confirmed type, min confidence 70, min 8 players
-  if (lineupData.type === 'muhtemel') {
-    console.log('TEMPLATE 09: type is muhtemel, not confirmed — skipping (use 08b instead)');
-    return null;
-  }
-  if (lineupData.confidence < 70 || (lineupData.players?.length || 0) < 8) {
-    console.log('TEMPLATE 09: confidence too low or not enough players, skipping');
-    return null;
-  }
 
   const matchDate = new Date(match.date).toLocaleDateString('tr-TR', { day:'numeric', month:'long', year:'numeric' });
   const oppSlug   = match.opponent.toLowerCase().replace(/\s+/g,'-').replace(/[ğ]/g,'g').replace(/[ü]/g,'u').replace(/[ş]/g,'s').replace(/[ı]/g,'i').replace(/[ö]/g,'o').replace(/[ç]/g,'c');
-  const formation = lineupData.formation || '';
-  const players   = lineupData.players || [];
+  const formation = lineup.formation || '';
+  const players   = lineup.startXI.map(p => p.name);
+  const bench     = lineup.substitutes.map(p => p.name);
+  const coach     = lineup.coach || 'Sergen Yalçın';
 
-  const prosePrompt = `Sen Kartalix'in spor editörüsün. Beşiktaş'ın resmi ilk 11'i açıklandı. Kısa, haber dilinde Türkçe yaz.
+  console.log(`TEMPLATE 09: API lineup — ${formation} — ${players.join(', ')}`);
+
+  const t09Notes = await getEditorialNotes(env, ['match', 'T09']);
+  const prosePrompt = `${t09Notes}Sen Kartalix'in spor editörüsün. Beşiktaş'ın resmi ilk 11'i açıklandı. Kısa, haber dilinde Türkçe yaz.
 
 MAÇ: Beşiktaş - ${match.opponent} | ${matchDate} ${match.time} | ${match.league}${match.week ? ' ' + match.week + '. Hafta' : ''}
+ANTRENÖR: ${coach}
 RESMİ İLK 11 (${formation}): ${players.join(', ')}
-${lineupData.source_quote ? 'KAYNAK: "' + lineupData.source_quote + '"' : ''}
+${bench.length ? 'YEDEKLER: ' + bench.join(', ') : ''}
 
 KURALLAR:
 - 2 kısa paragraf (~80 kelime), ardından kadro listesi
-- 1. paragraf: ilk 11'in açıklandığını haber ver, maçı tanıt
-- 2. paragraf: dikkat çekici seçim veya sürpriz varsa yorumla, yoksa Sergen Yalçın'ın tercihleri olarak çerçevele
-- Ardından "Beşiktaş'ın İlk 11'i (${formation}):" + liste
-- "Resmi kadro açıklandı" bilgisini ekle
-- SEO: "Beşiktaş ilk 11", "${match.opponent} maçı", "Sergen Yalçın" doğal geçsin
+- 1. paragraf: kadronun açıklandığını haber ver, maçı tanıt
+- 2. paragraf: dikkat çekici seçim veya sürpriz varsa yorumla, yoksa ${coach}'ın tercihleri olarak çerçevele
+- Ardından "Beşiktaş'ın İlk 11'i (${formation}):" başlığı ve oyuncu listesi
+- SEO: "Beşiktaş ilk 11", "${match.opponent} maçı" doğal geçsin
 - Emoji KULLANMA
 
 Sadece haber metnini yaz.`;
@@ -711,11 +643,11 @@ Sadece haber metnini yaz.`;
   } catch(e) { console.error('T09 prose failed:', e.message); }
 
   if (!prose) {
-    prose = `Beşiktaş, ${matchDate} tarihinde oynayacağı ${match.opponent} maçının ilk 11'ini açıkladı. Sergen Yalçın, ${formation ? formation + ' dizilişini' : 'kadrosunu'} belirledi.\n\nBeşiktaş'ın İlk 11'i (${formation}):\n${players.map((p,i)=>`${i+1}. ${p}`).join('\n')}\n\nResmi kadro açıklandı.`;
+    prose = `Beşiktaş, ${matchDate} tarihinde oynayacağı ${match.opponent} maçının ilk 11'ini açıkladı. ${coach}, ${formation ? formation + ' dizilişini' : 'kadrosunu'} belirledi.\n\nBeşiktaş'ın İlk 11'i (${formation}):\n${players.map((p,i)=>`${i+1}. ${p}`).join('\n')}\n\nResmi kadro açıklandı.`;
   }
 
   const title   = `Beşiktaş'ın ${match.opponent} Maçı İlk 11'i Belli Oldu | ${matchDate}`;
-  const summary = `Sergen Yalçın, ${matchDate} tarihindeki ${match.opponent} maçı için ilk 11'i açıkladı. ${formation ? 'Diziliş: ' + formation + '.' : ''} ${players.slice(0,5).join(', ')} ve diğerleri sahada.`.slice(0, 300);
+  const summary = `${coach}, ${matchDate} tarihindeki ${match.opponent} maçı için ilk 11'i açıkladı. ${formation ? 'Diziliş: ' + formation + '.' : ''} ${players.slice(0,5).join(', ')} ve diğerleri sahada.`.slice(0, 300);
 
   return {
     title,
@@ -738,4 +670,925 @@ Sadece haber metnini yaz.`;
     published_at:        new Date().toISOString(),
     template_id:         '09',
   };
+}
+
+// ─── T-REF REFEREE PROFILE ────────────────────────────────────
+// Fires once per match in the 24–48h pre-match window.
+// referee: string from normalizeFixture(). stats: BJK disciplinary
+// history under this referee (computed from last fixtures).
+export async function generateRefereeProfile(match, referee, refStats, site, env) {
+  if (!referee) return null;
+
+  const statLines = refStats ? [
+    refStats.bjk_games != null      ? `Yönettiği BJK maçları: ${refStats.bjk_games}` : null,
+    refStats.bjk_wins != null       ? `Sonuçlar: ${refStats.bjk_wins}G ${refStats.bjk_draws}B ${refStats.bjk_losses}M` : null,
+    refStats.bjk_yellow != null     ? `BJK'ya gösterilen sarı kart (ortalama): ${refStats.bjk_yellow}` : null,
+    refStats.bjk_red != null && refStats.bjk_red > 0 ? `BJK'ya gösterilen kırmızı kart: ${refStats.bjk_red}` : null,
+  ].filter(Boolean).join('\n') : '(geçmiş istatistik yok)';
+
+  const trefNotes = await getEditorialNotes(env, ['match', 'T-REF']);
+  const prompt = `${trefNotes}Sen Kartalix'in spor editörüsün. Beşiktaş'ın ${match.opponent} maçını yönetecek hakemi tanıtan kısa bir haber yaz.
+
+HAKEM: ${referee}
+MAÇ: ${match.date} saat ${match.time} — ${match.opponent} — ${match.league}
+
+GEÇMIŞ HAKEM-BJK İSTATİSTİKLERİ:
+${statLines}
+
+YAZIM KURALLARI:
+- 150–220 kelime, haber dili
+- Giriş: hakemin kim olduğu ve bu maçı yöneteceği
+- Orta: Beşiktaş maçlarındaki geçmişi — rakamları doğal dile dök
+- Son: bu maçta dikkat edilecek kural uygulaması veya tarz (istatistikten çıkar, yoksa genel bir not)
+- "Kaynaklara göre" kullanma
+- Emoji, başlık veya alt başlık yazma — sadece haber gövdesi
+
+Sadece Türkçe haber metnini yaz.`;
+
+  const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 700);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const title   = `${match.opponent} Maçının Hakemi: ${referee}`;
+  const summary = body.replace(/\n+/g, ' ').slice(0, 300);
+  const slug    = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'kartalix',
+    source_name:  'Kartalix',
+    original_url: '',
+    title,
+    summary,
+    full_body:    body,
+    category:     'Match',
+    content_type: 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    65,
+    publish_mode: 'template_referee',
+    status:       'published',
+    template_id:  'T-REF',
+    slug,
+    published_at: new Date().toISOString(),
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`T-REF: "${title.slice(0, 60)}" → ${body.split(/\s+/).length} words`);
+  return saved?.[0] || { title, summary, full_body: body, template_id: 'T-REF', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T01 MATCH PREVIEW ────────────────────────────────────────
+// 300–400 word pre-match article. Fires 0–48h before kickoff.
+// Inputs: normalizeFixture object, last-5 H2H array, Open-Meteo current object.
+export async function generateMatchPreview(match, h2h, weather, standing, site, env) {
+  const oppSlug = (match.opponent || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
+  const h2hLines = (h2h || []).slice(0, 5).map(f => {
+    const home = f.home ? 'Beşiktaş' : f.opponent;
+    const away = f.home ? f.opponent : 'Beşiktaş';
+    const res  = f.score_bjk > f.score_opp ? 'G' : f.score_bjk < f.score_opp ? 'M' : 'B';
+    return `${f.date}: ${home} ${f.score_bjk ?? '?'}-${f.score_opp ?? '?'} ${away} (BJK: ${res})`;
+  }).join('\n') || '(geçmiş karşılaşma verisi yok)';
+
+  const weatherLine = weather
+    ? `Hava durumu: ${Math.round(weather.temperature_2m)}°C, rüzgar ${Math.round(weather.windspeed_10m)} km/s`
+    : '';
+
+  const standingsLine = standing || '';
+
+  const t01Notes = await getEditorialNotes(env, ['match', 'template', 'T01']);
+  const prompt = `${t01Notes}Sen Kartalix'in kıdemli spor editörüsün. Beşiktaş'ın bu haftaki maçı için özgün bir ön analiz haberi yaz.
+
+MAÇ:
+${match.home ? 'Beşiktaş (Ev)' : 'Beşiktaş (Deplasman)'} vs ${match.opponent}
+${match.league}${match.round ? ' — ' + match.round : ''}
+${match.date} saat ${match.time} (Türkiye saati)
+Stadyum: ${match.venue}, ${match.venue_city}
+${weatherLine}
+${standingsLine ? 'PUAN DURUMU: ' + standingsLine : ''}
+
+SON 5 KARŞILAŞMA (H2H):
+${h2hLines}
+
+YAZIM KURALLARI:
+- 300–400 kelime, profesyonel Türkçe haber dili
+- İlk paragraf: maçın somut önemi — puan durumunu rakamlarla belirt (kaçıncı sıra, kaç puan, üst ve alt sıralarla fark). Soyut değil, özgül ol: "X puan geride olan Y takımının baskısı" gibi.
+- İkinci paragraf: H2H geçmişini doğal şekilde aktar
+- Üçüncü paragraf: Beşiktaş'ın son formu
+- Son paragraf: beklenti — bu maçtan puan kaybının tabloya somut etkisini belirt
+- Hava durumu bilgisi varsa kısa bir cümleyle aktar
+- "Kaynaklara göre" gibi ifade kullanma — Kartalix'in kendi analizi
+- Emoji, başlık veya alt başlık yazma — sadece haber gövdesi
+
+Sadece Türkçe haber metnini yaz.`;
+
+  const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1500);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const title   = `${match.home ? match.opponent + ' - Beşiktaş' : 'Beşiktaş - ' + match.opponent} Maç Önü`;
+  const summary = body.replace(/\n+/g, ' ').slice(0, 300);
+  const slug    = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'kartalix',
+    source_name:  'Kartalix',
+    original_url: '',
+    title,
+    summary,
+    full_body:    body,
+    category:     'Match',
+    content_type: 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    82,
+    publish_mode: 'template_preview',
+    status:       'published',
+    template_id:  'T01',
+    slug,
+    published_at: new Date().toISOString(),
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`T01 PREVIEW: "${title.slice(0, 60)}" → ${body.split(/\s+/).length} words`);
+  return saved?.[0] || { title, summary, full_body: body, template_id: 'T01', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T03 FORM GUIDE ──────────────────────────────────────────
+// Fires once in 48–72h pre-match window. Last 5 results + standing trend.
+// recentFixtures: getLastFixtures() array (5 items). standing: BJK row from getStandings().
+export async function generateFormGuide(match, recentFixtures, standing, site, env) {
+  if (!recentFixtures || recentFixtures.length < 3) return null;
+
+  const formLine = recentFixtures.slice(0, 5).map(f => {
+    const res = f.score_bjk > f.score_opp ? 'G' : f.score_bjk < f.score_opp ? 'M' : 'B';
+    const venue = f.home ? 'Ev' : 'D';
+    const scoreline = f.home
+      ? `Beşiktaş ${f.score_bjk}-${f.score_opp} ${f.opponent}`
+      : `${f.opponent} ${f.score_opp}-${f.score_bjk} Beşiktaş`;
+    return `${f.date} [${venue}] ${scoreline} → ${res}`;
+  }).join('\n');
+
+  const formString = recentFixtures.slice(0, 5)
+    .map(f => f.score_bjk > f.score_opp ? 'G' : f.score_bjk < f.score_opp ? 'M' : 'B')
+    .join('');
+
+  const standingLine = standing
+    ? `${standing.rank}. sıra — ${standing.points} puan (${standing.all?.win}G ${standing.all?.draw}B ${standing.all?.lose}M)`
+    : '';
+
+  const t03Notes = await getEditorialNotes(env, ['match', 'T03']);
+  const prompt = `${t03Notes}Sen Kartalix'in kıdemli spor editörüsün. Beşiktaş'ın ${match.opponent} maçı öncesinde güncel form durumunu analiz eden bir haber yaz.
+
+SON 5 SONUÇ (yeniden eskiye):
+${formLine}
+Form özeti: ${formString}
+
+PUAN DURUMU:
+${standingLine || '(puan durumu verisi yok)'}
+
+ÖNÜMÜZDEKÜ MAÇ: ${match.opponent} — ${match.date} saat ${match.time}
+
+YAZIM KURALLARI:
+- 300–400 kelime, analitik haber dili
+- Giriş: son 5 maçtaki genel tablonun özeti — "G G M B G" gibi sıralamayı söze dök
+- Ev/deplasman ayrımını vurgula
+- Puan durumunu ve üst/alt sıra rakiplerine mesafeyi rakamlarla belirt
+- Son paragraf: bu form tablosuyla ${match.opponent} maçına girerken beklenti
+- Emoji, başlık veya alt başlık yazma — sadece haber gövdesi
+
+Sadece Türkçe haber metnini yaz.`;
+
+  const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1200);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const title   = `Beşiktaş'ın Formu: ${formString} — ${match.opponent} Maçı Öncesi`;
+  const summary = body.replace(/\n+/g, ' ').slice(0, 300);
+  const slug    = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'kartalix',
+    source_name:  'Kartalix',
+    original_url: '',
+    title,
+    summary,
+    full_body:    body,
+    category:     'Match',
+    content_type: 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    70,
+    publish_mode: 'template_form_guide',
+    status:       'published',
+    template_id:  'T03',
+    slug,
+    published_at: new Date().toISOString(),
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`T03 FORM: "${title.slice(0, 60)}" → ${body.split(/\s+/).length} words`);
+  return saved?.[0] || { title, summary, full_body: body, template_id: 'T03', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T07 INJURY & SUSPENSION REPORT ──────────────────────────
+// Fires once per match in the 24–48h pre-match window.
+// injuries: getInjuries() array. rssArticles: recent cached articles for context.
+export async function generateInjuryReport(match, injuries, rssArticles, site, env) {
+  const injured    = injuries.filter(i => i.type !== 'Suspension');
+  const suspended  = injuries.filter(i => i.type === 'Suspension');
+
+  // Supplement with any RSS headlines mentioning injury/suspension keywords
+  const injuryKeywords = /sakatlık|sakatland|kadro dışı|cezalı|süspansiyon|suspended|injured|injury/i;
+  const rssContext = (rssArticles || [])
+    .filter(a => injuryKeywords.test(a.title + ' ' + (a.summary || '')))
+    .slice(0, 4)
+    .map(a => `- ${a.title}`)
+    .join('\n');
+
+  const injuredLines = injured.length
+    ? injured.map(p => `${p.name}${p.reason ? ' (' + p.reason + ')' : ''}${p.return && p.return !== 'Unknown' ? ' — tahmini dönüş: ' + p.return : ''}`).join('\n')
+    : '(API sakatlık kaydı yok)';
+
+  const suspendedLines = suspended.length
+    ? suspended.map(p => `${p.name}${p.reason ? ' (' + p.reason + ')' : ''}`).join('\n')
+    : '(API ceza kaydı yok)';
+
+  const t07Notes = await getEditorialNotes(env, ['match', 'T07']);
+  const prompt = `${t07Notes}Sen Kartalix'in kıdemli spor editörüsün. Beşiktaş'ın ${match.opponent} maçı öncesinde eksik oyuncu ve cezalı listesini içeren bir haber yaz.
+
+MAÇ: ${match.date} saat ${match.time} — ${match.opponent} — ${match.league}
+
+API VERİSİ — SAKATLAR:
+${injuredLines}
+
+API VERİSİ — CEZALILAR:
+${suspendedLines}
+
+${rssContext ? 'SON HABERLERDEN İLGİLİ BAŞLIKLAR:\n' + rssContext : ''}
+
+YAZIM KURALLARI:
+- 250–350 kelime, haber dili
+- Sakatlıklar ve cezalar ayrı ele al
+- Dönüş tarihi biliniyorsa belirt; bilinmiyorsa "belirsiz" de
+- Kadro etkisini (o oyuncunun pozisyonu, alternatif kim olabilir) değerlendir
+- API verisi kesin yokluğu gösterir — haberlerde farklı rakam geçse de API'yi öncele
+- Veri yetersizse "kesin bilgi gelmedi, takip edilecek" tonunda yaz
+- Emoji, başlık veya alt başlık yazma — sadece haber gövdesi
+
+Sadece Türkçe haber metnini yaz.`;
+
+  const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1000);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const totalAbsent = injuries.length;
+  const title   = totalAbsent > 0
+    ? `${match.opponent} Maçı Öncesi ${totalAbsent} Eksik`
+    : `${match.opponent} Maçı Öncesi Sakatlık ve Ceza Durumu`;
+  const summary = body.replace(/\n+/g, ' ').slice(0, 300);
+  const slug    = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'kartalix',
+    source_name:  'Kartalix',
+    original_url: '',
+    title,
+    summary,
+    full_body:    body,
+    category:     'Match',
+    content_type: 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    75,
+    publish_mode: 'template_injury_report',
+    status:       'published',
+    template_id:  'T07',
+    slug,
+    published_at: new Date().toISOString(),
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`T07 INJURY: "${title.slice(0, 60)}" → ${body.split(/\s+/).length} words`);
+  return saved?.[0] || { title, summary, full_body: body, template_id: 'T07', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T02 H2H HISTORY ─────────────────────────────────────────
+// Fires once in 24–72h pre-match window. Writes a standalone H2H history article.
+// Uses up to 10 past meetings; needs at least 2 to be meaningful.
+export async function generateH2HHistory(match, h2h, site, env) {
+  if (!h2h || h2h.length < 2) return null;
+
+  const wins   = h2h.filter(f => f.score_bjk > f.score_opp).length;
+  const draws  = h2h.filter(f => f.score_bjk === f.score_opp).length;
+  const losses = h2h.filter(f => f.score_bjk < f.score_opp).length;
+  const goalsFor     = h2h.reduce((s, f) => s + (f.score_bjk ?? 0), 0);
+  const goalsAgainst = h2h.reduce((s, f) => s + (f.score_opp ?? 0), 0);
+
+  const matchLines = h2h.slice(0, 10).map(f => {
+    const home = f.home ? 'Beşiktaş' : f.opponent;
+    const away = f.home ? f.opponent : 'Beşiktaş';
+    const res  = f.score_bjk > f.score_opp ? 'G' : f.score_bjk < f.score_opp ? 'M' : 'B';
+    return `${f.date} | ${home} ${f.score_bjk ?? '?'}-${f.score_opp ?? '?'} ${away} [BJK: ${res}] — ${f.league}`;
+  }).join('\n');
+
+  const t02Notes = await getEditorialNotes(env, ['match', 'T02']);
+  const prompt = `${t02Notes}Sen Kartalix'in kıdemli spor editörüsün. Beşiktaş ile ${match.opponent} arasındaki tarihsel rakamları içeren bir H2H geçmiş haberi yaz.
+
+MAÇ BAĞLAMI:
+${match.date} saat ${match.time} — ${match.league}${match.round ? ', ' + match.round : ''}
+
+SON ${h2h.length} KARŞILAŞMA (yeniden eskiye):
+${matchLines}
+
+ÖZET RAKAMLAR:
+${h2h.length} maçta: Beşiktaş ${wins} galibiyet, ${draws} beraberlik, ${losses} mağlubiyet
+Beşiktaş toplam gol: ${goalsFor} attı / ${goalsAgainst} yedi
+
+YAZIM KURALLARI:
+- 300–400 kelime, profesyonel Türkçe haber dili
+- Giriş: iki takım arasındaki rekabetin genel tablosu (kaç maç, galibiyet dağılımı)
+- Orta: son maçlardan öne çıkan örüntüler — gol trendi, ağırlıklı ev/deplasman performansı
+- Son: bu istatistiklerin önümüzdeki maç için ne anlama geldiği
+- Tarihlerden spesifik maç sonuçlarını doğal biçimde kullan
+- Emoji, başlık veya alt başlık yazma — sadece haber gövdesi
+
+Sadece Türkçe haber metnini yaz.`;
+
+  const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1200);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const title   = `Beşiktaş - ${match.opponent} Rekabeti: Tarihsel Rakamlar`;
+  const summary = body.replace(/\n+/g, ' ').slice(0, 300);
+  const slug    = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'kartalix',
+    source_name:  'Kartalix',
+    original_url: '',
+    title,
+    summary,
+    full_body:    body,
+    category:     'Match',
+    content_type: 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    72,
+    publish_mode: 'template_h2h',
+    status:       'published',
+    template_id:  'T02',
+    slug,
+    published_at: new Date().toISOString(),
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`T02 H2H: "${title.slice(0, 60)}" → ${body.split(/\s+/).length} words`);
+  return saved?.[0] || { title, summary, full_body: body, template_id: 'T02', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T10 GOAL FLASH ───────────────────────────────────────────
+// Short article (100–150 words) per goal event during live match.
+// goalEvent: a single event object from the API events array.
+export async function generateGoalFlash(match, goalEvent, site, env) {
+  const scorer  = goalEvent.player?.name  || 'Bilinmeyen';
+  const assister = goalEvent.assist?.name || null;
+  const minute  = goalEvent.time?.elapsed || '?';
+  const isOwnGoal = goalEvent.detail === 'Own Goal';
+  const isPenalty = goalEvent.detail === 'Penalty';
+
+  const t10Notes = await getEditorialNotes(env, ['match', 'template', 'T10']);
+  const prompt = `${t10Notes}Sen Kartalix'in maç muhabirsin. Beşiktaş maçında gol anını haber yap.
+
+GOL BİLGİSİ:
+Dakika: ${minute}'
+Atan: ${scorer}${isOwnGoal ? ' (Kendi Kalesine)' : ''}${isPenalty ? ' (Penaltı)' : ''}
+${assister ? 'Asist: ' + assister : ''}
+Anlık Skor: Beşiktaş ${match.score_bjk ?? 0}-${match.score_opp ?? 0} ${match.opponent} (Beşiktaş ${match.home ? 'ev sahibi' : 'deplasman'})
+
+YAZIM KURALLARI:
+- 100–150 kelime, son dakika flash haber üslubu
+- İlk cümle: kim, kaçıncı dakikada, nasıl attı
+- Skor durumunu belirt
+- Kısa ve heyecanlı ama abartısız
+- Emoji veya başlık yazma`;
+
+  const res  = await callClaude(env, MODEL_FETCH, prompt, false, 400);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const bjkScore = match.score_bjk ?? 0;
+  const oppScore = match.score_opp ?? 0;
+  const title    = isOwnGoal
+    ? `${minute}' | ${scorer} kendi kalesine — ${match.opponent} ${oppScore}-${bjkScore} Beşiktaş`
+    : `${minute}' GOL: ${scorer}! Beşiktaş ${bjkScore}-${oppScore} ${match.opponent}`;
+  const slug     = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'kartalix',
+    source_name:  'Kartalix',
+    original_url: '',
+    title,
+    summary:      body.slice(0, 200),
+    full_body:    body,
+    category:     'Match',
+    content_type: 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    90,
+    publish_mode: 'template_goal_flash',
+    status:       'published',
+    template_id:  'T10',
+    slug,
+    published_at: new Date().toISOString(),
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`T10 GOAL FLASH: "${title}"`);
+  return saved?.[0] || { title, full_body: body, template_id: 'T10', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T11 RESULT FLASH ─────────────────────────────────────────
+// 300–400 word post-match result article. Fires on FT detection.
+// fixture: normalizeFixture object. players: getFixturePlayers array.
+export async function generateResultFlash(fixture, players, site, env) {
+  const bjkWon  = fixture.score_bjk > fixture.score_opp;
+  const draw    = fixture.score_bjk === fixture.score_opp;
+  const result  = bjkWon ? 'Beşiktaş kazandı' : draw ? 'Beraberlik' : 'Beşiktaş kaybetti';
+
+  const topPlayers = (players || []).slice(0, 3).map(p =>
+    `${p.name}: puan ${p.rating}, ${p.goals} gol, ${p.assists} asist, ${p.minutesPlayed} dk`
+  ).join('\n') || '(oyuncu verisi yok)';
+
+  const t11Notes = await getEditorialNotes(env, ['match', 'template', 'T11']);
+  const prompt = `${t11Notes}Sen Kartalix'in kıdemli spor editörüsün. Biten Beşiktaş maçını haber yap.
+
+MAÇ SONUCU:
+${fixture.home ? 'Beşiktaş (Ev)' : 'Beşiktaş (Deplasman)'} vs ${fixture.opponent}
+Skor: Beşiktaş ${fixture.score_bjk} - ${fixture.score_opp} ${fixture.opponent}
+${fixture.league}${fixture.round ? ' — ' + fixture.round : ''}
+Sonuç: ${result}
+
+ÖNE ÇIKAN OYUNCULAR:
+${topPlayers}
+
+YAZIM KURALLARI:
+- 300–400 kelime, maç sonu haber üslubu
+- İlk paragraf: sonuç, skor, önem
+- İkinci paragraf: maçın seyri, öne çıkan anlar
+- Üçüncü paragraf: performans değerlendirmesi
+- Son paragraf: bu sonucun tablo/hedeflere etkisi
+- "Kaynaklara göre" ifadesi kullanma
+- Emoji veya başlık yazma — sadece haber gövdesi`;
+
+  const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1500);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const score   = `${fixture.score_bjk}-${fixture.score_opp}`;
+  const title   = fixture.home
+    ? `Beşiktaş ${score} ${fixture.opponent} | Maç Sonucu`
+    : `${fixture.opponent} ${fixture.score_opp}-${fixture.score_bjk} Beşiktaş | Maç Sonucu`;
+  const summary = body.replace(/\n+/g, ' ').slice(0, 300);
+  const slug    = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'kartalix',
+    source_name:  'Kartalix',
+    original_url: '',
+    title,
+    summary,
+    full_body:    body,
+    category:     'Match',
+    content_type: 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    88,
+    publish_mode: 'template_result',
+    status:       'published',
+    template_id:  'T11',
+    slug,
+    published_at: new Date().toISOString(),
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`T11 RESULT FLASH: "${title}"`);
+  return saved?.[0] || { title, summary, full_body: body, template_id: 'T11', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T13 MAN OF THE MATCH ─────────────────────────────────────
+// Fires after FT, requires at least 3 rated players. Dedicated spotlight
+// article on the best-rated BJK player. Distinct from T11 (result) —
+// T13 is a player-focused piece for that specific game.
+export async function generateManOfTheMatch(fixture, players, site, env) {
+  if (!players || players.length < 3) return null;
+  const mom = players[0]; // already sorted by rating desc
+  if (!mom.rating || mom.rating < 6.0) return null;
+
+  const topThree = players.slice(0, 3).map(p =>
+    `${p.name}: ${p.rating} puan, ${p.goals} gol, ${p.assists} asist, ${p.minutesPlayed} dk`
+  ).join('\n');
+
+  const result = fixture.score_bjk > fixture.score_opp ? 'galibiyet'
+    : fixture.score_bjk === fixture.score_opp ? 'beraberlik' : 'mağlubiyet';
+  // Always home_team home_score - away_score away_team
+  const scoreline = fixture.home
+    ? `Beşiktaş ${fixture.score_bjk ?? '?'}-${fixture.score_opp ?? '?'} ${fixture.opponent}`
+    : `${fixture.opponent} ${fixture.score_opp ?? '?'}-${fixture.score_bjk ?? '?'} Beşiktaş`;
+
+  const t13Notes = await getEditorialNotes(env, ['match', 'T13']);
+  const prompt = `${t13Notes}Sen Kartalix'in maç muhabirsin. Beşiktaş maçında en iyi performansı sergileyen oyuncuyu öne çıkaran bir haber yaz.
+
+MAÇ: ${scoreline} — ${fixture.league || 'Trendyol Süper Lig'}
+SONUÇ: ${result}
+
+OYUNCU PUANLARI (en iyi 3):
+${topThree}
+
+OYUN KAHRAMANI: ${mom.name} (${mom.rating} puan)
+
+YAZIM KURALLARI:
+- 250–350 kelime, Türkçe haber dili
+- Giriş: oyuncunun bu maçtaki belirleyici rolü ve maç sonucu
+- Orta: performansın somut detayları — istatistikleri doğal şekilde aktar, kuru liste yapma
+- Son: bu performansın sezon ya da takım bağlamındaki anlamı
+- Emoji, başlık veya alt başlık yazma — sadece haber gövdesi
+- "Maçın adamı" klişesinden kaçın, özgün bir açılış cümlesi kur
+
+Sadece Türkçe haber metnini yaz.`;
+
+  const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1000);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const resultTag = result === 'galibiyet' ? 'Fırtınası' : result === 'beraberlik' ? 'Performansı' : 'Öne Çıktı';
+  const title   = `${mom.name} ${resultTag}: ${scoreline}`;
+  const summary = body.replace(/\n+/g, ' ').slice(0, 300);
+  const slug    = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'kartalix',
+    source_name:  'Kartalix',
+    original_url: '',
+    title,
+    summary,
+    full_body:    body,
+    category:     'Match',
+    content_type: 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    80,
+    publish_mode: 'template_motm',
+    status:       'published',
+    template_id:  'T13',
+    slug,
+    published_at: new Date().toISOString(),
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`T13 MOTM: "${title.slice(0, 60)}" → ${body.split(/\s+/).length} words`);
+  return saved?.[0] || { title, summary, full_body: body, template_id: 'T13', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T12 MATCH REPORT ─────────────────────────────────────────
+// Full post-match analysis ~500 words. Fires after T11/T13.
+// Combines: result, xG, possession, shots, top player ratings, key events.
+// stats: getFixtureStats output (may be null — degrades gracefully).
+export async function generateMatchReport(fixture, players, stats, site, env) {
+  const bjkWon = fixture.score_bjk > fixture.score_opp;
+  const draw   = fixture.score_bjk === fixture.score_opp;
+  const result = bjkWon ? 'Beşiktaş galip' : draw ? 'Beraberlik' : 'Beşiktaş mağlup';
+
+  const scoreline = fixture.home
+    ? `Beşiktaş ${fixture.score_bjk ?? '?'}-${fixture.score_opp ?? '?'} ${fixture.opponent}`
+    : `${fixture.opponent} ${fixture.score_opp ?? '?'}-${fixture.score_bjk ?? '?'} Beşiktaş`;
+
+  const topPlayers = (players || []).slice(0, 5).map(p =>
+    `${p.name}: ${p.rating} puan, ${p.goals}G ${p.assists}A, ${p.minutesPlayed}dk`
+  ).join('\n') || '(oyuncu puanı yok)';
+
+  const statsLines = stats ? [
+    stats.xg            != null ? `Beklenen gol (xG): ${stats.xg}` : null,
+    stats.possession    != null ? `Top hakimiyeti: ${stats.possession}` : null,
+    stats.shots_total   != null ? `Şut: ${stats.shots_total} (isabetli: ${stats.shots_on_target ?? '?'})` : null,
+    stats.passes_acc    != null ? `Pas isabeti: ${stats.passes_acc}` : null,
+    stats.corners       != null ? `Korner: ${stats.corners}` : null,
+    stats.yellow_cards  != null ? `Sarı kart: ${stats.yellow_cards}` : null,
+  ].filter(Boolean).join('\n') : '(istatistik verisi yok)';
+
+  const t12Notes = await getEditorialNotes(env, ['match', 'T12']);
+  const prompt = `${t12Notes}Sen Kartalix'in kıdemli spor editörüsün. Biten Beşiktaş maçı için kapsamlı bir maç raporu yaz.
+
+MAÇ: ${scoreline}
+${fixture.league}${fixture.round ? ' — ' + fixture.round : ''}
+${fixture.home ? 'Beşiktaş (Ev)' : 'Beşiktaş (Deplasman)'}
+Sonuç: ${result}
+
+BEŞİKTAŞ İSTATİSTİKLERİ:
+${statsLines}
+
+OYUNCU PUANLARI (en iyi 5):
+${topPlayers}
+
+YAZIM KURALLARI:
+- 450–550 kelime, derinlikli maç analizi
+- Giriş: skoru, yeri ve anlık tablo etkisini net say
+- xG paragrafı: gerçek gol sayısıyla xG'yi karşılaştır — "hak ettiğinden fazla/az mı kazandı?" sorusunu yanıtla
+- Performans paragrafı: en yüksek puanlı oyuncuları bağlam içinde değerlendir
+- Taktik/süreç paragrafı: maçın nasıl şekillendiği, belirleyici dönüm noktaları
+- Son paragraf: bu sonucun sezon hedeflerine somut etkisi
+- İstatistikleri doğal dile dök — kuru liste yapma
+- Emoji, başlık veya alt başlık yazma — sadece haber gövdesi
+
+Sadece Türkçe haber metnini yaz.`;
+
+  const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1800);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const title   = `Maç Raporu: ${scoreline}`;
+  const summary = body.replace(/\n+/g, ' ').slice(0, 300);
+  const slug    = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'kartalix',
+    source_name:  'Kartalix',
+    original_url: '',
+    title,
+    summary,
+    full_body:    body,
+    category:     'Match',
+    content_type: 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    85,
+    publish_mode: 'template_match_report',
+    status:       'published',
+    template_id:  'T12',
+    slug,
+    published_at: new Date().toISOString(),
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`T12 MATCH REPORT: "${title.slice(0, 60)}" → ${body.split(/\s+/).length} words`);
+  return saved?.[0] || { title, summary, full_body: body, template_id: 'T12', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T-xG DELTA ──────────────────────────────────────────────
+// Post-match edge case: fires only when |BJK goals − BJK xG| > 1.2.
+// stats: getFixtureStats output. Must have stats.xg to fire.
+export async function generateXGDelta(fixture, stats, site, env) {
+  if (!stats || stats.xg == null) return null;
+  const xg    = parseFloat(stats.xg);
+  const goals = fixture.score_bjk ?? 0;
+  const delta = goals - xg;
+  if (Math.abs(delta) <= 1.2) return null;
+
+  const overPerformed = delta > 0;
+  const scoreline = fixture.home
+    ? `Beşiktaş ${fixture.score_bjk ?? '?'}-${fixture.score_opp ?? '?'} ${fixture.opponent}`
+    : `${fixture.opponent} ${fixture.score_opp ?? '?'}-${fixture.score_bjk ?? '?'} Beşiktaş`;
+
+  const statsLines = [
+    `Beşiktaş golleri: ${goals}`,
+    `Beklenen gol (xG): ${xg.toFixed(2)}`,
+    `Fark: ${delta > 0 ? '+' : ''}${delta.toFixed(2)}`,
+    stats.shots_total   != null ? `Şut: ${stats.shots_total} (isabetli: ${stats.shots_on_target ?? '?'})` : null,
+    stats.possession    != null ? `Top hakimiyeti: ${stats.possession}` : null,
+  ].filter(Boolean).join('\n');
+
+  const txgNotes = await getEditorialNotes(env, ['match', 'T12']);
+  const prompt = `${txgNotes}Sen Kartalix'in veri analistsin. Beşiktaş bu maçta beklenen golün ${overPerformed ? 'belirgin şekilde üzerinde' : 'belirgin şekilde altında'} gol attı. Bu istatistiksel tabloyu analiz eden kısa bir haber yaz.
+
+MAÇ: ${scoreline}
+${fixture.league}${fixture.round ? ' — ' + fixture.round : ''}
+
+BEŞİKTAŞ İSTATİSTİKLERİ:
+${statsLines}
+
+YAZIM KURALLARI:
+- 200–300 kelime, analitik ton
+- Giriş: xG ile gerçek gol sayısı arasındaki farkı somut rakamlarla belirt ("beklenen gol sayısı" kavramını bir cümlede tanımla)
+- Orta: bu farkın ne anlama geldiğini açıkla — ${overPerformed ? 'şans faktörü mü, kaleci üstü bitiricilik mi?' : 'pozisyon israfı mı, rakip kalecisi mi?'}
+- Son: bu trendin sezon bağlamındaki anlamı
+- Emoji, başlık veya alt başlık yazma — sadece haber gövdesi
+
+Sadece Türkçe haber metnini yaz.`;
+
+  const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 900);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const direction = overPerformed ? 'Üstünde' : 'Altında';
+  const title   = `xG Analizi: Beşiktaş Beklentinin ${direction} — ${scoreline}`;
+  const summary = body.replace(/\n+/g, ' ').slice(0, 300);
+  const slug    = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'kartalix',
+    source_name:  'Kartalix',
+    original_url: '',
+    title,
+    summary,
+    full_body:    body,
+    category:     'Match',
+    content_type: 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    78,
+    publish_mode: 'template_xg_delta',
+    status:       'published',
+    template_id:  'T-XG',
+    slug,
+    published_at: new Date().toISOString(),
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`T-XG DELTA: "${title.slice(0, 60)}" delta=${delta.toFixed(2)} → ${body.split(/\s+/).length} words`);
+  return saved?.[0] || { title, summary, full_body: body, template_id: 'T-XG', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T-HT HALFTIME REPORT ─────────────────────────────────────
+// Fires once when liveFixture.status === 'HT'. Summarises first half.
+// allEvents: raw /fixtures/events response array for the fixture.
+export async function generateHalftimeReport(match, allEvents, site, env) {
+  const bjkGoals = (allEvents || []).filter(e => e.type === 'Goal' && e.team?.id === 549 && e.detail !== 'Missed Penalty');
+  const oppGoals = (allEvents || []).filter(e => e.type === 'Goal' && e.team?.id !== 549 && e.detail !== 'Missed Penalty');
+  const bjkCards = (allEvents || []).filter(e => e.type === 'Card' && e.team?.id === 549);
+  const oppCards = (allEvents || []).filter(e => e.type === 'Card' && e.team?.id !== 549);
+
+  const htNotes = await getEditorialNotes(env, ['match', 'template', 'T-HT']);
+  const prompt = `${htNotes}Sen Kartalix'in maç muhabirsin. İlk yarı sona erdi. Kısa devre özeti yaz.
+
+MAÇ: Beşiktaş (${match.home ? 'ev sahibi' : 'deplasman'}) vs ${match.opponent}
+DEVRE SKORU: Beşiktaş ${match.score_bjk ?? 0}-${match.score_opp ?? 0} ${match.opponent}
+
+İLK YARI OLAYLARI:
+BJK Golleri: ${bjkGoals.length > 0 ? bjkGoals.map(e => `${e.time?.elapsed}' ${e.player?.name}${e.detail === 'Own Goal' ? ' (KK)' : e.detail === 'Penalty' ? ' (P)' : ''}`).join(', ') : 'Yok'}
+Rakip Golleri: ${oppGoals.length > 0 ? oppGoals.map(e => `${e.time?.elapsed}' ${e.player?.name}${e.detail === 'Own Goal' ? ' (KK)' : ''}`).join(', ') : 'Yok'}
+BJK Kartları: ${bjkCards.length > 0 ? bjkCards.map(e => `${e.time?.elapsed}' ${e.player?.name} (${e.detail})`).join(', ') : 'Yok'}
+Rakip Kartları: ${oppCards.length > 0 ? oppCards.map(e => `${e.time?.elapsed}' ${e.player?.name} (${e.detail})`).join(', ') : 'Yok'}
+
+YAZIM KURALLARI:
+- 120–180 kelime, devre arası flash haber üslubu
+- İlk cümle skoru ve genel durumu özetle
+- Öne çıkan olayları belirt
+- İkinci yarı için tek cümle beklenti
+- Emoji veya başlık yazma`;
+
+  const res  = await callClaude(env, MODEL_FETCH, prompt, false, 500);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const bjk  = match.score_bjk ?? 0;
+  const opp  = match.score_opp ?? 0;
+  const title = bjk > opp
+    ? `Devre: Beşiktaş ${bjk}-${opp} önde (${match.opponent})`
+    : bjk === opp
+    ? `Devre: Beraberlik — Beşiktaş ${bjk}-${opp} ${match.opponent}`
+    : `Devre: Beşiktaş ${bjk}-${opp} geride (${match.opponent})`;
+  const slug = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id: site.id, source_type: 'kartalix', source_name: 'Kartalix', original_url: '',
+    title, summary: body.slice(0, 200), full_body: body, category: 'Match',
+    content_type: 'kartalix_generated', sport: 'football', nvs_score: 85,
+    publish_mode: 'template_halftime', status: 'published', template_id: 'T-HT',
+    slug, published_at: new Date().toISOString(), reviewed_at: new Date().toISOString(), reviewed_by: 'auto',
+  });
+  console.log(`T-HT HALFTIME: "${title}"`);
+  return saved?.[0] || { title, full_body: body, template_id: 'T-HT', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T-RED RED CARD FLASH ─────────────────────────────────────
+// Fires on any new Red Card or Yellow+Red event for either team.
+// cardEvent: single event from /fixtures/events (type === 'Card').
+export async function generateRedCardFlash(match, cardEvent, site, env) {
+  const player   = cardEvent.player?.name || 'Bilinmeyen';
+  const minute   = cardEvent.time?.elapsed || '?';
+  const isOurs   = cardEvent.team?.id === 549;
+  const isSecond = (cardEvent.detail || '').toLowerCase().includes('yellow red');
+
+  const notes = await getEditorialNotes(env, ['match', 'template', 'T-RED']);
+  const prompt = `${notes}Sen Kartalix'in maç muhabirsin. Kırmızı kart haberi yaz.
+
+KART: ${minute}' — ${player} (${isOurs ? 'Beşiktaş' : match.opponent})
+TÜR: ${isSecond ? 'İkinci sarı — kırmızı kart' : 'Direkt kırmızı kart'}
+ANLИК SKOR: Beşiktaş ${match.score_bjk ?? 0}-${match.score_opp ?? 0} ${match.opponent}
+
+YAZIM KURALLARI:
+- 80–120 kelime, son dakika flash
+- Kim, hangi takım, kaçıncı dakika, kart türü
+- ${isOurs ? 'Beşiktaş 10 kişi kaldı — dezavantajı belirt' : 'Rakip 10 kişi kaldı — üstünlüğü belirt'}
+- Emoji veya başlık yazma`;
+
+  const res  = await callClaude(env, MODEL_FETCH, prompt, false, 350);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const title = isOurs
+    ? `${minute}' KIRMIZI KART — Beşiktaş 10 kişi: ${player}`
+    : `${minute}' KIRMIZI KART — ${match.opponent} 10 kişi: ${player}`;
+  const slug = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id: site.id, source_type: 'kartalix', source_name: 'Kartalix', original_url: '',
+    title, summary: body.slice(0, 200), full_body: body, category: 'Match',
+    content_type: 'kartalix_generated', sport: 'football', nvs_score: 88,
+    publish_mode: 'template_red_card', status: 'published', template_id: 'T-RED',
+    slug, published_at: new Date().toISOString(), reviewed_at: new Date().toISOString(), reviewed_by: 'auto',
+  });
+  console.log(`T-RED CARD FLASH: "${title}"`);
+  return saved?.[0] || { title, full_body: body, template_id: 'T-RED', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T-VAR VAR DECISION FLASH ─────────────────────────────────
+// Fires on any new VAR event detected in /fixtures/events.
+// varEvent: single event from /fixtures/events (type === 'Var').
+export async function generateVARFlash(match, varEvent, site, env) {
+  const minute  = varEvent.time?.elapsed || '?';
+  const detail  = varEvent.detail  || '';
+  const player  = varEvent.player?.name || '';
+  const comment = varEvent.comments || '';
+
+  const notes = await getEditorialNotes(env, ['match', 'template', 'T-VAR']);
+  const prompt = `${notes}Sen Kartalix'in maç muhabirsin. VAR kararı haberi yaz.
+
+VAR OLAYI: ${minute}' — ${detail}
+${player ? 'İlgili Oyuncu: ' + player : ''}
+${comment ? 'Açıklama: ' + comment : ''}
+ANLИК SKOR: Beşiktaş ${match.score_bjk ?? 0}-${match.score_opp ?? 0} ${match.opponent}
+
+YAZIM KURALLARI:
+- 80–120 kelime, son dakika flash
+- VAR kararının ne olduğunu ve sonucunu açıkla
+- Maça etkisini belirt
+- Emoji veya başlık yazma`;
+
+  const res  = await callClaude(env, MODEL_FETCH, prompt, false, 350);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const title = `${minute}' VAR: ${detail || 'Karar inceleniyor'} — Beşiktaş ${match.score_bjk ?? 0}-${match.score_opp ?? 0} ${match.opponent}`;
+  const slug  = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id: site.id, source_type: 'kartalix', source_name: 'Kartalix', original_url: '',
+    title, summary: body.slice(0, 200), full_body: body, category: 'Match',
+    content_type: 'kartalix_generated', sport: 'football', nvs_score: 85,
+    publish_mode: 'template_var', status: 'published', template_id: 'T-VAR',
+    slug, published_at: new Date().toISOString(), reviewed_at: new Date().toISOString(), reviewed_by: 'auto',
+  });
+  console.log(`T-VAR FLASH: "${title}"`);
+  return saved?.[0] || { title, full_body: body, template_id: 'T-VAR', slug, published_at: new Date().toISOString() };
+}
+
+// ─── T-PEN MISSED PENALTY FLASH ───────────────────────────────
+// Fires when a Missed Penalty event appears in /fixtures/events (either team).
+// penEvent: single event from /fixtures/events (detail === 'Missed Penalty').
+export async function generateMissedPenaltyFlash(match, penEvent, site, env) {
+  const player = penEvent.player?.name || 'Bilinmeyen';
+  const minute = penEvent.time?.elapsed || '?';
+  const isOurs = penEvent.team?.id === 549;
+
+  const notes = await getEditorialNotes(env, ['match', 'template', 'T-PEN']);
+  const prompt = `${notes}Sen Kartalix'in maç muhabirsin. Kaçırılan penaltı haberi yaz.
+
+PENALTİ: ${minute}' — ${player} (${isOurs ? 'Beşiktaş' : match.opponent}) penaltı kaçırdı
+ANLІК SKOR: Beşiktaş ${match.score_bjk ?? 0}-${match.score_opp ?? 0} ${match.opponent}
+
+YAZIM KURALLARI:
+- 80–120 kelime, son dakika flash
+- Kim, hangi dakika, hangi takım
+- ${isOurs ? 'Beşiktaş için kaçırılan fırsat — psikolojik etkiyi belirt' : 'Rakip penaltı kaçırdı — avantajı belirt'}
+- Emoji veya başlık yazma`;
+
+  const res  = await callClaude(env, MODEL_FETCH, prompt, false, 350);
+  const body = extractText(res.content).trim();
+  if (!body) return null;
+
+  const title = isOurs
+    ? `${minute}' Beşiktaş penaltı kaçırdı — ${player}`
+    : `${minute}' ${match.opponent} penaltı kaçırdı — ${player}`;
+  const slug  = generateSlug(title, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id: site.id, source_type: 'kartalix', source_name: 'Kartalix', original_url: '',
+    title, summary: body.slice(0, 200), full_body: body, category: 'Match',
+    content_type: 'kartalix_generated', sport: 'football', nvs_score: 82,
+    publish_mode: 'template_missed_pen', status: 'published', template_id: 'T-PEN',
+    slug, published_at: new Date().toISOString(), reviewed_at: new Date().toISOString(), reviewed_by: 'auto',
+  });
+  console.log(`T-PEN MISSED PENALTY: "${title}"`);
+  return saved?.[0] || { title, full_body: body, template_id: 'T-PEN', slug, published_at: new Date().toISOString() };
 }

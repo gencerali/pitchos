@@ -37,6 +37,27 @@ export async function getActivePause(env) {
   return rows?.[0] || null;
 }
 
+export async function getConfig(env, key) {
+  const rows = await supabase(env, 'GET', `/rest/v1/pm_config?key=eq.${key}&limit=1`);
+  return rows?.[0]?.value || null;
+}
+
+export async function getTodayChats(env) {
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = await supabase(env, 'GET',
+    `${SUPABASE_TABLE}?type=eq.session&created_at=gte.${today}T00:00:00Z&order=created_at.asc&limit=20`
+  );
+  return rows || [];
+}
+
+export async function getCurrentWeekSessions(env) {
+  const week = isoWeek();
+  const rows = await supabase(env, 'GET',
+    `${SUPABASE_TABLE}?week_ref=eq.${week}&order=created_at.asc`
+  );
+  return rows || [];
+}
+
 export function isoWeek(date = new Date()) {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
   d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));

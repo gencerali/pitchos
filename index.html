@@ -858,6 +858,66 @@
     <div class="ad-slot sidebar-ad-box" data-slot="box-300" data-size="300 × 250 — Box" style="margin-top:1.5rem">
       <span class="ad-label">Reklam</span>
     </div>
+
+    <!-- STANDINGS WIDGET -->
+    <div class="sidebar-section" id="standingsSection" style="margin-top:1.5rem;display:none">
+      <div class="section-header">
+        <div class="section-line"></div>
+        <span class="section-title">Puan Durumu</span>
+        <div class="section-line"></div>
+      </div>
+      <div id="wg-api-football-standings"
+        data-host="v3.football.api-sports.io"
+        data-key=""
+        data-league="203"
+        data-season="2025"
+        data-team="549"
+        data-theme="dark"
+        data-show-errors="false"
+        data-show-logos="true"
+        class="wg_loader">
+      </div>
+    </div>
+
+    <!-- FIXTURES WIDGET -->
+    <div class="sidebar-section" id="fixturesSection" style="margin-top:1.5rem;display:none">
+      <div class="section-header">
+        <div class="section-line"></div>
+        <span class="section-title">Maç Takvimi</span>
+        <div class="section-line"></div>
+      </div>
+      <div id="wg-api-football-fixtures"
+        data-host="v3.football.api-sports.io"
+        data-key=""
+        data-league="203"
+        data-season="2025"
+        data-team="549"
+        data-theme="dark"
+        data-show-errors="false"
+        data-show-logos="true"
+        class="wg_loader">
+      </div>
+    </div>
+
+    <!-- TEAM STATS WIDGET -->
+    <div class="sidebar-section" id="teamStatsSection" style="margin-top:1.5rem;display:none">
+      <div class="section-header">
+        <div class="section-line"></div>
+        <span class="section-title">Takım İstatistikleri</span>
+        <div class="section-line"></div>
+      </div>
+      <div id="wg-api-football-team"
+        data-host="v3.football.api-sports.io"
+        data-key=""
+        data-type="team"
+        data-team-id="549"
+        data-team-tab="statistics"
+        data-team-statistics="true"
+        data-theme="dark"
+        data-show-errors="false"
+        class="wg_loader">
+      </div>
+    </div>
   </aside>
 
 </div><!-- /content-with-sidebar -->
@@ -2050,6 +2110,31 @@
   }
 
   init();
+
+  // ── STANDINGS WIDGET ────────────────────────────────────────
+  (async function initSidebarWidgets() {
+    try {
+      const res = await fetch('https://app.kartalix.com/widgets/config');
+      if (!res.ok) return;
+      const { apiKey } = await res.json();
+      if (!apiKey) return;
+      const widgets = [
+        { elId: 'wg-api-football-standings', sectionId: 'standingsSection' },
+        { elId: 'wg-api-football-fixtures',  sectionId: 'fixturesSection'  },
+        { elId: 'wg-api-football-team',      sectionId: 'teamStatsSection' },
+      ];
+      widgets.forEach(({ elId, sectionId }) => {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        el.setAttribute('data-key', apiKey);
+        document.getElementById(sectionId).style.display = 'block';
+      });
+      const s = document.createElement('script');
+      s.type = 'module';
+      s.src = 'https://widgets.api-sports.io/2.0.3/widgets.js';
+      document.body.appendChild(s);
+    } catch(e) {}
+  })();
 </script>
 
 <div id="cookie-banner" style="position:fixed;bottom:0;left:0;right:0;background:#111;border-top:2px solid #E30A17;padding:1rem 1.5rem;z-index:999;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;display:none">

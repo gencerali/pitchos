@@ -7,22 +7,31 @@ import { BJK_REGEX, CUTOFF_48H } from './processor.js';
 // press/broadcast/official: team-specific feeds, no feed-level keyword filter
 // ntvFallback: HTML fallback URL if RSS returns 0 items
 export const RSS_FEEDS = [
+  // Official — BJK Resmi fetched via fetchBJKOfficial() HTML scraper (no working RSS)
+
   // Team-specific feeds — no keyword filter needed
-  { url: 'https://www.ntvspor.net/rss/kategori/futbol',    name: 'NTV Spor',          trust: 'broadcast', sport: 'football',    ntvFallback: 'https://www.ntvspor.net/futbol/takim/besiktas' },
-  { url: 'https://www.ahaber.com.tr/rss/besiktas.xml',     name: 'A Haber',           trust: 'press',     sport: 'football' },
-  { url: 'https://www.ahaber.com.tr/rss/basketbol.xml',    name: 'A Haber Basketbol', trust: 'press',     sport: 'basketball' },
-  { url: 'https://www.trthaber.com/spor_articles.rss',     name: 'TRT Haber',         trust: 'broadcast', sport: 'football' },
-  // General sports feeds — BJK_KEYWORDS filter applied
-  { url: 'https://www.hurriyet.com.tr/rss/spor',           name: 'Hürriyet',          trust: 'press',     sport: 'football',    keywordFilter: true },
-  { url: 'https://www.sabah.com.tr/rss/spor.xml',          name: 'Sabah Spor',        trust: 'press',     sport: 'football',    keywordFilter: true },
-  { url: 'https://www.haberturk.com/rss/spor.xml',         name: 'Habertürk Spor',    trust: 'press',     sport: 'football',    keywordFilter: true },
-  // International feeds — BJK_KEYWORDS filter + football-only check
-  { url: 'https://www.transfermarkt.com/rss/news',         name: 'Transfermarkt',     trust: 'international', sport: 'football', titleOnly: true },
-  { url: 'https://www.skysports.com/rss/12040',            name: 'Sky Sports',        trust: 'international', sport: 'football', titleOnly: true, footballOnly: true },
-  // Proxy feeds (403-blocked direct, routed via rss2json.com)
-  { url: 'https://www.fotomac.com.tr/rss/Besiktas.xml',    name: 'Fotomaç',           trust: 'press',         sport: 'football',    proxy: true },
-  { url: 'https://www.aspor.com.tr/rss/besiktas.xml',      name: 'A Spor',            trust: 'broadcast',     sport: 'football',    proxy: true },
-  { url: 'https://www.fotomac.com.tr/rss/Basketbol.xml',   name: 'Fotomaç Basketbol', trust: 'press',         sport: 'basketball',  proxy: true },
+  { url: 'https://www.ntvspor.net/rss/kategori/futbol',    name: 'NTV Spor',     trust: 'broadcast', sport: 'football', is_p4: true,  ntvFallback: 'https://www.ntvspor.net/futbol/takim/besiktas' },
+  { url: 'https://www.ahaber.com.tr/rss/besiktas.xml',     name: 'A Haber',      trust: 'press',     sport: 'football', is_p4: true  },
+  { url: 'https://www.trthaber.com/spor_articles.rss',     name: 'TRT Haber',    trust: 'broadcast', sport: 'football', is_p4: false },
+
+  // General sports feeds — BJK_KEYWORDS filter applied, all commercial press = P4
+  { url: 'https://www.hurriyet.com.tr/rss/spor',           name: 'Hürriyet',     trust: 'press',     sport: 'football', is_p4: true,  keywordFilter: true },
+  { url: 'https://www.sabah.com.tr/rss/spor.xml',          name: 'Sabah Spor',   trust: 'press',     sport: 'football', is_p4: true,  keywordFilter: true },
+  { url: 'https://www.haberturk.com/rss/spor.xml',         name: 'Habertürk Spor', trust: 'press',   sport: 'football', is_p4: true,  keywordFilter: true },
+  // Fanatik — RSS URL 404, correct URL unknown. Re-add when confirmed.
+  // { url: 'https://www.fanatik.com.tr/rss/besiktas', name: 'Fanatik', ... }
+  // Milliyet, Sporx, Ajansspor — RSS URLs unverified, returning 0. Re-add when confirmed.
+  { url: 'https://www.duhuliye.com/rss',                   name: 'Duhuliye',     trust: 'press',      sport: 'football', is_p4: true,  keywordFilter: true },
+
+  // Google News — aggregates Turkish press (Fanatik, Milliyet, Sporx, Ajansspor etc.)
+  // Free, no auth. keywordFilter not needed — query is already BJK-specific.
+  { url: 'https://news.google.com/rss/search?q=Besiktas+BJK&hl=tr&gl=TR&ceid=TR:tr', name: 'Google News', trust: 'press', sport: 'football', is_p4: true, proxy: true },
+
+  // Proxy feeds (403-blocked direct, routed via pitchos-proxy) — all P4
+  { url: 'https://www.fotomac.com.tr/rss/Besiktas.xml',    name: 'Fotomaç',      trust: 'press',     sport: 'football', is_p4: true,  proxy: true },
+  { url: 'https://www.aspor.com.tr/rss/besiktas.xml',      name: 'A Spor',       trust: 'broadcast', sport: 'football', is_p4: true,  proxy: true },
+
+  // International removed — Sky Sports 0 BJK matches, Transfermarkt feed broken
 ];
 
 // ─── RENDER PROXY ─────────────────────────────────────────────
@@ -44,26 +53,34 @@ async function fetchViaRss2Json(feed) {
                || item.match(/<guid>([^<]+)<\/guid>/i)?.[1] || '';
       const desc = item.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/i)?.[1]
                 || item.match(/<description>([^<]+)<\/description>/i)?.[1] || '';
-      const img = item.match(/<enclosure[^>]+url="([^"]+)"/i)?.[1]
-               || item.match(/<media:content[^>]+url="([^"]+)"/i)?.[1] || '';
       const pubRaw = item.match(/<pubDate>([^<]+)<\/pubDate>/i)?.[1] || '';
       const pubDate = pubRaw ? new Date(pubRaw) : null;
       const published_at = pubDate && !isNaN(pubDate.getTime()) ? pubDate.toISOString() : null;
+
+      // Sport detection — filter basketball/volleyball leaking through football feeds.
+      // Also check URL path (e.g. duhuliye.com/basketbol/...) for feeds that don't
+      // mention sport in title/description.
+      const haystack = (title + ' ' + desc + ' ' + url).toLowerCase();
+      const sport = /basketbol|basket\b|\/basketbol\//i.test(haystack) ? 'basketball'
+                  : /voleybol|\/voleybol\//i.test(haystack)            ? 'volleyball'
+                  : feed.sport;
+      if (sport !== 'football') return null;
+
       return {
         title:        title.trim(),
         url:          url.trim(),
         summary:      desc.replace(/<[^>]+>/g, '').slice(0, 300),
-        image_url:    null,   // IT3 block: P4 proxy feed images are never passed downstream
+        image_url:    null,
         published_at,
         source_name:  feed.name,
         source:       feed.name,
         trust_tier:   feed.trust,
-        sport:        feed.sport,
+        sport:        'football',
         is_fresh:     true,
         time_ago:     'Güncel',
         is_p4:        true,
       };
-    }).filter(a => a.title.length > 5);
+    }).filter(a => a !== null && a.title.length > 5);
   } catch(e) {
     console.error(`PROXY FAILED [${feed.name}]:`, e.message);
     return [];
@@ -196,20 +213,22 @@ async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS) {
 
     let sport = feedSport;
     if (feedSport === 'football') {
-      if (/basketbol|basket\b/i.test(title + ' ' + (rawDesc || ''))) sport = 'basketball';
-      else if (/voleybol/i.test(title + ' ' + (rawDesc || '')))       sport = 'volleyball';
+      const sportHaystack = (title + ' ' + (rawDesc || '') + ' ' + url_).toLowerCase();
+      if (/basketbol|basket\b|\/basketbol\//i.test(sportHaystack)) sport = 'basketball';
+      else if (/voleybol|\/voleybol\//i.test(sportHaystack))       sport = 'volleyball';
     }
 
-    // IT3 block: P4 outlet images must never reach the pipeline.
-    // P4 trust tiers: 'press' covers Fotomaç, Sabah, Hürriyet, Milliyet, Fanatik.
-    // 'broadcast' covers A Spor, NTV Spor (mixed — NTV is P3-equivalent, A Spor is P4).
-    // Safe to strip image_url for all proxy=true feeds (all are P4).
-    const safeImageUrl = feed.proxy ? null : image_url;
+    // IT3 block: images from P4 sources (commercial Turkish media) never reach the pipeline.
+    // is_p4 flag is set per-feed in RSS_FEEDS — covers both proxy and directly-fetched P4 sources.
+    const safeImageUrl = feed.is_p4 ? null : image_url;
+
+    // Football-only filter: drop articles about basketball/volleyball that slipped through keyword match
+    if (sport !== 'football') continue;
 
     articles.push({
       title,
       summary,
-      full_text:       feed.proxy ? null : full_text,  // P4 source text not passed downstream
+      full_text:       feed.is_p4 ? null : full_text,  // P4 source text not passed downstream
       source:          sourceName,
       original_source,
       url:             url_,
@@ -219,7 +238,7 @@ async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS) {
       published_at,
       is_fresh:        true,
       trust_tier:      trustTier,
-      is_p4:           !!feed.proxy,                   // flag for Hot News delay + firewall routing
+      is_p4:           !!feed.is_p4,
       sport,
     });
   }
@@ -254,6 +273,80 @@ async function fetchNTVSporFromHTML(fallbackUrl, sourceName) {
     console.error(`NTV Spor HTML fallback failed: ${e.message}`);
     return [];
   }
+}
+
+// ─── BJK OFFICIAL SCRAPER ─────────────────────────────────────
+// bjk.com.tr has no RSS feed. Scrapes the news listing page directly.
+// Articles are trust: official — OFFICIAL_INITIAL_DELTA (60) fires on first contribution.
+export async function fetchBJKOfficial() {
+  const BASE = 'https://www.bjk.com.tr';
+  const LIST = `${BASE}/tr/haber/`;
+
+  // bjk.com.tr blocks datacenter IPs — try allorigins.win as public CORS proxy
+  const RSS_URL = 'https://www.bjk.com.tr/tr/rss/haberler';
+  let html;
+  try {
+    const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(RSS_URL)}`;
+    const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) {
+      console.error(`BJK Official: allorigins HTTP ${res.status}`);
+      return { articles: [] };
+    }
+    html = await res.text();
+    console.log(`BJK Official: ${html.length} chars via allorigins`);
+  } catch (e) {
+    console.error('BJK Official fetch failed:', e.message);
+    return { articles: [] };
+  }
+
+  // Parse as RSS if it looks like XML, otherwise fall back to HTML link extraction
+  const isRSS = html.trimStart().startsWith('<?xml') || html.includes('<rss') || html.includes('<channel');
+  const shaped = [];
+
+  if (isRSS) {
+    const items = html.match(/<item[\s\S]*?<\/item>/g) || [];
+    console.log(`BJK Official: ${items.length} RSS items`);
+    for (const item of items.slice(0, 15)) {
+      const title = stripCDATA(getTag(item, 'title')).trim();
+      const url   = getRSSLink(item) || getTag(item, 'guid') || '';
+      const desc  = stripHTML(stripCDATA(getTag(item, 'description'))).slice(0, 300);
+      const pubRaw = getTag(item, 'pubDate') || getTag(item, 'published');
+      const pubDate = pubRaw ? new Date(pubRaw) : null;
+      const published_at = pubDate && !isNaN(pubDate) ? pubDate.toISOString() : new Date().toISOString();
+      if (!title || title.length < 5) continue;
+      shaped.push({ title, summary: desc || title, url, published_at });
+    }
+  } else {
+    // HTML: extract anchor links matching /tr/haber/
+    const seen = new Set();
+    const titleRe = /href="(\/tr\/haber\/\d+\/[^"]+)"[^>]*>([^<]{10,200})<\/a>/gi;
+    let m;
+    while ((m = titleRe.exec(html)) !== null && shaped.length < 15) {
+      const path  = m[1];
+      const title = stripHTML(m[2]).trim();
+      if (!title || title.length < 10 || seen.has(path)) continue;
+      seen.add(path);
+      const url = `${BASE}${path}`;
+      shaped.push({ title, summary: title, url, published_at: new Date().toISOString() });
+    }
+  }
+
+  const articles = shaped.map(({ title, summary, url, published_at }) => ({
+    title,
+    summary,
+    url,
+    source:       'BJK Resmi',
+    source_name:  'BJK Resmi',
+    trust_tier:   'official',
+    is_p4:        false,
+    sport:        'football',
+    published_at,
+    time_ago:     'Güncel',
+    is_fresh:     true,
+  }));
+
+  console.log(`BJK Official: ${articles.length} articles`);
+  return { articles };
 }
 
 // ─── WEB SEARCH (Claude) — disabled ──────────────────────────
@@ -321,86 +414,18 @@ ${allText.slice(0, 1500)}`;
 }
 */
 
-// ─── beIN SPORTS (Claude web search) ─────────────────────────
-export async function fetchBeIN(site, env) {
-  // Only run between 8am and 11pm Istanbul time (UTC+3)
-  const hour = new Date().getUTCHours() + 3;
-  if (hour < 8 || hour > 23) return { articles: [], usage: { input_tokens: 0, output_tokens: 0 } };
-  const prompt = `Search "site:beinsports.com.tr beşiktaş" for the latest Beşiktaş news from beIN Sports Turkey. Return ONLY a JSON array (no other text):
-[{"title":"...","url":"...","summary":"...","published_at":"ISO date or null"}]
-Maximum 5 results. Only include items directly about Beşiktaş.`;
-
-  let searchResponse;
-  try {
-    searchResponse = await callClaude(env, MODEL_FETCH, prompt, true, 600);
-  } catch (e) {
-    console.error('fetchBeIN search failed:', e.message);
-    return { articles: [], usage: null };
-  }
-
-  const allText = searchResponse.content.map(b => b.type === 'text' ? b.text : '').join(' ');
-  const match = allText.match(/\[[\s\S]*?\]/);
-  if (!match) return { articles: [], usage: searchResponse.usage };
-
-  try {
-    const raw = JSON.parse(match[0]);
-    const articles = (Array.isArray(raw) ? raw : []).filter(a => a.title).map(a => ({
-      title:        a.title,
-      summary:      a.summary || a.title,
-      url:          a.url || '',
-      source:       'beIN Sports',
-      trust_tier:   'broadcast',
-      sport:        'football',
-      published_at: a.published_at || null,
-      time_ago:     a.published_at ? relativeTime(new Date(a.published_at).getTime()) : 'Güncel',
-      is_fresh:     true,
-    }));
-    console.log(`beIN Sports: ${articles.length} articles`);
-    return { articles, usage: searchResponse.usage };
-  } catch (e) {
-    console.error('fetchBeIN parse failed:', e.message);
-    return { articles: [], usage: searchResponse.usage };
-  }
+// ─── beIN SPORTS ─────────────────────────────────────────────
+// beinsports.com.tr has no RSS feed (confirmed 2026-05-01).
+// Content is covered by Fotomaç/Sporx/Duhuliye RSS. Disabled to save web search costs.
+export async function fetchBeIN(_site, _env) {
+  return { articles: [], usage: { input_tokens: 0, output_tokens: 0 } };
 }
 
-// ─── TWITTER SOURCES (Claude web search) ─────────────────────
-export async function fetchTwitterSources(site, env) {
-  const prompt = `Search Twitter/X for recent posts: "from:Besiktas OR from:firatgunayer besiktas"
-Find the latest tweets about Beşiktaş from these accounts. Return ONLY a JSON array (no other text):
-[{"title":"tweet text","url":"tweet url","summary":"tweet text","published_at":"ISO date or null","account":"Besiktas or firatgunayer"}]
-Maximum 5 results. Only include posts directly about Beşiktaş.`;
-
-  let response;
-  try {
-    response = await callClaude(env, MODEL_FETCH, prompt, true, 600);
-  } catch (e) {
-    console.error('fetchTwitterSources failed:', e.message);
-    return { articles: [], usage: null };
-  }
-
-  const allText = response.content.map(b => b.type === 'text' ? b.text : '').join(' ');
-  const match = allText.match(/\[[\s\S]*?\]/);
-  if (!match) return { articles: [], usage: response.usage };
-
-  try {
-    const raw = JSON.parse(match[0]);
-    const articles = (Array.isArray(raw) ? raw : []).filter(a => a.title).map(a => ({
-      title:        a.title,
-      summary:      a.summary || a.title,
-      url:          a.url || '',
-      source:       a.account === 'Besiktas' ? 'Beşiktaş JK Resmi' : 'Fırat Günayer',
-      trust_tier:   a.account === 'Besiktas' ? 'official' : 'journalist',
-      sport:        'football',
-      published_at: a.published_at || null,
-      time_ago:     a.published_at ? relativeTime(new Date(a.published_at).getTime()) : 'Güncel',
-      is_fresh:     true,
-    }));
-    console.log(`Twitter sources: ${articles.length} tweets`);
-    return { articles, usage: response.usage };
-  } catch (e) {
-    console.error('fetchTwitterSources parse failed:', e.message);
-    return { articles: [], usage: response.usage };
-  }
+// ─── TWITTER SOURCES ─────────────────────────────────────────
+// Web search disabled (2026-05-01) — $0.01/call × 240 calls/month = $2.40/month not justified.
+// Slice 4 will wire @Besiktas via Telegram/RSS when BJK official feed is confirmed.
+export async function fetchTwitterSources(_site, _env) {
+  return { articles: [], usage: { input_tokens: 0, output_tokens: 0 } };
 }
 
 // ─── FETCH FULL ARTICLE TEXT ──────────────────────────────────

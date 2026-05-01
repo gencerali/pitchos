@@ -9,9 +9,13 @@ id = "dedaea653ed542cca25e6cc2551dd1c3"
 
 [vars]
 SUPABASE_URL = "https://qfgstxswcsodaaksjztz.supabase.co"
+MONTHLY_CLAUDE_CAP = "8"
+
+[limits]
+subrequests = 1000
 
 [triggers]
-crons = ["*/30 * * * *"]
+crons = ["*/5 * * * *", "0 */2 * * *", "0 4 * * *", "0 3 * * 1"]
 
 [[routes]]
 pattern = "app.kartalix.com/haber/*"
@@ -23,4 +27,32 @@ zone_name = "kartalix.com"
 
 [[routes]]
 pattern = "app.kartalix.com/sitemap.xml"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "app.kartalix.com/admin"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "app.kartalix.com/admin/*"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "app.kartalix.com/article/*"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "app.kartalix.com/react"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "app.kartalix.com/comments"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "app.kartalix.com/cache"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "app.kartalix.com/widgets/*"
 zone_name = "kartalix.com"
