@@ -711,7 +711,6 @@
     gtag('js', new Date());
     gtag('config', 'G-3QK6G366J3');
   </script>
-  <script type="module" src="https://widgets.api-sports.io/3.1.0/widgets.js"></script>
 </head>
 <body>
 
@@ -2092,10 +2091,15 @@
       if (!res.ok) return;
       const { apiKey } = await res.json();
       if (!apiKey) return;
+      // Set key before script loads so widgets initialise with the correct key
       document.getElementById('apiSportsConfig').setAttribute('data-key', apiKey);
       ['standingsSection', 'fixturesSection', 'teamStatsSection'].forEach(id => {
         document.getElementById(id).style.display = 'block';
       });
+      const s = document.createElement('script');
+      s.type = 'module';
+      s.src = 'https://widgets.api-sports.io/3.1.0/widgets.js';
+      document.body.appendChild(s);
     } catch(e) {}
   })();
 </script>
