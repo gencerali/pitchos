@@ -156,6 +156,40 @@ Bilmiyorsan null yaz.`;
 // Articles arrive sorted by NVS, so only the highest-value P4 articles get facts.
 const MAX_FACTS_EXTRACTS = 5;
 
+async function synthesizeArticle(article, env) {
+  const srcUrl = article.url || article.original_url || '';
+  let sourceText = article.summary || '';
+  if (srcUrl && srcUrl !== '#') {
+    try {
+      const proxyUrl = 'https://pitchos-proxy.onrender.com/article?url=' + encodeURIComponent(srcUrl);
+      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.content && data.content.length > 200) sourceText = data.content.slice(0, 2000);
+      }
+    } catch(e) {}
+  }
+  const editorialNotes = await getEditorialNotes(env, ['general', 'style']);
+  const editorialCtx = editorialNotes.length ? `\n\nEditoryal kurallar:\n${editorialNotes.map(n => `- ${n}`).join('\n')}` : '';
+  const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak metinden özgün bir Kartalix haberi yaz.
+
+Kaynak başlık: ${article.title}
+Kaynak metin: ${sourceText}${editorialCtx}
+
+Kurallar:
+- 250-350 kelime
+- Türkçe, doğrudan gazetecilik diliyle yaz
+- "...kaynağına göre" veya "...iddia ediyor" gibi ifadeler kullanma — bilgiyi doğrudan sun
+- Haber cümlesiyle başla (kim ne yaptı/oldu)
+- BJK taraftarının perspektifinden, analitik ve yoğun bir ses tonu
+- Paragraflar arası boş satır bırak
+
+Sadece haber metnini yaz, başlık veya ekstra açıklama ekleme.`;
+
+  const res = await callClaude(MODEL_FETCH, [{ role: 'user', content: prompt }], 600, env);
+  return extractText(res.content).trim();
+}
+
 export async function writeArticles(articles, site, env) {
   const results = [];
   let factsExtracted = 0;
@@ -185,10 +219,24 @@ export async function writeArticles(articles, site, env) {
       await new Promise(r => setTimeout(r, 300));
 
     } else {
-      // Use RSS summary — Readability runs separately via /enrich endpoint
       published.summary   = cleanRSS(article.summary || article.description || '');
       published.full_body = published.summary;
       published.publish_mode = 'rss_summary';
+
+      // Auto-synthesis: for high-NVS articles, fetch source and write a full Kartalix article
+      if ((article.nvs || 0) >= 60 && results.filter(r => r.publish_mode === 'synthesis').length < 4) {
+        try {
+          const body = await synthesizeArticle(article, env);
+          if (body && body.length > 200) {
+            published.full_body    = body;
+            published.publish_mode = 'synthesis';
+            console.log(`SYNTHESIS OK [${article.nvs}]: "${article.title?.slice(0, 50)}" — ${body.length}ch`);
+          }
+        } catch(e) {
+          console.error('Synthesis failed:', e.message, '|', article.title?.slice(0, 50));
+        }
+        await new Promise(r => setTimeout(r, 300));
+      }
 
       // Extract facts for story matching (top P4 articles only, capped at MAX_FACTS_EXTRACTS).
       // Classifies story type first — skips match_result/squad (handled by templates).

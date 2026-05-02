@@ -2356,6 +2356,20 @@ async function processSite(site, env, ctx) {
       const allWritten = await writeArticles(top100forWrite, site, env);
       console.log(`Write phase: ${allWritten.map(a => a.publish_mode).join(', ')}`);
 
+      // Patch KV with synthesized bodies so the page shows full articles
+      const synthesized = allWritten.filter(a => a.publish_mode === 'synthesis' && a.full_body?.length > 200);
+      if (synthesized.length > 0) {
+        const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+        const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
+        const urlMap = new Map(synthesized.map(a => [a.url || a.original_url, a]));
+        const patched = latest.map(a => {
+          const syn = urlMap.get(a.url || a.original_url);
+          return syn ? { ...a, full_body: syn.full_body, publish_mode: 'synthesis' } : a;
+        });
+        await cacheToKV(env, site.short_code, patched);
+        console.log(`KV PATCH WITH SYNTHESIS: ${synthesized.length} articles updated`);
+      }
+
       const publishThreshold = site.auto_publish_threshold || 30;
       const toPublish = allWritten.filter(a => a.nvs >= publishThreshold && a.publish_mode !== 'hot_news_hold');
       const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < publishThreshold && a.publish_mode !== 'hot_news_hold');
