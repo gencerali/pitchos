@@ -216,10 +216,12 @@ Deliverables:
 
 _Widget calls go direct from browser to `v3.football.api-sports.io` and count toward the 7,500/day quota. Each home page load burns ~3 calls (standings + fixtures + team). At scale this needs a server-side cache layer._
 
-- [ ] Worker proxy endpoints: `/widgets/proxy/standings`, `/widgets/proxy/fixtures`, `/widgets/proxy/team` — fetch from API, cache in KV, return with CORS headers
-- [ ] KV TTLs: standings 1h, fixtures 15min, team stats 24h
-- [ ] Widget `data-host` (or equivalent v3.1.0 config) pointed at proxy
-- [ ] Measure: baseline calls/day before and after to confirm savings
+- [ ] Proxy needs a **fixed egress IP** (e.g. a cheap VPS) added to the API IP allowlist — Cloudflare Workers use rotating IPs so can't be added directly
+- [ ] Worker calls the fixed-IP VPS proxy, VPS forwards to api-sports with the key, caches response, returns with CORS headers
+- [ ] Widget `data-url-football` on config widget pointed at proxy URL
+- [ ] KV TTLs: standings 1h, fixtures 5min, team stats 24h
+
+**Constraint discovered**: api-sports domain allowlisting is browser-only (validates `Origin` header from actual browsers). Worker-side proxy calls without a real browser Origin get IP-blocked even when forwarding the header. Proxy requires a static IP on the allowlist.
 
 **Why now is too early**: current traffic is low, quota is 7,500/day. Revisit when daily widget calls exceed ~1,000 (≈333 page loads/day).
 
