@@ -1363,6 +1363,7 @@
       <div class="av-body-wrap av-slide-in" style="animation-delay:0.1s">
         ${quote ? `<blockquote class="av-quote">${esc(quote)}</blockquote>` : ''}
         <div class="av-body" id="avBodyContent">${bodyHtml}</div>
+        ${a.template_id ? `<div id="avMatchStats" style="margin:1.5rem 0"></div>` : ''}
       </div>
 
       <div class="av-attr av-slide-in">
@@ -1453,6 +1454,47 @@
     requestAnimationFrame(() => requestAnimationFrame(() => {
       av.querySelectorAll('.av-slide-in').forEach(el => el.classList.add('av-visible'));
     }));
+
+    // Match stats widget for T11/T12 match articles
+    if (a.template_id) {
+      const statsBox = document.getElementById('avMatchStats');
+      if (statsBox) {
+        fetch('https://app.kartalix.com/widgets/current-match-stats')
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+          .then(d => {
+            if (!d || !d.stats || !d.stats.length) return;
+            const pct = v => typeof v === 'string' && v.includes('%') ? parseInt(v) : null;
+            const rows = d.stats.map(s => {
+              const hv = s.home ?? 0; const av = s.away ?? 0;
+              const hp = pct(hv); const ap = pct(av);
+              const barHtml = hp !== null ? `<div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+                <div style="flex:1;background:#1a1a1a;border-radius:3px;height:5px;overflow:hidden"><div style="width:${hp}%;background:#E30A17;height:100%"></div></div>
+                <div style="flex:1;background:#1a1a1a;border-radius:3px;height:5px;overflow:hidden;transform:scaleX(-1)"><div style="width:${ap}%;background:#555;height:100%"></div></div>
+              </div>` : '';
+              return `<tr>
+                <td style="text-align:right;font-weight:600;color:#fff;padding:5px 8px">${hv}</td>
+                <td style="text-align:center;color:#888;font-size:0.72rem;padding:5px 4px;white-space:nowrap">${s.label}${barHtml}</td>
+                <td style="text-align:left;font-weight:600;color:#fff;padding:5px 8px">${av}</td>
+              </tr>`;
+            }).join('');
+            statsBox.innerHTML = `<div style="border:1px solid #222;border-radius:6px;overflow:hidden;background:#111;margin-top:1.5rem">
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#161616;border-bottom:1px solid #222">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <img src="${d.home.logo}" style="height:22px;width:22px;object-fit:contain" onerror="this.style.display='none'">
+                  <span style="font-size:0.8rem;font-weight:700;color:#fff">${d.home.name}</span>
+                </div>
+                <span style="font-size:0.65rem;color:#666;letter-spacing:0.08em;text-transform:uppercase">Maç İstatistikleri</span>
+                <div style="display:flex;align-items:center;gap:8px">
+                  <span style="font-size:0.8rem;font-weight:700;color:#fff">${d.away.name}</span>
+                  <img src="${d.away.logo}" style="height:22px;width:22px;object-fit:contain" onerror="this.style.display='none'">
+                </div>
+              </div>
+              <table style="width:100%;border-collapse:collapse">${rows}</table>
+            </div>`;
+          });
+      }
+    }
   }
 
   async function init() {

@@ -224,6 +224,18 @@ export default {
       return new Response(payload, { headers: { 'Content-Type': 'application/json', ...CORS } });
     }
 
+    if (url.pathname === '/widgets/current-match-stats') {
+      const CORS = { 'Access-Control-Allow-Origin': 'https://app.kartalix.com' };
+      const liveRaw = await env.PITCHOS_CACHE.get('match:BJK:live');
+      const liveState = liveRaw ? JSON.parse(liveRaw) : null;
+      const fixtureId = liveState?.fixture_id || NEXT_MATCH.fixture_id;
+      if (!fixtureId) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
+      const cacheKey = `widget:match-stats:${fixtureId}`;
+      const cached = await env.PITCHOS_CACHE.get(cacheKey);
+      if (cached) return new Response(cached, { headers: { 'Content-Type': 'application/json', ...CORS } });
+      return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
+    }
+
     // ─── WIDGET API PROXY ─────────────────────────────────────────────────────
     // Caches api-sports widget calls in KV to protect daily quota.
     // Widget config sets data-url-football to this proxy instead of direct API.
