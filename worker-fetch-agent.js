@@ -757,14 +757,23 @@ export default {
       }
     }
     if (url.pathname === '/force-t11') {
-      // Simulate a full-time result flash. Pass ?bjk=2&opp=1
+      // Simulate a full-time result flash. Pass ?bjk=2&opp=1 to override score,
+      // or omit to fetch actual score from API.
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
         const site = sites?.[0];
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
-        const bjkScore = parseInt(url.searchParams.get('bjk') || '2');
-        const oppScore = parseInt(url.searchParams.get('opp') || '1');
+        let bjkScore, oppScore;
+        if (url.searchParams.has('bjk') && url.searchParams.has('opp')) {
+          bjkScore = parseInt(url.searchParams.get('bjk'));
+          oppScore = parseInt(url.searchParams.get('opp'));
+        } else {
+          // Fetch actual score from API
+          const liveF = await getFixture(NEXT_MATCH.fixture_id, env);
+          bjkScore = liveF?.score_bjk ?? 0;
+          oppScore = liveF?.score_opp ?? 0;
+        }
         const fixture = {
           ...NEXT_MATCH,
           score_bjk:   bjkScore,
@@ -935,8 +944,15 @@ export default {
         const sites = await getActiveSites(env);
         const site = sites?.[0];
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
-        const bjkScore = parseInt(url.searchParams.get('bjk') || '2');
-        const oppScore = parseInt(url.searchParams.get('opp') || '1');
+        let bjkScore, oppScore;
+        if (url.searchParams.has('bjk') && url.searchParams.has('opp')) {
+          bjkScore = parseInt(url.searchParams.get('bjk'));
+          oppScore = parseInt(url.searchParams.get('opp'));
+        } else {
+          const liveF = await getFixture(NEXT_MATCH.fixture_id, env);
+          bjkScore = liveF?.score_bjk ?? 0;
+          oppScore = liveF?.score_opp ?? 0;
+        }
         const fixture  = { ...NEXT_MATCH, score_bjk: bjkScore, score_opp: oppScore, is_finished: true, status: 'FT' };
         const [players, stats] = await Promise.all([
           getFixturePlayers(NEXT_MATCH.fixture_id, env).catch(() => []),
