@@ -146,6 +146,32 @@ export default {
       );
     }
 
+    if (url.pathname === '/widgets/bjk-fixtures') {
+      const CORS = { 'Access-Control-Allow-Origin': 'https://app.kartalix.com' };
+      const cacheKey = 'widget:bjk-fixtures';
+      const cached = await env.PITCHOS_CACHE.get(cacheKey);
+      if (cached) return new Response(cached, { headers: { 'Content-Type': 'application/json', ...CORS } });
+      const [lastRes, nextRes] = await Promise.all([
+        apiFetch(`/fixtures?team=549&season=2025&last=6`, env),
+        apiFetch(`/fixtures?team=549&season=2025&next=5`, env),
+      ]);
+      const shape = f => ({
+        id:       f.fixture?.id,
+        date:     f.fixture?.date,
+        status:   f.fixture?.status?.short,
+        league:   f.league?.name,
+        round:    f.league?.round,
+        home:     { name: f.teams?.home?.name, logo: f.teams?.home?.logo, winner: f.teams?.home?.winner },
+        away:     { name: f.teams?.away?.name, logo: f.teams?.away?.logo, winner: f.teams?.away?.winner },
+        score:    { home: f.goals?.home, away: f.goals?.away },
+      });
+      const past   = (lastRes?.response || []).map(shape).reverse();
+      const upcoming = (nextRes?.response || []).map(shape);
+      const payload = JSON.stringify({ past, upcoming });
+      await env.PITCHOS_CACHE.put(cacheKey, payload, { expirationTtl: 3600 });
+      return new Response(payload, { headers: { 'Content-Type': 'application/json', ...CORS } });
+    }
+
     // ─── WIDGET API PROXY ─────────────────────────────────────────────────────
     // Caches api-sports widget calls in KV to protect daily quota.
     // Widget config sets data-url-football to this proxy instead of direct API.
