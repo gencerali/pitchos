@@ -9,7 +9,7 @@ const BJK_ID    = 549;    // Beşiktaş JK (verified 2026-04-29)
 const SUPERLIG  = 203;    // Trendyol Süper Lig
 const SEASON    = 2025;   // 2025–26 season
 
-async function apiFetch(path, env) {
+export async function apiFetch(path, env) {
   if (!env.API_FOOTBALL_KEY) {
     console.error('API_FOOTBALL_KEY secret not set');
     return null;

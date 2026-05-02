@@ -14,7 +14,7 @@ import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchB
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories } from './src/story-matcher.js';
-import { getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getLastFixtures, getInjuries, getFixtureLineup, getStandings } from './src/api-football.js';
+import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getLastFixtures, getInjuries, getFixtureLineup, getStandings } from './src/api-football.js';
 
 // ─── NEXT MATCH CONFIG ────────────────────────────────────────
 const NEXT_MATCH = {
@@ -151,9 +151,21 @@ export default {
       const cacheKey = 'widget:bjk-fixtures';
       const cached = await env.PITCHOS_CACHE.get(cacheKey);
       if (cached) return new Response(cached, { headers: { 'Content-Type': 'application/json', ...CORS } });
+      const widgetFetch = async (path) => {
+        try {
+          const r = await fetch(`https://v3.football.api-sports.io${path}`, {
+            headers: { 'x-apisports-key': env.API_FOOTBALL_KEY || '', 'Origin': 'https://app.kartalix.com', 'Referer': 'https://app.kartalix.com/' },
+            signal: AbortSignal.timeout(8000),
+          });
+          if (!r.ok) return null;
+          const d = await r.json();
+          if (d.errors && Object.keys(d.errors).length > 0) return null;
+          return d.response || null;
+        } catch(e) { return null; }
+      };
       const [lastRes, nextRes] = await Promise.all([
-        apiFetch(`/fixtures?team=549&season=2025&last=6`, env),
-        apiFetch(`/fixtures?team=549&season=2025&next=5`, env),
+        widgetFetch(`/fixtures?team=549&season=2025&last=6`),
+        widgetFetch(`/fixtures?team=549&season=2025&next=5`),
       ]);
       const shape = f => ({
         id:       f.fixture?.id,
@@ -165,8 +177,8 @@ export default {
         away:     { name: f.teams?.away?.name, logo: f.teams?.away?.logo, winner: f.teams?.away?.winner },
         score:    { home: f.goals?.home, away: f.goals?.away },
       });
-      const past   = (lastRes?.response || []).map(shape).reverse();
-      const upcoming = (nextRes?.response || []).map(shape);
+      const past   = (lastRes || []).map(shape).reverse();
+      const upcoming = (nextRes || []).map(shape);
       const payload = JSON.stringify({ past, upcoming });
       await env.PITCHOS_CACHE.put(cacheKey, payload, { expirationTtl: 3600 });
       return new Response(payload, { headers: { 'Content-Type': 'application/json', ...CORS } });
@@ -179,8 +191,11 @@ export default {
       const cacheKey = `widget:match-stats:${fixtureId}`;
       const cached = await env.PITCHOS_CACHE.get(cacheKey);
       if (cached) return new Response(cached, { headers: { 'Content-Type': 'application/json', ...CORS } });
-      const res = await apiFetch(`/fixtures/statistics?fixture=${fixtureId}`, env);
-      const teams = (res?.response || []);
+      const statsRes = await fetch(`https://v3.football.api-sports.io/fixtures/statistics?fixture=${fixtureId}`, {
+        headers: { 'x-apisports-key': env.API_FOOTBALL_KEY || '', 'Origin': 'https://app.kartalix.com', 'Referer': 'https://app.kartalix.com/' },
+        signal: AbortSignal.timeout(8000),
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
+      const teams = (statsRes?.response || statsRes || []);
       if (teams.length < 2) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
       const pick = (teamStats, type) => teamStats?.statistics?.find(s => s.type === type)?.value ?? null;
       const STATS = [
