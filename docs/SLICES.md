@@ -203,12 +203,25 @@ Turkish localization:
 - Override keys for: match statuses, player positions, tab labels, time labels
 
 Deliverables:
-- [ ] `tr.json` Turkish translation file (covering fixture, standings, h2h, team widgets)
-- [ ] `/widgets/tr.json` endpoint in worker (static JSON response)
-- [ ] Standings widget on home page and article sidebar
-- [ ] Fixture widget auto-injected on match-day articles (T01, T05, T09–T13 by template_id)
+- [x] Standings widget on home page sidebar (permanent) (2026-05-01)
+- [x] Fixtures (games) widget on home page sidebar (permanent) (2026-05-01)
+- [x] Team stats widget on home page sidebar (permanent) (2026-05-01)
+- [x] Fixture (game) widget auto-injected on match-day article pages (2026-05-01)
+- [x] `/widgets/config` endpoint — serves API key with CORS restricted to app.kartalix.com (2026-05-01)
+- [x] Widget key = same as API_FOOTBALL_KEY — confirmed by api-sports docs (2026-05-01)
+- [ ] `tr.json` Turkish translation file + `/widgets/tr.json` endpoint
 - [ ] H2H widget on T02 articles
-- [ ] DECISION: use `data-key` = same API_FOOTBALL_KEY or obtain a separate widgets key
+
+**Phase 3.6.1 — Widget API call caching (backlog)**
+
+_Widget calls go direct from browser to `v3.football.api-sports.io` and count toward the 7,500/day quota. Each home page load burns ~3 calls (standings + fixtures + team). At scale this needs a server-side cache layer._
+
+- [ ] Worker proxy endpoints: `/widgets/proxy/standings`, `/widgets/proxy/fixtures`, `/widgets/proxy/team` — fetch from API, cache in KV, return with CORS headers
+- [ ] KV TTLs: standings 1h, fixtures 15min, team stats 24h
+- [ ] Widget `data-host` (or equivalent v3.1.0 config) pointed at proxy
+- [ ] Measure: baseline calls/day before and after to confirm savings
+
+**Why now is too early**: current traffic is low, quota is 7,500/day. Revisit when daily widget calls exceed ~1,000 (≈333 page loads/day).
 
 **Phase 4 — Golden fixtures**
 >>>>>>> Stashed changes
