@@ -8,20 +8,17 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: Finish Sprint B remaining items, then Sprint C (YouTube embed).
+**NEXT**: Sprint B remaining items (widgets).
 
 **Sprint B remaining** (~2h):
 1. Create `tr.json` Turkish widget translation file
 2. Add `/widgets/tr.json` static endpoint to worker
 3. H2H widget on T02 articles
 
-**Sprint C — YouTube Embed** (follows Sprint B, ~4h):
-1. Confirm real channel IDs for: Beşiktaş JK official, beIN SPORTS Türkiye, TRT Spor
-2. Create `src/youtube.js` — `fetchYouTubeChannel()` + `qualifyYouTubeVideo()` (keyword rules)
-3. Add `generateVideoEmbed()` to `src/publisher.js` — Haiku 1-sentence intro + iframe
-4. Wire into `0 */2 * * *` cron (parallel to RSS intake block)
-5. Add `/force-yt?channel_id=...` debug endpoint
-6. Verify article render shows iframe correctly
+**Sprint C — YouTube Embed** ✅ DONE (2026-05-02)
+- 5 channels live: Beşiktaş JK, beIN SPORTS TR, A Spor, Rabona Digital, TRT Spor
+- Keyword qualification + archive season filter working
+- 3 videos published on first run (Sergen Yalçın basın toplantısı, Josef/Guedes alumni return, BJK 2-1 Eyüpspor full match)
 
 **Backlog (done)**:
 - Sprint A ✅ — T-HT, T-RED, T-VAR, T-OG, T-PEN deployed (d6bb2e0d)

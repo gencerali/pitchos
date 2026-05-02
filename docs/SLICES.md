@@ -227,14 +227,14 @@ Three channels (placeholder IDs — Ali to confirm):
 - TRT Spor (`UCxxxxx`)
 
 Deliverables:
-- [ ] YouTube channel config added to site JSONB (`youtube_channels` array alongside `rss_feeds`)
-- [ ] `fetchYouTubeChannel(channelId, since)` in src/youtube.js — Atom XML parse, returns video list
-- [ ] `qualifyYouTubeVideo(video)` — keyword rule filter, no Claude
-- [ ] `generateVideoEmbed(video, site, env)` in publisher.js — Haiku 1-sentence Turkish intro + iframe
-- [ ] Wire into `0 */2 * * *` cron — parallel to RSS intake block
-- [ ] Dedup via video_id (stored in content_items.source_url as `youtube:videoId`)
-- [ ] Article render: iframe visible in full_body (no stats widget for video articles)
-- [ ] `/force-yt?channel_id=...` debug endpoint
+- [x] YouTube channel config: 5 channels hardcoded in src/youtube.js (2026-05-02)
+- [x] `fetchYouTubeChannel(channel, since)` in src/youtube.js — Atom XML parse (2026-05-02)
+- [x] `qualifyYouTubeVideo(video)` — keyword rules + archive season filter (2026-05-02)
+- [x] `generateVideoEmbed(video, site, env)` in publisher.js — Haiku intro + iframe (2026-05-02)
+- [x] Wire into `0 */2 * * *` cron via processYouTubeVideos() in backgroundWork (2026-05-02)
+- [x] Dedup via Supabase original_url (`https://youtube.com/watch?v={videoId}`) (2026-05-02)
+- [x] Article render: `<p>` intro + iframe passes through buildBodyHtml HTML path (2026-05-02)
+- [x] `/force-yt` debug endpoint — dry-run default, `?publish=1` to embed, `?channel_id=` to target (2026-05-02)
 
 Out of scope for Sprint C (addressed in Slice 1 extension):
 - Caption fetch
