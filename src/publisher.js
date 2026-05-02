@@ -1407,6 +1407,52 @@ Sadece Türkçe haber metnini yaz.`;
   return saved?.[0] || { title, summary, full_body: body, template_id: 'T12', slug, published_at: new Date().toISOString() };
 }
 
+// ─── T-VID YOUTUBE EMBED ─────────────────────────────────────
+// Embed-only treatment: 1-sentence Haiku intro from video title + YouTube iframe.
+// No captions, no facts, no firewall needed — the video IS the content.
+export async function generateVideoEmbed(video, site, env) {
+  const prompt = `Sen Kartalix'in spor editörüsün. Aşağıdaki YouTube videosunu Türkçe tek bir cümleyle tanıt. Sade, bilgilendirici haber dili kullan. Emoji veya başlık yazma.
+
+Video: ${video.title}
+Kanal: ${video.channel_name}
+
+Sadece tanıtım cümlesini yaz.`;
+
+  const res   = await callClaude(env, 'claude-haiku-4-5-20251001', prompt, false, 100);
+  const intro = extractText(res.content).trim();
+  if (!intro) return null;
+
+  const full_body = `<p>${intro}</p>\n<div class="yt-embed" style="margin:1.5rem 0"><iframe width="100%" height="380" src="https://www.youtube.com/embed/${video.video_id}" frameborder="0" allowfullscreen loading="lazy" style="border-radius:6px;display:block"></iframe></div>`;
+  const title     = video.title;
+  const slug      = generateSlug(title, video.published_at);
+  const nvs       = video.channel_tier === 'official' ? 82 : 72;
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'youtube',
+    source_name:  video.channel_name,
+    original_url: `https://www.youtube.com/watch?v=${video.video_id}`,
+    title,
+    summary:      intro,
+    full_body,
+    category:     'Video',
+    content_type: 'youtube_embed',
+    sport:        'football',
+    nvs_score:    nvs,
+    publish_mode: 'youtube_embed',
+    status:       'published',
+    template_id:  'T-VID',
+    slug,
+    published_at: video.published_at,
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`T-VID: "${title.slice(0, 60)}" [${video.channel_name}]`);
+  return saved?.[0] || { title, summary: intro, full_body, template_id: 'T-VID', slug,
+    published_at: video.published_at, source_name: video.channel_name, nvs_score: nvs };
+}
+
 // ─── T-xG DELTA ──────────────────────────────────────────────
 // Post-match edge case: fires only when |BJK goals − BJK xG| > 1.2.
 // stats: getFixtureStats output. Must have stats.xg to fire.

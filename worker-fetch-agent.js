@@ -12,9 +12,10 @@
 import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories } from './src/story-matcher.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings } from './src/api-football.js';
+import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo } from './src/youtube.js';
 
 // ─── NEXT MATCH CONFIG ────────────────────────────────────────
 const NEXT_MATCH = {
@@ -753,6 +754,72 @@ export default {
           preview: (card.full_body || '').slice(0, 500),
         }, { headers });
       } catch(e) {
+        return Response.json({ error: e.message }, { headers, status: 500 });
+      }
+    }
+    if (url.pathname === '/force-yt') {
+      // Debug: check what YouTube videos would qualify right now.
+      // ?channel_id=UC... — limit to one channel (omit for all 5)
+      // ?publish=1 — actually generate embeds and push to KV/Supabase
+      // ?since=2026-05-01T00:00:00Z — override 48h lookback window
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      try {
+        const sites = await getActiveSites(env);
+        const site  = sites?.[0];
+        if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
+
+        const filterChannel = url.searchParams.get('channel_id');
+        const doPublish     = url.searchParams.get('publish') === '1';
+        const since         = url.searchParams.has('since')
+          ? new Date(url.searchParams.get('since'))
+          : new Date(Date.now() - 48 * 60 * 60 * 1000);
+
+        const channels = filterChannel
+          ? YOUTUBE_CHANNELS.filter(c => c.id === filterChannel)
+          : YOUTUBE_CHANNELS;
+        if (channels.length === 0) return Response.json({ error: 'channel_id not found' }, { headers, status: 404 });
+
+        const seenUrls = await getSeenUrls(env, site.id);
+        const results  = [];
+        let published  = 0;
+
+        for (const channel of channels) {
+          const videos    = await fetchYouTubeChannel(channel, since).catch(() => []);
+          const qualified = videos.filter(v => {
+            const watchUrl = `https://www.youtube.com/watch?v=${v.video_id}`;
+            return qualifyYouTubeVideo(v) && !seenUrls.has(watchUrl);
+          });
+          const skipped   = videos.filter(v => !qualifyYouTubeVideo(v)).map(v => v.title);
+
+          if (doPublish) {
+            for (const video of qualified.slice(0, 2)) {
+              try {
+                const card = await generateVideoEmbed(video, site, env);
+                if (card) {
+                  const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+                  const current = raw ? JSON.parse(raw) : [];
+                  const kvCard  = toKVShape({ ...card, nvs: card.nvs_score || 72, is_kartalix_content: true, is_template: true });
+                  await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 100));
+                  published++;
+                }
+              } catch (e) { console.error(`force-yt embed failed [${video.video_id}]:`, e.message); }
+            }
+          }
+
+          results.push({
+            channel: channel.name, tier: channel.tier,
+            fetched: videos.length, qualified: qualified.length,
+            videos: qualified.slice(0, 5).map(v => ({ id: v.video_id, title: v.title, published_at: v.published_at })),
+            skipped_titles: skipped.slice(0, 5),
+          });
+        }
+
+        return Response.json({
+          success: true, since: since.toISOString(),
+          published: doPublish ? published : 'dry-run (add ?publish=1 to actually embed)',
+          channels: results,
+        }, { headers });
+      } catch (e) {
         return Response.json({ error: e.message }, { headers, status: 500 });
       }
     }
@@ -1920,6 +1987,43 @@ async function matchWatcher(env) {
   }
 }
 
+// ─── YOUTUBE INTAKE ──────────────────────────────────────────
+// Runs once per processSite call. Fetches all 5 channels in parallel,
+// qualifies by keyword rules, generates embed articles for new videos.
+// Max 2 embeds per channel per run to avoid feed flooding.
+async function processYouTubeVideos(site, env, seenUrls) {
+  const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  const feeds = await Promise.all(YOUTUBE_CHANNELS.map(ch => fetchYouTubeChannel(ch, since).catch(() => [])));
+
+  let published = 0;
+  for (let i = 0; i < YOUTUBE_CHANNELS.length; i++) {
+    const channel  = YOUTUBE_CHANNELS[i];
+    const videos   = feeds[i];
+    const newVids  = videos.filter(v => {
+      const watchUrl = `https://www.youtube.com/watch?v=${v.video_id}`;
+      return qualifyYouTubeVideo(v) && !seenUrls.has(watchUrl);
+    });
+    console.log(`YT ${channel.name}: ${videos.length} fetched → ${newVids.length} qualified`);
+
+    for (const video of newVids.slice(0, 2)) {
+      try {
+        const card = await generateVideoEmbed(video, site, env);
+        if (!card) continue;
+        const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+        const current = raw ? JSON.parse(raw) : [];
+        const kvCard  = toKVShape({ ...card, nvs: card.nvs_score || 72, is_kartalix_content: true, is_template: true });
+        await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 100));
+        seenUrls.add(`https://www.youtube.com/watch?v=${video.video_id}`);
+        published++;
+      } catch (e) {
+        console.error(`YT embed failed [${video.video_id}]:`, e.message);
+      }
+    }
+  }
+  console.log(`YT INTAKE: ${published} videos embedded`);
+  return published;
+}
+
 // ─── PROCESS ONE SITE ────────────────────────────────────────
 async function processSite(site, env, ctx) {
   const startTime = Date.now();
@@ -2417,6 +2521,10 @@ async function processSite(site, env, ctx) {
 
     await logFetch(env, site.id, 'success', stats, null, funnelStats);
     if (stats.costEur > 0) await addCost(env, stats.costEur);
+
+    // ── YOUTUBE INTAKE ─────────────────────────────────────────
+    await processYouTubeVideos(site, env, seenUrls).catch(e => console.error('YT intake failed:', e.message));
+
     stats.durationMs = Date.now() - startTime;
   };
 
