@@ -161,7 +161,11 @@ export default {
         return new Response(cached, { headers: { 'Content-Type': 'application/json', ...corsHeaders, 'X-Cache': 'HIT' } });
       }
       const apiRes = await fetch(`https://v3.football.api-sports.io${apiPath}${url.search}`, {
-        headers: { 'x-apisports-key': env.API_FOOTBALL_KEY || '' }
+        headers: {
+          'x-apisports-key': env.API_FOOTBALL_KEY || '',
+          'Origin':  request.headers.get('Origin')  || 'https://app.kartalix.com',
+          'Referer': request.headers.get('Referer') || 'https://app.kartalix.com/',
+        }
       });
       const data = await apiRes.text();
       const ttl = apiPath.includes('/standings') ? 3600
