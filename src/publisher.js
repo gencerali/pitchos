@@ -1165,7 +1165,7 @@ YAZIM KURALLARI:
 // ─── T11 RESULT FLASH ─────────────────────────────────────────
 // 300–400 word post-match result article. Fires on FT detection.
 // fixture: normalizeFixture object. players: getFixturePlayers array.
-export async function generateResultFlash(fixture, players, site, env) {
+export async function generateResultFlash(fixture, players, site, env, events = []) {
   const bjkWon  = fixture.score_bjk > fixture.score_opp;
   const draw    = fixture.score_bjk === fixture.score_opp;
   const result  = bjkWon ? 'Beşiktaş kazandı' : draw ? 'Beraberlik' : 'Beşiktaş kaybetti';
@@ -1173,6 +1173,10 @@ export async function generateResultFlash(fixture, players, site, env) {
   const topPlayers = (players || []).slice(0, 3).map(p =>
     `${p.name}: puan ${p.rating}, ${p.goals} gol, ${p.assists} asist, ${p.minutesPlayed} dk`
   ).join('\n') || '(oyuncu verisi yok)';
+
+  const eventsBlock = events.length
+    ? events.join('\n')
+    : '(maç olayı verisi yok — sadece skoru yaz, emin olmadığın olayları uydurma)';
 
   const t11Notes = await getEditorialNotes(env, ['match', 'template', 'T11']);
   const prompt = `${t11Notes}Sen Kartalix'in kıdemli spor editörüsün. Biten Beşiktaş maçını haber yap.
@@ -1183,13 +1187,17 @@ Skor: Beşiktaş ${fixture.score_bjk} - ${fixture.score_opp} ${fixture.opponent}
 ${fixture.league}${fixture.round ? ' — ' + fixture.round : ''}
 Sonuç: ${result}
 
+MAÇ OLAYLARI (dakika, olay, oyuncu, takım):
+${eventsBlock}
+
 ÖNE ÇIKAN OYUNCULAR:
 ${topPlayers}
 
 YAZIM KURALLARI:
 - 300–400 kelime, maç sonu haber üslubu
+- Sadece MAÇ OLAYLARI bölümündeki gerçek olayları kullan — uydurma
 - İlk paragraf: sonuç, skor, önem
-- İkinci paragraf: maçın seyri, öne çıkan anlar
+- İkinci paragraf: maçın seyri (gol, kart, VAR olaylarını bağlam içinde aktar)
 - Üçüncü paragraf: performans değerlendirmesi
 - Son paragraf: bu sonucun tablo/hedeflere etkisi
 - "Kaynaklara göre" ifadesi kullanma
@@ -1310,7 +1318,7 @@ Sadece Türkçe haber metnini yaz.`;
 // Full post-match analysis ~500 words. Fires after T11/T13.
 // Combines: result, xG, possession, shots, top player ratings, key events.
 // stats: getFixtureStats output (may be null — degrades gracefully).
-export async function generateMatchReport(fixture, players, stats, site, env) {
+export async function generateMatchReport(fixture, players, stats, site, env, events = []) {
   const bjkWon = fixture.score_bjk > fixture.score_opp;
   const draw   = fixture.score_bjk === fixture.score_opp;
   const result = bjkWon ? 'Beşiktaş galip' : draw ? 'Beraberlik' : 'Beşiktaş mağlup';
@@ -1332,6 +1340,10 @@ export async function generateMatchReport(fixture, players, stats, site, env) {
     stats.yellow_cards  != null ? `Sarı kart: ${stats.yellow_cards}` : null,
   ].filter(Boolean).join('\n') : '(istatistik verisi yok)';
 
+  const eventsBlock = events.length
+    ? events.join('\n')
+    : '(maç olayı verisi yok — sadece skoru yaz, emin olmadığın olayları uydurma)';
+
   const t12Notes = await getEditorialNotes(env, ['match', 'T12']);
   const prompt = `${t12Notes}Sen Kartalix'in kıdemli spor editörüsün. Biten Beşiktaş maçı için kapsamlı bir maç raporu yaz.
 
@@ -1339,6 +1351,9 @@ MAÇ: ${scoreline}
 ${fixture.league}${fixture.round ? ' — ' + fixture.round : ''}
 ${fixture.home ? 'Beşiktaş (Ev)' : 'Beşiktaş (Deplasman)'}
 Sonuç: ${result}
+
+MAÇ OLAYLARI (dakika, olay, oyuncu, takım):
+${eventsBlock}
 
 BEŞİKTAŞ İSTATİSTİKLERİ:
 ${statsLines}
@@ -1348,10 +1363,11 @@ ${topPlayers}
 
 YAZIM KURALLARI:
 - 450–550 kelime, derinlikli maç analizi
+- Sadece MAÇ OLAYLARI bölümündeki gerçek olayları kullan — uydurma
 - Giriş: skoru, yeri ve anlık tablo etkisini net say
+- Olaylar paragrafı: gol, kart, VAR kararlarını kronolojik bağlamda aktar
 - xG paragrafı: gerçek gol sayısıyla xG'yi karşılaştır — "hak ettiğinden fazla/az mı kazandı?" sorusunu yanıtla
 - Performans paragrafı: en yüksek puanlı oyuncuları bağlam içinde değerlendir
-- Taktik/süreç paragrafı: maçın nasıl şekillendiği, belirleyici dönüm noktaları
 - Son paragraf: bu sonucun sezon hedeflerine somut etkisi
 - İstatistikleri doğal dile dök — kuru liste yapma
 - Emoji, başlık veya alt başlık yazma — sadece haber gövdesi

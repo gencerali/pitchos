@@ -14,7 +14,7 @@ import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchB
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories } from './src/story-matcher.js';
-import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getLastFixtures, getInjuries, getFixtureLineup, getStandings } from './src/api-football.js';
+import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings } from './src/api-football.js';
 
 // ─── NEXT MATCH CONFIG ────────────────────────────────────────
 const NEXT_MATCH = {
@@ -781,12 +781,11 @@ export default {
           is_finished: true,
           status:      'FT',
         };
-        const fakePlayers = [
-          { name: 'El Bilal Touré',  rating: 8.2, goals: 1, assists: 0, minutesPlayed: 90 },
-          { name: 'Orkun Kökçü',     rating: 7.8, goals: 0, assists: 1, minutesPlayed: 90 },
-          { name: 'Ersin Destanoğlu', rating: 7.5, goals: 0, assists: 0, minutesPlayed: 90 },
-        ];
-        const card = await generateResultFlash(fixture, fakePlayers, site, env);
+        const [players, events] = await Promise.all([
+          getFixturePlayers(NEXT_MATCH.fixture_id, env).catch(() => []),
+          getFixtureEvents(NEXT_MATCH.fixture_id, env).catch(() => []),
+        ]);
+        const card = await generateResultFlash(fixture, players, site, env, events);
         if (!card) return Response.json({ error: 'generateResultFlash returned null' }, { headers, status: 500 });
         // Push to KV
         const cached = await env.PITCHOS_CACHE.get('articles:BJK');
@@ -954,18 +953,12 @@ export default {
           oppScore = liveF?.score_opp ?? 0;
         }
         const fixture  = { ...NEXT_MATCH, score_bjk: bjkScore, score_opp: oppScore, is_finished: true, status: 'FT' };
-        const [players, stats] = await Promise.all([
+        const [players, stats, events] = await Promise.all([
           getFixturePlayers(NEXT_MATCH.fixture_id, env).catch(() => []),
           getFixtureStats(NEXT_MATCH.fixture_id, env).catch(() => null),
+          getFixtureEvents(NEXT_MATCH.fixture_id, env).catch(() => []),
         ]);
-        const usedPlayers = players.length ? players : [
-          { name: 'El Bilal Touré',   rating: 8.2, goals: 1, assists: 0, minutesPlayed: 90 },
-          { name: 'Orkun Kökçü',      rating: 7.8, goals: 0, assists: 1, minutesPlayed: 90 },
-          { name: 'Ersin Destanoğlu', rating: 7.5, goals: 0, assists: 0, minutesPlayed: 90 },
-          { name: 'Rıdvan Yılmaz',    rating: 7.1, goals: 0, assists: 0, minutesPlayed: 90 },
-          { name: 'Cengiz Ünder',     rating: 6.8, goals: 0, assists: 0, minutesPlayed: 78 },
-        ];
-        const card = await generateMatchReport(fixture, usedPlayers, stats, site, env);
+        const card = await generateMatchReport(fixture, players, stats, site, env, events);
         if (!card) return Response.json({ error: 'generateMatchReport returned null' }, { headers, status: 500 });
         const cached  = await env.PITCHOS_CACHE.get('articles:BJK');
         const existing = cached ? JSON.parse(cached) : [];
@@ -1853,12 +1846,13 @@ async function matchWatcher(env) {
         // T11 + T12 + T13 + T-XG — fired once on FT
         if (liveFixture.is_finished && !liveState.result_published) {
           console.log('WATCHER T11: match finished, generating post-match suite...');
-          const [players, stats] = await Promise.all([
+          const [players, stats, events] = await Promise.all([
             getFixturePlayers(liveFixture.fixture_id, env),
             getFixtureStats(liveFixture.fixture_id, env),
+            getFixtureEvents(liveFixture.fixture_id, env).catch(() => []),
           ]);
 
-          const t11card = await generateResultFlash(liveFixture, players, site, env);
+          const t11card = await generateResultFlash(liveFixture, players, site, env, events);
           if (t11card) {
             liveState.result_published = true;
             const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
@@ -1880,7 +1874,7 @@ async function matchWatcher(env) {
           } catch(e) { console.error('WATCHER T13 failed:', e.message); }
 
           try {
-            const t12card = await generateMatchReport(liveFixture, players, stats, site, env);
+            const t12card = await generateMatchReport(liveFixture, players, stats, site, env, events);
             if (t12card) {
               const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
               const latest = raw ? JSON.parse(raw) : [];
@@ -2290,11 +2284,12 @@ async function processSite(site, env, ctx) {
             // T11 + T12 + T13 — match finished, fire once
             if (liveFixture.is_finished && !liveState.result_published) {
               console.log('T11: match finished — generating result flash...');
-              const [players, stats] = await Promise.all([
+              const [players, stats, events] = await Promise.all([
                 getFixturePlayers(liveFixture.fixture_id, env),
                 getFixtureStats(liveFixture.fixture_id, env),
+                getFixtureEvents(liveFixture.fixture_id, env).catch(() => []),
               ]);
-              const card = await generateResultFlash(liveFixture, players, site, env);
+              const card = await generateResultFlash(liveFixture, players, site, env, events);
               if (card) {
                 liveState.result_published = true;
                 const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
@@ -2320,7 +2315,7 @@ async function processSite(site, env, ctx) {
               // T12 — Full match report (xG + stats + ratings)
               try {
                 console.log('T12: generating match report...');
-                const reportCard = await generateMatchReport(liveFixture, players, stats, site, env);
+                const reportCard = await generateMatchReport(liveFixture, players, stats, site, env, events);
                 if (reportCard) {
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;

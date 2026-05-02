@@ -18,6 +18,8 @@ export async function apiFetch(path, env) {
     const res = await fetch(`${BASE_URL}${path}`, {
       headers: {
         'x-apisports-key': env.API_FOOTBALL_KEY,
+        'Origin':          'https://app.kartalix.com',
+        'Referer':         'https://app.kartalix.com/',
       },
       signal: AbortSignal.timeout(8000),
     });
@@ -186,6 +188,34 @@ export async function getFixturePlayers(fixtureId, env) {
     assists:     p.statistics?.[0]?.goals?.assists || 0,
     minutesPlayed: p.statistics?.[0]?.games?.minutes || 0,
   })).sort((a, b) => b.rating - a.rating);
+}
+
+// ─── FIXTURE EVENTS ───────────────────────────────────────────
+// Goals, cards, VAR for a completed fixture. Returns formatted string lines
+// ready to paste into a Claude prompt as a match timeline.
+export async function getFixtureEvents(fixtureId, env) {
+  const data = await apiFetch(`/fixtures/events?fixture=${fixtureId}`, env);
+  if (!data) return [];
+  return data
+    .filter(e => e.type === 'Goal' || e.type === 'Card' || e.type === 'Var')
+    .map(e => {
+      const min    = e.time?.extra ? `${e.time.elapsed}+${e.time.extra}` : `${e.time?.elapsed ?? '?'}`;
+      const player = e.player?.name || '';
+      const team   = e.team?.name   || '';
+      if (e.type === 'Goal') {
+        const icon   = e.detail === 'Own Goal' ? '⚽(OG)' : e.detail === 'Penalty' ? '⚽(P)' : e.detail === 'Missed Penalty' ? '❌(P)' : '⚽';
+        const assist = e.assist?.name ? ` (asist: ${e.assist.name})` : '';
+        return `${min}' ${icon} ${player}${assist} — ${team}`;
+      }
+      if (e.type === 'Card') {
+        const icon = e.detail === 'Red Card' ? '🟥' : e.detail === 'Yellow Card Second Yellow Card' ? '🟥(2.S)' : '🟨';
+        return `${min}' ${icon} ${player} — ${team}`;
+      }
+      if (e.type === 'Var') {
+        return `${min}' 📺 VAR — ${e.detail} — ${team}${player ? ': ' + player : ''}`;
+      }
+      return null;
+    }).filter(Boolean);
 }
 
 // ─── NORMALIZE FIXTURE ────────────────────────────────────────
