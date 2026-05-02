@@ -172,6 +172,43 @@ export default {
       return new Response(payload, { headers: { 'Content-Type': 'application/json', ...CORS } });
     }
 
+    if (url.pathname === '/widgets/bjk-match-stats') {
+      const CORS = { 'Access-Control-Allow-Origin': 'https://app.kartalix.com' };
+      const fixtureId = url.searchParams.get('fixture');
+      if (!fixtureId) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
+      const cacheKey = `widget:match-stats:${fixtureId}`;
+      const cached = await env.PITCHOS_CACHE.get(cacheKey);
+      if (cached) return new Response(cached, { headers: { 'Content-Type': 'application/json', ...CORS } });
+      const res = await apiFetch(`/fixtures/statistics?fixture=${fixtureId}`, env);
+      const teams = (res?.response || []);
+      if (teams.length < 2) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
+      const pick = (teamStats, type) => teamStats?.statistics?.find(s => s.type === type)?.value ?? null;
+      const STATS = [
+        { key: 'Ball Possession',      label: 'Top Sahipliği',   bar: true  },
+        { key: 'Total Shots',          label: 'Şut',             bar: false },
+        { key: 'Shots on Goal',        label: 'İsabetli Şut',    bar: false },
+        { key: 'Total passes',         label: 'Pas',             bar: false },
+        { key: 'Passes accurate',      label: 'İsabetli Pas',    bar: false },
+        { key: 'Pass %',               label: 'Pas %',           bar: false },
+        { key: 'Yellow Cards',         label: 'Sarı Kart',       bar: false },
+        { key: 'Red Cards',            label: 'Kırmızı Kart',    bar: false },
+        { key: 'Fouls',                label: 'Faul',            bar: false },
+        { key: 'expected_goals',       label: 'xG',              bar: false },
+      ];
+      const payload = JSON.stringify({
+        home: { name: teams[0]?.team?.name, logo: teams[0]?.team?.logo },
+        away: { name: teams[1]?.team?.name, logo: teams[1]?.team?.logo },
+        stats: STATS.map(s => ({
+          label: s.label,
+          bar:   s.bar,
+          home:  pick(teams[0], s.key),
+          away:  pick(teams[1], s.key),
+        })).filter(s => s.home !== null || s.away !== null),
+      });
+      await env.PITCHOS_CACHE.put(cacheKey, payload, { expirationTtl: 86400 });
+      return new Response(payload, { headers: { 'Content-Type': 'application/json', ...CORS } });
+    }
+
     // ─── WIDGET API PROXY ─────────────────────────────────────────────────────
     // Caches api-sports widget calls in KV to protect daily quota.
     // Widget config sets data-url-football to this proxy instead of direct API.
@@ -2705,11 +2742,48 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
     </div>
     ${image ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
     <div class="article-body">${bodyHtml}</div>
-    ${apiKey && fixtureId && templateId ? `<div style="margin:1.5rem 0">
-      <api-sports-widget data-type="game" data-id="${fixtureId}"></api-sports-widget>
-      <api-sports-widget data-type="config" data-key="${escHtml(apiKey)}" data-sport="football" data-theme="dark" data-show-errors="true"></api-sports-widget>
-      <script type="module" src="https://widgets.api-sports.io/3.1.0/widgets.js"></script>
-    </div>` : ''}
+    ${fixtureId && templateId ? `<div id="matchStatsBox" style="margin:1.5rem 0"></div>
+    <script>
+    (async function(){
+      try {
+        const r = await fetch('https://app.kartalix.com/widgets/bjk-match-stats?fixture=${fixtureId}');
+        const d = await r.json();
+        if (!d.stats || !d.stats.length) return;
+        const pct = v => typeof v==='string' && v.includes('%') ? parseInt(v) : null;
+        const rows = d.stats.map(s => {
+          const hv = s.home ?? 0; const av = s.away ?? 0;
+          const hp = pct(hv); const ap = pct(av);
+          const barRow = hp !== null ? \`<div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+            <div style="flex:1;background:#1a1a1a;border-radius:3px;height:5px;overflow:hidden">
+              <div style="width:\${hp}%;background:#E30A17;height:100%"></div></div>
+            <div style="flex:1;background:#1a1a1a;border-radius:3px;height:5px;overflow:hidden;transform:scaleX(-1)">
+              <div style="width:\${ap}%;background:#555;height:100%"></div></div>
+          </div>\` : '';
+          return \`<tr>
+            <td style="text-align:right;font-weight:600;color:#fff;padding:5px 8px">\${hv}</td>
+            <td style="text-align:center;color:#888;font-size:0.72rem;padding:5px 4px;white-space:nowrap">
+              \${s.label}\${barRow}</td>
+            <td style="text-align:left;font-weight:600;color:#fff;padding:5px 8px">\${av}</td>
+          </tr>\`;
+        }).join('');
+        document.getElementById('matchStatsBox').innerHTML = \`
+          <div style="border:1px solid #222;border-radius:6px;overflow:hidden;background:#111">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#161616;border-bottom:1px solid #222">
+              <div style="display:flex;align-items:center;gap:8px">
+                <img src="\${d.home.logo}" style="height:22px;width:22px;object-fit:contain" onerror="this.style.display='none'">
+                <span style="font-size:0.8rem;font-weight:700;color:#fff">\${d.home.name}</span>
+              </div>
+              <span style="font-size:0.65rem;color:#666;letter-spacing:0.08em;text-transform:uppercase">Maç İstatistikleri</span>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:0.8rem;font-weight:700;color:#fff">\${d.away.name}</span>
+                <img src="\${d.away.logo}" style="height:22px;width:22px;object-fit:contain" onerror="this.style.display='none'">
+              </div>
+            </div>
+            <table style="width:100%;border-collapse:collapse">\${rows}</table>
+          </div>\`;
+      } catch(e){}
+    })();
+    </script>` : ''}
     <div class="source-attr">Kaynak: <a href="${escHtml(srcUrl || '#')}" target="_blank" rel="noopener"><strong>${escHtml(source)}</strong> →</a>
     ${srcUrl ? `<span style="color:#555;font-size:0.7rem;display:block;margin-top:4px">Kartalix, bu haberdeki olgusal bilgileri bağımsız olarak derlemiştir. Orijinal haber için yukarıdaki kaynağı ziyaret edin.</span>` : ''}
     </div>

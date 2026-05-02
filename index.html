@@ -908,15 +908,6 @@
       <div id="fixturesMount"></div>
     </div>
 
-    <!-- TEAM STATS WIDGET -->
-    <div class="sidebar-section" id="teamStatsSection" style="margin-top:1.5rem;display:none">
-      <div class="section-header">
-        <div class="section-line"></div>
-        <span class="section-title">Takım İstatistikleri</span>
-        <div class="section-line"></div>
-      </div>
-      <div id="teamMount"></div>
-    </div>
   </aside>
 
 </div><!-- /content-with-sidebar -->
@@ -2136,9 +2127,7 @@
         '<api-sports-widget data-type="standings" data-league="203" data-season="2025" data-team="549"></api-sports-widget>';
       document.getElementById('fixturesMount').innerHTML =
         '<api-sports-widget data-type="games" data-team="549" data-league="203" data-season="2025"></api-sports-widget>';
-      document.getElementById('teamMount').innerHTML =
-        '<api-sports-widget data-type="team" data-team-id="549" data-league="203" data-season="2025"></api-sports-widget>';
-      ['standingsSection', 'fixturesSection', 'teamStatsSection'].forEach(id => {
+      ['standingsSection', 'fixturesSection'].forEach(id => {
         document.getElementById(id).style.display = 'block';
       });
       // BJK fixture list
