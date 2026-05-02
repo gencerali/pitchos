@@ -197,7 +197,7 @@ export default {
       }).then(r => r.ok ? r.json() : null).catch(() => null);
       const teams = (statsRes?.response || statsRes || []);
       if (teams.length < 2) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
-      const pick = (teamStats, type) => teamStats?.statistics?.find(s => s.type === type)?.value ?? null;
+      const pick = (teamStats, type) => teamStats?.statistics?.find(s => s.type === type)?.value ?? 0;
       const STATS = [
         { key: 'Ball Possession',      label: 'Top Sahipliği',    bar: true  },
         { key: 'Total Shots',          label: 'Şut',              bar: false },
@@ -217,12 +217,7 @@ export default {
       const payload = JSON.stringify({
         home: { name: teams[0]?.team?.name, logo: teams[0]?.team?.logo },
         away: { name: teams[1]?.team?.name, logo: teams[1]?.team?.logo },
-        stats: STATS.map(s => ({
-          label: s.label,
-          bar:   s.bar,
-          home:  pick(teams[0], s.key),
-          away:  pick(teams[1], s.key),
-        })).filter(s => s.home !== null || s.away !== null),
+        stats: STATS.map(s => ({ label: s.label, bar: s.bar, home: pick(teams[0], s.key), away: pick(teams[1], s.key) })),
       });
       await env.PITCHOS_CACHE.put(cacheKey, payload, { expirationTtl: 86400 });
       return new Response(payload, { headers: { 'Content-Type': 'application/json', ...CORS } });
@@ -243,7 +238,7 @@ export default {
       }).then(r => r.ok ? r.json() : null).catch(() => null);
       const teams = (statsRes?.response || []);
       if (teams.length < 2) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
-      const pick = (teamStats, type) => teamStats?.statistics?.find(s => s.type === type)?.value ?? null;
+      const pick = (teamStats, type) => teamStats?.statistics?.find(s => s.type === type)?.value ?? 0;
       const STATS = [
         { key: 'Ball Possession',      label: 'Top Sahipliği',    bar: true  },
         { key: 'Total Shots',          label: 'Şut',              bar: false },
@@ -263,11 +258,7 @@ export default {
       const payload = JSON.stringify({
         home: { name: teams[0]?.team?.name, logo: teams[0]?.team?.logo },
         away: { name: teams[1]?.team?.name, logo: teams[1]?.team?.logo },
-        stats: STATS.map(s => ({
-          label: s.label, bar: s.bar,
-          home: pick(teams[0], s.key),
-          away: pick(teams[1], s.key),
-        })).filter(s => s.home !== null || s.away !== null),
+        stats: STATS.map(s => ({ label: s.label, bar: s.bar, home: pick(teams[0], s.key), away: pick(teams[1], s.key) })),
       });
       await env.PITCHOS_CACHE.put(cacheKey, payload, { expirationTtl: 86400 });
       return new Response(payload, { headers: { 'Content-Type': 'application/json', ...CORS } });
