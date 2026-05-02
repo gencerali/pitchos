@@ -145,6 +145,32 @@ export default {
         { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': 'https://app.kartalix.com', 'Cache-Control': 'private, max-age=3600' } }
       );
     }
+
+    // ─── WIDGET API PROXY ─────────────────────────────────────────────────────
+    // Caches api-sports widget calls in KV to protect daily quota.
+    // Widget config sets data-url-football to this proxy instead of direct API.
+    if (url.pathname.startsWith('/widgets/api/')) {
+      const corsHeaders = { 'Access-Control-Allow-Origin': 'https://app.kartalix.com' };
+      if (request.method === 'OPTIONS') {
+        return new Response(null, { headers: { ...corsHeaders, 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '86400' } });
+      }
+      const apiPath = url.pathname.replace('/widgets/api', '');
+      const cacheKey = `widget:football:${apiPath}${url.search}`;
+      const cached = await env.PITCHOS_CACHE.get(cacheKey);
+      if (cached) {
+        return new Response(cached, { headers: { 'Content-Type': 'application/json', ...corsHeaders, 'X-Cache': 'HIT' } });
+      }
+      const apiRes = await fetch(`https://v3.football.api-sports.io${apiPath}${url.search}`, {
+        headers: { 'x-apisports-key': env.API_FOOTBALL_KEY || '' }
+      });
+      const data = await apiRes.text();
+      const ttl = apiPath.includes('/standings') ? 3600
+               : apiPath.includes('/teams')     ? 86400
+               : apiPath.includes('/fixtures')  ? 300
+               : 600;
+      await env.PITCHOS_CACHE.put(cacheKey, data, { expirationTtl: ttl });
+      return new Response(data, { headers: { 'Content-Type': 'application/json', ...corsHeaders, 'X-Cache': 'MISS' } });
+    }
     if (url.pathname === '/cache') {
       const siteCode = url.searchParams.get('site') || 'BJK';
       const cached = await env.PITCHOS_CACHE.get(`articles:${siteCode}`);
