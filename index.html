@@ -2208,11 +2208,11 @@
           ? `<span class="fixture-score">${bjkHome ? f.score?.home : f.score?.away}–${bjkHome ? f.score?.away : f.score?.home}</span>`
           : `<span class="fixture-badge">${badge}</span>`;
         return `<div class="fixture-row">
-          <div class="fixture-date">${fmtDate(f.date)}<br><span style="font-size:0.6rem;color:#555">${isPast ? badge : new Date(f.date).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</span></div>
+          <div class="fixture-date">${fmtDate(f.date)}<br><span style="font-size:0.6rem;color:${isPast?'#555':'#aaa'}">${isPast ? badge : new Date(f.date).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})}</span></div>
           <div class="fixture-teams">
             <div class="fixture-team ${bjkW?'winner':''}">
               <img src="${bjk?.logo||''}" onerror="this.style.display='none'">
-              <span>BJK${bjkHome?'(İç)':'(Dış)'}</span>
+              <span>Beşiktaş</span>
             </div>
             <div class="fixture-team ${oppW?'winner':''}">
               <img src="${opp?.logo||''}" onerror="this.style.display='none'">

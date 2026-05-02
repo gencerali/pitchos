@@ -199,16 +199,20 @@ export default {
       if (teams.length < 2) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
       const pick = (teamStats, type) => teamStats?.statistics?.find(s => s.type === type)?.value ?? null;
       const STATS = [
-        { key: 'Ball Possession',      label: 'Top Sahipliği',   bar: true  },
-        { key: 'Total Shots',          label: 'Şut',             bar: false },
-        { key: 'Shots on Goal',        label: 'İsabetli Şut',    bar: false },
-        { key: 'Total passes',         label: 'Pas',             bar: false },
-        { key: 'Passes accurate',      label: 'İsabetli Pas',    bar: false },
-        { key: 'Pass %',               label: 'Pas %',           bar: false },
-        { key: 'Yellow Cards',         label: 'Sarı Kart',       bar: false },
-        { key: 'Red Cards',            label: 'Kırmızı Kart',    bar: false },
-        { key: 'Fouls',                label: 'Faul',            bar: false },
-        { key: 'expected_goals',       label: 'xG',              bar: false },
+        { key: 'Ball Possession',      label: 'Top Sahipliği',    bar: true  },
+        { key: 'Total Shots',          label: 'Şut',              bar: false },
+        { key: 'Shots on Goal',        label: 'İsabetli Şut',     bar: false },
+        { key: 'Blocked Shots',        label: 'Engellenen Şut',   bar: false },
+        { key: 'Goalkeeper Saves',     label: 'Kurtarış',         bar: false },
+        { key: 'Corner Kicks',         label: 'Köşe Vuruşu',      bar: false },
+        { key: 'Offsides',             label: 'Ofsayt',           bar: false },
+        { key: 'Total passes',         label: 'Pas',              bar: false },
+        { key: 'Passes accurate',      label: 'İsabetli Pas',     bar: false },
+        { key: 'Passes %',             label: 'Pas %',            bar: false },
+        { key: 'Fouls',                label: 'Faul',             bar: false },
+        { key: 'Yellow Cards',         label: 'Sarı Kart',        bar: false },
+        { key: 'Red Cards',            label: 'Kırmızı Kart',     bar: false },
+        { key: 'expected_goals',       label: 'xG',               bar: false },
       ];
       const payload = JSON.stringify({
         home: { name: teams[0]?.team?.name, logo: teams[0]?.team?.logo },
@@ -233,7 +237,40 @@ export default {
       const cacheKey = `widget:match-stats:${fixtureId}`;
       const cached = await env.PITCHOS_CACHE.get(cacheKey);
       if (cached) return new Response(cached, { headers: { 'Content-Type': 'application/json', ...CORS } });
-      return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
+      const statsRes = await fetch(`https://v3.football.api-sports.io/fixtures/statistics?fixture=${fixtureId}`, {
+        headers: { 'x-apisports-key': env.API_FOOTBALL_KEY || '', 'Origin': 'https://app.kartalix.com', 'Referer': 'https://app.kartalix.com/' },
+        signal: AbortSignal.timeout(8000),
+      }).then(r => r.ok ? r.json() : null).catch(() => null);
+      const teams = (statsRes?.response || []);
+      if (teams.length < 2) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
+      const pick = (teamStats, type) => teamStats?.statistics?.find(s => s.type === type)?.value ?? null;
+      const STATS = [
+        { key: 'Ball Possession',      label: 'Top Sahipliği',    bar: true  },
+        { key: 'Total Shots',          label: 'Şut',              bar: false },
+        { key: 'Shots on Goal',        label: 'İsabetli Şut',     bar: false },
+        { key: 'Blocked Shots',        label: 'Engellenen Şut',   bar: false },
+        { key: 'Goalkeeper Saves',     label: 'Kurtarış',         bar: false },
+        { key: 'Corner Kicks',         label: 'Köşe Vuruşu',      bar: false },
+        { key: 'Offsides',             label: 'Ofsayt',           bar: false },
+        { key: 'Total passes',         label: 'Pas',              bar: false },
+        { key: 'Passes accurate',      label: 'İsabetli Pas',     bar: false },
+        { key: 'Passes %',             label: 'Pas %',            bar: false },
+        { key: 'Fouls',                label: 'Faul',             bar: false },
+        { key: 'Yellow Cards',         label: 'Sarı Kart',        bar: false },
+        { key: 'Red Cards',            label: 'Kırmızı Kart',     bar: false },
+        { key: 'expected_goals',       label: 'xG',               bar: false },
+      ];
+      const payload = JSON.stringify({
+        home: { name: teams[0]?.team?.name, logo: teams[0]?.team?.logo },
+        away: { name: teams[1]?.team?.name, logo: teams[1]?.team?.logo },
+        stats: STATS.map(s => ({
+          label: s.label, bar: s.bar,
+          home: pick(teams[0], s.key),
+          away: pick(teams[1], s.key),
+        })).filter(s => s.home !== null || s.away !== null),
+      });
+      await env.PITCHOS_CACHE.put(cacheKey, payload, { expirationTtl: 86400 });
+      return new Response(payload, { headers: { 'Content-Type': 'application/json', ...CORS } });
     }
 
     // ─── WIDGET API PROXY ─────────────────────────────────────────────────────
