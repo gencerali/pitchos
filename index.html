@@ -1464,6 +1464,46 @@
           .catch(() => null)
           .then(d => {
             if (!d || !d.stats || !d.stats.length) return;
+
+            // ── header: logos + names + score ──────────────────────────────
+            const scoreStr = (d.home.score != null && d.away.score != null)
+              ? `<span style="font-size:1.15rem;font-weight:900;color:#fff;letter-spacing:0.04em">${d.home.score} – ${d.away.score}</span>`
+              : '';
+            const header = `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#161616;border-bottom:1px solid #222">
+              <div style="display:flex;align-items:center;gap:6px;flex:1">
+                <img src="${d.home.logo}" style="height:20px;width:20px;object-fit:contain" onerror="this.style.display='none'">
+                <span style="font-size:0.78rem;font-weight:700;color:#fff">${d.home.name}</span>
+              </div>
+              <div style="text-align:center;padding:0 8px">
+                ${scoreStr}
+                <div style="font-size:0.55rem;color:#555;letter-spacing:0.1em;text-transform:uppercase;margin-top:2px">Maç İstatistikleri</div>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;flex:1;justify-content:flex-end">
+                <span style="font-size:0.78rem;font-weight:700;color:#fff">${d.away.name}</span>
+                <img src="${d.away.logo}" style="height:20px;width:20px;object-fit:contain" onerror="this.style.display='none'">
+              </div>
+            </div>`;
+
+            // ── events section ──────────────────────────────────────────────
+            let eventsHtml = '';
+            if (d.events && d.events.length) {
+              const evRows = d.events.map(e => {
+                const isHome = e.team === d.home.name;
+                const min = `<span style="color:#666;font-size:0.65rem;min-width:28px;display:inline-block">${e.min}'</span>`;
+                const susp = e.suspended ? ` <span style="color:#f87171;font-size:0.6rem">(sonraki maçta yok)</span>` : '';
+                const assist = e.assist ? ` <span style="color:#666;font-size:0.65rem">as: ${e.assist}</span>` : '';
+                const detail = e.type === 'var' ? ` <span style="color:#888;font-size:0.65rem">${e.detail}</span>` : '';
+                const text = `<span style="font-size:0.72rem;color:#ccc">${e.player}${assist}${susp}${detail}</span>`;
+                return `<div style="display:flex;align-items:baseline;gap:6px;padding:3px 14px;${isHome?'':'flex-direction:row-reverse'}">
+                  <span style="font-size:0.85rem">${e.icon}</span>
+                  ${min}
+                  ${text}
+                </div>`;
+              }).join('');
+              eventsHtml = `<div style="border-bottom:1px solid #1a1a1a;padding:6px 0">${evRows}</div>`;
+            }
+
+            // ── stats table ─────────────────────────────────────────────────
             const pct = v => typeof v === 'string' && v.includes('%') ? parseInt(v) : null;
             const rows = d.stats.map(s => {
               const hv = s.home ?? 0; const av = s.away ?? 0;
@@ -1478,18 +1518,9 @@
                 <td style="text-align:left;font-weight:600;color:#fff;padding:5px 8px">${av}</td>
               </tr>`;
             }).join('');
+
             statsBox.innerHTML = `<div style="border:1px solid #222;border-radius:6px;overflow:hidden;background:#111;margin-top:1.5rem">
-              <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#161616;border-bottom:1px solid #222">
-                <div style="display:flex;align-items:center;gap:8px">
-                  <img src="${d.home.logo}" style="height:22px;width:22px;object-fit:contain" onerror="this.style.display='none'">
-                  <span style="font-size:0.8rem;font-weight:700;color:#fff">${d.home.name}</span>
-                </div>
-                <span style="font-size:0.65rem;color:#666;letter-spacing:0.08em;text-transform:uppercase">Maç İstatistikleri</span>
-                <div style="display:flex;align-items:center;gap:8px">
-                  <span style="font-size:0.8rem;font-weight:700;color:#fff">${d.away.name}</span>
-                  <img src="${d.away.logo}" style="height:22px;width:22px;object-fit:contain" onerror="this.style.display='none'">
-                </div>
-              </div>
+              ${header}${eventsHtml}
               <table style="width:100%;border-collapse:collapse">${rows}</table>
             </div>`;
           });

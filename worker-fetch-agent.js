@@ -191,34 +191,8 @@ export default {
       const cacheKey = `widget:match-stats:${fixtureId}`;
       const cached = await env.PITCHOS_CACHE.get(cacheKey);
       if (cached) return new Response(cached, { headers: { 'Content-Type': 'application/json', ...CORS } });
-      const statsRes = await fetch(`https://v3.football.api-sports.io/fixtures/statistics?fixture=${fixtureId}`, {
-        headers: { 'x-apisports-key': env.API_FOOTBALL_KEY || '', 'Origin': 'https://app.kartalix.com', 'Referer': 'https://app.kartalix.com/' },
-        signal: AbortSignal.timeout(8000),
-      }).then(r => r.ok ? r.json() : null).catch(() => null);
-      const teams = (statsRes?.response || statsRes || []);
-      if (teams.length < 2) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
-      const pick = (teamStats, type) => teamStats?.statistics?.find(s => s.type === type)?.value ?? 0;
-      const STATS = [
-        { key: 'Ball Possession',      label: 'Top Sahipliği',    bar: true  },
-        { key: 'Total Shots',          label: 'Şut',              bar: false },
-        { key: 'Shots on Goal',        label: 'İsabetli Şut',     bar: false },
-        { key: 'Blocked Shots',        label: 'Engellenen Şut',   bar: false },
-        { key: 'Goalkeeper Saves',     label: 'Kurtarış',         bar: false },
-        { key: 'Corner Kicks',         label: 'Köşe Vuruşu',      bar: false },
-        { key: 'Offsides',             label: 'Ofsayt',           bar: false },
-        { key: 'Total passes',         label: 'Pas',              bar: false },
-        { key: 'Passes accurate',      label: 'İsabetli Pas',     bar: false },
-        { key: 'Passes %',             label: 'Pas %',            bar: false },
-        { key: 'Fouls',                label: 'Faul',             bar: false },
-        { key: 'Yellow Cards',         label: 'Sarı Kart',        bar: false },
-        { key: 'Red Cards',            label: 'Kırmızı Kart',     bar: false },
-        { key: 'expected_goals',       label: 'xG',               bar: false },
-      ];
-      const payload = JSON.stringify({
-        home: { name: teams[0]?.team?.name, logo: teams[0]?.team?.logo },
-        away: { name: teams[1]?.team?.name, logo: teams[1]?.team?.logo },
-        stats: STATS.map(s => ({ label: s.label, bar: s.bar, home: pick(teams[0], s.key), away: pick(teams[1], s.key) })),
-      });
+      const payload = await buildMatchStats(fixtureId, env);
+      if (!payload) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
       await env.PITCHOS_CACHE.put(cacheKey, payload, { expirationTtl: 86400 });
       return new Response(payload, { headers: { 'Content-Type': 'application/json', ...CORS } });
     }
@@ -232,34 +206,8 @@ export default {
       const cacheKey = `widget:match-stats:${fixtureId}`;
       const cached = await env.PITCHOS_CACHE.get(cacheKey);
       if (cached) return new Response(cached, { headers: { 'Content-Type': 'application/json', ...CORS } });
-      const statsRes = await fetch(`https://v3.football.api-sports.io/fixtures/statistics?fixture=${fixtureId}`, {
-        headers: { 'x-apisports-key': env.API_FOOTBALL_KEY || '', 'Origin': 'https://app.kartalix.com', 'Referer': 'https://app.kartalix.com/' },
-        signal: AbortSignal.timeout(8000),
-      }).then(r => r.ok ? r.json() : null).catch(() => null);
-      const teams = (statsRes?.response || []);
-      if (teams.length < 2) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
-      const pick = (teamStats, type) => teamStats?.statistics?.find(s => s.type === type)?.value ?? 0;
-      const STATS = [
-        { key: 'Ball Possession',      label: 'Top Sahipliği',    bar: true  },
-        { key: 'Total Shots',          label: 'Şut',              bar: false },
-        { key: 'Shots on Goal',        label: 'İsabetli Şut',     bar: false },
-        { key: 'Blocked Shots',        label: 'Engellenen Şut',   bar: false },
-        { key: 'Goalkeeper Saves',     label: 'Kurtarış',         bar: false },
-        { key: 'Corner Kicks',         label: 'Köşe Vuruşu',      bar: false },
-        { key: 'Offsides',             label: 'Ofsayt',           bar: false },
-        { key: 'Total passes',         label: 'Pas',              bar: false },
-        { key: 'Passes accurate',      label: 'İsabetli Pas',     bar: false },
-        { key: 'Passes %',             label: 'Pas %',            bar: false },
-        { key: 'Fouls',                label: 'Faul',             bar: false },
-        { key: 'Yellow Cards',         label: 'Sarı Kart',        bar: false },
-        { key: 'Red Cards',            label: 'Kırmızı Kart',     bar: false },
-        { key: 'expected_goals',       label: 'xG',               bar: false },
-      ];
-      const payload = JSON.stringify({
-        home: { name: teams[0]?.team?.name, logo: teams[0]?.team?.logo },
-        away: { name: teams[1]?.team?.name, logo: teams[1]?.team?.logo },
-        stats: STATS.map(s => ({ label: s.label, bar: s.bar, home: pick(teams[0], s.key), away: pick(teams[1], s.key) })),
-      });
+      const payload = await buildMatchStats(fixtureId, env);
+      if (!payload) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
       await env.PITCHOS_CACHE.put(cacheKey, payload, { expirationTtl: 86400 });
       return new Response(payload, { headers: { 'Content-Type': 'application/json', ...CORS } });
     }
@@ -2564,6 +2512,80 @@ async function buildReport(env) {
     queued_items: pending,
     published_count: parseInt(publishedCountResult?.[0]?.count || 0),
   };
+}
+
+// ─── MATCH STATS BUILDER ─────────────────────────────────────
+
+const MATCH_STATS_KEYS = [
+  { key: 'Ball Possession',   label: 'Top Sahipliği',  bar: true  },
+  { key: 'Total Shots',       label: 'Şut',            bar: false },
+  { key: 'Shots on Goal',     label: 'İsabetli Şut',   bar: false },
+  { key: 'Blocked Shots',     label: 'Engellenen Şut', bar: false },
+  { key: 'Goalkeeper Saves',  label: 'Kurtarış',       bar: false },
+  { key: 'Corner Kicks',      label: 'Köşe Vuruşu',    bar: false },
+  { key: 'Offsides',          label: 'Ofsayt',         bar: false },
+  { key: 'Total passes',      label: 'Pas',            bar: false },
+  { key: 'Passes accurate',   label: 'İsabetli Pas',   bar: false },
+  { key: 'Passes %',          label: 'Pas %',          bar: false },
+  { key: 'Fouls',             label: 'Faul',           bar: false },
+  { key: 'Yellow Cards',      label: 'Sarı Kart',      bar: false },
+  { key: 'Red Cards',         label: 'Kırmızı Kart',   bar: false },
+  { key: 'expected_goals',    label: 'xG',             bar: false },
+];
+
+async function buildMatchStats(fixtureId, env) {
+  const H = { 'x-apisports-key': env.API_FOOTBALL_KEY || '', 'Origin': 'https://app.kartalix.com', 'Referer': 'https://app.kartalix.com/' };
+  const apiFetch2 = url => fetch(url, { headers: H, signal: AbortSignal.timeout(8000) }).then(r => r.ok ? r.json() : null).catch(() => null);
+
+  const [statsRes, eventsRes] = await Promise.all([
+    apiFetch2(`https://v3.football.api-sports.io/fixtures/statistics?fixture=${fixtureId}`),
+    apiFetch2(`https://v3.football.api-sports.io/fixtures/events?fixture=${fixtureId}`),
+  ]);
+
+  const teams = statsRes?.response || [];
+  if (teams.length < 2) return null;
+
+  // Score from bjk-fixtures KV (free — no extra API call)
+  const fixturesRaw = await env.PITCHOS_CACHE.get('widget:bjk-fixtures');
+  const allFixtures = fixturesRaw ? [...(JSON.parse(fixturesRaw).past || []), ...(JSON.parse(fixturesRaw).upcoming || [])] : [];
+  const fx = allFixtures.find(f => f.id == fixtureId);
+  const homeIsFirst = !fx || fx.home?.name === teams[0]?.team?.name;
+  const homeScore = fx ? (homeIsFirst ? fx.score?.home : fx.score?.away) : null;
+  const awayScore = fx ? (homeIsFirst ? fx.score?.away : fx.score?.home) : null;
+
+  // Events: goals, cards, VAR only
+  const rawEvents = eventsRes?.response || [];
+  const events = rawEvents
+    .filter(e => e.type === 'Goal' || e.type === 'Card' || e.type === 'Var')
+    .map(e => {
+      const min = `${e.time?.elapsed}${e.time?.extra ? '+' + e.time.extra : ''}`;
+      if (e.type === 'Goal') return {
+        min, type: 'goal', detail: e.detail,
+        icon: e.detail === 'Missed Penalty' ? '❌' : e.detail === 'Own Goal' ? '⚽ (OG)' : e.detail === 'Penalty' ? '⚽ (P)' : '⚽',
+        player: e.player?.name || '', assist: e.assist?.name || null,
+        team: e.team?.name || '',
+      };
+      if (e.type === 'Card') return {
+        min, type: 'card', detail: e.detail,
+        icon: e.detail === 'Red Card' ? '🟥' : e.detail === 'Yellow Card Second Yellow Card' ? '🟥 (2.S)' : '🟨',
+        player: e.player?.name || '', team: e.team?.name || '',
+        suspended: e.detail === 'Red Card' || e.detail === 'Yellow Card Second Yellow Card',
+      };
+      if (e.type === 'Var') return {
+        min, type: 'var', detail: e.detail,
+        icon: '📺', player: e.player?.name || '', team: e.team?.name || '',
+      };
+      return null;
+    })
+    .filter(Boolean);
+
+  const pick = (t, key) => t?.statistics?.find(s => s.type === key)?.value ?? 0;
+  return JSON.stringify({
+    home: { name: teams[0]?.team?.name, logo: teams[0]?.team?.logo, score: homeScore },
+    away: { name: teams[1]?.team?.name, logo: teams[1]?.team?.logo, score: awayScore },
+    stats: MATCH_STATS_KEYS.map(s => ({ label: s.label, bar: s.bar, home: pick(teams[0], s.key), away: pick(teams[1], s.key) })),
+    events,
+  });
 }
 
 // ─── SPRINT 4: ARTICLE PAGES ─────────────────────────────────
