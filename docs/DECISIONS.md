@@ -619,4 +619,27 @@ any        → debunked      trigger: manual only
 
 ---
 
+### 2026-05-02 — YouTube integration: embed-only in Sprint C, full pipeline after Slice 1
+
+**Decision**: YouTube videos are added in two phases. Sprint C ships embed-only (iframe + 1-sentence title-based intro, keyword qualification, no captions). Full pipeline (captions → Facts Firewall → Produce branching) is deferred until after Slice 1 (Facts Firewall) ships.
+
+**Sprint C scope**: Atom feed fetch (`youtube.com/feeds/videos.xml?channel_id=X`) → title keyword qualification (özet, highlights, basın toplantısı, röportaj, açıklama, maç sonu) → `generateVideoEmbed()` writes iframe + Haiku 1-sentence intro from title only → stored in `content_items` with `source_type='youtube'`. No captions fetched, no source text passed anywhere.
+
+**Why embed-only is legally clean**: YouTube iframe embedding is standard web practice — YouTube explicitly provides and supports it. The 1-sentence intro is original writing derived solely from the video title, not from the video's content. No FSEK Article 36 concern applies because no content is reproduced.
+
+**Why captions are deferred**: YouTube captions are the transcript of video content — third-party text that falls under the same FSEK Article 36 constraints as RSS body text. Passing captions to the Produce Agent without the Facts Firewall in place would be the same violation we protect against for P4 RSS. The firewall must be built first (Slice 1) before captions can flow.
+
+**Full 9-step YouTube plan**: detailed implementation plan on file at `C:\Temp\planning-input.txt`. Steps 1–4 (fetch + proxy + register + intake) are covered by Sprint C. Steps 5–7 (Qualify treatment + caption facts + Produce branching) are Slice 1 extension scope. Steps 8–9 (dev.bat shortcuts + observability) fold into whatever sprint executes Steps 5–7.
+
+**Alternatives considered**:
+- Full pipeline now — rejected; depends on Facts Firewall (Slice 1) which isn't built yet
+- Defer YouTube entirely to v2 — rejected; embed-only is safe, quick, and adds value (match summary videos, press conferences) without legal or architectural risk
+- Use captions without the firewall — rejected; same FSEK risk as RSS body text
+
+**What would change our mind**: Turkish IP lawyer ruling that video caption content has different legal treatment than RSS body text under FSEK Article 36 — at which point caption flow could be moved to Sprint C.
+
+**Related**: SLICES.md Sprint C, DECISIONS.md 2026-04-29 match template data source architecture (G6), `C:\Temp\planning-input.txt`
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*

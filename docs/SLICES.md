@@ -212,6 +212,38 @@ Deliverables:
 - [ ] `tr.json` Turkish translation file + `/widgets/tr.json` endpoint
 - [ ] H2H widget on T02 articles
 
+**Sprint C — YouTube Embed (embed-only quick win)** ← AFTER SPRINT B
+
+_Zero new infrastructure. YouTube Atom feed is free, public, no auth. Embed is an iframe — no content reproduction. 1-sentence intro written from video title only — no captions, no firewall._
+
+Qualification — title keyword matching, no Claude:
+- Include: özet, highlights, basın toplantısı, röportaj, açıklama, maç sonu
+- Exclude: #shorts, standalone "Shorts"
+- BJK official channel: all videos qualify (official source, all content relevant)
+
+Three channels (placeholder IDs — Ali to confirm):
+- Beşiktaş JK official (`UCxxxxx`)
+- beIN SPORTS Türkiye (`UCxxxxx`)
+- TRT Spor (`UCxxxxx`)
+
+Deliverables:
+- [ ] YouTube channel config added to site JSONB (`youtube_channels` array alongside `rss_feeds`)
+- [ ] `fetchYouTubeChannel(channelId, since)` in src/youtube.js — Atom XML parse, returns video list
+- [ ] `qualifyYouTubeVideo(video)` — keyword rule filter, no Claude
+- [ ] `generateVideoEmbed(video, site, env)` in publisher.js — Haiku 1-sentence Turkish intro + iframe
+- [ ] Wire into `0 */2 * * *` cron — parallel to RSS intake block
+- [ ] Dedup via video_id (stored in content_items.source_url as `youtube:videoId`)
+- [ ] Article render: iframe visible in full_body (no stats widget for video articles)
+- [ ] `/force-yt?channel_id=...` debug endpoint
+
+Out of scope for Sprint C (addressed in Slice 1 extension):
+- Caption fetch
+- Facts Firewall for video content
+- Treatment Classifier
+- Produce Agent treatment branching
+
+**Full YouTube pipeline plan** (Steps 1–9, including captions + firewall + produce branching): logged in DECISIONS.md 2026-05-02 entry. Planned for after Slice 1 ships.
+
 **Phase 3.6.1 — Widget API call caching (backlog)**
 
 _Widget calls go direct from browser to `v3.football.api-sports.io` and count toward the 7,500/day quota. Each home page load burns ~3 calls (standings + fixtures + team). At scale this needs a server-side cache layer._
