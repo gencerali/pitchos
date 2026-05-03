@@ -10,12 +10,12 @@
  *   5. Logs cost + results to Supabase
  */
 import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
-import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, fetchViaRss2Json, RSS_FEEDS } from './src/fetcher.js';
-import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, titleSimilarity, normalizeTitle } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateMatchVideoEmbed, generateOriginalNews } from './src/publisher.js';
+import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS } from './src/fetcher.js';
+import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories } from './src/story-matcher.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings } from './src/api-football.js';
-import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, classifyMatchVideo } from './src/youtube.js';
+import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo } from './src/youtube.js';
 
 // ─── NEXT MATCH CONFIG ────────────────────────────────────────
 const NEXT_MATCH = {
@@ -779,47 +779,26 @@ export default {
           : YOUTUBE_CHANNELS;
         if (channels.length === 0) return Response.json({ error: 'channel_id not found' }, { headers, status: 404 });
 
-        const seenUrls    = await getSeenUrls(env, site.id);
-        const nextMatch   = await getNextFixture(env).catch(() => null);
-        const recentFix   = await getLastFixtures(env, 3).catch(() => []);
-        const recentMatch = recentFix.find(f => f.league?.includes('Süper Lig')) || null;
-        const results     = [];
-        let published     = 0;
+        const seenUrls = await getSeenUrls(env, site.id);
+        const results  = [];
+        let published  = 0;
 
         for (const channel of channels) {
           const videos    = await fetchYouTubeChannel(channel, since).catch(() => []);
-          const hardFiltered = videos.filter(v => qualifyYouTubeVideo(v));
-          const hardSkipped  = videos.filter(v => !qualifyYouTubeVideo(v)).map(v => v.title);
-          const unseen       = hardFiltered.filter(v => !seenUrls.has(`https://www.youtube.com/watch?v=${v.video_id}`));
-
-          // Score broadcast/digital through same scorer as RSS
-          const official2 = unseen.filter(v => v.channel_tier === 'official');
-          const others2   = unseen.filter(v => v.channel_tier !== 'official');
-          let relevantOthers2 = others2;
-          if (others2.length > 0) {
-            const { articles: scored2 } = await scoreArticles(
-              others2.map(v => ({ title: v.title, summary: v.description || '', source_name: v.channel_name, published_at: v.published_at, trust_tier: 'broadcast' })),
-              site, env
-            ).catch(() => ({ articles: [] }));
-            relevantOthers2 = others2.filter((_, idx) =>
-              scored2[idx]?.relevant !== false && !scored2[idx]?.rival_pov && (scored2[idx]?.nvs ?? 50) >= 20
-            );
-          }
-          const qualified = [...official2, ...relevantOthers2];
-          const skipped   = hardSkipped;
+          const qualified = videos.filter(v => {
+            const watchUrl = `https://www.youtube.com/watch?v=${v.video_id}`;
+            return qualifyYouTubeVideo(v) && !seenUrls.has(watchUrl);
+          });
+          const skipped   = videos.filter(v => !qualifyYouTubeVideo(v)).map(v => v.title);
 
           if (doPublish) {
             for (const video of qualified.slice(0, 2)) {
               try {
-                const matchType = classifyMatchVideo(video, nextMatch, recentMatch);
-                const matchCtx  = matchType ? (nextMatch?.league?.includes('Süper Lig') ? nextMatch : recentMatch) : null;
-                const card = matchType
-                  ? await generateMatchVideoEmbed(video, matchType, matchCtx, site, env)
-                  : await generateVideoEmbed(video, site, env);
+                const card = await generateVideoEmbed(video, site, env);
                 if (card) {
                   const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const current = raw ? JSON.parse(raw) : [];
-                  const kvCard  = toKVShape({ ...card, nvs: card.nvs_score || 72, fixture_id: (matchCtx || nextMatch)?.fixture_id || null, is_kartalix_content: true, is_template: true });
+                  const kvCard  = toKVShape({ ...card, nvs: card.nvs_score || 72, is_kartalix_content: true, is_template: true });
                   await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 100));
                   published++;
                 }
@@ -830,12 +809,7 @@ export default {
           results.push({
             channel: channel.name, tier: channel.tier,
             fetched: videos.length, qualified: qualified.length,
-            next_match: nextMatch ? { opponent: nextMatch.opponent, league: nextMatch.league } : null,
-            recent_super_lig: recentMatch ? { opponent: recentMatch.opponent, date: recentMatch.date } : null,
-            videos: qualified.slice(0, 5).map(v => ({
-              id: v.video_id, title: v.title, published_at: v.published_at,
-              match_type: classifyMatchVideo(v, nextMatch, recentMatch) || 'T-VID',
-            })),
+            videos: qualified.slice(0, 5).map(v => ({ id: v.video_id, title: v.title, published_at: v.published_at })),
             skipped_titles: skipped.slice(0, 5),
           });
         }
@@ -844,147 +818,6 @@ export default {
           success: true, since: since.toISOString(),
           published: doPublish ? published : 'dry-run (add ?publish=1 to actually embed)',
           channels: results,
-        }, { headers });
-      } catch (e) {
-        return Response.json({ error: e.message }, { headers, status: 500 });
-      }
-    }
-    if (url.pathname === '/force-tvid') {
-      // Publish a specific YouTube video with an explicit template type.
-      // Required: ?video_id=Y&channel_id=UC...
-      // Optional: ?type=press_conf|highlights|interview|referee|goal_bjk  (default: auto-classify)
-      // Add ?publish=1 to actually write to KV (dry-run otherwise).
-      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
-      try {
-        const videoId   = url.searchParams.get('video_id');
-        const channelId = url.searchParams.get('channel_id');
-        const typeParam = url.searchParams.get('type');  // explicit override
-        const doPublish = url.searchParams.get('publish') === '1';
-        if (!videoId || !channelId) return Response.json({ error: 'video_id and channel_id are required' }, { headers, status: 400 });
-
-        const channel = YOUTUBE_CHANNELS.find(c => c.id === channelId);
-        if (!channel) return Response.json({ error: 'channel_id not in YOUTUBE_CHANNELS' }, { headers, status: 404 });
-
-        const sites = await getActiveSites(env);
-        const site  = sites?.[0];
-        if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
-
-        // Fetch a generous window so the target video is in the feed
-        const since  = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-        const videos = await fetchYouTubeChannel(channel, since);
-        const video  = videos.find(v => v.video_id === videoId);
-        if (!video) return Response.json({ error: `video ${videoId} not found in feed (may be older than 7d)` }, { headers, status: 404 });
-
-        const nextMatch   = await getNextFixture(env).catch(() => null);
-        const recentFix2  = await getLastFixtures(env, 3).catch(() => []);
-        const recentMatch = recentFix2.find(f => f.league?.includes('Süper Lig')) || null;
-        const matchType   = typeParam || classifyMatchVideo(video, nextMatch, recentMatch);
-        const matchCtx    = matchType ? (nextMatch?.league?.includes('Süper Lig') ? nextMatch : recentMatch) : null;
-
-        let card = null;
-        if (doPublish) {
-          card = matchType
-            ? await generateMatchVideoEmbed(video, matchType, matchCtx, site, env)
-            : await generateVideoEmbed(video, site, env);
-          if (card) {
-            const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
-            const current = raw ? JSON.parse(raw) : [];
-            const kvCard  = toKVShape({ ...card, nvs: card.nvs_score || 72, fixture_id: (matchCtx || nextMatch)?.fixture_id || null, is_kartalix_content: true, is_template: true });
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 100));
-          }
-        }
-
-        return Response.json({
-          success: true,
-          video_id: videoId, title: video.title, published_at: video.published_at,
-          match_type: matchType || 'T-VID',
-          match_context: matchCtx ? { opponent: matchCtx.opponent, league: matchCtx.league } : null,
-          published: doPublish ? !!card : 'dry-run (add ?publish=1)',
-          template_id: card?.template_id || null,
-          headline: card?.headline || null,
-        }, { headers });
-      } catch (e) {
-        return Response.json({ error: e.message }, { headers, status: 500 });
-      }
-    }
-    if (url.pathname === '/force-synthesis') {
-      // Debug: test original news synthesis from top P4 sources currently in KV/Supabase.
-      // ?publish=1 — write the synthesized article to KV
-      // ?nvs=50 — NVS floor (default 55)
-      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
-      try {
-        const sites = await getActiveSites(env);
-        if (!sites?.length) return Response.json({ error: 'No active sites' }, { headers, status: 500 });
-        const site = sites[0];
-        const publish = url.searchParams.get('publish') === '1';
-        const nvsFloor = parseInt(url.searchParams.get('nvs') || '55');
-
-        // Fetch recent scored articles from Supabase (last 48h) to act as synthesis inputs
-        const since48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-        const rows = await supabase(env, 'GET',
-          `/rest/v1/content_items?site_id=eq.${site.id}&status=in.(published,pending)&created_at=gte.${since48h}&order=nvs_score.desc&limit=50&select=*`
-        );
-        const allRecent = (rows || []).filter(a => a.source_name !== 'Kartalix');
-
-        // Exclude stories already covered by a Kartalix article in the feed
-        const existingFeed = await getCachedArticles(env, site.short_code);
-        const kartalixTitles = new Set(
-          existingFeed.filter(a => a.is_kartalix_content).map(a => normalizeTitle(a.title || ''))
-        );
-        const fresh = allRecent.filter(a =>
-          !kartalixTitles.has(normalizeTitle(a.title || '')) &&
-          !existingFeed.some(k => k.is_kartalix_content &&
-            titleSimilarity(normalizeTitle(k.title || ''), normalizeTitle(a.title || '')) > 0.25)
-        );
-        const SYNTHESIS_SKIP = new Set(['match_result', 'squad']);
-        const candidates = fresh.filter(a =>
-          (a.nvs_score || 0) >= nvsFloor && !SYNTHESIS_SKIP.has(a.content_type)
-        );
-
-        if (candidates.length === 0) {
-          return Response.json({
-            message: 'No new candidates above NVS floor',
-            nvsFloor,
-            total_recent: allRecent.length,
-            already_covered: allRecent.length - fresh.length,
-            below_floor: fresh.filter(a => (a.nvs_score || 0) < nvsFloor).length,
-            all_recent_titles: allRecent.map(a => ({ title: a.title, nvs: a.nvs_score, source: a.source_name })),
-          }, { headers });
-        }
-
-        // Group by story: pick top candidate, find related duplicates for multi-source context
-        const storyDeduped = dedupeByStory(candidates);
-        const results = [];
-        for (const primary of storyDeduped.slice(0, 3)) {
-          const related = candidates.filter(a =>
-            a !== primary &&
-            titleSimilarity(normalizeTitle(a.title || ''), normalizeTitle(primary.title || '')) > 0.25
-          ).slice(0, 2);
-
-          const origNews = await generateOriginalNews(
-            [primary, ...related].map(a => ({ ...a, nvs: a.nvs_score, category: a.category })),
-            site, env
-          );
-
-          if (publish && origNews) {
-            const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
-            const latest = latestRaw ? JSON.parse(latestRaw) : [];
-            const kvCard = toKVShape(origNews);
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
-          }
-
-          results.push({
-            sources: [primary, ...related].map(a => ({ title: a.title, source: a.source_name, nvs: a.nvs_score })),
-            result: origNews ? { title: origNews.title, body_length: origNews.full_body?.length } : null,
-            published: publish && !!origNews,
-          });
-        }
-
-        return Response.json({
-          total_recent: allRecent.length,
-          already_covered: allRecent.length - fresh.length,
-          new_candidates: candidates.length,
-          stories: results,
         }, { headers });
       } catch (e) {
         return Response.json({ error: e.message }, { headers, status: 500 });
@@ -1532,117 +1365,6 @@ Sadece JSON döndür:
         return Response.json({ error: e.message }, { headers, status: 500 });
       }
     }
-    // ── SOURCES ADMIN ─────────────────────────────────────────────
-    if (url.pathname === '/admin/sources') {
-      const cookie = request.headers.get('cookie') || '';
-      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
-      if (!authed) return Response.redirect(new URL('/admin', request.url).toString(), 302);
-      const rssFeeds = await getRssConfig(env);
-      const ytChannels = await getYtConfig(env);
-      return new Response(renderSourcesPage(rssFeeds, ytChannels), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
-    }
-
-    if (url.pathname === '/admin/sources/list') {
-      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
-      const rss = await getRssConfig(env);
-      const yt  = await getYtConfig(env);
-      return Response.json({ rss, yt }, { headers });
-    }
-
-    if (url.pathname === '/admin/sources/add' && request.method === 'POST') {
-      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
-      try {
-        const body = await request.json();
-        if (body.type === 'rss') {
-          const feeds = await getRssConfig(env);
-          if (feeds.find(f => f.url === body.url)) return Response.json({ error: 'URL already exists' }, { headers, status: 400 });
-          feeds.push({ url: body.url, name: body.name, trust: body.trust || 'press', sport: 'football', is_p4: body.is_p4 ?? true, keywordFilter: body.keywordFilter ?? true, proxy: body.proxy ?? false });
-          await env.PITCHOS_CACHE.put('config:rss_feeds', JSON.stringify(feeds));
-          return Response.json({ ok: true, count: feeds.length }, { headers });
-        }
-        if (body.type === 'youtube') {
-          const channels = await getYtConfig(env);
-          if (channels.find(c => c.id === body.id)) return Response.json({ error: 'Channel ID already exists' }, { headers, status: 400 });
-          channels.push({ id: body.id, name: body.name, tier: body.tier || 'broadcast', all_qualify: false, embed_qualify: body.embed_qualify ?? true, transcript_qualify: body.transcript_qualify ?? true });
-          await env.PITCHOS_CACHE.put('config:yt_channels', JSON.stringify(channels));
-          return Response.json({ ok: true, count: channels.length }, { headers });
-        }
-        return Response.json({ error: 'type must be rss or youtube' }, { headers, status: 400 });
-      } catch(e) { return Response.json({ error: e.message }, { headers, status: 500 }); }
-    }
-
-    if (url.pathname === '/admin/sources/delete' && request.method === 'POST') {
-      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
-      try {
-        const { type, key } = await request.json();
-        if (type === 'rss') {
-          const feeds = (await getRssConfig(env)).filter(f => f.url !== key && f.name !== key);
-          await env.PITCHOS_CACHE.put('config:rss_feeds', JSON.stringify(feeds));
-          return Response.json({ ok: true, count: feeds.length }, { headers });
-        }
-        if (type === 'youtube') {
-          const channels = (await getYtConfig(env)).filter(c => c.id !== key && c.name !== key);
-          await env.PITCHOS_CACHE.put('config:yt_channels', JSON.stringify(channels));
-          return Response.json({ ok: true, count: channels.length }, { headers });
-        }
-        return Response.json({ error: 'type must be rss or youtube' }, { headers, status: 400 });
-      } catch(e) { return Response.json({ error: e.message }, { headers, status: 500 }); }
-    }
-
-    if (url.pathname === '/admin/sources/test') {
-      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
-      try {
-        const type      = url.searchParams.get('type') || 'rss';
-        const targetUrl = url.searchParams.get('url')  || '';
-        const channelId = url.searchParams.get('id')   || '';
-
-        if (type === 'youtube' && channelId) {
-          const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-          const ch = { id: channelId, name: 'Test', tier: 'broadcast' };
-          const videos = await fetchYouTubeChannel(ch, since);
-          return Response.json({ ok: true, count: videos.length, items: videos.slice(0, 5).map(v => ({ title: v.title, published_at: v.published_at, video_id: v.video_id })) }, { headers });
-        }
-
-        if (type === 'transcript' && channelId) {
-          // channelId may be a channel ID (UCxxx) or a direct video ID
-          let videoId = channelId;
-          if (channelId.startsWith('UC')) {
-            // Fetch the channel's Atom feed to get the latest video ID
-            const ch = { id: channelId, name: 'Test', tier: 'broadcast' };
-            const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-            const videos = await fetchYouTubeChannel(ch, since);
-            if (!videos.length) return Response.json({ ok: false, error: 'No recent videos found for channel' }, { headers });
-            videoId = videos[0].video_id;
-          }
-          const transcript = await fetchYouTubeTranscript(videoId);
-          return Response.json({ ok: !!transcript, video_id: videoId, length: transcript?.length || 0, preview: transcript?.slice(0, 300) || null }, { headers });
-        }
-
-        if (type === 'rss' && targetUrl) {
-          // Try direct first, then proxy
-          let items = [];
-          let method = 'direct';
-          try {
-            const res = await fetch(targetUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(8000) });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const text = await res.text();
-            items = (text.match(/<item[\s\S]*?<\/item>/g) || text.match(/<entry[\s\S]*?<\/entry>/g) || []).slice(0, 5).map(i => {
-              const title = i.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i)?.[1] || i.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] || '';
-              const pub   = i.match(/<pubDate>([^<]+)<\/pubDate>/i)?.[1] || i.match(/<published>([^<]+)<\/published>/i)?.[1] || '';
-              return { title: title.trim(), published_at: pub.trim() };
-            });
-          } catch {
-            method = 'proxy';
-            const feed = { url: targetUrl, name: 'Test', trust: 'press', sport: 'football', is_p4: true };
-            items = (await fetchViaRss2Json(feed)).slice(0, 5).map(a => ({ title: a.title, published_at: a.published_at }));
-          }
-          return Response.json({ ok: true, method, count: items.length, items }, { headers });
-        }
-
-        return Response.json({ error: 'provide type=rss&url=... or type=youtube&id=... or type=transcript&id=VIDEO_ID' }, { headers, status: 400 });
-      } catch(e) { return Response.json({ error: e.message }, { headers, status: 500 }); }
-    }
-
     if (url.pathname === '/admin/login' && request.method === 'POST') {
       const { pin } = await request.json().catch(() => ({}));
       const adminPin = env.ADMIN_PIN || 'kartalix2026';
@@ -1892,40 +1614,6 @@ function mkEventId(e) {
   return `${e.time?.elapsed || 0}_${e.time?.extra || 0}_${e.type || ''}_${e.detail || ''}_${e.player?.id || e.player?.name || ''}`;
 }
 
-// ─── BJK SQUAD KV HELPERS ────────────────────────────────────
-// Tokenized player name parts stored after each lineup/player fetch.
-// Used by qualifyYouTubeVideo to match broadcast titles without explicit BJK terms.
-async function saveBjkSquadTerms(env, players) {
-  if (!players || !players.length) return;
-  const terms = [...new Set(
-    players
-      .flatMap(p => (p.name || '').toLowerCase().split(/\s+/))
-      .filter(tok => tok.length >= 4)
-  )];
-  await env.PITCHOS_CACHE.put('bjk:squad', JSON.stringify(terms), { expirationTtl: 86400 });
-}
-
-async function getBjkSquadTerms(env) {
-  const raw = await env.PITCHOS_CACHE.get('bjk:squad');
-  return raw ? JSON.parse(raw) : [];
-}
-
-// ─── SOURCE CONFIG (KV-backed, falls back to hardcoded) ──────
-async function getRssConfig(env) {
-  try {
-    const raw = await env.PITCHOS_CACHE.get('config:rss_feeds');
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return RSS_FEEDS; // fallback to hardcoded
-}
-async function getYtConfig(env) {
-  try {
-    const raw = await env.PITCHOS_CACHE.get('config:yt_channels');
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return YOUTUBE_CHANNELS; // fallback to hardcoded
-}
-
 // ─── KV SHAPE HELPERS ────────────────────────────────────────
 const P4_SOURCES = new Set([
   'Fotomaç', 'A Haber', 'Sabah Spor', 'Hürriyet', 'Habertürk Spor',
@@ -1955,7 +1643,6 @@ const toKVShape = a => ({
   publish_mode:        a.publish_mode || 'rss_summary',
   image_url:           '',
   template_id:         a.template_id  || null,
-  fixture_id:          a.fixture_id   || null,
   slug:                a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
 });
 
@@ -2044,13 +1731,12 @@ async function matchWatcher(env) {
         console.log('WATCHER T09: querying lineup API...');
         const lineup = await getFixtureLineup(nextMatch.fixture_id, env);
         if (lineup) {
-          await saveBjkSquadTerms(env, lineup.startXI || []).catch(() => {});
           const card = await generateConfirmedLineup(nextMatch, lineup, site, env);
           if (card) {
             await env.PITCHOS_CACHE.put(t09Key, '1', { expirationTtl: 86400 });
             const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = raw ? JSON.parse(raw) : [];
-            const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 88, fixture_id: nextMatch.fixture_id, is_kartalix_content: true, is_template: true });
+            const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 88, is_kartalix_content: true, is_template: true });
             await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
             console.log('WATCHER KV WRITE T09: done');
           }
@@ -2081,7 +1767,7 @@ async function matchWatcher(env) {
           await env.PITCHOS_CACHE.put(trefKey, '1', { expirationTtl: 86400 });
           const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
           const latest = raw ? JSON.parse(raw) : [];
-          const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 65, fixture_id: nextMatch.fixture_id, is_kartalix_content: true, is_template: true });
+          const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 65, is_kartalix_content: true, is_template: true });
           await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
           console.log('WATCHER KV WRITE T-REF: done');
         }
@@ -2139,7 +1825,7 @@ async function matchWatcher(env) {
             if (card) {
               const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
               const latest = raw ? JSON.parse(raw) : [];
-              const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 90, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true });
+              const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 90, is_kartalix_content: true, is_template: true });
               await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
               console.log('WATCHER KV WRITE T10: done');
             }
@@ -2163,7 +1849,7 @@ async function matchWatcher(env) {
                   liveState.ht_published = true;
                   const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = raw ? JSON.parse(raw) : [];
-                  await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...htCard, nvs: 85, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true }), ...latest], 100));
+                  await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...htCard, nvs: 85, is_kartalix_content: true, is_template: true }), ...latest], 100));
                   console.log('WATCHER KV WRITE T-HT: done');
                 }
               } catch(e) { console.error('WATCHER T-HT failed:', e.message); }
@@ -2182,7 +1868,7 @@ async function matchWatcher(env) {
                   if (card) {
                     const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                     const latest = raw ? JSON.parse(raw) : [];
-                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 88, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true }), ...latest], 100));
+                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 88, is_kartalix_content: true, is_template: true }), ...latest], 100));
                     console.log(`WATCHER KV WRITE T-RED: ${ev.player?.name}`);
                   }
                 }
@@ -2192,7 +1878,7 @@ async function matchWatcher(env) {
                   if (card) {
                     const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                     const latest = raw ? JSON.parse(raw) : [];
-                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 85, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true }), ...latest], 100));
+                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 85, is_kartalix_content: true, is_template: true }), ...latest], 100));
                     console.log(`WATCHER KV WRITE T-VAR: ${ev.detail}`);
                   }
                 }
@@ -2202,7 +1888,7 @@ async function matchWatcher(env) {
                   if (card) {
                     const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                     const latest = raw ? JSON.parse(raw) : [];
-                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 85, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true }), ...latest], 100));
+                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 85, is_kartalix_content: true, is_template: true }), ...latest], 100));
                     console.log(`WATCHER KV WRITE T-OG: ${ev.player?.name}`);
                   }
                 }
@@ -2212,7 +1898,7 @@ async function matchWatcher(env) {
                   if (card) {
                     const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                     const latest = raw ? JSON.parse(raw) : [];
-                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 82, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true }), ...latest], 100));
+                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 82, is_kartalix_content: true, is_template: true }), ...latest], 100));
                     console.log(`WATCHER KV WRITE T-PEN: ${ev.player?.name}`);
                   }
                 }
@@ -2232,14 +1918,13 @@ async function matchWatcher(env) {
             getFixtureStats(liveFixture.fixture_id, env),
             getFixtureEvents(liveFixture.fixture_id, env).catch(() => []),
           ]);
-          await saveBjkSquadTerms(env, players).catch(() => {});
 
           const t11card = await generateResultFlash(liveFixture, players, site, env, events);
           if (t11card) {
             liveState.result_published = true;
             const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = raw ? JSON.parse(raw) : [];
-            const kvCard = toKVShape({ ...t11card, nvs: t11card.nvs_score || 88, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true });
+            const kvCard = toKVShape({ ...t11card, nvs: t11card.nvs_score || 88, is_kartalix_content: true, is_template: true });
             await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
             console.log('WATCHER KV WRITE T11: done');
           }
@@ -2249,7 +1934,7 @@ async function matchWatcher(env) {
             if (t13card) {
               const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
               const latest = raw ? JSON.parse(raw) : [];
-              const kvCard = toKVShape({ ...t13card, nvs: t13card.nvs_score || 80, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true });
+              const kvCard = toKVShape({ ...t13card, nvs: t13card.nvs_score || 80, is_kartalix_content: true, is_template: true });
               await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
               console.log('WATCHER KV WRITE T13: done');
             }
@@ -2260,7 +1945,7 @@ async function matchWatcher(env) {
             if (t12card) {
               const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
               const latest = raw ? JSON.parse(raw) : [];
-              const kvCard = toKVShape({ ...t12card, nvs: t12card.nvs_score || 85, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true });
+              const kvCard = toKVShape({ ...t12card, nvs: t12card.nvs_score || 85, is_kartalix_content: true, is_template: true });
               await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
               console.log('WATCHER KV WRITE T12: done');
             }
@@ -2275,7 +1960,7 @@ async function matchWatcher(env) {
                 if (xgCard) {
                   const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = raw ? JSON.parse(raw) : [];
-                  const kvCard = toKVShape({ ...xgCard, nvs: xgCard.nvs_score || 78, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true });
+                  const kvCard = toKVShape({ ...xgCard, nvs: xgCard.nvs_score || 78, is_kartalix_content: true, is_template: true });
                   await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
                   console.log('WATCHER KV WRITE T-XG: done');
                 }
@@ -2300,141 +1985,42 @@ async function matchWatcher(env) {
       }
     } catch(e) { console.error('WATCHER live detection failed:', e.message); }
   }
-
-  // ── MATCH-WINDOW YOUTUBE INTAKE ────────────────────────────
-  // During ±2h of kickoff, run YouTube every ~10 min (WATCHER fires every 5 min;
-  // KV gate prevents running more often than requested).
-  if (hoursToKickoff >= -2 && hoursToKickoff <= 2) {
-    try {
-      const throttleKey = 'yt:watcher_last_fetch';
-      const lastFetch   = await env.PITCHOS_CACHE.get(throttleKey);
-      if (!lastFetch) {
-        await env.PITCHOS_CACHE.put(throttleKey, '1', { expirationTtl: 600 }); // 10-min TTL
-        const seenUrls        = await getSeenUrls(env, site.id);
-        const watcherRecent   = await getLastFixtures(env, 3).catch(() => []);
-        const watcherSuperLig = watcherRecent.find(f => f.league?.includes('Süper Lig')) || null;
-        const published = await processYouTubeVideos(site, env, seenUrls, nextMatch, watcherSuperLig).catch(e => {
-          console.error('WATCHER YT intake failed:', e.message);
-          return 0;
-        });
-        console.log(`WATCHER YT: ${published} video(s) embedded`);
-      } else {
-        console.log('WATCHER YT: throttled, next fetch in ~10 min');
-      }
-    } catch(e) { console.error('WATCHER YT throttle failed:', e.message); }
-  }
 }
 
 // ─── YOUTUBE INTAKE ──────────────────────────────────────────
 // Runs once per processSite call. Fetches all 5 channels in parallel,
 // qualifies by keyword rules, generates embed articles for new videos.
 // Max 2 embeds per channel per run to avoid feed flooding.
-// nextMatch:   upcoming fixture — enables match-specific templates for Süper Lig.
-// recentMatch: last completed Süper Lig fixture — catches post-match content when nextMatch is cup/other.
-async function processYouTubeVideos(site, env, seenUrls, nextMatch = null, recentMatch = null) {
+async function processYouTubeVideos(site, env, seenUrls) {
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
-  const ytChannels = await getYtConfig(env);
-  const feeds = await Promise.all(ytChannels.map(ch => fetchYouTubeChannel(ch, since).catch(() => [])));
+  const feeds = await Promise.all(YOUTUBE_CHANNELS.map(ch => fetchYouTubeChannel(ch, since).catch(() => [])));
 
   let published = 0;
-  for (let i = 0; i < ytChannels.length; i++) {
-    const channel = ytChannels[i];
-    const videos  = feeds[i];
-
-    // Hard filter: drop #shorts, archive re-uploads, already-seen
-    const candidates = videos.filter(v => {
-      return qualifyYouTubeVideo(v) && !seenUrls.has(`https://www.youtube.com/watch?v=${v.video_id}`);
+  for (let i = 0; i < YOUTUBE_CHANNELS.length; i++) {
+    const channel  = YOUTUBE_CHANNELS[i];
+    const videos   = feeds[i];
+    const newVids  = videos.filter(v => {
+      const watchUrl = `https://www.youtube.com/watch?v=${v.video_id}`;
+      return qualifyYouTubeVideo(v) && !seenUrls.has(watchUrl);
     });
-
-    // Official channel: always qualifies — all content is BJK
-    const official = candidates.filter(v => v.channel_tier === 'official');
-
-    // Broadcast/digital: run through scoreArticles (same scorer as RSS)
-    // relevant:false → drop; rival_pov or nvs < 20 → drop
-    const others = candidates.filter(v => v.channel_tier !== 'official');
-    let relevantOthers = [];
-    if (others.length > 0) {
-      const asArticles = others.map(v => ({
-        title:        v.title,
-        summary:      v.description || '',
-        source_name:  v.channel_name,
-        published_at: v.published_at,
-        trust_tier:   'broadcast',
-      }));
-      const { articles: scored } = await scoreArticles(asArticles, site, env).catch(() => ({ articles: [] }));
-      relevantOthers = others.filter((_, idx) =>
-        scored[idx]?.relevant !== false && !scored[idx]?.rival_pov && (scored[idx]?.nvs ?? 50) >= 20
-      );
-    }
-
-    const newVids = [...official, ...relevantOthers];
     console.log(`YT ${channel.name}: ${videos.length} fetched → ${newVids.length} qualified`);
 
     for (const video of newVids.slice(0, 2)) {
-      const ytUrl = `https://www.youtube.com/watch?v=${video.video_id}`;
-
-      // ── PATH A: Embed article (iframe + short intro) ──────────
-      if (video.embed_qualify !== false) {
-        try {
-          const matchType = classifyMatchVideo(video, nextMatch, recentMatch);
-          const matchCtx  = matchType
-            ? (nextMatch?.league?.includes('Süper Lig') ? nextMatch : recentMatch)
-            : null;
-          const card = matchType
-            ? await generateMatchVideoEmbed(video, matchType, matchCtx, site, env)
-            : await generateVideoEmbed(video, site, env);
-          if (card) {
-            const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
-            const current = raw ? JSON.parse(raw) : [];
-            const kvCard  = toKVShape({ ...card, nvs: card.nvs_score || 72, fixture_id: (matchCtx || nextMatch)?.fixture_id || null, is_kartalix_content: true, is_template: true });
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 100));
-            published++;
-            if (matchType) console.log(`YT embed [${matchType}]: ${video.title}`);
-          }
-        } catch (e) {
-          console.error(`YT embed failed [${video.video_id}]:`, e.message);
-        }
+      try {
+        const card = await generateVideoEmbed(video, site, env);
+        if (!card) continue;
+        const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+        const current = raw ? JSON.parse(raw) : [];
+        const kvCard  = toKVShape({ ...card, nvs: card.nvs_score || 72, is_kartalix_content: true, is_template: true });
+        await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 100));
+        seenUrls.add(`https://www.youtube.com/watch?v=${video.video_id}`);
+        published++;
+      } catch (e) {
+        console.error(`YT embed failed [${video.video_id}]:`, e.message);
       }
-
-      // ── PATH B: Description → synthesis source ────────────────
-      // Uses video.description from the Atom feed — no extra request needed.
-      // YouTube blocks transcript access from cloud IPs; description has enough
-      // context (match result, key facts) for synthesis on broadcast channels.
-      // Skip if description is too short (e.g. "join channel" boilerplate).
-      if (video.transcript_qualify && !seenUrls.has(ytUrl)) {
-        try {
-          const synthKey = `synth:yt:${video.video_id}`;
-          const already  = await env.PITCHOS_CACHE.get(synthKey);
-          const desc = (video.description || '').trim();
-          if (!already && desc.length >= 80) {
-            const source = {
-              title:        video.title,
-              summary:      `${video.title}\n${desc}`,
-              source_name:  video.channel_name,
-              published_at: video.published_at,
-              nvs:          70,
-              category:     'Match',
-              is_p4:        false,
-            };
-            const origNews = await generateOriginalNews([source], site, env);
-            if (origNews) {
-              await env.PITCHOS_CACHE.put(synthKey, '1', { expirationTtl: 86400 });
-              const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
-              const current = raw ? JSON.parse(raw) : [];
-              await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(origNews), ...current], 100));
-              console.log(`YT desc synthesis: "${video.title?.slice(0, 50)}"`);
-              published++;
-            }
-          }
-        } catch (e) {
-          console.error(`YT desc synthesis failed [${video.video_id}]:`, e.message);
-        }
-      }
-
-      seenUrls.add(ytUrl);
     }
   }
-  console.log(`YT INTAKE: ${published} embed/synthesis articles`);
+  console.log(`YT INTAKE: ${published} videos embedded`);
   return published;
 }
 
@@ -2452,9 +2038,8 @@ async function processSite(site, env, ctx) {
   // ── FETCH (RSS + web search + beIN + Twitter in parallel) ────
   // fetchBJKOfficial disabled — bjk.com.tr blocks all datacenter IPs (direct, pitchos-proxy, allorigins).
   // Official BJK content will arrive via @Besiktas Twitter in Slice 4.
-  const rssFeeds = await getRssConfig(env);
   const [{ articles: rssArticles, bySource }, { articles: webArticles, usage: fetchUsage }, { articles: beINArticles, usage: beINUsage }, { articles: twitterArticles, usage: twitterUsage }] = await Promise.all([
-    fetchRSSArticles(site, rssFeeds),
+    fetchRSSArticles(site),
     fetchArticles(site, env),
     fetchBeIN(site, env),
     fetchTwitterSources(site, env),
@@ -2537,31 +2122,10 @@ async function processSite(site, env, ctx) {
   // P4 flag is still tracked for firewall/lineage purposes.
 
   // ── KV WRITE IMMEDIATELY (before templates, enrichment, Supabase) ──
-  // Only Kartalix-generated content (templates + original synthesis) appears in the feed.
-  // Raw RSS/P4 articles are inputs only — they go to Supabase for processing but not to KV.
   const existing = await getCachedArticles(env, site.short_code);
-  let existingKartalix = existing.filter(a => a.is_kartalix_content || a.is_template);
-
-  // Bootstrap guard: if KV is empty (first run after migration, or TTL expiry),
-  // pull recent published Kartalix articles from Supabase to reseed the feed.
-  if (existingKartalix.length === 0) {
-    try {
-      const recentRows = await supabase(env, 'GET',
-        `/rest/v1/content_items?site_id=eq.${site.id}&source_name=eq.Kartalix&status=eq.published&order=published_at.desc&limit=30&select=*`
-      );
-      if (recentRows?.length) {
-        existingKartalix = recentRows.map(a => toKVShape({
-          ...a, nvs: a.nvs_score, is_kartalix_content: true,
-          publish_mode: a.publish_mode || 'original_synthesis',
-        }));
-        console.log(`KV BOOTSTRAP: reseeded ${existingKartalix.length} articles from Supabase`);
-      }
-    } catch(e) { console.error('KV bootstrap failed:', e.message); }
-  }
-
-  const immediateKV = existingKartalix.slice(0, 100);
+  const immediateKV = mergeAndDedupe([...top100, ...existing], 100).map(toKVShape);
   await cacheToKV(env, site.short_code, immediateKV);
-  console.log('KV WRITE IMMEDIATE: done', immediateKV.length, 'kartalix articles (raw RSS excluded)');
+  console.log('KV WRITE IMMEDIATE: done', immediateKV.length, 'articles');
 
   // ── BACKGROUND WORK: templates + supabase (after KV is safe) ─
   const backgroundWork = async () => {
@@ -2637,7 +2201,7 @@ async function processSite(site, env, ctx) {
           if (card) {
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-            await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, fixture_id: nextMatch.fixture_id }), ...latest], 100));
+            await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 100));
             console.log('KV WRITE WITH TEMPLATE 09: done');
           }
         } else {
@@ -2661,7 +2225,7 @@ async function processSite(site, env, ctx) {
             await env.PITCHOS_CACHE.put(t02Key, '1', { expirationTtl: 86400 });
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-            const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 72, fixture_id: nextMatch.fixture_id, is_kartalix_content: true, is_template: true });
+            const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 72, is_kartalix_content: true, is_template: true });
             await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
             console.log('KV WRITE WITH T02: done');
           }
@@ -2685,7 +2249,7 @@ async function processSite(site, env, ctx) {
           const card = await generateInjuryReport(nextMatch, injuries, rssArticles, site, env);
           if (card) {
             await env.PITCHOS_CACHE.put(t07Key, '1', { expirationTtl: 86400 });
-            const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 75, fixture_id: nextMatch.fixture_id, is_kartalix_content: true, is_template: true });
+            const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 75, is_kartalix_content: true, is_template: true });
             await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...rssArticles], 100));
             console.log('KV WRITE WITH T07: done');
           }
@@ -2718,7 +2282,7 @@ async function processSite(site, env, ctx) {
               await env.PITCHOS_CACHE.put(trefKey, '1', { expirationTtl: 86400 });
               const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
               const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-              const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 65, fixture_id: nextMatch.fixture_id, is_kartalix_content: true, is_template: true });
+              const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 65, is_kartalix_content: true, is_template: true });
               await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
               console.log('KV WRITE WITH T-REF: done');
             }
@@ -2748,7 +2312,7 @@ async function processSite(site, env, ctx) {
             await env.PITCHOS_CACHE.put(t03Key, '1', { expirationTtl: 86400 });
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-            const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 70, fixture_id: nextMatch.fixture_id, is_kartalix_content: true, is_template: true });
+            const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 70, is_kartalix_content: true, is_template: true });
             await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
             console.log('KV WRITE WITH T03: done');
           }
@@ -2776,7 +2340,7 @@ async function processSite(site, env, ctx) {
             await env.PITCHOS_CACHE.put(t01Key, '1', { expirationTtl: 86400 });
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-            const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 82, fixture_id: nextMatch.fixture_id, is_kartalix_content: true, is_template: true });
+            const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 82, is_kartalix_content: true, is_template: true });
             await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
             console.log('KV WRITE WITH TEMPLATE T01: done');
           }
@@ -2814,7 +2378,7 @@ async function processSite(site, env, ctx) {
                 if (card) {
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-                  const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 90, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true });
+                  const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 90, is_kartalix_content: true, is_template: true });
                   await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
                   console.log('KV WRITE WITH TEMPLATE T10: done');
                 }
@@ -2829,13 +2393,12 @@ async function processSite(site, env, ctx) {
                 getFixtureStats(liveFixture.fixture_id, env),
                 getFixtureEvents(liveFixture.fixture_id, env).catch(() => []),
               ]);
-              await saveBjkSquadTerms(env, players).catch(() => {});
               const card = await generateResultFlash(liveFixture, players, site, env, events);
               if (card) {
                 liveState.result_published = true;
                 const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                 const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-                const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 88, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true });
+                const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 88, is_kartalix_content: true, is_template: true });
                 await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
                 console.log('KV WRITE WITH TEMPLATE T11: done');
               }
@@ -2847,7 +2410,7 @@ async function processSite(site, env, ctx) {
                 if (motmCard) {
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-                  const kvCard = toKVShape({ ...motmCard, nvs: motmCard.nvs_score || 80, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true });
+                  const kvCard = toKVShape({ ...motmCard, nvs: motmCard.nvs_score || 80, is_kartalix_content: true, is_template: true });
                   await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
                   console.log('KV WRITE WITH TEMPLATE T13: done');
                 }
@@ -2860,7 +2423,7 @@ async function processSite(site, env, ctx) {
                 if (reportCard) {
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-                  const kvCard = toKVShape({ ...reportCard, nvs: reportCard.nvs_score || 85, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true });
+                  const kvCard = toKVShape({ ...reportCard, nvs: reportCard.nvs_score || 85, is_kartalix_content: true, is_template: true });
                   await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
                   console.log('KV WRITE WITH TEMPLATE T12: done');
                 }
@@ -2876,7 +2439,7 @@ async function processSite(site, env, ctx) {
                     if (xgCard) {
                       const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                       const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-                      const kvCard = toKVShape({ ...xgCard, nvs: xgCard.nvs_score || 78, fixture_id: liveFixture.fixture_id, is_kartalix_content: true, is_template: true });
+                      const kvCard = toKVShape({ ...xgCard, nvs: xgCard.nvs_score || 78, is_kartalix_content: true, is_template: true });
                       await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
                       console.log('KV WRITE WITH TEMPLATE T-XG: done');
                     }
@@ -2905,11 +2468,25 @@ async function processSite(site, env, ctx) {
       }
     } catch(e) { console.error('Live match detection failed:', e.message); }
 
-    // Save to Supabase (best effort) — RSS/P4 articles are inputs only, not published to feed
+    // Save to Supabase (best effort)
     try {
       const top100forWrite = top100.slice(0, 100);
       const allWritten = await writeArticles(top100forWrite, site, env);
       console.log(`Write phase: ${allWritten.map(a => a.publish_mode).join(', ')}`);
+
+      // Patch KV with synthesized bodies so the page shows full articles
+      const synthesized = allWritten.filter(a => a.publish_mode === 'synthesis' && a.full_body?.length > 200);
+      if (synthesized.length > 0) {
+        const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+        const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
+        const urlMap = new Map(synthesized.map(a => [a.url || a.original_url, a]));
+        const patched = latest.map(a => {
+          const syn = urlMap.get(a.url || a.original_url);
+          return syn ? { ...a, full_body: syn.full_body, publish_mode: 'synthesis' } : a;
+        });
+        await cacheToKV(env, site.short_code, patched);
+        console.log(`KV PATCH WITH SYNTHESIS: ${synthesized.length} articles updated`);
+      }
 
       const publishThreshold = site.auto_publish_threshold || 30;
       const toPublish = allWritten.filter(a => a.nvs >= publishThreshold && a.publish_mode !== 'hot_news_hold');
@@ -2922,6 +2499,9 @@ async function processSite(site, env, ctx) {
       await saveSeenHashes(env, site.short_code, toPublish);
 
       // ── STORY MATCHING ───────────────────────────────────────
+      // Capped at 5 per run — each article requires 2 Claude calls (extractFacts + judge).
+      // Cron runs every 30 min so all articles get processed across multiple ticks.
+      // Fetch open stories once, reuse to avoid N×Supabase reads.
       const articlesWithFacts = allWritten.filter(a => a._facts).slice(0, 5);
       if (articlesWithFacts.length > 0) {
         console.log(`Story matching: ${articlesWithFacts.length} articles with extracted facts`);
@@ -2930,6 +2510,7 @@ async function processSite(site, env, ctx) {
           try {
             const { story, isNew } = await matchOrCreateStory(article, article._facts, site.id, env, openStories);
             console.log(`Story match [${article.title?.slice(0, 40)}]: ${isNew ? 'NEW' : 'MATCHED'} → ${story.id} (conf:${story.confidence} state:${story.state})`);
+            // Add newly created stories to the in-memory list so subsequent articles can match against them
             if (isNew) openStories = [...openStories, story];
           } catch (e) {
             console.error('Story match failed:', e.message, '| article:', article.title?.slice(0, 40));
@@ -2938,51 +2519,11 @@ async function processSite(site, env, ctx) {
       }
     } catch(e) { console.error('Supabase save failed:', e.message); }
 
-    // ── ORIGINAL NEWS SYNTHESIS ────────────────────────────────
-    // Generate original Kartalix articles from top P4 sources.
-    // Each synthesis call covers one distinct story (storyDeduped already one-per-story).
-    // Multi-source: collects any duplicates from mergedScored to give Claude richer context.
-    // Cap: 3 new articles per run. Skip match_result/squad (covered by templates).
-    const SYNTHESIS_SKIP = new Set(['match_result', 'squad']);
-    const p4Pool = storyDeduped.filter(a =>
-      (a.nvs || 0) >= 55 && !SYNTHESIS_SKIP.has(a.content_type) && !a.is_kartalix_content
-    );
-    let synthesisCount = 0;
-    for (const primary of p4Pool.slice(0, 8)) {
-      if (synthesisCount >= 5) break;
-      try {
-        const today = new Date().toISOString().slice(0, 10);
-        const storyKey = `synth:${simpleHash(primary.title)}:${today}`;
-        const already = await env.PITCHOS_CACHE.get(storyKey);
-        if (already) continue;
-
-        // Gather related P4 articles on the same story for multi-source context
-        const related = mergedScored.filter(a =>
-          a !== primary && isP4(a) &&
-          titleSimilarity(normalizeTitle(a.title), normalizeTitle(primary.title)) > 0.25
-        ).slice(0, 2);
-
-        const origNews = await generateOriginalNews([primary, ...related], site, env);
-        if (origNews) {
-          await env.PITCHOS_CACHE.put(storyKey, '1', { expirationTtl: 86400 });
-          const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
-          const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-          const kvCard = toKVShape(origNews);
-          await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
-          synthesisCount++;
-        }
-      } catch(e) { console.error('Original synthesis failed:', e.message, '|', primary.title?.slice(0, 50)); }
-      await new Promise(r => setTimeout(r, 500));
-    }
-    if (synthesisCount > 0) console.log(`ORIGINAL NEWS SYNTHESIS: ${synthesisCount} new article(s) published`);
-
     await logFetch(env, site.id, 'success', stats, null, funnelStats);
     if (stats.costEur > 0) await addCost(env, stats.costEur);
 
     // ── YOUTUBE INTAKE ─────────────────────────────────────────
-    const recentFixtures  = await getLastFixtures(env, 3).catch(() => []);
-    const recentSuperLig  = recentFixtures.find(f => f.league?.includes('Süper Lig')) || null;
-    await processYouTubeVideos(site, env, seenUrls, nextMatch, recentSuperLig).catch(e => console.error('YT intake failed:', e.message));
+    await processYouTubeVideos(site, env, seenUrls).catch(e => console.error('YT intake failed:', e.message));
 
     stats.durationMs = Date.now() - startTime;
   };
@@ -3556,206 +3097,6 @@ loadReactions();
 </html>`;
 }
 
-function renderSourcesPage(rssFeeds = [], ytChannels = []) {
-  const rssRows = rssFeeds.map(f => `
-    <tr>
-      <td>${f.name}</td>
-      <td style="font-size:11px;color:#888;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.url}</td>
-      <td>${f.trust}</td>
-      <td>${f.is_p4 ? '✓' : ''}</td>
-      <td>${f.proxy ? '🔀' : ''}${f.keywordFilter ? '🔍' : ''}</td>
-      <td>
-        <button onclick="testRss('${encodeURIComponent(f.url)}')" style="padding:2px 8px;cursor:pointer">Test</button>
-        <button onclick="deleteSource('rss','${encodeURIComponent(f.url)}')" style="padding:2px 8px;background:#c00;color:#fff;border:none;cursor:pointer">✕</button>
-      </td>
-    </tr>`).join('');
-
-  const ytRows = ytChannels.map(c => `
-    <tr>
-      <td>${c.name}</td>
-      <td style="font-size:11px;color:#888">${c.id}</td>
-      <td>${c.tier}</td>
-      <td>${c.embed_qualify ? '📺' : ''}${c.transcript_qualify ? '📝' : ''}</td>
-      <td>
-        <button onclick="testYt('${c.id}')" style="padding:2px 8px;cursor:pointer">Test Feed</button>
-        <button onclick="testTranscript('${c.id}')" style="padding:2px 8px;cursor:pointer">Test Transcript</button>
-        <button onclick="deleteSource('youtube','${c.id}')" style="padding:2px 8px;background:#c00;color:#fff;border:none;cursor:pointer">✕</button>
-      </td>
-    </tr>`).join('');
-
-  return `<!DOCTYPE html>
-<html lang="tr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Kartalix — Sources</title>
-<style>
-  body { font-family: system-ui, sans-serif; background:#0f1117; color:#e0e0e0; margin:0; padding:20px; }
-  h1 { color:#fff; margin-bottom:4px; } h2 { color:#aaa; font-size:14px; margin:24px 0 8px; }
-  a { color:#6af; text-decoration:none; } a:hover { text-decoration:underline; }
-  table { width:100%; border-collapse:collapse; font-size:13px; margin-bottom:24px; }
-  th { background:#1a1d26; color:#888; text-align:left; padding:6px 8px; border-bottom:1px solid #333; }
-  td { padding:6px 8px; border-bottom:1px solid #222; vertical-align:middle; }
-  tr:hover td { background:#1a1d26; }
-  .card { background:#1a1d26; border-radius:8px; padding:16px; margin-bottom:16px; }
-  input, select { background:#0f1117; color:#e0e0e0; border:1px solid #333; padding:6px 10px; border-radius:4px; font-size:13px; }
-  input { width:100%; box-sizing:border-box; margin-bottom:8px; }
-  button.add { background:#1e6b3f; color:#fff; border:none; padding:8px 20px; border-radius:4px; cursor:pointer; font-size:13px; }
-  button.add:hover { background:#28924f; }
-  #result { background:#0a0c12; border:1px solid #333; border-radius:6px; padding:12px; font-size:12px; white-space:pre-wrap; max-height:300px; overflow-y:auto; margin-top:12px; display:none; }
-  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  label { font-size:12px; color:#888; display:block; margin-bottom:2px; }
-  .checks { display:flex; gap:16px; align-items:center; font-size:13px; margin-bottom:8px; }
-  .checks input[type=checkbox] { width:auto; margin:0 4px 0 0; }
-</style>
-</head>
-<body>
-<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-  <h1 style="margin:0">📡 Sources</h1>
-  <nav style="display:flex;gap:16px;font-size:13px">
-    <a href="/admin">✏️ Editorial</a>
-    <a href="/admin/sources">📡 Sources</a>
-    <a href="/report" target="_blank">📊 Report</a>
-    <a href="/run" target="_blank">▶ Run</a>
-    <a href="/force-synthesis" target="_blank">🧪 Synthesis</a>
-    <a href="/">← Site</a>
-  </nav>
-</div>
-
-<h2>RSS FEEDS (${rssFeeds.length})</h2>
-<table>
-  <thead><tr><th>Name</th><th>URL</th><th>Trust</th><th>P4</th><th>Flags</th><th>Actions</th></tr></thead>
-  <tbody>${rssRows || '<tr><td colspan="6" style="color:#666">No feeds configured</td></tr>'}</tbody>
-</table>
-
-<h2>YOUTUBE CHANNELS (${ytChannels.length})</h2>
-<table>
-  <thead><tr><th>Name</th><th>Channel ID</th><th>Tier</th><th>Modes</th><th>Actions</th></tr></thead>
-  <tbody>${ytRows || '<tr><td colspan="5" style="color:#666">No channels configured</td></tr>'}</tbody>
-</table>
-
-<div class="row2">
-  <div class="card">
-    <h2 style="margin-top:0">➕ Add RSS Feed</h2>
-    <label>Feed URL</label><input id="rss-url" placeholder="https://..." />
-    <label>Display Name</label><input id="rss-name" placeholder="Source Name" />
-    <label>Trust tier</label>
-    <select id="rss-trust" style="width:100%;margin-bottom:8px">
-      <option value="press">press</option>
-      <option value="broadcast">broadcast</option>
-      <option value="journalist">journalist</option>
-      <option value="official">official</option>
-    </select>
-    <div class="checks">
-      <label><input type="checkbox" id="rss-p4" checked> P4 source</label>
-      <label><input type="checkbox" id="rss-kw" checked> Keyword filter</label>
-      <label><input type="checkbox" id="rss-proxy"> Via proxy</label>
-    </div>
-    <div style="display:flex;gap:8px">
-      <button class="add" onclick="testRssNew()">🧪 Test URL</button>
-      <button class="add" onclick="addRss()">✓ Add Feed</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2 style="margin-top:0">➕ Add YouTube Channel</h2>
-    <label>Channel ID (UCxxx…)</label><input id="yt-id" placeholder="UCxxxxxxxxxxxxxxx" />
-    <label>Display Name</label><input id="yt-name" placeholder="Channel Name" />
-    <label>Tier</label>
-    <select id="yt-tier" style="width:100%;margin-bottom:8px">
-      <option value="broadcast">broadcast</option>
-      <option value="official">official</option>
-      <option value="digital">digital</option>
-      <option value="press">press</option>
-    </select>
-    <div class="checks">
-      <label><input type="checkbox" id="yt-embed" checked> Embed articles</label>
-      <label><input type="checkbox" id="yt-transcript" checked> Transcript synthesis</label>
-    </div>
-    <div style="display:flex;gap:8px">
-      <button class="add" onclick="testYtNew()">🧪 Test Channel</button>
-      <button class="add" onclick="addYt()">✓ Add Channel</button>
-    </div>
-  </div>
-</div>
-
-<div id="result"></div>
-
-<script>
-const show = (data) => {
-  const el = document.getElementById('result');
-  el.style.display = 'block';
-  el.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-};
-
-async function api(path, method='GET', body=null) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
-  if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(path, opts);
-  return r.json();
-}
-
-async function testRss(encodedUrl) {
-  show('Testing…');
-  show(await api('/admin/sources/test?type=rss&url=' + encodedUrl));
-}
-async function testRssNew() {
-  const u = document.getElementById('rss-url').value.trim();
-  if (!u) return show('Enter a URL first');
-  show('Testing…');
-  show(await api('/admin/sources/test?type=rss&url=' + encodeURIComponent(u)));
-}
-async function testYt(id) {
-  show('Testing…');
-  show(await api('/admin/sources/test?type=youtube&id=' + id));
-}
-async function testYtNew() {
-  const id = document.getElementById('yt-id').value.trim();
-  if (!id) return show('Enter a Channel ID first');
-  show('Testing…');
-  show(await api('/admin/sources/test?type=youtube&id=' + id));
-}
-async function testTranscript(videoId) {
-  show('Fetching transcript…');
-  show(await api('/admin/sources/test?type=transcript&id=' + videoId));
-}
-async function addRss() {
-  const url = document.getElementById('rss-url').value.trim();
-  const name = document.getElementById('rss-name').value.trim();
-  if (!url || !name) return show('URL and name are required');
-  const r = await api('/admin/sources/add', 'POST', {
-    type: 'rss', url, name,
-    trust: document.getElementById('rss-trust').value,
-    is_p4: document.getElementById('rss-p4').checked,
-    keywordFilter: document.getElementById('rss-kw').checked,
-    proxy: document.getElementById('rss-proxy').checked,
-  });
-  show(r);
-  if (r.ok) setTimeout(() => location.reload(), 800);
-}
-async function addYt() {
-  const id = document.getElementById('yt-id').value.trim();
-  const name = document.getElementById('yt-name').value.trim();
-  if (!id || !name) return show('Channel ID and name are required');
-  const r = await api('/admin/sources/add', 'POST', {
-    type: 'youtube', id, name,
-    tier: document.getElementById('yt-tier').value,
-    embed_qualify: document.getElementById('yt-embed').checked,
-    transcript_qualify: document.getElementById('yt-transcript').checked,
-  });
-  show(r);
-  if (r.ok) setTimeout(() => location.reload(), 800);
-}
-async function deleteSource(type, key) {
-  if (!confirm('Delete this source?')) return;
-  show(await api('/admin/sources/delete', 'POST', { type, key: decodeURIComponent(key) }));
-  setTimeout(() => location.reload(), 800);
-}
-</script>
-</body></html>`;
-}
-
 function renderPinPage() {
   return `<!DOCTYPE html>
 <html lang="tr">
@@ -3855,14 +3196,7 @@ h2 span{font-size:.65rem;color:#555;font-weight:400}
 <body>
 <header>
   <div class="logo">Kartal<span>ix</span> <span style="font-size:.7rem;color:#555;font-weight:400">Editör Paneli</span></div>
-  <nav style="display:flex;gap:1.25rem;margin-left:auto;align-items:center">
-    <a href="/admin" style="color:#aaa;font-size:.75rem;text-decoration:none" title="Editorial panel">✏️ Editorial</a>
-    <a href="/admin/sources" style="color:#aaa;font-size:.75rem;text-decoration:none" title="Manage sources">📡 Sources</a>
-    <a href="/report" style="color:#aaa;font-size:.75rem;text-decoration:none" title="Fetch report" target="_blank">📊 Report</a>
-    <a href="/run" style="color:#aaa;font-size:.75rem;text-decoration:none" title="Trigger fetch run" target="_blank">▶ Run</a>
-    <a href="/force-synthesis" style="color:#aaa;font-size:.75rem;text-decoration:none" title="Test synthesis" target="_blank">🧪 Synthesis</a>
-    <a href="/" style="color:#666;font-size:.75rem;text-decoration:none">← Site</a>
-  </nav>
+  <a href="/" style="color:#666;font-size:.75rem;text-decoration:none;margin-left:auto">← Site</a>
 </header>
 <main>
 
