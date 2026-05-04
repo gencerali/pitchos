@@ -12,10 +12,10 @@
 import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories } from './src/story-matcher.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings } from './src/api-football.js';
-import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo } from './src/youtube.js';
+import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
 // ─── NEXT MATCH CONFIG ────────────────────────────────────────
 const NEXT_MATCH = {
@@ -1988,14 +1988,17 @@ async function matchWatcher(env) {
 }
 
 // ─── YOUTUBE INTAKE ──────────────────────────────────────────
-// Runs once per processSite call. Fetches all 5 channels in parallel,
+// Runs once per processSite call. Fetches all channels in parallel,
 // qualifies by keyword rules, generates embed articles for new videos.
 // Max 2 embeds per channel per run to avoid feed flooding.
+// Rabona Digital videos go to daily digest instead of embed.
 async function processYouTubeVideos(site, env, seenUrls) {
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const feeds = await Promise.all(YOUTUBE_CHANNELS.map(ch => fetchYouTubeChannel(ch, since).catch(() => [])));
 
   let published = 0;
+  const rabonaQueue = [];
+
   for (let i = 0; i < YOUTUBE_CHANNELS.length; i++) {
     const channel  = YOUTUBE_CHANNELS[i];
     const videos   = feeds[i];
@@ -2006,6 +2009,13 @@ async function processYouTubeVideos(site, env, seenUrls) {
     console.log(`YT ${channel.name}: ${videos.length} fetched → ${newVids.length} qualified`);
 
     for (const video of newVids.slice(0, 2)) {
+      // Transcript-only channels go to digest queue, not embed
+      if (video.transcript_qualify && !video.embed_qualify) {
+        rabonaQueue.push(video);
+        seenUrls.add(`https://www.youtube.com/watch?v=${video.video_id}`);
+        continue;
+      }
+      if (!video.embed_qualify) continue;
       try {
         const card = await generateVideoEmbed(video, site, env);
         if (!card) continue;
@@ -2020,7 +2030,44 @@ async function processYouTubeVideos(site, env, seenUrls) {
       }
     }
   }
-  console.log(`YT INTAKE: ${published} videos embedded`);
+
+  // ── RABONA DAILY DIGEST ────────────────────────────────────────
+  // One digest article per day from Fırat Günayer's videos.
+  if (rabonaQueue.length > 0) {
+    const today   = new Date().toISOString().slice(0, 10);
+    const dayKey  = `rabona:digest:${today}`;
+    const already = await env.PITCHOS_CACHE.get(dayKey);
+    if (!already) {
+      try {
+        const transcripts = [];
+        const usedVideos  = [];
+        for (const video of rabonaQueue) {
+          const text = await fetchYouTubeTranscript(video.video_id);
+          if (text) { transcripts.push(text); usedVideos.push(video); }
+        }
+        if (transcripts.length > 0) {
+          const card = await generateRabonaDigest(usedVideos, transcripts, site, env);
+          if (card) {
+            const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+            const current = raw ? JSON.parse(raw) : [];
+            const kvCard  = toKVShape({ ...card, nvs: card.nvs || 74, is_kartalix_content: true });
+            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 100));
+            await env.PITCHOS_CACHE.put(dayKey, '1', { expirationTtl: 86400 });
+            published++;
+            console.log(`RABONA DIGEST published: ${usedVideos.length} video(s)`);
+          }
+        } else {
+          console.log(`RABONA DIGEST: ${rabonaQueue.length} video(s) queued but no transcripts returned`);
+        }
+      } catch (e) {
+        console.error('Rabona digest failed:', e.message);
+      }
+    } else {
+      console.log(`RABONA DIGEST: already published today (${today}), skipping`);
+    }
+  }
+
+  console.log(`YT INTAKE: ${published} items published`);
   return published;
 }
 

@@ -169,8 +169,7 @@ async function synthesizeArticle(article, env) {
       }
     } catch(e) {}
   }
-  const editorialNotes = await getEditorialNotes(env, ['general', 'style']);
-  const editorialCtx = editorialNotes.length ? `\n\nEditoryal kurallar:\n${editorialNotes.map(n => `- ${n}`).join('\n')}` : '';
+  const editorialCtx = await getEditorialNotes(env, ['general', 'style']);
   const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak metinden özgün bir Kartalix haberi yaz.
 
 Kaynak başlık: ${article.title}
@@ -186,7 +185,7 @@ Kurallar:
 
 Sadece haber metnini yaz, başlık veya ekstra açıklama ekleme.`;
 
-  const res = await callClaude(MODEL_FETCH, [{ role: 'user', content: prompt }], 600, env);
+  const res = await callClaude(env, MODEL_FETCH, prompt, false, 600);
   return extractText(res.content).trim();
 }
 
@@ -1229,6 +1228,7 @@ YAZIM KURALLARI:
     publish_mode: 'template_result',
     status:       'published',
     template_id:  'T11',
+    fixture_id:   fixture.fixture_id || null,
     slug,
     published_at: new Date().toISOString(),
     reviewed_at:  new Date().toISOString(),
@@ -1236,7 +1236,7 @@ YAZIM KURALLARI:
   });
 
   console.log(`T11 RESULT FLASH: "${title}"`);
-  return saved?.[0] || { title, summary, full_body: body, template_id: 'T11', slug, published_at: new Date().toISOString() };
+  return saved?.[0] || { title, summary, full_body: body, template_id: 'T11', fixture_id: fixture.fixture_id || null, slug, published_at: new Date().toISOString() };
 }
 
 // ─── T13 MAN OF THE MATCH ─────────────────────────────────────
@@ -1397,6 +1397,7 @@ Sadece Türkçe haber metnini yaz.`;
     publish_mode: 'template_match_report',
     status:       'published',
     template_id:  'T12',
+    fixture_id:   fixture.fixture_id || null,
     slug,
     published_at: new Date().toISOString(),
     reviewed_at:  new Date().toISOString(),
@@ -1404,7 +1405,7 @@ Sadece Türkçe haber metnini yaz.`;
   });
 
   console.log(`T12 MATCH REPORT: "${title.slice(0, 60)}" → ${body.split(/\s+/).length} words`);
-  return saved?.[0] || { title, summary, full_body: body, template_id: 'T12', slug, published_at: new Date().toISOString() };
+  return saved?.[0] || { title, summary, full_body: body, template_id: 'T12', fixture_id: fixture.fixture_id || null, slug, published_at: new Date().toISOString() };
 }
 
 // ─── T-VID YOUTUBE EMBED ─────────────────────────────────────
@@ -1451,6 +1452,75 @@ Sadece tanıtım cümlesini yaz.`;
   console.log(`T-VID: "${title.slice(0, 60)}" [${video.channel_name}]`);
   return saved?.[0] || { title, summary: intro, full_body, template_id: 'T-VID', slug,
     published_at: video.published_at, source_name: video.channel_name, nvs_score: nvs };
+}
+
+// ─── MATCH VIDEO TEMPLATES ───────────────────────────────────
+// T-VID-HLT highlights / T-VID-GOL goal clip / T-VID-INT interview /
+// T-VID-BP press conference / T-VID-REF referee analysis.
+// All Super Lig only. match = nextMatch object from backgroundWork.
+export async function generateMatchVideoEmbed(video, videoType, match, site, env) {
+  const opp  = match?.opponent || 'rakip';
+  const isPost = video.published_at > (match?.kickoff_iso || '');
+
+  const typeConfig = {
+    highlights: {
+      template: 'T-VID-HLT', nvs: 85,
+      prompt: `Beşiktaş'ın ${opp} karşısındaki Trendyol Süper Lig maçının özetini gösteren bu videoyu Türkçe 1-2 cümleyle tanıt. Sade haber dili, emoji yok.`,
+    },
+    goal_bjk: {
+      template: 'T-VID-GOL', nvs: 80,
+      prompt: `Beşiktaş'ın ${opp} karşısındaki maçta attığı golü gösteren bu klip için Türkçe 1 cümlelik tanıtım yaz. Sade haber dili, emoji yok.`,
+    },
+    press_conf: {
+      template: 'T-VID-BP', nvs: 82,
+      prompt: `Beşiktaş teknik direktörünün ${opp} maçı ${isPost ? 'sonrası' : 'öncesi'} basın toplantısını tanıtan Türkçe 1 cümle yaz. Sade haber dili, emoji yok.`,
+    },
+    interview: {
+      template: 'T-VID-INT', nvs: 78,
+      prompt: `Beşiktaş ${opp} maçı ${isPost ? 'sonrası' : 'öncesi'} röportajını tanıtan Türkçe 1 cümle yaz. Sade haber dili, emoji yok.`,
+    },
+    referee: {
+      template: 'T-VID-REF', nvs: 72,
+      prompt: `Beşiktaş ${opp} karşılaşmasındaki hakem kararlarını değerlendiren bu videoyu tanıtan Türkçe 1 cümle yaz. Sade haber dili, emoji yok.`,
+    },
+  };
+
+  const cfg = typeConfig[videoType] || typeConfig.interview;
+
+  const res   = await callClaude(env, 'claude-haiku-4-5-20251001',
+    `Sen Kartalix'in spor editörüsün. ${cfg.prompt}\n\nVideo başlığı: ${video.title}\nKanal: ${video.channel_name}\n\nSadece tanıtım metnini yaz.`,
+    false, 150);
+  const intro = extractText(res.content).trim();
+  if (!intro) return null;
+
+  const full_body = `<p>${intro}</p>\n<div class="yt-embed" style="margin:1.5rem 0"><iframe width="100%" height="380" src="https://www.youtube.com/embed/${video.video_id}" frameborder="0" allowfullscreen loading="lazy" style="border-radius:6px;display:block"></iframe></div>`;
+  const title     = video.title;
+  const slug      = generateSlug(title, video.published_at);
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'youtube',
+    source_name:  video.channel_name,
+    original_url: `https://www.youtube.com/watch?v=${video.video_id}`,
+    title,
+    summary:      intro,
+    full_body,
+    category:     'Video',
+    content_type: 'youtube_embed',
+    sport:        'football',
+    nvs_score:    cfg.nvs,
+    publish_mode: `youtube_${videoType}`,
+    status:       'published',
+    template_id:  cfg.template,
+    slug,
+    published_at: video.published_at,
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+  });
+
+  console.log(`${cfg.template}: "${title.slice(0, 60)}" [${video.channel_name}]`);
+  return saved?.[0] || { title, summary: intro, full_body, template_id: cfg.template, slug,
+    published_at: video.published_at, source_name: video.channel_name, nvs_score: cfg.nvs };
 }
 
 // ─── T-xG DELTA ──────────────────────────────────────────────
@@ -1701,4 +1771,144 @@ YAZIM KURALLARI:
   });
   console.log(`T-PEN MISSED PENALTY: "${title}"`);
   return saved?.[0] || { title, full_body: body, template_id: 'T-PEN', slug, published_at: new Date().toISOString() };
+}
+
+// ─── ORIGINAL NEWS SYNTHESIS ──────────────────────────────────
+// Generates an original Kartalix article from 1-3 P4 source articles
+// covering the same story. No source attribution — pure Kartalix voice.
+export async function generateOriginalNews(sources, site, env) {
+  const sourceBlocks = sources.map((a, i) =>
+    `[Kaynak ${i + 1}] Başlık: ${a.title}\n${(a.summary || '').slice(0, 600)}`
+  ).join('\n\n');
+
+  const editorialCtx = await getEditorialNotes(env, ['general', 'style']);
+
+  const isNationalTeam = sources.some(a =>
+    /milli takım|milli maç|a milli|b milli|national team|türkiye \d|\d\. türkiye/i.test(a.title + ' ' + (a.summary || ''))
+  );
+  const isOtherSport = sources.some(a =>
+    /hentbol|basketbol|voleybol|e-?spor/i.test(a.title + ' ' + (a.summary || ''))
+  );
+
+  const hasBjkPlayer = sources.some(a =>
+    /beşiktaş(lı|'tan|'ın|'a)?/i.test(a.title + ' ' + (a.summary || ''))
+  );
+  const sportCtx = isNationalTeam
+    ? hasBjkPlayer
+      ? `\nMİLLİ TAKIM HABERİ: Haberde Beşiktaşlı oyuncuların performansını ön plana çıkar — oynadığı dakikalar, attığı goller/asistler, önemli anlar. Beşiktaş bağlantısını güçlü tut.`
+      : `\nMİLLİ TAKIM HABERİ: Türk millî takımının sonucunu ve önemli anları anlat. Dünya Kupası veya büyük turnuva bağlamında Türk spor kamuoyunun ilgisini çekecek bir haber yaz. Beşiktaşlı oyuncu varsa özellikle belirt, yoksa genel millî heyecanı yansıt.`
+    : isOtherSport
+    ? `\nDİĞER SPOR DALI: Beşiktaş'ın bu branştaki başarısını futbol fanatiği bir okuyucuya da heyecan verecek şekilde anlat — kulüp kimliğini, turnuva bağlamını ve skoru net ortaya koy.`
+    : '';
+
+  const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak bilgilerden yola çıkarak tamamen özgün bir Kartalix haberi yaz.${editorialCtx}${sportCtx}
+
+${sourceBlocks}
+
+KURALLAR:
+- 300–400 kelime, Türkçe
+- Hiçbir kaynağa atıf yapma — "kaynağına göre", "iddia ediyor", "bildirildi" gibi ifadeler yasak
+- Bilgiyi Kartalix'in kendi sesi olarak doğrudan sun
+- Haber cümlesiyle başla (kim, ne, ne zaman)
+- BJK taraftarının perspektifinden, analitik ve güçlü bir ses tonu
+- Paragraflar arası boş satır bırak
+- Sadece haber metnini yaz, başlık ekleme`;
+
+  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 800);
+  const body = extractText(res.content).trim();
+  if (!body || body.length < 150) return null;
+
+  const primary = sources[0];
+  const slug = generateSlug(primary.title, new Date().toISOString().slice(0, 10));
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id: site.id, source_type: 'kartalix', source_name: 'Kartalix', original_url: '',
+    title: primary.title, summary: body.slice(0, 220), full_body: body,
+    category: primary.category || 'Club', content_type: 'kartalix_generated',
+    sport: 'football', nvs_score: primary.nvs || 65,
+    publish_mode: 'original_synthesis', status: 'published',
+    slug, published_at: new Date().toISOString(), reviewed_at: new Date().toISOString(), reviewed_by: 'auto',
+  }).catch(() => null);
+
+  console.log(`ORIGINAL NEWS: "${primary.title?.slice(0, 60)}" (${sources.length} source(s))`);
+  return {
+    title:               primary.title,
+    summary:             body.slice(0, 220),
+    full_body:           body,
+    source_name:         'Kartalix',
+    source:              'Kartalix',
+    published_at:        new Date().toISOString(),
+    is_kartalix_content: true,
+    is_template:         false,
+    publish_mode:        'original_synthesis',
+    nvs:                 primary.nvs || 65,
+    category:            primary.category || 'Club',
+    slug,
+    url:                 '',
+    source_url:          '',
+    image_url:           '',
+    is_p4:               false,
+    is_fresh:            true,
+    sport:               'football',
+    template_id:         null,
+    fixture_id:          null,
+    ...(saved?.[0] ? { id: saved[0].id } : {}),
+  };
+}
+
+// Daily digest of Fırat Günayer's Rabona Digital videos.
+// Combines transcripts from all of today's videos into one analysis article.
+// Called once per day — caller must gate with a KV date-key.
+export async function generateRabonaDigest(videos, transcripts, site, env) {
+  if (!transcripts.length) return null;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const videoBlocks = transcripts.map((t, i) =>
+    `[Video ${i + 1}] "${videos[i].title}"\n${t.slice(0, 800)}`
+  ).join('\n\n---\n\n');
+
+  const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Fırat Günayer, Rabona Digital'de bugün Beşiktaş hakkında analiz videoları yayınladı. Aşağıda bu videoların transkriptleri var.
+
+${videoBlocks}
+
+GÖREV: Bu transkriptlerden yola çıkarak Fırat Günayer'in bugünkü Beşiktaş analizini özetleyen özgün bir Kartalix haberi yaz.
+
+KURALLAR:
+- 250–350 kelime, Türkçe
+- "Fırat Günayer'e göre" veya benzeri atıf kullanabilirsin — bu bir analist değerlendirmesidir
+- En önemli görüş ve argümanları ön plana çıkar
+- BJK taraftarının ilgisini çekecek analitik dil kullan
+- Paragraflar arası boş satır bırak
+- Sadece haber metnini yaz, başlık ekleme`;
+
+  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 700);
+  const body = extractText(res.content).trim();
+  if (!body || body.length < 150) return null;
+
+  const title = `Fırat Günayer'den Günün Beşiktaş Değerlendirmesi (${today})`;
+  const slug  = generateSlug(title, today);
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id: site.id, source_type: 'youtube', source_name: 'Rabona Digital',
+    original_url: `https://www.youtube.com/c/RabonaDigital`,
+    title, summary: body.slice(0, 220), full_body: body,
+    category: 'Analiz', content_type: 'kartalix_generated',
+    sport: 'football', nvs_score: 74,
+    publish_mode: 'rabona_digest', status: 'published',
+    slug, published_at: new Date().toISOString(),
+    reviewed_at: new Date().toISOString(), reviewed_by: 'auto',
+  }).catch(() => null);
+
+  console.log(`RABONA DIGEST: ${transcripts.length} video(s) → "${title.slice(0, 60)}"`);
+  return {
+    title, summary: body.slice(0, 220), full_body: body,
+    source_name: 'Rabona Digital', source: 'Rabona Digital',
+    published_at: new Date().toISOString(),
+    is_kartalix_content: true, is_template: false,
+    publish_mode: 'rabona_digest', nvs: 74,
+    category: 'Analiz', slug, url: '', source_url: '',
+    image_url: '', is_p4: false, is_fresh: true, sport: 'football',
+    template_id: null, fixture_id: null,
+    ...(saved?.[0] ? { id: saved[0].id } : {}),
+  };
 }

@@ -29,6 +29,7 @@ export const YOUTUBE_CHANNELS = [
 const EXCLUDE_TERMS = ['#shorts', ' shorts '];
 // Matches "YYYY/YYYY" season notation for pre-2024 seasons (e.g. "2016/2017", "2022/2023")
 const ARCHIVE_SEASON_RE = /\b20(0[0-9]|1[0-9]|2[0-3])\/20\d{2}\b/;
+const BJK_TITLE_RE = /beşiktaş|besiktas|bjk|kartal|siyah.beyaz/i;
 
 // ─── MATCH VIDEO CLASSIFICATION ───────────────────────────────
 // Returns a match video type when the video is clearly linked to a Süper Lig
@@ -115,6 +116,7 @@ function parseAtomFeed(xml, channel, since) {
       channel_id:         channel.id,
       channel_name:       channel.name,
       channel_tier:       channel.tier,
+      all_qualify:        channel.all_qualify ?? false,
       embed_qualify:      channel.embed_qualify ?? true,
       transcript_qualify: channel.transcript_qualify ?? false,
     });
@@ -141,11 +143,13 @@ export async function fetchYouTubeTranscript(videoId) {
   }
 }
 
-// Hard pre-filter — drops shorts and archive re-uploads before any Claude cost.
+// Hard pre-filter — drops shorts, archive re-uploads, and off-topic content.
+// For broadcast/digital channels (all_qualify=false), title must mention Beşiktaş.
 export function qualifyYouTubeVideo(video) {
   const t = video.title.toLowerCase();
   if (EXCLUDE_TERMS.some(k => t.includes(k))) return false;
   if (ARCHIVE_SEASON_RE.test(video.title)) return false;
+  if (!video.all_qualify && !BJK_TITLE_RE.test(video.title)) return false;
   return true;
 }
 
