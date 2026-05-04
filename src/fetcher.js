@@ -438,11 +438,12 @@ export async function fetchBeIN(_site, _env) {
 }
 
 // ─── TWITTER SOURCES ─────────────────────────────────────────
-// Twitter API v2 free tier: 500k reads/month, no cost.
-// Searches recent tweets from trusted BJK journalists + official account.
-// Returns normalized articles (no Claude calls — zero scoring cost).
+// X API free tier does NOT include search (CreditsDepleted 402).
+// Basic plan required ($100/month) — disabled until revenue justifies cost.
+// Re-enable by removing the early return when upgrading to Basic.
 export async function fetchTwitterSources(_site, env) {
-  const token = env.TWITTER_BEARER_TOKEN;
+  return { articles: [], usage: { input_tokens: 0, output_tokens: 0 } };
+  const token = env.TWITTER_BEARER_TOKEN; // eslint-disable-line no-unreachable
   if (!token) return { articles: [], usage: { input_tokens: 0, output_tokens: 0 } };
 
   // Trusted accounts: official + beat journalists covering BJK transfers/news
