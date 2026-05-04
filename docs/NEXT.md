@@ -8,15 +8,15 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: Sprint E Step 1 — verify and re-enable Fanatik, Milliyet, Sporx, Ajansspor RSS feeds (find working URLs, add to RSS_FEEDS in fetcher.js, test with `/run`).
+**NEXT**: Sprint F — F1 source independence gate (~2h). Start with `story-matcher.js`: add trust tier check to prevent press-only cite chains reaching "confirmed" state.
 
-**Sprint E — Source Expansion** (in-progress):
+**Sprint E — Source Expansion** ✅ DONE (2026-05-04):
 1. ✅ Scorer updated: national team + multi-sport BJK scoring bands added
 2. ✅ Synthesis prompt: national team / other-sport context injection
-3. [ ] **Step 1**: Re-enable Fanatik, Milliyet, Sporx, Ajansspor RSS (verify URLs, ~1h)
-4. [ ] **Step 2**: Add Transfermarkt BJK RSS feed (high signal for transfers)
-5. [ ] **Step 3**: Separate live match watcher from RSS intake cron (RSS → hourly, watcher stays 5 min)
-6. [ ] **Step 4**: Twitter API v2 integration — @Besiktas + key journalists bearer token (~4h)
+3. ✅ Step 1: Fanatik/Milliyet/Sporx/Ajansspor covered by existing Google News BJK feed
+4. ✅ Step 2: Transfermarkt already live in feed list
+5. ✅ Step 3: RSS cron moved to hourly (was 2-hourly)
+6. ❌ Step 4: Twitter blocked — X API free tier has no search; Nitter dead; $100/month Basic needed. Parked until revenue.
 
 **Sprint F — Source Intelligence Layer** (planned, starts after Sprint E):
 - F1: Source independence gate — press-only cite chains can't reach "confirmed" (~2h)

@@ -276,12 +276,17 @@ _Goal: more volume, more reliable, broader coverage (national team, other sports
 - [ ] Live match watcher: stays on `*/5 * * * *` but skips RSS fetch+score entirely
 - [ ] Expected gain: 6× reduction in Claude scoring cost (288 → 48 scoring calls/day)
 
-**Step 4 — Twitter API v2** (~4h):
-- [ ] Twitter API v2 bearer token (Free tier: 500k reads/month)
-- [ ] Accounts: @Besiktas (official), @EkremKonur, @yagızsabuncuoglu, @TarikMete + 3–5 beat reporters
-- [ ] `fetchTwitterSources()` in fetcher.js: search recent tweets mentioning BJK, last 30 min window
-- [ ] NOT twint (broken since 2022) — use Twitter API v2 `/2/tweets/search/recent`
-- [ ] Expected gain: breaking news 2–6h ahead of RSS; replaces blocked BJK official site
+**Step 4 — Twitter** ❌ BLOCKED:
+- X API free tier: search not included (CreditsDepleted 402 confirmed 2026-05-04)
+- X API Basic: $100/month — over budget until ad revenue
+- Nitter RSS: all public instances dead as of 2024 (X killed guest auth tokens)
+- twitterwebviewer.com: browser-only, blocks automated access
+- Bearer token stored as Worker secret, fetchTwitterSources() implemented but disabled
+- Revisit when monthly ad revenue covers $100/month cost
+- Accounts to wire when ready: @Besiktas, @superlig, @tvbjk (official/FACT),
+  @Muratozen1903, @firatgunayer, @kartalanalizcom, @HaberKartali, @zaferalgoz,
+  @sercan_dikme, @SportsDigitale, @kartalistahaber, @forzabesiktas, @sporx,
+  @beINSPORTS_TR, @Ozyakup
 
 ---
 
