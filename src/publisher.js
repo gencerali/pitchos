@@ -1874,18 +1874,22 @@ ${videoBlocks}
 GÖREV: Bu transkriptlerden yola çıkarak Fırat Günayer'in bugünkü Beşiktaş analizini özetleyen özgün bir Kartalix haberi yaz.
 
 KURALLAR:
-- 250–350 kelime, Türkçe
-- "Fırat Günayer'e göre" veya benzeri atıf kullanabilirsin — bu bir analist değerlendirmesidir
+- İlk satır: okuyucunun tıklamak isteyeceği, merak uyandıran Türkçe bir başlık. Gerçek içeriği yansıtsın, clickbait olmasın. "BAŞLIK: " öneki ile yaz.
+- Ardından boş bir satır bırak
+- 250–350 kelime haber metni
+- "Fırat Günayer'e göre" veya benzeri atıf kullanabilirsin
 - En önemli görüş ve argümanları ön plana çıkar
 - BJK taraftarının ilgisini çekecek analitik dil kullan
-- Paragraflar arası boş satır bırak
-- Sadece haber metnini yaz, başlık ekleme`;
+- Paragraflar arası boş satır bırak`;
 
-  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 700);
-  const body = extractText(res.content).trim();
-  if (!body || body.length < 150) return null;
+  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 750);
+  const raw  = extractText(res.content).trim();
+  if (!raw || raw.length < 150) return null;
 
-  const title = `Fırat Günayer'den Günün Beşiktaş Değerlendirmesi (${today})`;
+  const titleMatch = raw.match(/^BAŞLIK:\s*(.+)/m);
+  const title = titleMatch ? titleMatch[1].trim() : videos[0].title;
+  const body  = raw.replace(/^BAŞLIK:.*\n+/m, '').trim();
+  if (body.length < 150) return null;
   const slug  = generateSlug(title, today);
 
   const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
