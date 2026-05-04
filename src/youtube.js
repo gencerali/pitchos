@@ -9,14 +9,14 @@
 
 export const YOUTUBE_CHANNELS = [
   // Official Beşiktaş — all videos qualify; embed + transcript both enabled
-  { id: 'UCLJVUlpsxZcIMECVDcZaM2g', name: 'Beşiktaş JK',       tier: 'official',   all_qualify: true,  embed_qualify: true,  transcript_qualify: true  },
+  { id: 'UCLJVUlpsxZcIMECVDcZaM2g', name: 'Beşiktaş JK',       tier: 'official',   all_qualify: true,  embed_qualify: true,  transcript_qualify: false },
 
-  // Broadcast — match highlights and press conf embeds; transcripts for interviews/analysis
+  // Broadcast — match highlights and press conf embeds; no transcript synthesis
   { id: 'UCNopxUNUMinlK3ybMGlpbGQ', name: 'beIN SPORTS TR',     tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
-  { id: 'UCJElRTCNEmLemgirqvsW63Q', name: 'A Spor',             tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
-  { id: 'UCebdo7-2NdjcktKzco64iNw', name: 'TRT Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
+  { id: 'UCJElRTCNEmLemgirqvsW63Q', name: 'A Spor',             tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
+  { id: 'UCebdo7-2NdjcktKzco64iNw', name: 'TRT Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
 
-  // Digital / analysis channels — transcript synthesis only, no embed
+  // Digital / analysis — Fırat Günayer videos on Rabona; transcript synthesis only, no embed
   { id: 'UCpj3LeIWetKktdIJQcBx-uw', name: 'Rabona Digital',     tier: 'digital',    all_qualify: false, embed_qualify: false, transcript_qualify: true  },
 
   // Additional channels — add channel IDs below (find via youtube.com/@handle → About → Share → Copy channel ID)
