@@ -31,11 +31,16 @@ export const RSS_FEEDS = [
   { url: 'https://www.fotomac.com.tr/rss/Besiktas.xml',    name: 'Fotomaç',      trust: 'press',     sport: 'football', is_p4: true,  proxy: true },
   { url: 'https://www.aspor.com.tr/rss/besiktas.xml',      name: 'A Spor',       trust: 'broadcast', sport: 'football', is_p4: true,  proxy: true },
 
-  // International removed — Sky Sports 0 BJK matches, Transfermarkt feed broken
+  // Transfermarkt TR — transfer rumours and confirmed moves, general Turkish football feed
+  // 403 direct, routed via proxy. keywordFilter required (covers all Turkish clubs).
+  { url: 'https://www.transfermarkt.com.tr/rss/news', name: 'Transfermarkt', trust: 'journalist', sport: 'football', is_p4: false, proxy: true, keywordFilter: true },
+
+  // Reddit r/besiktas — English-language fan community, international transfer news + sentiment
+  { url: 'https://www.reddit.com/r/besiktas/.rss', name: 'Reddit BJK', trust: 'journalist', sport: 'football', is_p4: false, proxy: true, keywordFilter: true },
 ];
 
 // ─── RENDER PROXY ─────────────────────────────────────────────
-async function fetchViaRss2Json(feed) {
+export async function fetchViaRss2Json(feed) {
   const proxyUrl = `https://pitchos-proxy.onrender.com/rss?url=${encodeURIComponent(feed.url)}`;
   try {
     const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
@@ -43,17 +48,24 @@ async function fetchViaRss2Json(feed) {
     const text = await res.text();
     console.log(`PROXY [${feed.name}]: ${text.length} chars`);
 
-    const items = text.match(/<item[\s\S]*?<\/item>/g) || [];
+    // Support both RSS <item> and Atom <entry> (Reddit uses Atom)
+    const items = text.match(/<item[\s\S]*?<\/item>/g)
+               || text.match(/<entry[\s\S]*?<\/entry>/g)
+               || [];
     console.log(`PROXY [${feed.name}]: ${items.length} items parsed`);
 
     return items.slice(0, 30).map(item => {
       const title = item.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i)?.[1]
-                 || item.match(/<title>([^<]+)<\/title>/i)?.[1] || '';
-      const url = item.match(/<link>([^<]+)<\/link>/i)?.[1]
+                 || item.match(/<title[^>]*>([^<]+)<\/title>/i)?.[1] || '';
+      const url = item.match(/<link[^>]+href="([^"]+)"/i)?.[1]
+               || item.match(/<link>([^<]+)<\/link>/i)?.[1]
                || item.match(/<guid>([^<]+)<\/guid>/i)?.[1] || '';
       const desc = item.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/i)?.[1]
-                || item.match(/<description>([^<]+)<\/description>/i)?.[1] || '';
-      const pubRaw = item.match(/<pubDate>([^<]+)<\/pubDate>/i)?.[1] || '';
+                || item.match(/<description[^>]*>([^<]+)<\/description>/i)?.[1]
+                || item.match(/<content[^>]*>([\s\S]*?)<\/content>/i)?.[1] || '';
+      const pubRaw = item.match(/<pubDate>([^<]+)<\/pubDate>/i)?.[1]
+                  || item.match(/<published>([^<]+)<\/published>/i)?.[1]
+                  || item.match(/<updated>([^<]+)<\/updated>/i)?.[1] || '';
       const pubDate = pubRaw ? new Date(pubRaw) : null;
       const published_at = pubDate && !isNaN(pubDate.getTime()) ? pubDate.toISOString() : null;
 
@@ -78,7 +90,7 @@ async function fetchViaRss2Json(feed) {
         sport:        'football',
         is_fresh:     true,
         time_ago:     'Güncel',
-        is_p4:        true,
+        is_p4:        feed.is_p4 ?? true,
       };
     }).filter(a => a !== null && a.title.length > 5);
   } catch(e) {
@@ -89,18 +101,22 @@ async function fetchViaRss2Json(feed) {
 
 // ─── RSS FETCH ────────────────────────────────────────────────
 // Returns { articles, bySource: { feedName: { raw, after_date, after_keyword } } }
-export async function fetchRSSArticles(site) {
+export async function fetchRSSArticles(site, overrideFeeds = null) {
   const allArticles = [];
   const bySource = {};
 
-  const feeds    = site.feed_config?.feeds       || RSS_FEEDS;
+  const feeds    = overrideFeeds || site.feed_config?.feeds || RSS_FEEDS;
   const keywords = site.keyword_config?.keywords || BJK_KEYWORDS;
 
   for (const feed of feeds) {
     if (feed.proxy) {
       const proxyItems = await fetchViaRss2Json(feed);
-      allArticles.push(...proxyItems);
-      bySource[feed.name] = { raw: proxyItems.length, after_date: proxyItems.length, after_keyword: proxyItems.length };
+      const raw = proxyItems.length;
+      const filtered = feed.keywordFilter
+        ? proxyItems.filter(a => keywords.some(k => (a.title + ' ' + (a.summary || '')).toLowerCase().includes(k.toLowerCase())))
+        : proxyItems;
+      allArticles.push(...filtered);
+      bySource[feed.name] = { raw, after_date: raw, after_keyword: filtered.length };
       continue;
     }
 
@@ -422,10 +438,81 @@ export async function fetchBeIN(_site, _env) {
 }
 
 // ─── TWITTER SOURCES ─────────────────────────────────────────
-// Web search disabled (2026-05-01) — $0.01/call × 240 calls/month = $2.40/month not justified.
-// Slice 4 will wire @Besiktas via Telegram/RSS when BJK official feed is confirmed.
-export async function fetchTwitterSources(_site, _env) {
-  return { articles: [], usage: { input_tokens: 0, output_tokens: 0 } };
+// Twitter API v2 free tier: 500k reads/month, no cost.
+// Searches recent tweets from trusted BJK journalists + official account.
+// Returns normalized articles (no Claude calls — zero scoring cost).
+export async function fetchTwitterSources(_site, env) {
+  const token = env.TWITTER_BEARER_TOKEN;
+  if (!token) return { articles: [], usage: { input_tokens: 0, output_tokens: 0 } };
+
+  // Trusted accounts: official + beat journalists covering BJK transfers/news
+  const ACCOUNTS = [
+    'Besiktas',           // official club
+    'EkremKonur',         // transfer journalist
+    'yagızsabuncuoglu',   // senior transfer reporter
+    'TarikMete',          // BJK beat reporter
+    'haberbesiktas',      // BJK news account
+    'bjk_transferhaber',  // transfer news
+  ];
+
+  const fromQuery = ACCOUNTS.map(a => `from:${a}`).join(' OR ');
+  // Also catch BJK mentions from any account with high follower signal
+  const query = `(${fromQuery} OR (beşiktaş (transfer OR imza OR kadro OR sakatlık OR hoca)) ) lang:tr -is:retweet -is:reply`;
+
+  // Only tweets from last 35 minutes (cron runs hourly, 5-min buffer)
+  const startTime = new Date(Date.now() - 35 * 60 * 1000).toISOString();
+
+  try {
+    const url = 'https://api.twitter.com/2/tweets/search/recent'
+      + `?query=${encodeURIComponent(query)}`
+      + `&max_results=20`
+      + `&start_time=${encodeURIComponent(startTime)}`
+      + `&tweet.fields=created_at,author_id,text,entities`
+      + `&expansions=author_id`
+      + `&user.fields=username,name,verified`;
+
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!res.ok) {
+      console.error(`Twitter API ${res.status}:`, await res.text().catch(() => ''));
+      return { articles: [], usage: { input_tokens: 0, output_tokens: 0 } };
+    }
+
+    const data = await res.json();
+    const tweets = data.data || [];
+    const users  = Object.fromEntries((data.includes?.users || []).map(u => [u.id, u]));
+
+    const articles = tweets.map(t => {
+      const user    = users[t.author_id] || {};
+      const isOfficial = user.username?.toLowerCase() === 'besiktas';
+      return {
+        title:        t.text.slice(0, 120),
+        summary:      t.text,
+        full_text:    null,
+        source:       `@${user.username || 'twitter'}`,
+        source_name:  user.name || user.username || 'Twitter',
+        url:          `https://twitter.com/${user.username}/status/${t.id}`,
+        image_url:    null,
+        published_at: t.created_at,
+        category:     'Club',
+        trust_tier:   isOfficial ? 'official' : 'journalist',
+        is_fresh:     true,
+        is_p4:        false,
+        sport:        'football',
+        time_ago:     'Güncel',
+      };
+    });
+
+    console.log(`TWITTER: ${articles.length} tweets fetched`);
+    return { articles, usage: { input_tokens: 0, output_tokens: 0 } };
+
+  } catch (e) {
+    console.error('Twitter fetch error:', e.message);
+    return { articles: [], usage: { input_tokens: 0, output_tokens: 0 } };
+  }
 }
 
 // ─── FETCH FULL ARTICLE TEXT ──────────────────────────────────
