@@ -8,17 +8,37 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: Sprint B remaining items (widgets).
+**NEXT**: Sprint E Step 1 — verify and re-enable Fanatik, Milliyet, Sporx, Ajansspor RSS feeds (find working URLs, add to RSS_FEEDS in fetcher.js, test with `/run`).
 
-**Sprint B remaining** (~2h):
-1. Create `tr.json` Turkish widget translation file
-2. Add `/widgets/tr.json` static endpoint to worker
-3. H2H widget on T02 articles
+**Sprint E — Source Expansion** (in-progress):
+1. ✅ Scorer updated: national team + multi-sport BJK scoring bands added
+2. ✅ Synthesis prompt: national team / other-sport context injection
+3. [ ] **Step 1**: Re-enable Fanatik, Milliyet, Sporx, Ajansspor RSS (verify URLs, ~1h)
+4. [ ] **Step 2**: Add Transfermarkt BJK RSS feed (high signal for transfers)
+5. [ ] **Step 3**: Separate live match watcher from RSS intake cron (RSS → hourly, watcher stays 5 min)
+6. [ ] **Step 4**: Twitter API v2 integration — @Besiktas + key journalists bearer token (~4h)
+
+**Sprint F — Source Intelligence Layer** (planned, starts after Sprint E):
+- F1: Source independence gate — press-only cite chains can't reach "confirmed" (~2h)
+- F2: YouTube into unified pipeline — story matching + nvs_hint scoring (~6h)
+- F3: Lightweight source config — `source_configs` Supabase table + `/admin/sources` edit UI (~7h)
+- Full scope and rationale: SLICES.md Sprint F section
+
+**Sprint D — Original News Synthesis** ✅ DONE (2026-05-02)
+- Raw RSS/P4 articles removed from KV frontend feed — only templates + original synthesis appear
+- `generateOriginalNews(sources, site, env)` in publisher.js: multi-source, no attribution, 300–400 word Kartalix voice
+- Synthesis loop in backgroundWork: top P4 stories (NVS≥55), cap 3/run, skip match_result/squad
+- Dedup key: `synth:{hash}:{date}` in KV — prevents same story being re-synthesized same day
+- Multi-source context: collects related P4 articles via titleSimilarity(>0.25) for richer Claude input
+- `/force-synthesis?publish=1` debug endpoint added (tests with top recent Supabase P4 articles)
 
 **Sprint C — YouTube Embed** ✅ DONE (2026-05-02)
 - 5 channels live: Beşiktaş JK, beIN SPORTS TR, A Spor, Rabona Digital, TRT Spor
 - Keyword qualification + archive season filter working
 - 3 videos published on first run (Sergen Yalçın basın toplantısı, Josef/Guedes alumni return, BJK 2-1 Eyüpspor full match)
+- Match-specific templates live: T-VID-HLT, T-VID-GOL, T-VID-BP, T-VID-INT, T-VID-REF (Süper Lig only)
+- `classifyMatchVideo` routes to match templates; falls back to generic T-VID outside Süper Lig context
+- `/force-yt` now shows `match_type` per video and uses match templates when `?publish=1`
 
 **Backlog (done)**:
 - Sprint A ✅ — T-HT, T-RED, T-VAR, T-OG, T-PEN deployed (d6bb2e0d)
@@ -75,4 +95,4 @@ Update this at the END of every work session. Not the start — the end. Future-
 - match_result + squad filtered from story system (`SKIP_STORY_TYPES`) — handled by templates
 - story-matcher: judge prompt includes pre-classified type hint; createStory uses it as fallback
 
-*Last updated: 2026-05-01 (session 8, Sprint A complete)*
+*Last updated: 2026-05-04 (session 10 — Sprint F scoped; Rabona digest + non-BJK filter + Supadata live)*

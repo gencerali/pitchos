@@ -244,6 +244,77 @@ Out of scope for Sprint C (addressed in Slice 1 extension):
 
 **Full YouTube pipeline plan** (Steps 1–9, including captions + firewall + produce branching): logged in DECISIONS.md 2026-05-02 entry. Planned for after Slice 1 ships.
 
+**Sprint D — Original News Synthesis** ✅ DONE (2026-05-02)
+
+_Architectural decision: RSS/P4 sources are inputs only. All published content is original Claude-generated Kartalix articles. No referenced news._
+
+- [x] Raw RSS/P4 articles removed from KV frontend feed — only templates + original synthesis visible
+- [x] `generateOriginalNews(sources, site, env)` in publisher.js — multi-source, 300–400 word, no attribution
+- [x] Synthesis loop in backgroundWork: NVS≥55, cap 5/run, skip match_result/squad (template-handled)
+- [x] Dedup key `synth:{hash}:{date}` in KV — same story not re-synthesized same day
+- [x] Multi-source: related articles (titleSimilarity>0.25) bundled for richer Claude context
+- [x] National team + multi-sport scoring updated: World Cup, Olympics, BJK handball/basketball/volleyball all scored and synthesised
+- [x] Synthesis prompt: context-aware national team (spotlight BJK players) + other-sport framing
+- [x] `/force-synthesis` debug endpoint — dry-run + `?publish=1`, shows total_recent/already_covered/new_candidates
+
+**Sprint E — Source Expansion** ← CURRENT SPRINT
+
+_Goal: more volume, more reliable, broader coverage (national team, other sports, breaking transfers)._
+
+**Step 1 — Disabled RSS feeds** (~1h):
+- [ ] Find working URLs for Fanatik, Milliyet Spor, Sporx, Ajansspor (currently commented out)
+- [ ] Add to RSS_FEEDS in src/fetcher.js, test with `/run`
+- [ ] Expected gain: +30–50 articles/day
+
+**Step 2 — Transfermarkt RSS** (~30min):
+- [ ] Add `https://www.transfermarkt.com.tr/besiktas-jk/ticker/verein/114/format/atom` to RSS_FEEDS
+- [ ] Trust tier: `journalist`, P4: false (Transfermarkt is authoritative for transfers)
+- [ ] Expected gain: high-signal transfer rumours 24-48h before Turkish press
+
+**Step 3 — Cron separation** (~2h):
+- [ ] RSS intake: move to `0 */1 * * *` (hourly) — RSS feeds don't update faster than this
+- [ ] Live match watcher: stays on `*/5 * * * *` but skips RSS fetch+score entirely
+- [ ] Expected gain: 6× reduction in Claude scoring cost (288 → 48 scoring calls/day)
+
+**Step 4 — Twitter API v2** (~4h):
+- [ ] Twitter API v2 bearer token (Free tier: 500k reads/month)
+- [ ] Accounts: @Besiktas (official), @EkremKonur, @yagızsabuncuoglu, @TarikMete + 3–5 beat reporters
+- [ ] `fetchTwitterSources()` in fetcher.js: search recent tweets mentioning BJK, last 30 min window
+- [ ] NOT twint (broken since 2022) — use Twitter API v2 `/2/tweets/search/recent`
+- [ ] Expected gain: breaking news 2–6h ahead of RSS; replaces blocked BJK official site
+
+---
+
+**Sprint F — Source Intelligence Layer** ← AFTER SPRINT E
+
+_Goal: fix the dual-pipeline architecture. All sources through one truth system. Source rules without a code deploy._
+
+_Architectural basis: external review confirmed the root bug — YouTube and RSS operate under different truth definitions. This sprint closes that gap. Five agreed points from the review are implemented here; three (entity extraction, Evidence Events rewrite, dynamic source trust) are deferred to Slice 8 as they require runtime data._
+
+**F1 — Source independence gate** (~2h):
+- [ ] `story-matcher.js`: before allowing `confirmed` state transition, require at least one `broadcast` or `official` tier contribution
+- [ ] Press/aggregator-only contributions cap story state at `developing` regardless of confidence score
+- [ ] Fixes: "5 tabloids reprinting one leak = confirmed story" — cite-chain inflation
+- [ ] Zero Claude calls, pure logic
+
+**F2 — YouTube into unified pipeline** (~6h):
+- [ ] Normalize qualifying YouTube videos to article shape with `nvs_hint` + `treatment` fields
+- [ ] Route through `storyMatcher` before writing — BJK özet video now contributes to active match story
+- [ ] `writeArticles` branches on `treatment`: `embed` → `generateVideoEmbed`, `synthesize` → `generateRabonaDigest`
+- [ ] `nvs_hint` respected in `scoreArticles` — skip Claude scoring when hint is set (zero cost for embeds)
+- [ ] nvs_hint values: BJK official = 88, broadcast özet = 78, Rabona = 74
+- [ ] Fixes: YouTube floating disconnected from story system; no truth evaluation in embed path
+
+**F3 — Lightweight source config** (~7h):
+- [ ] New Supabase table: `source_configs` (id, name, url, source_type, trust_tier, treatment, bjk_filter, keywords[], exclude_keywords[], is_active, notes)
+- [ ] `treatment` values: `embed` | `synthesize` | `signal_only` (score + story match, no article published)
+- [ ] Worker reads `source_configs` from Supabase at cron start — replaces hardcoded RSS_FEEDS + YOUTUBE_CHANNELS arrays
+- [ ] `/admin/sources` endpoint: table view + per-source edit (active toggle, treatment, trust_tier, notes)
+- [ ] Gives operational control without code deploys
+- [ ] Note: full web admin dashboard stays in v2 backlog. This is the minimal viable ops layer.
+
+**Done when**: a YouTube video about a Beşiktaş match appears in story contributions. A press-only rumour wave cannot reach "confirmed." You can deactivate a source from `/admin/sources` without a deploy.
+
 **Phase 3.6.1 — Widget API call caching (backlog)**
 
 _Widget calls go direct from browser to `v3.football.api-sports.io` and count toward the 7,500/day quota. Each home page load burns ~3 calls (standings + fixtures + team). At scale this needs a server-side cache layer._
@@ -420,19 +491,32 @@ _Widget calls go direct from browser to `v3.football.api-sports.io` and count to
 
 | # | Slice | Estimate | Status |
 |---|-------|----------|--------|
-| 0 | Build Scaffold + PM | 1–2 wks | not-started |
-| 1 | Facts Firewall | 2–4 wks | not-started |
-| 2 | Story-Centric Foundation | 2–3 wks | not-started |
-| 3 | Story Types Narrow Set | 3–4 wks | not-started |
+| 0 | Build Scaffold + PM | 1–2 wks | in-progress (Telegram/PM agent pending) |
+| 1 | Facts Firewall | 2–4 wks | in-progress (firewall + story matching live; golden fixtures pending) |
+| 2 | Story-Centric Foundation | 2–3 wks | in-progress (story matcher live; DB tables pending) |
+| 3 | Story Types Narrow Set | 3–4 wks | in-progress (all templates done; source expansion Sprint E current) |
 | 4 | Operational Control | 2 wks | not-started |
 | 5 | Visual Asset Agent | 2–3 wks | not-started |
 | 6 | Editorial QA + Authors | 2–3 wks | not-started |
 | 7 | Governance Layer | 2 wks | not-started |
 | 8 | Self-Learning Loops | 3 wks | not-started |
 
+**What's live and working (as of 2026-05-04)**:
+- Full template set: T01–T13, T-XG, T-REF, T-HT, T-RED, T-VAR, T-OG, T-PEN (18 templates)
+- YouTube embed pipeline: 5 channels, match-specific templates, BJK relevance filter active
+- Non-BJK video filter: broadcast channels (A Spor, TRT Spor) require Beşiktaş in title
+- Rabona Digital digest: Fırat Günayer daily analysis via Supadata transcript → original article
+- Transcript pipeline: Supadata API (free tier, 100 req/month) → pitchos-proxy → worker
+- transcript_qualify restricted to Rabona Digital only (fits free tier)
+- Original news synthesis: multi-source, no attribution, national team + multi-sport aware
+- Editorial feedback system: comments → distill → rules → injected into all generation
+- API-Football Pro: all match data (fixtures, lineups, injuries, events, stats, standings)
+- Story matching: facts extraction + story clustering (Supabase)
+- Cost guard: monthly cap KV accumulator
+
 **Total v1 estimate**: 19–26 weeks of focused work.
 **Realistic calendar with COO duties**: 6–9 months.
 
 ---
 
-*Last updated: 2026-05-01 (session 7 — Phase 3 complete, Phase 3.5/3.6 planned)*
+*Last updated: 2026-05-04 (session 10 — Sprint F planned; architectural dual-pipeline gap identified and scoped)*
