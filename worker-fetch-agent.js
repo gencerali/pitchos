@@ -3528,6 +3528,7 @@ ${image ? `<meta property="og:image" content="${escHtml(image)}"/>` : ''}
 <meta name="twitter:description" content="${escHtml(desc)}"/>
 ${image ? `<meta name="twitter:image" content="${escHtml(image)}"/>` : ''}
 <link rel="canonical" href="${escHtml(pageUrl)}"/>
+<meta name="ai-generated" content="true"/>
 <link rel="alternate" type="application/rss+xml" title="Kartalix RSS" href="${BASE_URL}/rss"/>
 <script type="application/ld+json">${jsonLd}</script>
 <style>
@@ -3592,6 +3593,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
       <span>📰 ${escHtml(source)}</span>
       <time datetime="${isoDate}">${dateStr}</time>
       ${nvs >= 40 ? `<span class="nvs-pill">NVS ${nvs}</span>` : ''}
+      <span style="color:#555;font-size:0.68rem">YZ destekli</span>
     </div>
     ${image ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
     <div class="article-body">${bodyHtml}</div>
