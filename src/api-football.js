@@ -18,8 +18,8 @@ export async function apiFetch(path, env) {
     const res = await fetch(`${BASE_URL}${path}`, {
       headers: {
         'x-apisports-key': env.API_FOOTBALL_KEY,
-        'Origin':          'https://app.kartalix.com',
-        'Referer':         'https://app.kartalix.com/',
+        'Origin':          'https://kartalix.com',
+        'Referer':         'https://kartalix.com/',
       },
       signal: AbortSignal.timeout(8000),
     });

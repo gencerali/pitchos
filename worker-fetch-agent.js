@@ -10,10 +10,11 @@
  *   5. Logs cost + results to Supabase
  */
 import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
-import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS } from './src/fetcher.js';
+import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest } from './src/publisher.js';
-import { matchOrCreateStory, getOpenStories, archiveStaleStories } from './src/story-matcher.js';
+import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates } from './src/story-matcher.js';
+import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
@@ -143,19 +144,19 @@ export default {
     if (url.pathname === '/widgets/config') {
       return Response.json(
         { apiKey: env.API_FOOTBALL_KEY || '', league: 203, season: 2025, team: 549 },
-        { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': 'https://app.kartalix.com', 'Cache-Control': 'private, max-age=3600' } }
+        { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': 'https://kartalix.com', 'Cache-Control': 'private, max-age=3600' } }
       );
     }
 
     if (url.pathname === '/widgets/bjk-fixtures') {
-      const CORS = { 'Access-Control-Allow-Origin': 'https://app.kartalix.com' };
+      const CORS = { 'Access-Control-Allow-Origin': 'https://kartalix.com' };
       const cacheKey = 'widget:bjk-fixtures';
       const cached = await env.PITCHOS_CACHE.get(cacheKey);
       if (cached) return new Response(cached, { headers: { 'Content-Type': 'application/json', ...CORS } });
       const widgetFetch = async (path) => {
         try {
           const r = await fetch(`https://v3.football.api-sports.io${path}`, {
-            headers: { 'x-apisports-key': env.API_FOOTBALL_KEY || '', 'Origin': 'https://app.kartalix.com', 'Referer': 'https://app.kartalix.com/' },
+            headers: { 'x-apisports-key': env.API_FOOTBALL_KEY || '', 'Origin': 'https://kartalix.com', 'Referer': 'https://kartalix.com/' },
             signal: AbortSignal.timeout(8000),
           });
           if (!r.ok) return null;
@@ -186,7 +187,7 @@ export default {
     }
 
     if (url.pathname === '/widgets/bjk-match-stats') {
-      const CORS = { 'Access-Control-Allow-Origin': 'https://app.kartalix.com' };
+      const CORS = { 'Access-Control-Allow-Origin': 'https://kartalix.com' };
       const fixtureId = url.searchParams.get('fixture');
       if (!fixtureId) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
       const cacheKey = `widget:match-stats:${fixtureId}`;
@@ -199,7 +200,7 @@ export default {
     }
 
     if (url.pathname === '/widgets/current-match-stats') {
-      const CORS = { 'Access-Control-Allow-Origin': 'https://app.kartalix.com' };
+      const CORS = { 'Access-Control-Allow-Origin': 'https://kartalix.com' };
       const liveRaw = await env.PITCHOS_CACHE.get('match:BJK:live');
       const liveState = liveRaw ? JSON.parse(liveRaw) : null;
       const fixtureId = liveState?.fixture_id || NEXT_MATCH.fixture_id;
@@ -217,7 +218,7 @@ export default {
     // Caches api-sports widget calls in KV to protect daily quota.
     // Widget config sets data-url-football to this proxy instead of direct API.
     if (url.pathname.startsWith('/widgets/api/')) {
-      const corsHeaders = { 'Access-Control-Allow-Origin': 'https://app.kartalix.com' };
+      const corsHeaders = { 'Access-Control-Allow-Origin': 'https://kartalix.com' };
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: { ...corsHeaders, 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '86400' } });
       }
@@ -230,8 +231,8 @@ export default {
       const apiRes = await fetch(`https://v3.football.api-sports.io${apiPath}${url.search}`, {
         headers: {
           'x-apisports-key': env.API_FOOTBALL_KEY || '',
-          'Origin':  request.headers.get('Origin')  || 'https://app.kartalix.com',
-          'Referer': request.headers.get('Referer') || 'https://app.kartalix.com/',
+          'Origin':  request.headers.get('Origin')  || 'https://kartalix.com',
+          'Referer': request.headers.get('Referer') || 'https://kartalix.com/',
         }
       });
       const data = await apiRes.text();
@@ -1211,14 +1212,14 @@ export default {
     }
     // ── COST MONITOR ─────────────────────────────────────────
     if (url.pathname === '/admin/cost') {
-      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const cookie = request.headers.get('cookie') || '';
+      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       const now = new Date();
       const monthKey = now.toISOString().slice(0, 7);
-      const kvKey = `cost:${monthKey}`;
-      const current = parseFloat((await env.PITCHOS_CACHE.get(kvKey)) || '0');
+      const current = parseFloat((await env.PITCHOS_CACHE.get(`cost:${monthKey}`)) || '0');
       const cap = parseFloat(env.MONTHLY_CLAUDE_CAP || '8');
-      const pct = cap > 0 ? (current / cap * 100).toFixed(1) : null;
-      // Also show last 3 months if available
+      const pct = cap > 0 ? (current / cap * 100).toFixed(1) : '0';
       const months = [monthKey];
       for (let i = 1; i <= 2; i++) {
         const d = new Date(now);
@@ -1229,7 +1230,79 @@ export default {
         month: m,
         usd: parseFloat((await env.PITCHOS_CACHE.get(`cost:${m}`)) || '0'),
       })));
-      return Response.json({ current_month: monthKey, current_usd: +current.toFixed(4), cap_usd: cap, pct_used: pct, blocked: current >= cap, history }, { headers });
+      const data = { current_month: monthKey, current_usd: +current.toFixed(4), cap_usd: cap, pct_used: pct, blocked: current >= cap, history };
+      if (url.searchParams.get('json') === '1') return Response.json(data, { headers: { 'Content-Type': 'application/json' } });
+      return new Response(renderCostPage(data), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
+    // ── FINANCIALS PAGE ───────────────────────────────────────
+    if (url.pathname === '/admin/financials') {
+      const cookie = request.headers.get('cookie') || '';
+      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+
+      const FIXED_ITEMS = [
+        { item: 'API-Football Pro',      amount: 19.00, notes: 'Stats & fixtures API' },
+        { item: 'Cloudflare Workers',    amount:  5.00, notes: 'Paid plan (KV + Workers)' },
+        { item: 'Supabase',              amount:  0.00, notes: 'Free tier' },
+        { item: 'Render',                amount:  0.00, notes: 'pitchos-proxy — confirm plan' },
+        { item: 'Domain (kartalix.com)', amount:  0.00, notes: 'Annual — enter monthly equivalent' },
+      ];
+      const FIXED_TOTAL = FIXED_ITEMS.reduce((s, r) => s + r.amount, 0);
+
+      // All months from project start to now
+      const months = [];
+      const cur = new Date();
+      let d = new Date('2026-04-01');
+      while (d.toISOString().slice(0,7) <= cur.toISOString().slice(0,7)) {
+        months.push(d.toISOString().slice(0,7));
+        d.setMonth(d.getMonth() + 1);
+      }
+      const currentMonth = months[months.length - 1];
+
+      if (request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const { action, month } = body;
+        if (!month) return Response.json({ error: 'month required' }, { status: 400 });
+        const existing = await env.PITCHOS_CACHE.get(`financials:${month}`);
+        const snap = existing ? JSON.parse(existing) : {};
+        if (action === 'revenue') {
+          snap.revenue = parseFloat(body.revenue) || 0;
+        } else if (action === 'add_cost') {
+          if (!snap.manual_costs) snap.manual_costs = [];
+          snap.manual_costs.push({ id: Date.now().toString(36), item: body.item, amount: parseFloat(body.amount) || 0, notes: body.notes || '' });
+        } else if (action === 'del_cost') {
+          snap.manual_costs = (snap.manual_costs || []).filter(c => c.id !== body.id);
+        }
+        snap.updated_at = new Date().toISOString();
+        await env.PITCHOS_CACHE.put(`financials:${month}`, JSON.stringify(snap));
+        return Response.json({ ok: true });
+      }
+
+      // Read all months in parallel
+      const [claudeKV, snapKV] = await Promise.all([
+        Promise.all(months.map(m => env.PITCHOS_CACHE.get(`cost:${m}`))),
+        Promise.all(months.map(m => env.PITCHOS_CACHE.get(`financials:${m}`))),
+      ]);
+
+      // Persist current month snapshot (preserve revenue + manual_costs)
+      const currentSnap = snapKV[snapKV.length - 1] ? JSON.parse(snapKV[snapKV.length - 1]) : {};
+      const claudeNow   = parseFloat(claudeKV[claudeKV.length - 1] || '0');
+      await env.PITCHOS_CACHE.put(`financials:${currentMonth}`, JSON.stringify({
+        ...currentSnap, fixed: FIXED_TOTAL, variable: claudeNow, updated_at: new Date().toISOString(),
+      }));
+
+      const monthsData = months.map((m, i) => {
+        const snap   = snapKV[i] ? JSON.parse(snapKV[i]) : {};
+        const claude = m === currentMonth ? claudeNow : parseFloat(claudeKV[i] || '0');
+        const manual = snap.manual_costs || [];
+        return { month: m, fixed: FIXED_TOTAL, claude, manual, revenue: snap.revenue ?? 0 };
+      });
+
+      return new Response(
+        renderFinancialsPage(monthsData, FIXED_ITEMS),
+        { headers: { 'Content-Type': 'text/html;charset=UTF-8' } }
+      );
     }
 
     // ── KV CACHE MANAGEMENT ───────────────────────────────────
@@ -1365,6 +1438,193 @@ Sadece JSON döndür:
         return Response.json({ error: e.message }, { headers, status: 500 });
       }
     }
+    // ── SOURCE CONFIG CRUD ────────────────────────────────────
+    if (url.pathname === '/admin/sources') {
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
+
+      if (request.method === 'GET') {
+        const rows = await supabase(env, 'GET',
+          `/rest/v1/source_configs?site_id=eq.${site.id}&order=source_type,name&select=*`
+        );
+        return Response.json(rows || [], { headers });
+      }
+      if (request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const allowed = ['name','source_type','url','channel_id','trust_tier','treatment','sport','is_p4','nvs_hint','bjk_filter','all_qualify','proxy','notes','is_active'];
+        const row = Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k)));
+        if (!row.name || !row.source_type) return Response.json({ error: 'name and source_type required' }, { headers, status: 400 });
+        row.site_id    = site.id;
+        row.is_active  = row.is_active ?? true;
+        row.created_at = new Date().toISOString();
+        row.updated_at = row.created_at;
+        const result = await supabase(env, 'POST', '/rest/v1/source_configs', [row]);
+        if (!result) return Response.json({ error: 'Insert failed' }, { headers, status: 500 });
+        return Response.json({ ok: true }, { headers });
+      }
+      if (request.method === 'PATCH') {
+        const { id, ...fields } = await request.json().catch(() => ({}));
+        if (!id) return Response.json({ error: 'id required' }, { headers, status: 400 });
+        const allowed = ['name','is_active','trust_tier','treatment','nvs_hint','bjk_filter','all_qualify','notes'];
+        const patch   = Object.fromEntries(Object.entries(fields).filter(([k]) => allowed.includes(k)));
+        patch.updated_at = new Date().toISOString();
+        await supabase(env, 'PATCH', `/rest/v1/source_configs?id=eq.${id}`, patch);
+        return Response.json({ ok: true }, { headers });
+      }
+      if (request.method === 'DELETE') {
+        const id = url.searchParams.get('id');
+        if (!id) return Response.json({ error: 'id required' }, { headers, status: 400 });
+        await supabase(env, 'DELETE', `/rest/v1/source_configs?id=eq.${id}`);
+        return Response.json({ ok: true }, { headers });
+      }
+      return new Response('Method not allowed', { status: 405 });
+    }
+
+    // ── SOURCE TEST (single) ──────────────────────────────────
+    if (url.pathname === '/admin/sources/test' && request.method === 'GET') {
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const id = url.searchParams.get('id');
+      if (!id) return Response.json({ error: 'id required' }, { headers, status: 400 });
+      const rows = await supabase(env, 'GET', `/rest/v1/source_configs?id=eq.${id}&select=*`);
+      const src  = rows?.[0];
+      if (!src) return Response.json({ error: 'source not found' }, { headers, status: 404 });
+      const result = await testSourceConfig(src, env);
+      // Persist result so UI picks it up
+      await env.PITCHOS_CACHE.put(`source_test:${id}`, JSON.stringify({ ...result, tested_at: new Date().toISOString() }), { expirationTtl: 86400 * 3 });
+      return Response.json(result, { headers });
+    }
+
+    // ── SOURCE TEST RESULTS (batch) ───────────────────────────
+    if (url.pathname === '/admin/sources/tests' && request.method === 'GET') {
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({}, { headers });
+      const sources = await supabase(env, 'GET', `/rest/v1/source_configs?site_id=eq.${site.id}&select=id`) || [];
+      const results = await Promise.all(sources.map(async s => {
+        const raw = await env.PITCHOS_CACHE.get(`source_test:${s.id}`);
+        return [s.id, raw ? JSON.parse(raw) : null];
+      }));
+      return Response.json(Object.fromEntries(results.filter(([,v]) => v)), { headers });
+    }
+
+    // ── SOURCE CONFIG SEED ────────────────────────────────────
+    // POST /admin/sources/seed — writes hardcoded RSS_FEEDS + YOUTUBE_CHANNELS to DB.
+    // Idempotent: skips sources that already exist (matched by url or channel_id).
+    if (url.pathname === '/admin/sources/seed' && request.method === 'POST') {
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
+
+      const existing = await supabase(env, 'GET',
+        `/rest/v1/source_configs?site_id=eq.${site.id}&select=url,channel_id`
+      ) || [];
+      const existingUrls     = new Set(existing.map(r => r.url).filter(Boolean));
+      const existingChannels = new Set(existing.map(r => r.channel_id).filter(Boolean));
+
+      const rssRows = RSS_FEEDS
+        .filter(f => !existingUrls.has(f.url))
+        .map(f => ({
+          site_id:    site.id,
+          name:       f.name,
+          source_type:'rss',
+          url:        f.url,
+          trust_tier: f.trust,
+          treatment:  'publish',
+          sport:      f.sport || 'football',
+          is_p4:      f.is_p4 ?? true,
+          bjk_filter: f.keywordFilter ?? false,
+          proxy:      f.proxy ?? false,
+          is_active:  true,
+        }));
+
+      const ytNvsHint = { official: 88, broadcast: 78, digital: 74, press: 60 };
+      const ytRows = YOUTUBE_CHANNELS
+        .filter(ch => !existingChannels.has(ch.id))
+        .map(ch => ({
+          site_id:    site.id,
+          name:       ch.name,
+          source_type:'youtube',
+          channel_id: ch.id,
+          trust_tier: ch.tier,
+          treatment:  ch.transcript_qualify && !ch.embed_qualify ? 'synthesize'
+                    : ch.embed_qualify && ch.transcript_qualify  ? 'embed_and_synthesize'
+                    : 'embed',
+          nvs_hint:   ytNvsHint[ch.tier] || 72,
+          all_qualify: ch.all_qualify ?? false,
+          is_p4:      false,
+          is_active:  true,
+        }));
+
+      const toInsert = [...rssRows, ...ytRows];
+      let inserted = 0;
+      const sbInsert = async (rows) => {
+        if (!rows.length) return true;
+        const r = await fetch(`${env.SUPABASE_URL}/rest/v1/source_configs`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': env.SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Prefer': 'return=minimal',
+          },
+          body: JSON.stringify(rows),
+        });
+        if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
+        return true;
+      };
+      try {
+        await sbInsert(rssRows);
+        await sbInsert(ytRows);
+        inserted = toInsert.length;
+      } catch (e) {
+        return Response.json({ error: `Insert failed: ${e.message}` }, { headers, status: 500 });
+      }
+      return Response.json({ seeded: inserted, skipped: existing.length }, { headers });
+    }
+
+    // ── SOURCES ADMIN PAGE ────────────────────────────────────
+    if (url.pathname === '/admin/sources/ui') {
+      const cookie = request.headers.get('cookie') || '';
+      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      return new Response(renderSourcesPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
+    if (url.pathname === '/admin/report') {
+      const cookie = request.headers.get('cookie') || '';
+      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      if (!authed) return new Response(renderPinPage('/admin/report'), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      return new Response(renderAdminReportPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
+    if (url.pathname === '/admin/report-data') {
+      const cookie = request.headers.get('cookie') || '';
+      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      if (!authed) return new Response('Unauthorized', { status: 401 });
+      const from = url.searchParams.get('from') || null;
+      const to   = url.searchParams.get('to')   || null;
+      const report = await buildReport(env, from, to);
+      return new Response(JSON.stringify(report), { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    if (url.pathname === '/admin/roadmap') {
+      const cookie = request.headers.get('cookie') || '';
+      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      return new Response(renderAdminRoadmapPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
+    if (url.pathname === '/admin/releases') {
+      const cookie = request.headers.get('cookie') || '';
+      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      return new Response(renderAdminReleasesPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
     if (url.pathname === '/admin/login' && request.method === 'POST') {
       const { pin } = await request.json().catch(() => ({}));
       const adminPin = env.ADMIN_PIN || 'kartalix2026';
@@ -1396,6 +1656,18 @@ Sadece JSON döndür:
     if (url.pathname === '/sitemap.xml') {
       return serveSitemap(env);
     }
+    if (url.pathname === '/hakkimizda') {
+      return new Response(renderAboutPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
+    }
+    if (url.pathname === '/iletisim') {
+      return new Response(renderContactPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
+    }
+    if (url.pathname === '/gizlilik') {
+      return new Response(renderPrivacyPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
+    }
+    if (url.pathname === '/kaynak-atif') {
+      return new Response(renderAttributionPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
+    }
     if (url.pathname.startsWith('/haber/')) {
       const slug = url.pathname.replace('/haber/', '').replace(/\/$/, '');
       return serveArticlePage(slug, env);
@@ -1409,7 +1681,7 @@ Sadece JSON döndür:
     if (cron === '*/5 * * * *') {
       ctx.waitUntil(matchWatcher(env));
     } else if (cron === '0 4 * * *') {
-      ctx.waitUntil(runDailyArchival(env));
+      ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env)]));
     } else if (cron === '0 3 * * 1') {
       ctx.waitUntil(redistillEditorialNotes(env));
     } else {
@@ -1418,14 +1690,67 @@ Sadece JSON döndür:
   },
 };
 
+// ─── SOURCE TEST ─────────────────────────────────────────────
+async function testSourceConfig(src, env) {
+  try {
+    if (src.source_type === 'rss') {
+      const proxyBase = env.PROXY_URL || '';
+      const fetchUrl  = src.proxy && proxyBase ? `${proxyBase}?url=${encodeURIComponent(src.url)}` : src.url;
+      const res = await fetch(fetchUrl, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(10000) });
+      if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+      const xml   = await res.text();
+      const items = (xml.match(/<item[\s>]|<entry[\s>]/g) || []).length;
+      const titles = [...xml.matchAll(/<title[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?<\/title>/gs)]
+        .map(m => m[1].trim()).filter(t => t && t.length > 3).slice(1, 6);
+      return { ok: true, type: 'rss', items, sample: titles };
+    }
+    if (src.source_type === 'youtube') {
+      const atomUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${src.channel_id}`;
+      const res = await fetch(atomUrl, { signal: AbortSignal.timeout(10000) });
+      if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+      const xml    = await res.text();
+      const titles = [...xml.matchAll(/<media:title>(.*?)<\/media:title>/gs)].map(m => m[1].trim()).slice(0, 8);
+      const videoIds = [...xml.matchAll(/<yt:videoId>(.*?)<\/yt:videoId>/g)].map(m => m[1]);
+      const videos   = titles.map((title, i) => ({ title, video_id: videoIds[i] || '', channel_id: src.channel_id, channel_tier: src.trust_tier }));
+      const qualified = videos.filter(v => qualifyYouTubeVideo({ ...v, channel_name: src.name, all_qualify: src.all_qualify }));
+      return { ok: true, type: 'youtube', total: titles.length, qualified: qualified.length, sample: titles };
+    }
+    return { ok: false, error: 'unsupported source_type' };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+async function runSourceTests(env) {
+  const sites = await getActiveSites(env);
+  if (!sites?.length) return;
+  for (const site of sites) {
+    const sources = await supabase(env, 'GET',
+      `/rest/v1/source_configs?site_id=eq.${site.id}&is_active=eq.true&select=*`
+    ) || [];
+    let passed = 0, failed = 0;
+    for (const src of sources) {
+      const result = await testSourceConfig(src, env);
+      await env.PITCHOS_CACHE.put(`source_test:${src.id}`, JSON.stringify({
+        ...result, tested_at: new Date().toISOString(),
+      }), { expirationTtl: 86400 * 3 });
+      result.ok ? passed++ : failed++;
+    }
+    console.log(`Source tests [${site.short_code}]: ${passed} passed, ${failed} failed`);
+  }
+}
+
 // ─── DAILY ARCHIVAL ──────────────────────────────────────────
 async function runDailyArchival(env) {
   const sites = await getActiveSites(env);
   if (!sites || sites.length === 0) return;
   for (const site of sites) {
     try {
-      const { archived } = await archiveStaleStories(site.id, env);
-      console.log(`Archival [${site.short_code}]: ${archived} stories archived`);
+      const [{ archived }, { advanced }] = await Promise.all([
+        archiveStaleStories(site.id, env),
+        advanceMatchStoryStates(site.id, env),
+      ]);
+      console.log(`Archival [${site.short_code}]: ${archived} stories archived, ${advanced} match stories advanced`);
     } catch (e) {
       console.error(`Archival failed [${site.short_code}]:`, e.message);
     }
@@ -1990,17 +2315,42 @@ async function matchWatcher(env) {
 // ─── YOUTUBE INTAKE ──────────────────────────────────────────
 // Runs once per processSite call. Fetches all channels in parallel,
 // qualifies by keyword rules, generates embed articles for new videos.
+// NVS hint values by channel tier — no Claude scoring needed for videos
+const YT_NVS_HINT = { official: 88, broadcast: 78, digital: 74, press: 60 };
+
+// Normalize a YouTube video to an article-like shape for story matching
+function videoToArticle(video) {
+  return {
+    title:        video.title,
+    url:          `https://www.youtube.com/watch?v=${video.video_id}`,
+    summary:      video.description || video.title,
+    source_name:  video.channel_name,
+    source_type:  'youtube',
+    trust_tier:   video.channel_tier,
+    nvs_hint:     YT_NVS_HINT[video.channel_tier] || 60,
+    treatment:    video.embed_qualify ? 'embed' : 'synthesize',
+    _video:       video,
+    published_at: video.published_at,
+    category:     'Match',
+  };
+}
+
 // Max 2 embeds per channel per run to avoid feed flooding.
 // Rabona Digital videos go to daily digest instead of embed.
-async function processYouTubeVideos(site, env, seenUrls) {
+async function processYouTubeVideos(site, env, seenUrls, channelOverride = null) {
+  const channels = channelOverride || YOUTUBE_CHANNELS;
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
-  const feeds = await Promise.all(YOUTUBE_CHANNELS.map(ch => fetchYouTubeChannel(ch, since).catch(() => [])));
+  const feeds = await Promise.all(channels.map(ch => fetchYouTubeChannel(ch, since).catch(() => [])));
 
   let published = 0;
+  let storyMatchCount = 0;   // cap Claude calls: 3 story-match attempts per run
   const rabonaQueue = [];
 
-  for (let i = 0; i < YOUTUBE_CHANNELS.length; i++) {
-    const channel  = YOUTUBE_CHANNELS[i];
+  // Pre-fetch open stories once for the whole YouTube pass
+  let openStories = null;
+
+  for (let i = 0; i < channels.length; i++) {
+    const channel  = channels[i];
     const videos   = feeds[i];
     const newVids  = videos.filter(v => {
       const watchUrl = `https://www.youtube.com/watch?v=${v.video_id}`;
@@ -2025,6 +2375,23 @@ async function processYouTubeVideos(site, env, seenUrls) {
         await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 100));
         seenUrls.add(`https://www.youtube.com/watch?v=${video.video_id}`);
         published++;
+
+        // Story matching — video contributes to story system (capped at 3/run)
+        if (storyMatchCount < 3) {
+          try {
+            if (!openStories) openStories = await getOpenStories(site.id, env);
+            const videoArticle = videoToArticle(video);
+            const facts = await extractFactsForStory(videoArticle, env);
+            if (!SKIP_STORY_TYPES.has(facts.story_type)) {
+              const { story, isNew } = await matchOrCreateStory(videoArticle, facts, site.id, env, openStories);
+              if (isNew) openStories = [...openStories, story];
+              console.log(`YT story match [${video.title?.slice(0, 40)}]: ${isNew ? 'NEW' : 'MATCHED'} → ${story.id} (${story.state})`);
+            }
+            storyMatchCount++;
+          } catch (e) {
+            console.error(`YT story match failed [${video.video_id}]:`, e.message);
+          }
+        }
       } catch (e) {
         console.error(`YT embed failed [${video.video_id}]:`, e.message);
       }
@@ -2044,6 +2411,23 @@ async function processYouTubeVideos(site, env, seenUrls) {
         for (const video of rabonaQueue) {
           const text = await fetchYouTubeTranscript(video.video_id);
           if (text) { transcripts.push(text); usedVideos.push(video); }
+
+          // Story matching for transcript-qualified videos (within cap)
+          if (storyMatchCount < 3) {
+            try {
+              if (!openStories) openStories = await getOpenStories(site.id, env);
+              const videoArticle = videoToArticle(video);
+              const facts = await extractFactsForStory(videoArticle, env);
+              if (!SKIP_STORY_TYPES.has(facts.story_type)) {
+                const { story, isNew } = await matchOrCreateStory(videoArticle, facts, site.id, env, openStories);
+                if (isNew) openStories = [...openStories, story];
+                console.log(`YT story match [Rabona/${video.title?.slice(0, 30)}]: ${isNew ? 'NEW' : 'MATCHED'} → ${story.id} (${story.state})`);
+              }
+              storyMatchCount++;
+            } catch (e) {
+              console.error(`YT story match failed [Rabona/${video.video_id}]:`, e.message);
+            }
+          }
         }
         if (transcripts.length > 0) {
           const card = await generateRabonaDigest(usedVideos, transcripts, site, env);
@@ -2083,10 +2467,21 @@ async function processSite(site, env, ctx) {
   };
 
   // ── FETCH (RSS + web search + beIN + Twitter in parallel) ────
+  // ── DYNAMIC SOURCE CONFIGS ────────────────────────────────────
+  // Read from Supabase source_configs table. Falls back to hardcoded arrays if empty.
+  const sourceConfigs = await fetchSourceConfigs(site.id, env).catch(() => []);
+  const dynamicRSSFeeds = sourceConfigs.length > 0 ? configsToRSSFeeds(sourceConfigs) : null;
+  const dynamicYTChannels = sourceConfigs.length > 0 ? configsToYTChannels(sourceConfigs) : null;
+  if (sourceConfigs.length > 0) {
+    console.log(`SOURCE CONFIGS: ${sourceConfigs.length} active (${dynamicRSSFeeds?.length || 0} RSS, ${dynamicYTChannels?.length || 0} YT)`);
+  } else {
+    console.log('SOURCE CONFIGS: none in DB, using hardcoded defaults');
+  }
+
   // fetchBJKOfficial disabled — bjk.com.tr blocks all datacenter IPs (direct, pitchos-proxy, allorigins).
   // Official BJK content will arrive via @Besiktas Twitter in Slice 4.
   const [{ articles: rssArticles, bySource }, { articles: webArticles, usage: fetchUsage }, { articles: beINArticles, usage: beINUsage }, { articles: twitterArticles, usage: twitterUsage }] = await Promise.all([
-    fetchRSSArticles(site),
+    fetchRSSArticles(site, dynamicRSSFeeds),
     fetchArticles(site, env),
     fetchBeIN(site, env),
     fetchTwitterSources(site, env),
@@ -2206,6 +2601,23 @@ async function processSite(site, env, ctx) {
       }
     } catch(e) { console.error('getNextFixture failed, using fallback:', e.message); }
 
+    // ── MATCH STORY — proactive creation / state advancement ──────
+    // Creates the story container for this fixture so all pipeline agents
+    // (templates, press, video) can attach their content_items to it.
+    let matchStory = null;
+    if (nextMatch.fixture_id) {
+      try {
+        matchStory = await createMatchStory(nextMatch, site.id, env);
+      } catch(e) { console.error('createMatchStory failed:', e.message); }
+    }
+    // Helper: link a saved content_item to the match story
+    const linkToMatchStory = async (card) => {
+      if (card?.id && matchStory?.id) {
+        await supabase(env, 'PATCH', `/rest/v1/content_items?id=eq.${card.id}`, { story_id: matchStory.id })
+          .catch(e => console.error('story_id link failed:', e.message));
+      }
+    };
+
     // Template 05 — Match Day Card (API injuries, not RSS)
     try {
       const today = new Date().toISOString().split('T')[0];
@@ -2214,6 +2626,7 @@ async function processSite(site, env, ctx) {
         const injuries = nextMatch.fixture_id ? await getInjuries(env, nextMatch.fixture_id) : [];
         const card = await generateMatchDayCard(nextMatch, preFiltered, site, env, injuries);
         if (card) {
+          await linkToMatchStory(card);
           const withT = mergeAndDedupe([toKVShape(card), ...immediateKV], 100);
           await cacheToKV(env, site.short_code, withT);
           console.log('KV WRITE WITH TEMPLATE 05: done');
@@ -2230,6 +2643,7 @@ async function processSite(site, env, ctx) {
         console.log('TEMPLATE 08b: checking for muhtemel 11...');
         const card = await generateMuhtemel11(nextMatch, preFiltered, site, env);
         if (card) {
+          await linkToMatchStory(card);
           const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
           const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
           await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 100));
@@ -2246,6 +2660,7 @@ async function processSite(site, env, ctx) {
         if (lineup) {
           const card = await generateConfirmedLineup(nextMatch, lineup, site, env);
           if (card) {
+            await linkToMatchStory(card);
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
             await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 100));
@@ -2269,6 +2684,7 @@ async function processSite(site, env, ctx) {
           const h2h = await getH2H(nextMatch.opponent_id, env);
           const card = await generateH2HHistory(nextMatch, h2h, site, env);
           if (card) {
+            await linkToMatchStory(card);
             await env.PITCHOS_CACHE.put(t02Key, '1', { expirationTtl: 86400 });
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
@@ -2295,6 +2711,7 @@ async function processSite(site, env, ctx) {
             .filter(a => a.template_id !== 'T07' && !a.is_kartalix_content);
           const card = await generateInjuryReport(nextMatch, injuries, rssArticles, site, env);
           if (card) {
+            await linkToMatchStory(card);
             await env.PITCHOS_CACHE.put(t07Key, '1', { expirationTtl: 86400 });
             const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 75, is_kartalix_content: true, is_template: true });
             await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...rssArticles], 100));
@@ -2326,6 +2743,7 @@ async function processSite(site, env, ctx) {
             } : null;
             const card = await generateRefereeProfile(nextMatch, referee, refStats, site, env);
             if (card) {
+              await linkToMatchStory(card);
               await env.PITCHOS_CACHE.put(trefKey, '1', { expirationTtl: 86400 });
               const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
               const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
@@ -2356,6 +2774,7 @@ async function processSite(site, env, ctx) {
           const bjkRow = table ? table.find(r => r.team?.id === 549) : null;
           const card = await generateFormGuide(nextMatch, recent, bjkRow, site, env);
           if (card) {
+            await linkToMatchStory(card);
             await env.PITCHOS_CACHE.put(t03Key, '1', { expirationTtl: 86400 });
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
@@ -2384,6 +2803,7 @@ async function processSite(site, env, ctx) {
           const standingsCtx = buildStandingsContext(table);
           const card = await generateMatchPreview(nextMatch, h2h, weather, standingsCtx, site, env);
           if (card) {
+            await linkToMatchStory(card);
             await env.PITCHOS_CACHE.put(t01Key, '1', { expirationTtl: 86400 });
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
@@ -2423,6 +2843,7 @@ async function processSite(site, env, ctx) {
                 const matchObj = { ...nextMatch, score_bjk: liveFixture.score_bjk, score_opp: liveFixture.score_opp };
                 const card = await generateGoalFlash(matchObj, latestGoal, site, env);
                 if (card) {
+                  await linkToMatchStory(card);
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
                   const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 90, is_kartalix_content: true, is_template: true });
@@ -2442,6 +2863,7 @@ async function processSite(site, env, ctx) {
               ]);
               const card = await generateResultFlash(liveFixture, players, site, env, events);
               if (card) {
+                await linkToMatchStory(card);
                 liveState.result_published = true;
                 const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                 const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
@@ -2455,6 +2877,7 @@ async function processSite(site, env, ctx) {
                 console.log('T13: generating man of the match...');
                 const motmCard = await generateManOfTheMatch(liveFixture, players, site, env);
                 if (motmCard) {
+                  await linkToMatchStory(motmCard);
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
                   const kvCard = toKVShape({ ...motmCard, nvs: motmCard.nvs_score || 80, is_kartalix_content: true, is_template: true });
@@ -2468,6 +2891,7 @@ async function processSite(site, env, ctx) {
                 console.log('T12: generating match report...');
                 const reportCard = await generateMatchReport(liveFixture, players, stats, site, env, events);
                 if (reportCard) {
+                  await linkToMatchStory(reportCard);
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
                   const kvCard = toKVShape({ ...reportCard, nvs: reportCard.nvs_score || 85, is_kartalix_content: true, is_template: true });
@@ -2484,6 +2908,7 @@ async function processSite(site, env, ctx) {
                   if (xgDelta > 1.2) {
                     const xgCard = await generateXGDelta(liveFixture, stats, site, env);
                     if (xgCard) {
+                      await linkToMatchStory(xgCard);
                       const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                       const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
                       const kvCard = toKVShape({ ...xgCard, nvs: xgCard.nvs_score || 78, is_kartalix_content: true, is_template: true });
@@ -2570,7 +2995,7 @@ async function processSite(site, env, ctx) {
     if (stats.costEur > 0) await addCost(env, stats.costEur);
 
     // ── YOUTUBE INTAKE ─────────────────────────────────────────
-    await processYouTubeVideos(site, env, seenUrls).catch(e => console.error('YT intake failed:', e.message));
+    await processYouTubeVideos(site, env, seenUrls, dynamicYTChannels).catch(e => console.error('YT intake failed:', e.message));
 
     stats.durationMs = Date.now() - startTime;
   };
@@ -2582,101 +3007,151 @@ async function processSite(site, env, ctx) {
 }
 
 // ─── REPORT ──────────────────────────────────────────────────
-async function buildReport(env) {
-  const [lastRuns, contentItems, cachedRaw, publishedCountResult] = await Promise.all([
-    supabase(env, 'GET', '/rest/v1/fetch_logs?site_id=eq.2b5cfe49-b69a-4143-8323-ca29fff6502e&order=created_at.desc&limit=5&select=*'),
-    supabase(env, 'GET', '/rest/v1/content_items?site_id=eq.2b5cfe49-b69a-4143-8323-ca29fff6502e&order=created_at.desc&limit=200&select=id,title,source_name,category,content_type,nvs_score,status,fetched_at,reviewed_at,original_url,nvs_notes'),
+async function buildReport(env, from, to) {
+  const SITE = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
+  const iF = (from ? `&fetched_at=gte.${encodeURIComponent(from)}` : '') + (to ? `&fetched_at=lte.${encodeURIComponent(to)}` : '');
+  const lF = (from ? `&created_at=gte.${encodeURIComponent(from)}` : '') + (to ? `&created_at=lte.${encodeURIComponent(to)}` : '');
+
+  const [runs, contentItems, cachedRaw, sourceConfigs, storiesRaw] = await Promise.all([
+    supabase(env, 'GET', `/rest/v1/fetch_logs?site_id=eq.${SITE}&order=created_at.desc&limit=100${lF}&select=created_at,status,items_fetched,items_published,items_queued,items_rejected,items_scored,estimated_cost_eur,duration_ms,claude_calls,error_message`),
+    supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${SITE}&order=fetched_at.desc&limit=500${iF}&select=id,title,source_name,category,content_type,nvs_score,status,fetched_at,reviewed_at,original_url,nvs_notes`),
     env.PITCHOS_CACHE.get('articles:BJK'),
-    supabase(env, 'GET', '/rest/v1/content_items?site_id=eq.2b5cfe49-b69a-4143-8323-ca29fff6502e&status=eq.published&select=count()'),
+    supabase(env, 'GET', `/rest/v1/source_configs?site_id=eq.${SITE}&select=name,source_type,trust_tier,is_active`),
+    supabase(env, 'GET', `/rest/v1/stories?site_id=eq.${SITE}&select=id,story_type,state,created_at&order=created_at.desc&limit=200`),
   ]);
 
   const cached = cachedRaw ? JSON.parse(cachedRaw) : [];
   const items = contentItems || [];
-
   const published = items.filter(a => a.status === 'published');
-  const pending = items.filter(a => a.status === 'pending');
-  const rejected = items.filter(a => a.status === 'rejected');
+  const pending   = items.filter(a => a.status === 'pending');
+  const rejected  = items.filter(a => a.status === 'rejected');
 
+  // ─── source type distribution ─────────────────────────────
+  const srcMap = {};
+  (sourceConfigs || []).forEach(sc => { srcMap[sc.name] = { type: sc.source_type, tier: sc.trust_tier }; });
+  const byTypeM = {}, byTierM = {};
+  items.forEach(a => {
+    const cfg = srcMap[a.source_name];
+    const type = cfg ? cfg.type : 'unknown';
+    const tier = cfg ? cfg.tier : 'unknown';
+    byTypeM[type] = (byTypeM[type] || 0) + 1;
+    byTierM[tier] = (byTierM[tier] || 0) + 1;
+  });
+  const source_type_dist = Object.entries(byTypeM).map(([type,count]) => ({ type,count })).sort((a,b) => b.count-a.count);
+  const trust_tier_dist  = Object.entries(byTierM).map(([tier,count]) => ({ tier,count })).sort((a,b) => b.count-a.count);
+
+  // ─── story stats ──────────────────────────────────────────
+  const stateM = {}, storyTypeM = {};
+  (storiesRaw || []).forEach(s => {
+    stateM[s.state]           = (stateM[s.state] || 0) + 1;
+    storyTypeM[s.story_type]  = (storyTypeM[s.story_type] || 0) + 1;
+  });
+  const story_stats = {
+    total:    (storiesRaw || []).length,
+    by_state: Object.entries(stateM).map(([state,count]) => ({ state,count })).sort((a,b) => b.count-a.count),
+    by_type:  Object.entries(storyTypeM).map(([type,count]) => ({ type,count })).sort((a,b) => b.count-a.count),
+  };
+
+  // ─── by source / cat / type ───────────────────────────────
   const bySource = {};
   items.forEach(a => {
     const s = a.source_name || 'Unknown';
-    if (!bySource[s]) bySource[s] = { source_name: s, contributed: 0, published: 0, rejected: 0, nvs_total: 0, last_article_at: null };
+    if (!bySource[s]) bySource[s] = { source_name:s, contributed:0, published:0, rejected:0, nvs_total:0, last_article_at:null };
     bySource[s].contributed++;
     if (a.status === 'published') bySource[s].published++;
-    if (a.status === 'rejected') bySource[s].rejected++;
+    if (a.status === 'rejected')  bySource[s].rejected++;
     bySource[s].nvs_total += (a.nvs_score || 0);
     if (!bySource[s].last_article_at || a.fetched_at > bySource[s].last_article_at) bySource[s].last_article_at = a.fetched_at;
   });
-  const by_source = Object.values(bySource).map(s => ({ ...s, avg_nvs: s.contributed > 0 ? Math.round(s.nvs_total / s.contributed) : 0 })).sort((a,b) => b.contributed - a.contributed);
+  const by_source = Object.values(bySource).map(s => ({ ...s, avg_nvs: s.contributed>0?Math.round(s.nvs_total/s.contributed):0 })).sort((a,b) => b.contributed-a.contributed);
 
   const byCat = {};
   items.forEach(a => {
     const c = a.category || 'Unknown';
-    if (!byCat[c]) byCat[c] = { category: c, count_published: 0, count_rejected: 0, nvs_total: 0, count: 0 };
+    if (!byCat[c]) byCat[c] = { category:c, count_published:0, count_rejected:0, nvs_total:0, count:0 };
     byCat[c].count++;
     byCat[c].nvs_total += (a.nvs_score || 0);
     if (a.status === 'published') byCat[c].count_published++;
-    if (a.status === 'rejected') byCat[c].count_rejected++;
+    if (a.status === 'rejected')  byCat[c].count_rejected++;
   });
-  const by_category = Object.values(byCat).map(c => ({ ...c, avg_nvs: c.count > 0 ? Math.round(c.nvs_total / c.count) : 0 })).sort((a,b) => b.count_published - a.count_published);
+  const by_category = Object.values(byCat).map(c => ({ ...c, avg_nvs:c.count>0?Math.round(c.nvs_total/c.count):0 })).sort((a,b) => b.count_published-a.count_published);
 
   const byType = {};
   items.forEach(a => {
     const t = a.content_type || 'unknown';
-    if (!byType[t]) byType[t] = { content_type: t, count: 0, count_published: 0, nvs_total: 0 };
+    if (!byType[t]) byType[t] = { content_type:t, count:0, count_published:0, nvs_total:0 };
     byType[t].count++;
     byType[t].nvs_total += (a.nvs_score || 0);
     if (a.status === 'published') byType[t].count_published++;
   });
-  const by_content_type = Object.values(byType).map(t => ({ ...t, avg_nvs: t.count > 0 ? Math.round(t.nvs_total / t.count) : 0 }));
+  const by_content_type = Object.values(byType).map(t => ({ ...t, avg_nvs:t.count>0?Math.round(t.nvs_total/t.count):0 }));
 
-  const dist = { nvs_90_100: 0, nvs_70_89: 0, nvs_50_69: 0, nvs_30_49: 0, nvs_0_29: 0 };
+  const dist = { nvs_90_100:0, nvs_70_89:0, nvs_50_69:0, nvs_30_49:0, nvs_0_29:0 };
   items.forEach(a => {
     const n = a.nvs_score || 0;
-    if (n >= 90) dist.nvs_90_100++;
-    else if (n >= 70) dist.nvs_70_89++;
-    else if (n >= 50) dist.nvs_50_69++;
-    else if (n >= 30) dist.nvs_30_49++;
+    if (n>=90) dist.nvs_90_100++;
+    else if (n>=70) dist.nvs_70_89++;
+    else if (n>=50) dist.nvs_50_69++;
+    else if (n>=30) dist.nvs_30_49++;
     else dist.nvs_0_29++;
   });
 
-  const lastRun = lastRuns?.[0] || {};
-  const lastSuccess = (lastRuns || []).find(r => r.status === 'success');
-  // Prefer most-recent run's funnelStats (now saved on both success and partial)
-  let funnelData = {};
-  for (const run of (lastRuns || [])) {
+  // ─── aggregate funnel across all runs in range ────────────
+  let agg = { raw:0, fetched:0, date:0, kw:0, hash:0, title:0, pub:0, q:0, rej:0, cost:0, calls:0 };
+  let hasDetailedFunnel = false;
+  (runs || []).forEach(run => {
+    agg.fetched += run.items_fetched   || 0;
+    agg.pub     += run.items_published || 0;
+    agg.q       += run.items_queued    || 0;
+    agg.rej     += run.items_rejected  || 0;
+    agg.cost    += run.estimated_cost_eur || 0;
+    agg.calls   += run.claude_calls    || 0;
     if (run.error_message) {
-      try { const d = JSON.parse(run.error_message); if (d.raw_fetched) { funnelData = d; break; } } catch (e) {}
+      try {
+        const d = JSON.parse(run.error_message);
+        if (d.raw_fetched) {
+          hasDetailedFunnel = true;
+          agg.raw   += d.raw_fetched   || 0;
+          agg.date  += d.after_date    || 0;
+          agg.kw    += d.after_keyword || 0;
+          agg.hash  += d.after_hash    || 0;
+          agg.title += d.after_title   || 0;
+        }
+      } catch(e) {}
     }
-  }
-
-  const fd = (key) => funnelData[key] ?? null;
+  });
+  if (!hasDetailedFunnel) agg.raw = agg.fetched;
 
   return {
     funnel: {
-      total_fetched:        fd('raw_fetched')      ?? lastRun.items_fetched ?? 0,
-      after_date_filter:    fd('after_date')       ?? 0,
-      after_keyword_filter: fd('after_keyword')    ?? 0,
-      after_hash_dedup:     fd('after_hash')       ?? 0,
-      after_title_dedup:    fd('after_title')      ?? 0,
-      after_url_dedup:      fd('after_url_dedup')  ?? 0,
-      after_scoring:        fd('scored')           ?? lastRun.items_scored ?? 0,
-      auto_published:       lastRun.items_published  || 0,
-      queued_for_review:    lastRun.items_queued     || 0,
-      rejected:             lastRun.items_rejected   || 0,
+      total_fetched:        agg.raw,
+      after_date_filter:    hasDetailedFunnel ? agg.date  : agg.raw,
+      after_keyword_filter: hasDetailedFunnel ? agg.kw    : agg.raw,
+      after_hash_dedup:     hasDetailedFunnel ? agg.hash  : agg.raw,
+      after_title_dedup:    hasDetailedFunnel ? agg.title : agg.raw,
+      auto_published:       agg.pub,
+      queued_for_review:    agg.q,
+      rejected:             agg.rej,
       final_in_cache:       cached.length,
-      by_source:            funnelData.by_source     || {},
+      total_cost:           agg.cost,
+      total_calls:          agg.calls,
     },
     by_source,
     by_category,
     by_content_type,
-    scoring_distribution: dist,
-    last_runs: lastRuns || [],
-    top_published: published.slice(0, 30),
-    top_rejected: rejected.slice(0, 10),
-    all_fetched: items,
-    queued_items: pending,
-    published_count: parseInt(publishedCountResult?.[0]?.count || 0),
+    scoring_distribution:  dist,
+    last_runs:             (runs || []).slice(0, 20),
+    top_published:         published.slice(0, 30),
+    top_rejected:          rejected.slice(0, 10),
+    all_fetched:           items,
+    queued_items:          pending,
+    published_count:       published.length,
+    source_type_dist,
+    trust_tier_dist,
+    source_type_map:       srcMap,
+    story_stats,
+    runs_in_range:         (runs || []).length,
+    time_range:            { from: from || null, to: to || null },
   };
 }
 
@@ -2700,7 +3175,7 @@ const MATCH_STATS_KEYS = [
 ];
 
 async function buildMatchStats(fixtureId, env) {
-  const H = { 'x-apisports-key': env.API_FOOTBALL_KEY || '', 'Origin': 'https://app.kartalix.com', 'Referer': 'https://app.kartalix.com/' };
+  const H = { 'x-apisports-key': env.API_FOOTBALL_KEY || '', 'Origin': 'https://kartalix.com', 'Referer': 'https://kartalix.com/' };
   const apiFetch2 = url => fetch(url, { headers: H, signal: AbortSignal.timeout(8000) }).then(r => r.ok ? r.json() : null).catch(() => null);
 
   const [statsRes, eventsRes] = await Promise.all([
@@ -2756,7 +3231,7 @@ async function buildMatchStats(fixtureId, env) {
 
 // ─── SPRINT 4: ARTICLE PAGES ─────────────────────────────────
 
-const BASE_URL = 'https://app.kartalix.com';
+const BASE_URL = 'https://kartalix.com';
 
 async function serveArticlePage(slug, env) {
   const cached = await env.PITCHOS_CACHE.get('articles:BJK');
@@ -2858,11 +3333,10 @@ async function serveSitemap(env) {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
-  <url>
-    <loc>${BASE_URL}/</loc>
-    <changefreq>hourly</changefreq>
-    <priority>1.0</priority>
-  </url>
+  <url><loc>${BASE_URL}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>
+  <url><loc>${BASE_URL}/hakkimizda</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
+  <url><loc>${BASE_URL}/iletisim</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
+  <url><loc>${BASE_URL}/gizlilik</loc><changefreq>yearly</changefreq><priority>0.2</priority></url>
 ${articleUrls}
 </urlset>`;
 
@@ -2872,6 +3346,127 @@ ${articleUrls}
       'Cache-Control': 'public, max-age=1800',
     },
   });
+}
+
+// ─── STATIC PAGE SHELL ───────────────────────────────────────
+function renderStaticPage(title, bodyHtml) {
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>${escHtml(title)} | Kartalix</title>
+<link rel="canonical" href="${BASE_URL}"/>
+<link rel="alternate" type="application/rss+xml" title="Kartalix RSS" href="${BASE_URL}/rss"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:16px;line-height:1.7}
+a{color:#E30A17;text-decoration:none}a:hover{text-decoration:underline}
+header{background:#111;border-bottom:1px solid #222;padding:0 1.5rem;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
+.logo{font-size:1.25rem;font-weight:900;letter-spacing:-0.03em;color:#fff}
+.logo span{color:#E30A17}
+.back-link{font-size:0.75rem;color:#888;letter-spacing:0.06em}
+.back-link:hover{color:#E30A17;text-decoration:none}
+main{max-width:720px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
+h1{font-size:1.65rem;font-weight:800;color:#fff;margin-bottom:1.5rem;line-height:1.25}
+h2{font-size:1.1rem;font-weight:700;color:#fff;margin:2rem 0 0.6rem}
+p{color:#c8c6c0;margin-bottom:1.2rem}
+ul{padding-left:1.5rem;margin-bottom:1.2rem}
+li{color:#c8c6c0;margin-bottom:0.4rem}
+footer{border-top:1px solid #222;padding:2rem 1.5rem;text-align:center;font-size:0.75rem;color:#555}
+footer a{color:#666;margin:0 0.75rem}
+footer a:hover{color:#E30A17;text-decoration:none}
+@media(max-width:600px){main{padding:1.5rem 1rem 3rem}h1{font-size:1.3rem}}
+</style>
+</head>
+<body>
+<header>
+  <a href="/" class="logo">Kartal<span>ix</span></a>
+  <a href="/" class="back-link">← Ana Sayfa</a>
+</header>
+<main>${bodyHtml}</main>
+<footer>
+  <a href="/hakkimizda">Hakkımızda</a>
+  <a href="/iletisim">İletişim</a>
+  <a href="/gizlilik">Gizlilik Politikası</a>
+  <a href="/kaynak-atif">Kaynak Atıf</a>
+  <a href="/rss">RSS</a>
+</footer>
+</body>
+</html>`;
+}
+
+function renderAboutPage() {
+  return renderStaticPage('Hakkımızda', `
+<h1>Hakkımızda</h1>
+<p>Kartalix, Beşiktaş JK taraftarları için bağımsız bir haber ve analiz platformudur. Kulüp haberciliğini olgulara dayalı, özgün gazetecilik anlayışıyla ele alıyoruz.</p>
+<h2>Ne Yapıyoruz?</h2>
+<p>Süper Lig maç analizleri, transfer takibi, sakatlık raporları ve kulüp haberciliğini veri odaklı bir perspektifle sunuyoruz. Yayımladığımız tüm içerik Kartalix editörleri tarafından üretilmektedir; herhangi bir kaynaktan birebir alıntı yapılmamaktadır.</p>
+<h2>Bağımsızlık</h2>
+<p>Kartalix, Beşiktaş JK ile resmi bir bağlantısı bulunmayan bağımsız bir yayın organıdır. Sponsorlu içerik veya kulüp yönlendirmesiyle değil, taraftar bakış açısıyla yazıyoruz.</p>
+<h2>Editoryal Yaklaşım</h2>
+<p>Haberlerimizde doğrulanmış verilere (istatistikler, resmi açıklamalar, API kaynaklı skor ve sıralama bilgileri) dayanıyoruz. Spekülatif içerikleri net biçimde belirtiyoruz.</p>
+<h2>İletişim</h2>
+<p>Görüş, öneri ve düzeltme talepleriniz için: <a href="/iletisim">iletişim sayfamızı</a> ziyaret edin.</p>
+`);
+}
+
+function renderContactPage() {
+  return renderStaticPage('İletişim', `
+<h1>İletişim</h1>
+<p>Kartalix ile iletişime geçmek için aşağıdaki e-posta adresini kullanabilirsiniz.</p>
+<h2>E-posta</h2>
+<p><a href="mailto:iletisim@kartalix.com">iletisim@kartalix.com</a></p>
+<h2>Ne Zaman Yanıt Alırsınız?</h2>
+<p>Mesajlarınıza genellikle 2–3 iş günü içinde yanıt veriyoruz.</p>
+<h2>Hangi Konularda Yazabilirsiniz?</h2>
+<ul>
+  <li>Haber düzeltme talepleri</li>
+  <li>İçerik önerileri</li>
+  <li>Reklam ve iş birliği teklifleri</li>
+  <li>Teknik sorunlar</li>
+</ul>
+<p>Kartalix, Beşiktaş JK ile resmi bir bağlantısı bulunmayan bağımsız bir yayın organıdır.</p>
+`);
+}
+
+function renderAttributionPage() {
+  return renderStaticPage('Kaynak Atıf', `
+<h1>Kaynak Atıf</h1>
+<p>Kartalix, Beşiktaş JK haberlerini takip eden bağımsız bir yayın organıdır. Yayımladığımız tüm içerik Kartalix editörleri tarafından özgün olarak üretilmektedir.</p>
+<h2>Haber Kaynakları</h2>
+<p>Haberlerimiz; kamuya açık spor veri sağlayıcıları, resmi kulüp açıklamaları ve lisanslı haber ajanslarından derlenen bilgilere dayanılarak özgün biçimde kaleme alınmaktadır. Kaynak metinleri birebir kopyalanmaz; yalnızca olgusal veriler (oyuncu adları, skorlar, tarihler, transfer bedelleri) kullanılır.</p>
+<h2>İstatistik Verileri</h2>
+<p>Maç istatistikleri ve sıralama verileri <a href="https://www.api-football.com" target="_blank" rel="noopener">API-Football</a> aracılığıyla sağlanmaktadır.</p>
+<h2>Video İçerikleri</h2>
+<p>Sitemizde yer alan YouTube videolarının tüm hakları ilgili kanallara aittir. Kartalix bu videoları yayımlamaz; yalnızca resmi YouTube kanalları üzerinden gömülü (embed) olarak sunar.</p>
+<h2>Hata Bildirimi</h2>
+<p>Bir haber hatasını veya yanlış bilgiyi bildirmek için <a href="/iletisim">iletişim sayfamızı</a> kullanabilirsiniz. Doğrulanmış düzeltmeleri en kısa sürede yayımlarız.</p>
+`);
+}
+
+function renderPrivacyPage() {
+  const date = '9 Mayıs 2025';
+  return renderStaticPage('Gizlilik Politikası', `
+<h1>Gizlilik Politikası</h1>
+<p>Son güncelleme: ${date}</p>
+<p>Kartalix ("biz", "bizim") olarak gizliliğinize saygı duyuyoruz. Bu politika, sitemizi ziyaret ettiğinizde hangi verilerin toplandığını ve nasıl kullanıldığını açıklamaktadır.</p>
+<h2>Toplanan Veriler</h2>
+<p>Sitemizi ziyaret ettiğinizde tarayıcınız tarafından standart sunucu günlükleri (IP adresi, tarayıcı türü, ziyaret edilen sayfa, ziyaret tarihi) oluşturulabilir. Bu veriler yalnızca teknik sorun giderme amacıyla kullanılır ve üçüncü taraflarla paylaşılmaz.</p>
+<h2>Çerezler (Cookies)</h2>
+<p>Sitemiz, reklam hizmetleri ve içerik kişiselleştirme amacıyla çerezler kullanmaktadır. Bu çerezler üçüncü taraf sağlayıcılar tarafından yerleştirilebilir.</p>
+<h2>Google AdSense ve Reklamlar</h2>
+<p>Kartalix, reklam göstermek için Google AdSense hizmetini kullanmaktadır. Google ve ortakları, siteye yönelik önceki ziyaretlerinize veya diğer web sitelerine dayalı reklamlar sunmak amacıyla çerez kullanabilir.</p>
+<p>Google'ın reklam çerezlerini devre dışı bırakmak için <a href="https://www.google.com/settings/ads" target="_blank" rel="noopener">Google Reklam Ayarları</a> sayfasını ziyaret edebilirsiniz. Ayrıca <a href="https://www.aboutads.info" target="_blank" rel="noopener">aboutads.info</a> üzerinden üçüncü taraf çerezlerini devre dışı bırakabilirsiniz.</p>
+<h2>Üçüncü Taraf Bağlantıları</h2>
+<p>Sitemizde yer alan dış bağlantılar, kendi gizlilik politikalarına sahip üçüncü taraf sitelere yönlendirebilir. Bu sitelerin içerik ve uygulamalarından sorumlu değiliz.</p>
+<h2>Veri Güvenliği</h2>
+<p>Kişisel verilerinizi toplamıyor veya satmıyoruz. Reklam teknolojileri aracılığıyla oluşturulan anonim kullanım verileri, hizmet iyileştirme amacıyla kullanılabilir.</p>
+<h2>Değişiklikler</h2>
+<p>Bu politikayı zaman zaman güncelleyebiliriz. Değişiklikler bu sayfada yayımlandığı tarihten itibaren geçerlidir.</p>
+<h2>İletişim</h2>
+<p>Gizlilik politikamızla ilgili sorularınız için: <a href="mailto:iletisim@kartalix.com">iletisim@kartalix.com</a></p>
+`);
 }
 
 // ─── ARTICLE PAGE HTML ────────────────────────────────────────
@@ -3003,7 +3598,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
     <script>
     (async function(){
       try {
-        const r = await fetch('https://app.kartalix.com/widgets/bjk-match-stats?fixture=${fixtureId}');
+        const r = await fetch('https://kartalix.com/widgets/bjk-match-stats?fixture=${fixtureId}');
         const d = await r.json();
         if (!d.stats || !d.stats.length) return;
         const pct = v => typeof v==='string' && v.includes('%') ? parseInt(v) : null;
@@ -3140,11 +3735,698 @@ async function submitFb(){
 
 loadReactions();
 </script>
+<footer style="border-top:1px solid #222;padding:1.5rem;text-align:center;font-size:0.75rem;color:#555;margin-top:2rem">
+  <a href="/hakkimizda" style="color:#666;margin:0 0.75rem;text-decoration:none">Hakkımızda</a>
+  <a href="/iletisim" style="color:#666;margin:0 0.75rem;text-decoration:none">İletişim</a>
+  <a href="/gizlilik" style="color:#666;margin:0 0.75rem;text-decoration:none">Gizlilik Politikası</a>
+  <a href="/kaynak-atif" style="color:#666;margin:0 0.75rem;text-decoration:none">Kaynak Atıf</a>
+  <a href="/rss" style="color:#666;margin:0 0.75rem;text-decoration:none">RSS</a>
+</footer>
 </body>
 </html>`;
 }
 
-function renderPinPage() {
+function adminNav(active) {
+  const links = [
+    { href: '/admin',             label: 'Haberler',   key: 'news'       },
+    { href: '/admin/sources/ui',  label: 'Sources',    key: 'sources'    },
+    { href: '/admin/financials',  label: 'Financials', key: 'financials' },
+    { href: '/admin/report',      label: 'Report',     key: 'report'     },
+    { href: '/admin/roadmap',     label: 'Roadmap',    key: 'roadmap'    },
+    { href: '/admin/releases',    label: 'Releases',   key: 'releases'   },
+  ];
+  const navLinks = links.map(l => {
+    const isActive = active === l.key;
+    return `<a href="${l.href}" style="display:flex;align-items:center;padding:0 1rem;height:100%;font-size:.78rem;font-weight:${isActive ? '700' : '400'};color:${isActive ? '#fff' : '#666'};text-decoration:none;border-bottom:${isActive ? '2px solid #E30A17' : '2px solid transparent'}">${l.label}</a>`;
+  }).join('');
+  return `<header style="background:#111;border-bottom:1px solid #222;padding:0 1.5rem;height:48px;display:flex;align-items:center;gap:0;position:sticky;top:0;z-index:10">
+  <a href="/" style="font-size:1rem;font-weight:900;color:#fff;text-decoration:none;margin-right:1rem">Kartal<span style="color:#E30A17">ix</span></a>
+  <nav style="display:flex;height:100%">${navLinks}</nav>
+  <a href="/" style="color:#555;font-size:.72rem;text-decoration:none;margin-left:auto">← Site</a>
+</header>`;
+}
+
+function renderCostPage(data) {
+  const { current_usd, cap_usd, pct_used, blocked, history } = data;
+  const barPct = Math.min(parseFloat(pct_used || 0), 100);
+  const barColor = barPct >= 100 ? '#E30A17' : barPct >= 80 ? '#f0a500' : '#3a9a3a';
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kartalix — Cost Monitor</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.6}
+main{max-width:640px;margin:2rem auto;padding:0 1.5rem}
+.card{background:#111;border:1px solid #222;border-radius:6px;padding:1.25rem 1.5rem;margin-bottom:1.25rem}
+h2{font-size:.78rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:1rem}
+.big-num{font-size:2.2rem;font-weight:900;color:#fff;line-height:1}
+.big-sub{font-size:.75rem;color:#666;margin-top:.3rem}
+.bar-wrap{background:#1a1a1a;border-radius:4px;height:8px;margin:1rem 0 .5rem;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;transition:width .3s}
+.bar-label{font-size:.72rem;color:#888;display:flex;justify-content:space-between}
+.status-ok{color:#3a9a3a;font-weight:700}
+.status-warn{color:#f0a500;font-weight:700}
+.status-blocked{color:#E30A17;font-weight:700}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:.7rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:4px 0;border-bottom:1px solid #222}
+td{padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:.85rem}
+td:last-child{text-align:right;color:#888}
+</style>
+</head>
+<body>
+${adminNav('cost')}
+<main>
+  <div class="card">
+    <h2>This Month</h2>
+    <div class="big-num">$${current_usd.toFixed(4)}</div>
+    <div class="big-sub">of $${cap_usd.toFixed(2)} cap — <span class="${blocked ? 'status-blocked' : barPct >= 80 ? 'status-warn' : 'status-ok'}">${blocked ? 'BLOCKED' : barPct >= 80 ? 'WARNING' : 'OK'}</span></div>
+    <div class="bar-wrap"><div class="bar-fill" style="width:${barPct}%;background:${barColor}"></div></div>
+    <div class="bar-label"><span>${barPct.toFixed(1)}% used</span><span>$${(cap_usd - current_usd).toFixed(4)} remaining</span></div>
+  </div>
+  <div class="card">
+    <h2>History</h2>
+    <table>
+      <thead><tr><th>Month</th><th>Spend (USD)</th></tr></thead>
+      <tbody>
+        ${history.map(h => `<tr><td>${h.month}</td><td style="text-align:right">$${h.usd.toFixed(4)}</td></tr>`).join('')}
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:.7rem;color:#555;text-align:center">Cap configurable via MONTHLY_CLAUDE_CAP env var (default $8). Refreshes each page load.</p>
+</main>
+</body>
+</html>`;
+}
+
+function renderFinancialsPage(monthsData, fixedItems) {
+  const allMonths    = monthsData.map(d => d.month);
+  const currentMonth = allMonths[allMonths.length - 1] || '';
+  // All manual entries tagged with their start month (for rendering the table)
+  const allManual = monthsData.flatMap(d => d.manual.map(c => ({ ...c, startMonth: d.month })));
+
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kartalix — Financials</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.6}
+main{max-width:900px;margin:2rem auto;padding:0 1.5rem}
+.range-bar{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;margin-bottom:1.25rem}
+.rbtn{background:#1a1a1a;border:1px solid #2a2a2a;color:#888;padding:.35rem .85rem;border-radius:4px;font-size:.75rem;cursor:pointer;font-family:inherit}
+.rbtn:hover{border-color:#444;color:#ccc}
+.rbtn.active{background:#1a1a2a;border-color:#4466aa;color:#aad}
+.custom-range{display:none;gap:.5rem;align-items:center;font-size:.78rem;color:#666}
+.custom-range input{background:#1a1a1a;border:1px solid #333;color:#e8e6e0;border-radius:4px;padding:.3rem .5rem;font-size:.78rem;font-family:inherit}
+.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem;margin-bottom:1.5rem}
+@media(max-width:640px){.summary{grid-template-columns:1fr 1fr}}
+.kpi{background:#111;border:1px solid #222;border-radius:6px;padding:.9rem 1.1rem}
+.kpi-label{font-size:.62rem;color:#555;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.25rem}
+.kpi-value{font-size:1.45rem;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
+.kpi-sub{font-size:.62rem;color:#444;margin-top:.2rem}
+.red{color:#E30A17}.green{color:#3a9a3a}.dim{color:#888}
+.chart-wrap{background:#111;border:1px solid #222;border-radius:6px;padding:1.1rem 1.25rem;margin-bottom:1.5rem}
+.section{margin-bottom:1.5rem}
+.section-head{display:flex;align-items:center;gap:.75rem;margin-bottom:.7rem;padding-bottom:.4rem;border-bottom:1px solid #1e1e1e}
+h2{font-size:.68rem;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.1em;flex:1}
+.month-pick{background:#1a1a1a;border:1px solid #2a2a2a;color:#aaa;border-radius:4px;padding:.25rem .5rem;font-size:.75rem;font-family:inherit}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:.62rem;color:#444;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:5px 8px;border-bottom:1px solid #1e1e1e}
+td{padding:6px 8px;border-bottom:1px solid #161616;vertical-align:middle;font-size:.82rem}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.nc{color:#444;font-size:.72rem}
+.badge{font-size:.52rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:10px;border:1px solid;white-space:nowrap}
+.bf{background:#1a2030;color:#6af;border-color:#2a3a50}
+.bv{background:#2a1a10;color:#f93;border-color:#3a2a10}
+.bm{background:#251808;color:#fa7;border-color:#3a2808}
+.br{background:#0a2010;color:#3a9;border-color:#1a3020}
+.brt{background:#0a1a20;color:#39a;border-color:#1a2a30}
+.total-row td{border-top:1px solid #2a2a2a;font-weight:700;font-size:.78rem;color:#aaa}
+.entry-form{background:#111;border:1px solid #222;border-radius:6px;padding:.9rem 1.1rem;margin-bottom:.75rem;display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap}
+.entry-form label{font-size:.6rem;color:#555;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.25rem}
+.entry-form input,.entry-form select{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;padding:.35rem .55rem;font-size:.82rem;font-family:inherit;outline:none}
+.entry-form input:focus,.entry-form select:focus{border-color:#444}
+.btn-save{background:#1a2a1a;color:#7ec87e;border:1px solid #2a3a2a;padding:.35rem .9rem;border-radius:4px;font-size:.75rem;font-weight:600;cursor:pointer;white-space:nowrap}
+.btn-save:hover{background:#2a3a2a}
+.btn-del{background:transparent;border:1px solid #2a2a2a;color:#555;padding:2px 8px;border-radius:3px;font-size:.68rem;cursor:pointer}
+.btn-del:hover{border-color:#E30A17;color:#E30A17}
+.st{font-size:.7rem;color:#3a9a3a;align-self:center;min-width:50px}
+.page-note{font-size:.65rem;color:#333;text-align:center;margin-top:1.25rem}
+</style>
+</head>
+<body>
+${adminNav('financials')}
+<main>
+
+<div class="range-bar">
+  <button class="rbtn active" onclick="setRange('month',this)">This Month</button>
+  <button class="rbtn" onclick="setRange('ytd',this)">YTD</button>
+  <button class="rbtn" onclick="setRange('12m',this)">Last 12M</button>
+  <button class="rbtn" onclick="setRange('all',this)">All Time</button>
+  <button class="rbtn" onclick="setRange('custom',this)">Custom</button>
+  <div class="custom-range" id="customRange">
+    <input type="month" id="fromM" min="${allMonths[0]}" max="${currentMonth}" value="${allMonths[0]}"/> to
+    <input type="month" id="toM"   min="${allMonths[0]}" max="${currentMonth}" value="${currentMonth}"/>
+    <button class="rbtn" onclick="applyCustom()">Apply</button>
+  </div>
+</div>
+
+<div class="summary">
+  <div class="kpi"><div class="kpi-label">Burn</div><div class="kpi-value red" id="kBurn">—</div><div class="kpi-sub" id="kBurnSub"></div></div>
+  <div class="kpi"><div class="kpi-label">Revenue</div><div class="kpi-value green" id="kRev">—</div><div class="kpi-sub" id="kRevSub"></div></div>
+  <div class="kpi"><div class="kpi-label">Margin</div><div class="kpi-value" id="kMargin">—</div><div class="kpi-sub" id="kMarginSub"></div></div>
+  <div class="kpi"><div class="kpi-label">Months</div><div class="kpi-value dim" id="kMonths">—</div><div class="kpi-sub" id="kRange"></div></div>
+</div>
+
+<div class="chart-wrap">
+  <canvas id="chart" height="80"></canvas>
+</div>
+
+<!-- COST BREAKDOWN PER MONTH -->
+<div class="section">
+  <div class="section-head">
+    <h2>Cost Breakdown</h2>
+    <select class="month-pick" id="bdMonth" onchange="renderBreakdown(this.value)">
+      ${allMonths.map(m => `<option value="${m}"${m===currentMonth?' selected':''}>${m}</option>`).join('')}
+    </select>
+  </div>
+  <div id="bdTable"></div>
+</div>
+
+<!-- ADD COST ENTRY -->
+<div class="section">
+  <div class="section-head"><h2>Add Cost Entry</h2></div>
+  <div class="entry-form">
+    <div><label>Month (start)</label><select id="costMonth">${allMonths.map(m => `<option value="${m}"${m===currentMonth?' selected':''}>${m}</option>`).join('')}</select></div>
+    <div><label>Item</label><input type="text" id="costItem" placeholder="e.g. Claude API April" style="width:160px"/></div>
+    <div><label>Amount (USD)</label><input type="number" id="costAmt" step="0.01" min="0" style="width:85px" placeholder="0.00"/></div>
+    <div><label>Type</label>
+      <select id="costType">
+        <option value="one_time">One-time</option>
+        <option value="recurring">Recurring</option>
+      </select>
+    </div>
+    <div><label>Notes</label><input type="text" id="costNotes" placeholder="optional" style="width:130px"/></div>
+    <button class="btn-save" onclick="addCost()">Add</button>
+    <span class="st" id="costSt"></span>
+  </div>
+</div>
+
+<!-- REVENUE ENTRY -->
+<div class="section">
+  <div class="section-head"><h2>Revenue Entry</h2></div>
+  <div class="entry-form">
+    <div><label>Month</label><select id="revMonth">${allMonths.map(m => `<option value="${m}"${m===currentMonth?' selected':''}>${m}</option>`).join('')}</select></div>
+    <div><label>Amount (USD)</label><input type="number" id="revAmt" step="0.01" min="0" style="width:110px" placeholder="0.00"/></div>
+    <button class="btn-save" onclick="saveRevenue()">Save</button>
+    <span class="st" id="revSt"></span>
+  </div>
+</div>
+
+<p class="page-note">Fixed costs hardcoded — ask Claude to update when plans change. Recurring manual entries propagate forward from their start month.</p>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+const ALL_DATA    = ${JSON.stringify(monthsData)};
+const FIXED_ITEMS = ${JSON.stringify(fixedItems)};
+const ALL_MANUAL  = ${JSON.stringify(allManual)};
+
+let chart       = null;
+let activeRange = 'month';
+let customFrom  = '${allMonths[0]}', customTo = '${currentMonth}';
+
+// Returns manual costs effective for a given month:
+// - one_time: only in their startMonth
+// - recurring: in startMonth and all months after
+function effectiveCosts(month) {
+  return ALL_MANUAL.filter(c =>
+    c.type === 'recurring' ? c.startMonth <= month : c.startMonth === month
+  );
+}
+
+function burnOf(d) {
+  return d.fixed + d.claude + effectiveCosts(d.month).reduce((s,c)=>s+c.amount,0);
+}
+
+function getFiltered(range, cf, ct) {
+  const now  = ALL_DATA[ALL_DATA.length-1]?.month || '';
+  const year = now.slice(0,4);
+  if (range==='month')  return ALL_DATA.filter(d=>d.month===now);
+  if (range==='ytd')    return ALL_DATA.filter(d=>d.month.startsWith(year));
+  if (range==='12m')  { const d=new Date(now+'-01');d.setMonth(d.getMonth()-11);const f=d.toISOString().slice(0,7);return ALL_DATA.filter(d=>d.month>=f); }
+  if (range==='custom') return ALL_DATA.filter(d=>d.month>=cf&&d.month<=ct);
+  return ALL_DATA;
+}
+
+function fmt(n){ return (n<0?'-':'')+'$'+Math.abs(n).toFixed(2); }
+
+function render() {
+  const fd = getFiltered(activeRange, customFrom, customTo);
+  if (!fd.length) return;
+
+  const totalBurn = fd.reduce((s,d)=>s+burnOf(d),0);
+  const totalRev  = fd.reduce((s,d)=>s+d.revenue,0);
+  const margin    = totalRev - totalBurn;
+  const n         = fd.length;
+
+  document.getElementById('kBurn').textContent     = fmt(totalBurn);
+  document.getElementById('kBurnSub').textContent  = n>1?'avg '+fmt(totalBurn/n)+'/mo':'this month';
+  document.getElementById('kRev').textContent      = fmt(totalRev);
+  document.getElementById('kRevSub').textContent   = n>1?'avg '+fmt(totalRev/n)+'/mo':'this month';
+  document.getElementById('kMargin').textContent   = fmt(margin);
+  document.getElementById('kMargin').className     = 'kpi-value '+(margin>=0?'green':'red');
+  document.getElementById('kMarginSub').textContent= margin>=0?'profitable':'burning';
+  document.getElementById('kMonths').textContent   = n;
+  document.getElementById('kRange').textContent    = fd[0].month+(n>1?' → '+fd[n-1].month:'');
+
+  const labels  = fd.map(d=>d.month);
+  const dFixed  = fd.map(d=>+d.fixed.toFixed(2));
+  const dClaude = fd.map(d=>+d.claude.toFixed(4));
+  const dManual = fd.map(d=>+effectiveCosts(d.month).reduce((s,c)=>s+c.amount,0).toFixed(2));
+  const dRev    = fd.map(d=>+d.revenue.toFixed(2));
+  const dMargin = fd.map(d=>+(d.revenue-burnOf(d)).toFixed(2));
+
+  const datasets = [
+    {type:'bar', label:'Fixed',   data:dFixed,  backgroundColor:'#6b1a1a', stack:'c'},
+    {type:'bar', label:'Claude',  data:dClaude, backgroundColor:'#b04010', stack:'c'},
+    {type:'bar', label:'Manual',  data:dManual, backgroundColor:'#8a5000', stack:'c'},
+    {type:'bar', label:'Revenue', data:dRev,    backgroundColor:'#1a5a2a', stack:'r'},
+    {type:'line',label:'Margin',  data:dMargin, borderColor:'#555',borderWidth:1.5,pointRadius:3,pointBackgroundColor:'#555',tension:.3},
+  ];
+
+  if (chart) {
+    chart.data.labels = labels;
+    datasets.forEach((ds,i)=>{ chart.data.datasets[i].data = ds.data; });
+    chart.update();
+  } else {
+    chart = new Chart(document.getElementById('chart').getContext('2d'), {
+      data:{labels, datasets},
+      options:{
+        responsive:true, interaction:{mode:'index',intersect:false},
+        scales:{
+          x:{ticks:{color:'#555',font:{size:11}},grid:{color:'#1a1a1a'}},
+          y:{ticks:{color:'#555',font:{size:11},callback:v=>'$'+v},grid:{color:'#1e1e1e'}},
+        },
+        plugins:{
+          legend:{labels:{color:'#666',font:{size:10},boxWidth:10,padding:12}},
+          tooltip:{callbacks:{label:c=>' '+c.dataset.label+': $'+c.parsed.y.toFixed(2)}},
+        }
+      }
+    });
+  }
+}
+
+function renderBreakdown(month) {
+  const d = ALL_DATA.find(x=>x.month===month);
+  if (!d) return;
+  const ec = effectiveCosts(month);
+  const manualTotal = ec.reduce((s,c)=>s+c.amount,0);
+  const total = d.fixed + d.claude + manualTotal;
+
+  let rows = '';
+  FIXED_ITEMS.forEach(fi => {
+    rows += \`<tr><td>\${fi.item}</td><td><span class="badge bf">fixed</span></td><td class="num">\${fmt(fi.amount)}</td><td class="nc">\${fi.notes}</td><td></td></tr>\`;
+  });
+  rows += \`<tr><td>Claude API (auto-tracked)</td><td><span class="badge bv">variable</span></td><td class="num">\${fmt(d.claude)}</td><td class="nc">KV accumulator</td><td></td></tr>\`;
+  ec.forEach(c => {
+    const badge = c.type==='recurring'?'<span class="badge brt">recurring</span>':'<span class="badge bm">one-time</span>';
+    const origin = c.startMonth!==month?' <span style="color:#444;font-size:.65rem">(from '+c.startMonth+')</span>':'';
+    rows += \`<tr><td>\${c.item}\${origin}</td><td>\${badge}</td><td class="num">\${fmt(c.amount)}</td><td class="nc">\${c.notes||''}</td><td><button class="btn-del" onclick="delCost('\${c.startMonth}','\${c.id}')">×</button></td></tr>\`;
+  });
+  rows += \`<tr class="total-row"><td colspan="2">TOTAL BURN</td><td class="num">\${fmt(total)}</td><td></td><td></td></tr>\`;
+
+  document.getElementById('bdTable').innerHTML =
+    '<table><thead><tr><th>Item</th><th>Type</th><th style="text-align:right">Amount</th><th>Notes</th><th></th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+function setRange(r, btn) {
+  activeRange = r;
+  document.querySelectorAll('.rbtn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('customRange').style.display = r==='custom'?'flex':'none';
+  if (r !== 'custom') render();
+}
+
+function applyCustom() {
+  customFrom = document.getElementById('fromM').value;
+  customTo   = document.getElementById('toM').value;
+  render();
+}
+
+async function post(body) {
+  const r = await fetch('/admin/financials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  return r.json();
+}
+
+async function addCost() {
+  const item = document.getElementById('costItem').value.trim();
+  const amt  = parseFloat(document.getElementById('costAmt').value)||0;
+  if (!item||!amt) { document.getElementById('costSt').textContent='Fill item + amount'; return; }
+  const st = document.getElementById('costSt');
+  st.textContent='Saving…';
+  const d = await post({
+    action:'add_cost', month:document.getElementById('costMonth').value,
+    item, amount:amt, type:document.getElementById('costType').value,
+    notes:document.getElementById('costNotes').value.trim()
+  });
+  st.textContent = d.ok?'Added ✓':'Error';
+  setTimeout(()=>{ if(d.ok) location.reload(); },900);
+}
+
+async function delCost(month, id) {
+  if (!confirm('Delete this entry?')) return;
+  const d = await post({ action:'del_cost', month, id });
+  if (d.ok) location.reload();
+}
+
+async function saveRevenue() {
+  const month = document.getElementById('revMonth').value;
+  const rev   = parseFloat(document.getElementById('revAmt').value)||0;
+  const st    = document.getElementById('revSt');
+  st.textContent='Saving…';
+  const d = await post({ action:'revenue', month, revenue:rev });
+  st.textContent = d.ok?'Saved ✓':'Error';
+  setTimeout(()=>{ if(d.ok) location.reload(); },900);
+}
+
+// Init
+const curData = ALL_DATA.find(d=>d.month==='${currentMonth}');
+if (curData) document.getElementById('revAmt').value = curData.revenue.toFixed(2);
+render();
+renderBreakdown('${currentMonth}');
+</script>
+</body>
+</html>`;
+}
+
+function renderSourcesPage() {
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kartalix — Sources</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;line-height:1.5}
+a{color:#888;text-decoration:none}a:hover{color:#fff}
+main{max-width:1200px;margin:1.5rem auto;padding:0 1.5rem}
+.toolbar{display:flex;gap:.5rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap}
+.btn{background:#333;color:#e8e6e0;border:none;padding:5px 12px;border-radius:3px;cursor:pointer;font-size:12px;font-family:inherit}
+.btn:hover{background:#444}
+.btn-green{background:#2a3a2a;color:#7ec87e;border:1px solid #3a4a3a}
+.btn-green:hover{background:#3a4a3a}
+.btn-blue{background:#1a2a3a;color:#7ac;border:1px solid #2a3a4a}
+.btn-blue:hover{background:#2a3a4a}
+.btn-red{background:transparent;color:#844;border:1px solid #433;padding:3px 8px}
+.btn-red:hover{border-color:#E30A17;color:#E30A17}
+.btn-sm{padding:3px 8px;font-size:11px}
+/* Add form panel */
+.add-panel{background:#111;border:1px solid #2a2a2a;border-radius:6px;padding:1rem 1.25rem;margin-bottom:1rem;display:none}
+.add-panel.open{display:block}
+.add-panel h3{font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.9rem}
+.form-row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:.6rem}
+.form-row label{font-size:.6rem;color:#555;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.2rem}
+.form-row input,.form-row select{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:3px;padding:.35rem .55rem;font-size:12px;font-family:inherit;outline:none}
+.form-row input:focus,.form-row select:focus{border-color:#444}
+/* Table */
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;padding:6px 8px;border-bottom:1px solid #2a2a2a;color:#666;font-weight:600;white-space:nowrap;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+td{padding:5px 8px;border-bottom:1px solid #1a1a1a;vertical-align:middle}
+tr.src-row:hover > td{background:#151515}
+input[type=text],input[type=number]{background:#1e1e1e;border:1px solid #2a2a2a;color:#e8e6e0;padding:3px 6px;border-radius:3px;font-size:12px;font-family:inherit}
+input[type=checkbox]{accent-color:#E30A17;width:13px;height:13px;cursor:pointer}
+select{background:#1e1e1e;border:1px solid #2a2a2a;color:#e8e6e0;padding:3px 5px;border-radius:3px;font-size:12px;font-family:inherit}
+.badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600}
+.badge-rss{background:#1a2a3a;color:#7aa}
+.badge-yt{background:#3a1a1a;color:#f77}
+.saved{color:#7ec87e;font-size:11px;margin-left:4px}
+/* Test result panel */
+.test-row td{background:#0e1a0e;padding:.6rem 1rem;font-size:11px;color:#888}
+.test-row.error td{background:#1a0e0e}
+.test-ok{color:#3a9}
+.test-err{color:#E30A17}
+.test-sample{margin-top:.4rem;color:#aaa;line-height:1.6}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;vertical-align:middle;flex-shrink:0}
+.dot-ok{background:#3a9a3a}.dot-fail{background:#E30A17}.dot-none{background:#333}
+</style>
+</head>
+<body>
+${adminNav('sources')}
+<main>
+  <div class="toolbar">
+    <button class="btn btn-green" onclick="toggleAdd()">+ Add Source</button>
+    <button class="btn btn-blue" onclick="seedSources()">Seed Defaults</button>
+    <button class="btn" onclick="testAll(this)">Test All</button>
+    <span id="testAllSt" style="font-size:11px;color:#666;margin-left:.25rem"></span>
+  </div>
+
+  <!-- ADD FORM -->
+  <div class="add-panel" id="addPanel">
+    <h3>New Source</h3>
+    <div class="form-row">
+      <div><label>Name *</label><input type="text" id="aName" style="width:180px" placeholder="Fanatik RSS"/></div>
+      <div><label>Type *</label>
+        <select id="aType" onchange="toggleTypeFields()">
+          <option value="rss">RSS</option>
+          <option value="youtube">YouTube</option>
+        </select>
+      </div>
+      <div id="fUrl"><label>Feed URL</label><input type="text" id="aUrl" style="width:280px" placeholder="https://..."/></div>
+      <div id="fChan" style="display:none"><label>Channel ID</label><input type="text" id="aChan" style="width:200px" placeholder="UCxxxxxxxx"/></div>
+    </div>
+    <div class="form-row">
+      <div><label>Trust Tier</label>
+        <select id="aTier"><option>official</option><option>broadcast</option><option selected>press</option><option>journalist</option><option>digital</option><option>aggregator</option></select>
+      </div>
+      <div><label>Treatment</label>
+        <select id="aTreat"><option selected>publish</option><option>embed</option><option>synthesize</option><option>embed_and_synthesize</option><option>signal_only</option></select>
+      </div>
+      <div><label>NVS Hint</label><input type="number" id="aNvs" style="width:70px" placeholder="auto"/></div>
+      <div style="display:flex;gap:1rem;align-items:flex-end;padding-bottom:4px">
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#666;cursor:pointer">
+          <input type="checkbox" id="aBjk"/> BJK Filter
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#666;cursor:pointer">
+          <input type="checkbox" id="aAllQ"/> All Qualify
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#666;cursor:pointer">
+          <input type="checkbox" id="aProxy"/> Proxy
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#666;cursor:pointer">
+          <input type="checkbox" id="aP4" checked/> P4
+        </label>
+      </div>
+      <div><label>Notes</label><input type="text" id="aNotes" style="width:160px" placeholder="optional"/></div>
+    </div>
+    <div class="form-row">
+      <button class="btn btn-green" onclick="addSource()">Save &amp; Add</button>
+      <button class="btn btn-green" onclick="addAndTest()">Save &amp; Test</button>
+      <button class="btn" onclick="toggleAdd()">Cancel</button>
+      <span id="addSt" style="font-size:11px;color:#3a9;margin-left:.5rem"></span>
+    </div>
+  </div>
+
+  <!-- TABLE -->
+  <table>
+    <thead>
+      <tr>
+        <th>On</th><th>Name / URL</th><th>Type</th><th>Trust</th><th>Treatment</th>
+        <th>NVS</th><th>Notes</th><th style="text-align:right">Actions</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</main>
+<script>
+const TIERS      = ['official','broadcast','press','journalist','digital','aggregator'];
+const TREATMENTS = ['publish','embed','synthesize','embed_and_synthesize','signal_only'];
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function load() {
+  const [rows, tests] = await Promise.all([
+    fetch('/admin/sources').then(r=>r.json()),
+    fetch('/admin/sources/tests').then(r=>r.json()).catch(()=>({})),
+  ]);
+  document.getElementById('tbody').innerHTML = rows.map(r => {
+    const t   = tests[r.id];
+    const dot = t ? (t.ok ? 'dot-ok' : 'dot-fail') : 'dot-none';
+    const tip = t ? (t.ok
+      ? \`Last test: \${t.tested_at?.slice(0,16).replace('T',' ')} UTC — OK\`
+      : \`Last test: \${t.tested_at?.slice(0,16).replace('T',' ')} UTC — FAILED: \${t.error}\`)
+      : 'Never tested';
+    return \`
+    <tr class="src-row" id="row-\${r.id}">
+      <td><input type="checkbox" \${r.is_active?'checked':''} onchange="markDirty('\${r.id}')"/></td>
+      <td>
+        <div style="display:flex;align-items:center;gap:4px">
+          <span class="dot \${dot}" title="\${esc(tip)}"></span>
+          <input type="text" value="\${esc(r.name)}" style="width:150px;font-weight:600" onchange="markDirty('\${r.id}')"/>
+        </div>
+        <div style="color:#444;font-size:10px;margin-top:2px;padding-left:13px">\${esc(r.url||r.channel_id||'')}</div>
+      </td>
+      <td><span class="badge \${r.source_type==='rss'?'badge-rss':'badge-yt'}">\${r.source_type}</span></td>
+      <td><select onchange="markDirty('\${r.id}')">\${TIERS.map(t=>\`<option \${t===r.trust_tier?'selected':''}>\${t}</option>\`).join('')}</select></td>
+      <td><select onchange="markDirty('\${r.id}')">\${TREATMENTS.map(t=>\`<option \${t===r.treatment?'selected':''}>\${t}</option>\`).join('')}</select></td>
+      <td><input type="number" style="width:52px" value="\${r.nvs_hint??''}" placeholder="auto" onchange="markDirty('\${r.id}')"/></td>
+      <td><input type="text" value="\${esc(r.notes||'')}" placeholder="notes" onchange="markDirty('\${r.id}')"/></td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-sm" onclick="save('\${r.id}')">Save</button>
+        <span class="saved" id="saved-\${r.id}" style="display:none">✓</span>
+        <button class="btn btn-blue btn-sm" onclick="testSource('\${r.id}')">Test</button>
+        <button class="btn btn-red btn-sm" onclick="delSource('\${r.id}')">Del</button>
+      </td>
+    </tr>
+    <tr class="test-row" id="test-\${r.id}" style="display:none"><td colspan="8"><span id="test-out-\${r.id}"></span></td></tr>
+  \`;}).join('');
+}
+
+function markDirty(id) {
+  document.getElementById('saved-'+id).style.display = 'none';
+}
+
+async function save(id) {
+  const row = document.getElementById('row-'+id);
+  const inputs  = [...row.querySelectorAll('input,select')];
+  const active  = inputs[0];
+  const name    = inputs[1];
+  const tier    = inputs[2];
+  const treat   = inputs[3];
+  const nvs     = inputs[4];
+  const notes   = inputs[5];
+  await fetch('/admin/sources', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
+    id, is_active: active.checked, name: name.value,
+    trust_tier: tier.value, treatment: treat.value,
+    nvs_hint: nvs.value ? parseInt(nvs.value) : null,
+    notes: notes.value,
+  })});
+  const s = document.getElementById('saved-'+id);
+  s.style.display='inline'; setTimeout(()=>s.style.display='none', 2000);
+}
+
+async function delSource(id) {
+  if (!confirm('Delete this source? This cannot be undone.')) return;
+  await fetch('/admin/sources?id='+id, { method:'DELETE' });
+  document.getElementById('row-'+id)?.remove();
+  document.getElementById('test-'+id)?.remove();
+}
+
+async function testSource(id) {
+  const panel = document.getElementById('test-'+id);
+  const out   = document.getElementById('test-out-'+id);
+  panel.style.display = 'table-row';
+  panel.className = 'test-row';
+  out.innerHTML = '<span style="color:#555">Testing…</span>';
+  try {
+    const res  = await fetch('/admin/sources/test?id='+id);
+    const data = await res.json();
+    // Update status dot
+    const dot = document.querySelector(\`#row-\${id} .dot\`);
+    if (dot) { dot.className = 'dot '+(data.ok?'dot-ok':'dot-fail'); dot.title = data.ok?'Just tested — OK':'Just tested — FAILED: '+(data.error||''); }
+    if (!data.ok) {
+      panel.className = 'test-row error';
+      out.innerHTML = \`<span class="test-err">✗ \${esc(data.error)}</span>\`;
+      return;
+    }
+    if (data.type === 'rss') {
+      out.innerHTML = \`<span class="test-ok">✓ RSS reachable — \${data.items} items in feed</span>
+        <div class="test-sample">\${data.sample.map(t=>'· '+esc(t)).join('<br>')}</div>\`;
+    } else {
+      out.innerHTML = \`<span class="test-ok">✓ YouTube reachable — \${data.total} videos, \${data.qualified} qualify</span>
+        <div class="test-sample">\${data.sample.map(t=>'· '+esc(t)).join('<br>')}</div>\`;
+    }
+  } catch(e) {
+    panel.className = 'test-row error';
+    out.innerHTML = \`<span class="test-err">✗ \${esc(e.message)}</span>\`;
+  }
+}
+
+function toggleAdd() {
+  const p = document.getElementById('addPanel');
+  p.classList.toggle('open');
+}
+
+function toggleTypeFields() {
+  const t = document.getElementById('aType').value;
+  document.getElementById('fUrl').style.display  = t==='rss'     ?'block':'none';
+  document.getElementById('fChan').style.display = t==='youtube' ?'block':'none';
+}
+
+async function addSource() {
+  const type = document.getElementById('aType').value;
+  const name = document.getElementById('aName').value.trim();
+  if (!name) { document.getElementById('addSt').textContent='Name required'; return; }
+  const body = {
+    name, source_type: type,
+    url:        type==='rss'     ? document.getElementById('aUrl').value.trim()  : undefined,
+    channel_id: type==='youtube' ? document.getElementById('aChan').value.trim() : undefined,
+    trust_tier: document.getElementById('aTier').value,
+    treatment:  document.getElementById('aTreat').value,
+    nvs_hint:   document.getElementById('aNvs').value ? parseInt(document.getElementById('aNvs').value) : null,
+    bjk_filter: document.getElementById('aBjk').checked,
+    all_qualify:document.getElementById('aAllQ').checked,
+    proxy:      document.getElementById('aProxy').checked,
+    is_p4:      document.getElementById('aP4').checked,
+    notes:      document.getElementById('aNotes').value.trim(),
+  };
+  document.getElementById('addSt').textContent='Saving…';
+  const res = await fetch('/admin/sources',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d   = await res.json();
+  if (d.error) { document.getElementById('addSt').textContent='Error: '+d.error; return; }
+  document.getElementById('addSt').textContent='Added ✓';
+  setTimeout(()=>{ document.getElementById('addPanel').classList.remove('open'); load(); },800);
+  return d;
+}
+
+async function addAndTest() {
+  await addSource();
+  // reload then test last row
+  setTimeout(async()=>{
+    const rows = await (await fetch('/admin/sources')).json();
+    if (rows.length) testSource(rows[rows.length-1].id);
+  }, 1200);
+}
+
+async function testAll(btn) {
+  const st = document.getElementById('testAllSt');
+  btn.disabled = true;
+  const rows = await fetch('/admin/sources').then(r=>r.json());
+  const active = rows.filter(r=>r.is_active);
+  st.textContent = \`Testing 0 / \${active.length}…\`;
+  let done = 0;
+  for (const r of active) {
+    await testSource(r.id);
+    st.textContent = \`Testing \${++done} / \${active.length}…\`;
+  }
+  st.textContent = \`Done — \${active.length} tested\`;
+  btn.disabled = false;
+  setTimeout(()=>{ st.textContent=''; },4000);
+}
+
+async function seedSources() {
+  if (!confirm('Seed default sources? Existing sources will not be overwritten.')) return;
+  const res  = await fetch('/admin/sources/seed',{method:'POST'});
+  const data = await res.json();
+  if (data.error) { alert('Error: '+data.error); return; }
+  alert('Seeded '+data.seeded+' sources ('+data.skipped+' already existed)');
+  load();
+}
+
+load();
+</script>
+</body>
+</html>`;
+}
+
+function renderPinPage(next = '/admin') {
+  const safeNext = (next.startsWith('/admin') || next === '/report') ? next : '/admin';
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -3177,10 +4459,675 @@ async function login() {
   const err = document.getElementById('err');
   err.textContent = '';
   const res = await fetch('/admin/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ pin }) });
-  if (res.ok) { location.href = '/admin'; }
+  if (res.ok) { location.href = '${safeNext}'; }
   else { err.textContent = 'Hatalı PIN.'; document.getElementById('pin').select(); }
 }
 </script>
+</body>
+</html>`;
+}
+
+function renderAdminReportPage() {
+  const nav = adminNav('report');
+  const shell = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kartalix — Report</title>
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5}
+.toolbar{background:#111;border-bottom:1px solid #222;padding:.6rem 1.5rem;display:flex;align-items:center;gap:1rem;position:sticky;top:48px;z-index:9}
+.toolbar input{flex:1;max-width:380px;background:#1a1a1a;border:1px solid #333;color:#e8e6e0;padding:.45rem .75rem;font-size:.82rem;font-family:inherit;outline:none}
+.toolbar input:focus{border-color:#555}
+.toolbar-right{display:flex;align-items:center;gap:1rem;margin-left:auto;font-size:.72rem;color:#555}
+.refresh-btn{background:transparent;border:1px solid #333;color:#aaa;padding:.3rem .85rem;cursor:pointer;font-size:.72rem;font-family:inherit}
+.refresh-btn:hover{border-color:#666;color:#fff}
+.refresh-btn:disabled{opacity:.4;cursor:not-allowed}
+.range-bar{background:#111;border-bottom:1px solid #222;padding:.45rem 1.5rem;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;position:sticky;top:88px;z-index:8}
+.range-btn{background:transparent;border:1px solid #2a2a2a;color:#666;padding:.28rem .6rem;cursor:pointer;font-size:.7rem;font-family:inherit;line-height:1}
+.range-btn:hover{border-color:#555;color:#ddd}
+.range-btn.active{background:#1a2a1a;border-color:#3a5a3a;color:#5a9a5a}
+.range-sep{color:#2a2a2a;margin:0 .2rem;font-size:.8rem}
+.range-input{background:#1a1a1a;border:1px solid #2a2a2a;color:#aaa;padding:.26rem .5rem;font-size:.68rem;font-family:inherit;width:148px}
+.range-apply{background:transparent;border:1px solid #2a2a2a;color:#777;padding:.26rem .55rem;cursor:pointer;font-size:.68rem;font-family:inherit}
+.range-apply:hover{border-color:#555;color:#fff}
+.range-label{margin-left:auto;font-size:.65rem;color:#555}
+main{max-width:1200px;margin:1.5rem auto;padding:0 1.5rem}
+#sankey-wrap{background:#111;border:1px solid #222;margin-bottom:1.25rem;padding:.85rem 1.1rem}
+.sankey-title{font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:#555;margin-bottom:.6rem;font-weight:400}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#222;border:1px solid #222;margin-bottom:1.25rem}
+.grid4 .cell,.grid2 .cell{background:#111;padding:1.1rem 1.25rem}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem}
+.stat-lbl{font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:#666;margin-bottom:.4rem}
+.stat-val{font-size:1.9rem;font-weight:900;line-height:1;color:#fff}
+.stat-val.g{color:#5a9a5a}.stat-val.b{color:#4488ff}.stat-val.a{color:#d4a000}
+.stat-sub{font-size:.65rem;color:#555;margin-top:.3rem}
+.section{background:#111;border:1px solid #222;margin-bottom:1rem}
+.sec-head{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1.1rem;cursor:pointer;user-select:none}
+.sec-head:hover{background:#141414}
+.sec-title{font-size:.82rem;font-weight:700;display:flex;align-items:center;gap:.6rem}
+.badge{font-size:.62rem;background:#1a1a1a;border:1px solid #333;color:#888;padding:1px 7px}
+.badge.g{background:#1a2a1a;border-color:#3a5a3a;color:#5a9a5a}
+.badge.r{background:#2a1a1a;border-color:#5a3a3a;color:#9a5a5a}
+.badge.a{background:#2a2010;border-color:#5a4020;color:#d4a000}
+.chev{font-size:.65rem;color:#444;transition:transform .15s}
+.section.open .chev{transform:rotate(180deg)}
+.sec-body{display:none}
+.section.open .sec-body{display:block}
+.funnel-row{display:flex;align-items:center;padding:.6rem 1.1rem;border-bottom:1px solid #1a1a1a;gap:.75rem;cursor:pointer}
+.funnel-row:hover{background:#141414}
+.funnel-row:last-child{border-bottom:none}
+.f-lbl{width:160px;flex-shrink:0;font-size:.72rem;color:#ccc}
+.f-bar-w{flex:1;height:5px;background:#1a1a1a}
+.f-bar{height:100%}.f-bar.removed,.f-bar.rejected{background:#7a3a3a}.f-bar.queued{background:#7a6a30}.f-bar{background:#3a6a3a}
+.f-num{width:36px;text-align:right;font-size:.78rem;font-weight:600;flex-shrink:0}
+.f-delta{width:90px;text-align:right;font-size:.62rem;color:#555;flex-shrink:0}
+.f-expand{width:50px;text-align:right;font-size:.6rem;color:#5a9a5a;flex-shrink:0}
+.art-list{padding:.6rem 1.1rem}
+.art-card{border:1px solid #1e1e1e;padding:.7rem .85rem;margin-bottom:.4rem;font-size:.78rem}
+.art-card.hidden{display:none}
+.art-meta{display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem;flex-wrap:wrap}
+.tag{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;padding:1px 5px}
+.tag.src{background:#1a1a1a;border:1px solid #2a2a2a;color:#777}
+.tag.cat{background:#0a1a2a;border:1px solid #1a2a3a;color:#5a8aaa}
+.nvs{font-size:.62rem;padding:1px 5px;font-weight:700}
+.nvs.hi{background:#1a2a1a;color:#5a9a5a}.nvs.md{background:#2a2010;color:#d4a000}.nvs.lo{background:#2a1a1a;color:#9a5a5a}
+.art-title{font-size:.82rem;font-weight:600;margin-bottom:.3rem;line-height:1.35}
+.art-note{font-size:.67rem;color:#666;font-style:italic;margin-bottom:.3rem}
+.art-ts{display:flex;gap:1.2rem;flex-wrap:wrap}
+.ts{font-size:.6rem;color:#555}
+.ts strong{color:#888;font-weight:400}
+.src-table,.runs-table{width:100%;border-collapse:collapse}
+.src-table th,.runs-table th{font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:#555;text-align:left;padding:.55rem 1.1rem;border-bottom:1px solid #1e1e1e;font-weight:400}
+.src-table td,.runs-table td{padding:.6rem 1.1rem;border-bottom:1px solid #1a1a1a;font-size:.78rem}
+.src-table tr:last-child td,.runs-table tr:last-child td{border-bottom:none}
+.src-table tr,.runs-table tr{cursor:pointer}
+.src-table tr:hover td,.runs-table tr:hover td{background:#141414}
+.mini-bar-w{width:60px;height:3px;background:#1a1a1a;display:inline-block;vertical-align:middle;margin-right:.4rem}
+.mini-bar{height:100%;background:#3a6a3a}
+.cat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#222}
+.cat-cell{background:#111;padding:.85rem 1.1rem;cursor:pointer}
+.cat-cell:hover{background:#141414}
+.cat-name{font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;color:#555;margin-bottom:.3rem}
+.cat-num{font-size:1.5rem;font-weight:900;color:#5a9a5a;line-height:1}
+.cat-sub{font-size:.6rem;color:#555;margin-top:.2rem}
+.dist-row{display:flex;align-items:center;gap:.6rem;padding:.45rem 1.1rem;border-bottom:1px solid #1a1a1a}
+.dist-row:last-child{border-bottom:none}
+.dist-lbl{width:55px;font-size:.62rem;color:#666;flex-shrink:0}
+.dist-bw{flex:1;height:4px;background:#1a1a1a}
+.dist-b{height:100%}
+.dist-n{width:28px;text-align:right;font-size:.72rem;font-weight:600;flex-shrink:0}
+.ok{color:#5a9a5a;font-weight:700}.fail{color:#9a5a5a;font-weight:700}.partial{color:#d4a000;font-weight:700}
+.load-more{text-align:center;padding:.6rem;border-top:1px solid #1e1e1e}
+.load-more button{background:transparent;border:1px solid #2a2a2a;color:#666;padding:.35rem .85rem;cursor:pointer;font-size:.65rem;font-family:inherit}
+.load-more button:hover{border-color:#555;color:#aaa}
+.loading-state{text-align:center;padding:4rem 2rem;color:#555}
+.spinner{width:18px;height:18px;border:2px solid #222;border-top-color:#5a9a5a;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto .75rem}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:900px){.grid4{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.cat-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+${nav}
+<div class="toolbar">
+  <input type="text" id="search-input" placeholder="Search articles..." oninput="filterArticles(this.value)"/>
+  <div class="toolbar-right">
+    <span id="search-hint">Type to filter</span>
+    <span id="last-updated">—</span>
+    <button class="refresh-btn" id="refresh-btn" onclick="loadReport()">&#8635; Refresh</button>
+  </div>
+</div>
+<div class="range-bar">
+  <button class="range-btn" data-range="1h" onclick="setRange(this.dataset.range)">1h</button>
+  <button class="range-btn" data-range="6h" onclick="setRange(this.dataset.range)">6h</button>
+  <button class="range-btn active" data-range="24h" onclick="setRange(this.dataset.range)">24h</button>
+  <button class="range-btn" data-range="7d" onclick="setRange(this.dataset.range)">7d</button>
+  <button class="range-btn" data-range="all" onclick="setRange(this.dataset.range)">All time</button>
+  <span class="range-sep">|</span>
+  <input type="datetime-local" class="range-input" id="range-from"/>
+  <input type="datetime-local" class="range-input" id="range-to"/>
+  <button class="range-apply" onclick="applyCustomRange()">Apply</button>
+  <span class="range-label" id="range-label">Last 24h</span>
+</div>
+<main>
+  <div id="sankey-wrap" style="display:none"><div class="sankey-title">Pipeline Flow</div><div id="sankey-chart" style="height:200px"></div></div>
+  <div id="content" class="loading-state"><div class="spinner"></div><div>Loading report...</div></div>
+</main>
+</body>
+</html>`;
+
+  // Script block is concatenated separately so client-side template literals don't conflict
+  const script = '<script>\n' + reportDashboardJs() + '\n<\/script>';
+  return shell.replace('</body>', script + '\n</body>');
+}
+
+function reportDashboardJs() {
+  const lines = [
+    'var REPORT_URL="/admin/report-data";',
+    'var reportData=null,searchTerm="",currentFrom=null,currentTo=null;',
+    '',
+    'function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}',
+    'function slug(s){return String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"-");}',
+    'function pct(a,b){if(!b)return 0;return Math.round(((a||0)/b)*100);}',
+    'function fmtTime(ts){if(!ts)return"—";try{return new Date(ts).toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit"});}catch(e){return"—";}}',
+    'function fmtDate(ts){if(!ts)return"—";try{var d=new Date(ts);return d.toLocaleDateString("tr-TR",{day:"2-digit",month:"2-digit"})+" "+d.toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit",second:"2-digit"});}catch(e){return"—";}}',
+    'function nvsBadge(n){if(n==null&&n!==0)return"";var c=n>=70?"hi":n>=45?"md":"lo";return\'<span class="nvs \'+c+\'">NVS \'+n+"</span>";}',
+    'function nvsBadgeInline(n){if(n==null)return"—";var c=n>=70?"hi":n>=45?"md":"lo";return\'<span class="nvs \'+c+\'">\'+Math.round(n)+"</span>";}',
+    'function golden(gs){if(!gs||gs==="N/A")return"";var n=parseInt(gs)||0;return n>0?"⚡".repeat(Math.min(n,5)):""}',
+    '',
+    'function funnelRow(label,val,max,delta,id,articles,barClass){',
+    '  var p=Math.round(((val||0)/max)*100);',
+    '  var has=articles&&articles.length>0;',
+    '  var bc=barClass||"";',
+    '  var h=\'<div class="funnel-row" data-fid="funnel-\'+id+\'" onclick="toggleFA(this.dataset.fid)">\';',
+    '  h+=\'<div class="f-lbl">\'+label+"</div>";',
+    '  h+=\'<div class="f-bar-w"><div class="f-bar \'+bc+\'" style="width:\'+p+\'%"></div></div>\';',
+    '  h+=\'<div class="f-num">\'+( val||0)+"</div>";',
+    '  h+=\'<div class="f-delta">\'+delta+"</div>";',
+    '  h+=\'<div class="f-expand">\'+( has?"&#9660; show":"")+"</div></div>";',
+    '  if(has){',
+    '    h+=\'<div id="funnel-\'+id+\'" style="display:none;border-bottom:1px solid #1a1a1a">\';',
+    '    h+=\'<div class="art-list">\'+articleCards(articles,20)+"</div></div>";',
+    '  }',
+    '  return h;',
+    '}',
+    '',
+    'function articleCards(items,limit){',
+    '  if(!items||!items.length)return\'<div style="padding:.75rem;color:#555;font-size:.72rem">No articles</div>\';',
+    '  var vis=items.slice(0,limit),rem=items.length-limit,h="";',
+    '  vis.forEach(function(a,i){',
+    '    var dsearch=esc((a.title||"")+" "+(a.source_name||"")+" "+(a.category||"")+" "+(a.nvs_notes||"")).toLowerCase();',
+    '    h+=\'<div class="art-card" style="animation-delay:\'+( i*0.025)+\'s" data-search="\'+dsearch+\'">\';',
+    '    h+=\'<div class="art-meta">\';',
+    '    h+=\'<span class="tag src">\'+esc(a.source_name||"Unknown")+"</span>";',
+    '    if(a.category)h+=\'<span class="tag cat">\'+esc(a.category)+"</span>";',
+    '    h+=nvsBadge(a.nvs_score);',
+    '    h+=\'<span style="font-size:.72rem">\'+golden(a.golden_score)+"</span>";',
+    '    h+="</div>";',
+    '    h+=\'<div class="art-title">\'+esc(a.title||"Untitled")+"</div>";',
+    '    if(a.nvs_notes)h+=\'<div class="art-note">&quot;\'+esc(a.nvs_notes)+\'&quot;</div>\';',
+    '    h+=\'<div class="art-ts">\';',
+    '    if(a.fetched_at)h+=\'<div class="ts">Fetched <strong>\'+fmtDate(a.fetched_at)+"</strong></div>";',
+    '    if(a.reviewed_at)h+=\'<div class="ts">Published <strong>\'+fmtDate(a.reviewed_at)+"</strong></div>";',
+    '    if(a.original_url&&a.original_url!="#")h+=\'<a href="\'+esc(a.original_url)+\'" target="_blank" rel="noopener" style="font-size:.6rem;color:#5a9a5a;text-decoration:none">&nearr; Source</a>\';',
+    '    h+="</div></div>";',
+    '  });',
+    '  if(rem>0){',
+    '    var moreData=JSON.stringify(items.slice(limit));',
+    '    h+=\'<div class="load-more"><button data-items="\'+esc(moreData)+\'" onclick="loadMore(this)">Load \'+rem+" more</button></div>";',
+    '  }',
+    '  return h;',
+    '}',
+    '',
+    'function loadMore(btn){',
+    '  var items=JSON.parse(btn.dataset.items||"[]");',
+    '  var wrap=btn.parentElement.parentElement;',
+    '  var div=document.createElement("div");',
+    '  div.innerHTML=articleCards(items,items.length);',
+    '  btn.parentElement.remove();',
+    '  wrap.appendChild(div);',
+    '}',
+    '',
+    'function distRow(label,val,total,color){',
+    '  var w=total>0?Math.round(((val||0)/total)*100):0;',
+    '  return \'<div class="dist-row"><div class="dist-lbl">\'+label+\'</div><div class="dist-bw"><div class="dist-b" style="width:\'+w+\'%;background:\'+color+\'"></div></div><div class="dist-n">\'+( val||0)+"</div></div>";',
+    '}',
+    '',
+    'function toggleSrc(id){var el=document.getElementById(id);if(el)el.style.display=el.style.display==="none"?"table-row":"none";}',
+    'function toggleCat(id){var el=document.getElementById(id);if(el)el.style.display=el.style.display==="none"?"block":"none";}',
+    'function toggleFA(id){var el=document.getElementById(id);if(el)el.style.display=el.style.display==="none"?"block":"none";}',
+    'function toggleSec(id){document.getElementById(id).classList.toggle("open");}',
+    '',
+    'function filterArticles(term){',
+    '  searchTerm=term.toLowerCase().trim();',
+    '  var cards=document.querySelectorAll(".art-card");',
+    '  var vis=0;',
+    '  cards.forEach(function(c){var match=!searchTerm||c.getAttribute("data-search").includes(searchTerm);c.classList.toggle("hidden",!match);if(match)vis++;});',
+    '  document.getElementById("search-hint").textContent=searchTerm?vis+" match":"Type to filter";',
+    '}',
+    '',
+    'function setRange(r){',
+    '  var now=new Date(),from=new Date(now);',
+    '  if(r==="1h")from.setHours(now.getHours()-1);',
+    '  else if(r==="6h")from.setHours(now.getHours()-6);',
+    '  else if(r==="24h")from.setDate(now.getDate()-1);',
+    '  else if(r==="7d")from.setDate(now.getDate()-7);',
+    '  if(r==="all"){currentFrom=null;currentTo=null;}',
+    '  else{currentFrom=from.toISOString();currentTo=null;}',
+    '  document.querySelectorAll(".range-btn").forEach(function(b){b.classList.toggle("active",b.dataset.range===r);});',
+    '  document.getElementById("range-label").textContent=r==="all"?"All time":"Last "+r;',
+    '  document.getElementById("range-from").value="";',
+    '  document.getElementById("range-to").value="";',
+    '  loadReport();',
+    '}',
+    '',
+    'function applyCustomRange(){',
+    '  var f=document.getElementById("range-from").value;',
+    '  var t=document.getElementById("range-to").value;',
+    '  if(!f&&!t){setRange("all");return;}',
+    '  currentFrom=f?new Date(f).toISOString():null;',
+    '  currentTo=t?new Date(t).toISOString():null;',
+    '  document.querySelectorAll(".range-btn").forEach(function(b){b.classList.remove("active");});',
+    '  document.getElementById("range-label").textContent="Custom";',
+    '  loadReport();',
+    '}',
+    '',
+    'google.charts.load("current",{packages:["sankey"]});',
+    '',
+    'function drawSankey(f){',
+    '  var wrap=document.getElementById("sankey-wrap");',
+    '  if(!f||!f.total_fetched){wrap.style.display="none";return;}',
+    '  wrap.style.display="block";',
+    '  google.charts.setOnLoadCallback(function(){',
+    '    var data=new google.visualization.DataTable();',
+    '    data.addColumn("string","From");',
+    '    data.addColumn("string","To");',
+    '    data.addColumn("number","Weight");',
+    '    var total=f.total_fetched||0;',
+    '    var aDate=f.after_date_filter||0;',
+    '    var aKw=f.after_keyword_filter||0;',
+    '    var aHash=f.after_hash_dedup||0;',
+    '    var aTitle=f.after_title_dedup||0;',
+    '    var pub=f.auto_published||0;',
+    '    var q=f.queued_for_review||0;',
+    '    var rej=f.rejected||0;',
+    '    var rDate=total-aDate,rKw=aDate-aKw,rHash=aKw-aHash,rTitle=aHash-aTitle;',
+    '    var scored=pub+q+rej,lost=Math.max(0,aTitle-scored);',
+    '    var nF="Fetched ("+total+")",nD="After Date ("+aDate+")",nK="After KW ("+aKw+")",nH="After Dedup ("+aHash+")",nS="Qualified ("+aTitle+")";',
+    '    var rows=[];',
+    '    if(aDate>0)rows.push([nF,nD,aDate]);',
+    '    if(rDate>0)rows.push([nF,"Too Old",rDate]);',
+    '    if(aKw>0)rows.push([nD,nK,aKw]);',
+    '    if(rKw>0)rows.push([nD,"Off-Topic",rKw]);',
+    '    if(aHash>0)rows.push([nK,nH,aHash]);',
+    '    if(rHash>0)rows.push([nK,"Seen Before",rHash]);',
+    '    if(aTitle>0)rows.push([nH,nS,aTitle]);',
+    '    if(rTitle>0)rows.push([nH,"Near-Dupe",rTitle]);',
+    '    if(pub>0)rows.push([nS,"Published",pub]);',
+    '    if(q>0)rows.push([nS,"Queued",q]);',
+    '    if(rej>0)rows.push([nS,"Rejected",rej]);',
+    '    if(lost>0)rows.push([nS,"Unscored",lost]);',
+    '    if(!rows.length){wrap.style.display="none";return;}',
+    '    data.addRows(rows);',
+    '    var opts={width:"100%",height:200,sankey:{node:{label:{color:"#bbb",fontSize:10},nodePadding:15},link:{colorMode:"gradient"}},backgroundColor:{fill:"#111"}};',
+    '    var chart=new google.visualization.Sankey(document.getElementById("sankey-chart"));',
+    '    chart.draw(data,opts);',
+    '  });',
+    '}',
+    '',
+    'async function loadReport(){',
+    '  var btn=document.getElementById("refresh-btn");',
+    '  btn.disabled=true;btn.textContent="↻ Loading...";',
+    '  try{',
+    '    var url=REPORT_URL;',
+    '    var params=[];',
+    '    if(currentFrom)params.push("from="+encodeURIComponent(currentFrom));',
+    '    if(currentTo)params.push("to="+encodeURIComponent(currentTo));',
+    '    if(params.length)url+="?"+params.join("&");',
+    '    var res=await fetch(url);',
+    '    if(!res.ok)throw new Error("HTTP "+res.status);',
+    '    reportData=await res.json();',
+    '    renderReport(reportData);',
+    '    drawSankey(reportData.funnel);',
+    '    document.getElementById("last-updated").textContent="Updated "+new Date().toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit",second:"2-digit"});',
+    '  }catch(e){',
+    '    document.getElementById("content").innerHTML=\'<div class="loading-state" style="color:#9a5a5a">⚠ Could not load report: \'+e.message+"</div>";',
+    '  }finally{btn.disabled=false;btn.textContent="↻ Refresh";}',
+    '}',
+    '',
+    'function renderReport(d){',
+    '  var f=d.funnel||{};',
+    '  var sources=d.by_source||[];',
+    '  var cats=d.by_category||[];',
+    '  var types=d.by_content_type||[];',
+    '  var dist=d.scoring_distribution||{};',
+    '  var runs=d.last_runs||[];',
+    '  var pub=d.top_published||[];',
+    '  var rej=d.top_rejected||[];',
+    '  var all=d.all_fetched||[];',
+    '  var pubCount=d.published_count!=null?d.published_count:pub.length;',
+    '  var maxF=f.total_fetched||1;',
+    '  var stDist=d.source_type_dist||[];',
+    '  var ttDist=d.trust_tier_dist||[];',
+    '  var stories=d.story_stats||{total:0,by_state:[],by_type:[]};',
+    '  var srcTypeMap=d.source_type_map||{};',
+    '  var runs_in_range=d.runs_in_range||0;',
+    '  var h="";',
+    '',
+    '  h+=\'<div class="grid4">\';',
+    '  h+=\'<div class="cell"><div class="stat-lbl">Total Fetched</div><div class="stat-val b">\'+( f.total_fetched||0)+\'</div><div class="stat-sub">\'+runs_in_range+" runs in range</div></div>";',
+    '  h+=\'<div class="cell"><div class="stat-lbl">After Filtering</div><div class="stat-val">\'+( f.after_title_dedup||0)+\'</div><div class="stat-sub">\'+pct(f.after_title_dedup,f.total_fetched)+"% passed</div></div>";',
+    '  h+=\'<div class="cell"><div class="stat-lbl">Published (range)</div><div class="stat-val g">\'+pubCount+\'</div><div class="stat-sub">\'+pct(f.auto_published,f.after_title_dedup)+"% of filtered</div></div>";',
+    '  h+=\'<div class="cell"><div class="stat-lbl">Total Cost</div><div class="stat-val a">€\'+parseFloat(f.total_cost||0).toFixed(4)+\'</div><div class="stat-sub">\'+runs_in_range+" runs · "+( f.total_calls||0)+" calls</div></div>";',
+    '  h+="</div>";',
+    '',
+    '  h+=\'<div class="grid2">\';',
+    '',
+    '  h+=\'<div class="section open" id="sec-stypes" style="margin:0">\';',
+    '  h+=\'<div class="sec-head" data-sec="sec-stypes" onclick="toggleSec(this.dataset.sec)">\';',
+    '  h+=\'<div class="sec-title">📡 Sources<span class="badge">\'+stDist.length+" channels · "+ttDist.length+" tiers</span></div>";',
+    '  h+=\'<div class="chev">▼</div></div>\';',
+    '  h+=\'<div class="sec-body">\';',
+    '  var stTotal=stDist.reduce(function(s,x){return s+x.count;},0);',
+    '  if(stDist.length){',
+    '    h+=\'<div style="padding:.45rem 1.1rem .2rem;font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:#444">Channel</div>\';',
+    '    stDist.forEach(function(x){h+=distRow(x.type,x.count,stTotal,"#4488ff");});',
+    '  }',
+    '  if(ttDist.length){',
+    '    h+=\'<div style="padding:.45rem 1.1rem .2rem;font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:#444">Trust Tier</div>\';',
+    '    ttDist.forEach(function(x){h+=distRow(x.tier,x.count,stTotal,"#aa6688");});',
+    '  }',
+    '  h+="</div></div>";',
+    '',
+    '  h+=\'<div class="section open" id="sec-stories" style="margin:0">\';',
+    '  h+=\'<div class="sec-head" data-sec="sec-stories" onclick="toggleSec(this.dataset.sec)">\';',
+    '  h+=\'<div class="sec-title">📖 Story Intelligence<span class="badge">\'+stories.total+" stories</span></div>";',
+    '  h+=\'<div class="chev">▼</div></div>\';',
+    '  h+=\'<div class="sec-body">\';',
+    '  stories.by_state.forEach(function(x){h+=distRow(x.state,x.count,stories.total,"#5a9a5a");});',
+    '  h+="</div></div>";',
+    '',
+    '  h+="</div>";',
+    '',
+    '  h+=\'<div class="section open" id="sec-funnel">\';',
+    '  h+=\'<div class="sec-head" data-sec="sec-funnel" onclick="toggleSec(this.dataset.sec)">\';',
+    '  h+=\'<div class="sec-title">📥 News Funnel<span class="badge">\'+( f.total_fetched||0)+" in &rarr; "+(f.auto_published||0)+" out</span></div>";',
+    '  h+=\'<div class="chev">▼</div></div>\';',
+    '  h+=\'<div class="sec-body">\';',
+    '  h+=funnelRow("Fetched",f.total_fetched,maxF,"","all_fetched",all);',
+    '  h+=funnelRow("After date filter (72h)",f.after_date_filter,maxF,"-"+((f.total_fetched||0)-(f.after_date_filter||0))+" too old","after_date",d.removed_old);',
+    '  h+=funnelRow("After keyword filter",f.after_keyword_filter,maxF,"-"+((f.after_date_filter||0)-(f.after_keyword_filter||0))+" not BJK","after_keyword",d.removed_keyword);',
+    '  h+=funnelRow("After hash dedup",f.after_hash_dedup,maxF,"-"+((f.after_keyword_filter||0)-(f.after_hash_dedup||0))+" seen before","after_hash",d.removed_hash);',
+    '  h+=funnelRow("After title dedup",f.after_title_dedup,maxF,"-"+((f.after_hash_dedup||0)-(f.after_title_dedup||0))+" near-dupes","after_title",d.removed_dupes);',
+    '  h+=funnelRow("Published ✅",f.auto_published,maxF,"NVS ≥ threshold","published",pub,"g");',
+    '  h+=funnelRow("Queued ⏳",f.queued_for_review,maxF,"NVS mid-range","queued",d.queued_items,"queued");',
+    '  h+=funnelRow("Rejected ❌",f.rejected,maxF,"NVS too low","rejected",rej,"rejected");',
+    '  h+="</div></div>";',
+    '',
+    '  h+=\'<div class="section" id="sec-sources">\';',
+    '  h+=\'<div class="sec-head" data-sec="sec-sources" onclick="toggleSec(this.dataset.sec)">\';',
+    '  h+=\'<div class="sec-title">📡 By Source<span class="badge">\'+sources.length+" sources</span></div>";',
+    '  h+=\'<div class="chev">▼</div></div>\';',
+    '  h+=\'<div class="sec-body"><table class="src-table"><thead><tr><th>Source</th><th>Type</th><th>Tier</th><th>In</th><th>Pub</th><th>Rej</th><th>Rate</th><th>Avg NVS</th><th>Last</th></tr></thead><tbody>\';',
+    '  sources.forEach(function(s){',
+    '    var sid="src-"+slug(s.source_name);',
+    '    var cfg=srcTypeMap[s.source_name]||{};',
+    '    h+=\'<tr data-sid="\'+sid+\'" onclick="toggleSrc(this.dataset.sid)">\';',
+    '    h+=\'<td><strong>\'+esc(s.source_name)+"</strong></td>";',
+    '    h+=\'<td style="color:#4488ff;font-size:.68rem">\'+esc(cfg.type||"—")+"</td>";',
+    '    h+=\'<td style="color:#aa6688;font-size:.68rem">\'+esc(cfg.tier||"—")+"</td>";',
+    '    h+="<td>"+(s.contributed||0)+"</td>";',
+    '    h+=\'<td style="color:#5a9a5a">\'+( s.published||0)+"</td>";',
+    '    h+=\'<td style="color:#9a5a5a">\'+( s.rejected||0)+"</td>";',
+    '    h+=\'<td><div class="mini-bar-w"><div class="mini-bar" style="width:\'+pct(s.published,s.contributed)+\'%"></div></div>\'+pct(s.published,s.contributed)+"%</td>";',
+    '    h+="<td>"+nvsBadgeInline(s.avg_nvs)+"</td>";',
+    '    h+=\'<td style="color:#555">\'+fmtTime(s.last_article_at)+"</td></tr>";',
+    '    h+=\'<tr id="\'+sid+\'" style="display:none"><td colspan="9" style="padding:0"><div class="art-list">\'+articleCards(all.filter(function(a){return a.source_name===s.source_name;}),10)+"</div></td></tr>";',
+    '  });',
+    '  h+="</tbody></table></div></div>";',
+    '',
+    '  h+=\'<div class="section" id="sec-cats">\';',
+    '  h+=\'<div class="sec-head" data-sec="sec-cats" onclick="toggleSec(this.dataset.sec)">\';',
+    '  h+=\'<div class="sec-title">⚽ By Category<span class="badge">\'+cats.length+" categories</span></div>";',
+    '  h+=\'<div class="chev">▼</div></div>\';',
+    '  h+=\'<div class="sec-body"><div class="cat-grid">\';',
+    '  cats.forEach(function(c){',
+    '    h+=\'<div class="cat-cell" data-cid="cat-\'+slug(c.category)+\'" onclick="toggleCat(this.dataset.cid)">\';',
+    '    h+=\'<div class="cat-name">\'+esc(c.category)+"</div>";',
+    '    h+=\'<div class="cat-num">\'+( c.count_published||0)+"</div>";',
+    '    h+=\'<div class="cat-sub">published · \'+( c.count_rejected||0)+" rej · avg "+Math.round(c.avg_nvs||0)+"</div>";',
+    '    h+="</div>";',
+    '  });',
+    '  h+="</div>";',
+    '  cats.forEach(function(c){',
+    '    h+=\'<div id="cat-\'+slug(c.category)+\'" style="display:none;border-top:1px solid #1a1a1a">\';',
+    '    h+=\'<div class="art-list">\'+articleCards(all.filter(function(a){return a.category===c.category;}),10)+"</div></div>";',
+    '  });',
+    '  h+="</div></div>";',
+    '',
+    '  h+=\'<div class="grid2">\';',
+    '  h+=\'<div class="section" id="sec-types" style="margin:0"><div class="sec-head" data-sec="sec-types" onclick="toggleSec(this.dataset.sec)">\';',
+    '  h+=\'<div class="sec-title">🔬 By Content Type</div><div class="chev">▼</div></div>\';',
+    '  h+=\'<div class="sec-body"><table class="src-table"><thead><tr><th>Type</th><th>Count</th><th>Avg NVS</th><th>Pub Rate</th></tr></thead><tbody>\';',
+    '  types.forEach(function(t){h+=\'<tr><td><span class="tag src">\'+esc(t.content_type||"unknown")+"</span></td><td>"+(t.count||0)+"</td><td>"+nvsBadgeInline(t.avg_nvs)+"</td><td>"+pct(t.count_published,t.count)+"%</td></tr>";});',
+    '  h+="</tbody></table></div></div>";',
+    '  h+=\'<div class="section" id="sec-dist" style="margin:0"><div class="sec-head" data-sec="sec-dist" onclick="toggleSec(this.dataset.sec)">\';',
+    '  h+=\'<div class="sec-title">🎯 Score Distribution</div><div class="chev">▼</div></div>\';',
+    '  h+=\'<div class="sec-body">\';',
+    '  var dTot=(dist.nvs_90_100||0)+(dist.nvs_70_89||0)+(dist.nvs_50_69||0)+(dist.nvs_30_49||0)+(dist.nvs_0_29||0);',
+    '  h+=distRow("90–99",dist.nvs_90_100,dTot,"#5a9a5a");',
+    '  h+=distRow("70–89",dist.nvs_70_89,dTot,"#88cc44");',
+    '  h+=distRow("50–69",dist.nvs_50_69,dTot,"#d4a000");',
+    '  h+=distRow("30–49",dist.nvs_30_49,dTot,"#cc7722");',
+    '  h+=distRow("0–29",dist.nvs_0_29,dTot,"#9a5a5a");',
+    '  h+="</div></div></div>";',
+    '',
+    '  h+=\'<div class="section" id="sec-runs">\';',
+    '  h+=\'<div class="sec-head" data-sec="sec-runs" onclick="toggleSec(this.dataset.sec)">\';',
+    '  h+=\'<div class="sec-title">🕐 Fetch Runs<span class="badge">\'+runs.length+" runs</span></div>";',
+    '  h+=\'<div class="chev">▼</div></div>\';',
+    '  h+=\'<div class="sec-body"><table class="runs-table"><thead><tr><th>Time</th><th>Status</th><th>Fetched</th><th>Published</th><th>Queued</th><th>Rejected</th><th>Calls</th><th>Cost</th><th>Duration</th></tr></thead><tbody>\';',
+    '  runs.forEach(function(r){',
+    '    var sc=r.status==="success"?"ok":r.status==="failed"?"fail":"partial";',
+    '    h+="<tr>";',
+    '    h+=\'<td style="color:#555">\'+fmtDate(r.created_at)+"</td>";',
+    '    h+=\'<td class="\'+sc+\'">\'+r.status+"</td>";',
+    '    h+="<td>"+(r.items_fetched||0)+"</td>";',
+    '    h+=\'<td style="color:#5a9a5a">\'+( r.items_published||0)+"</td>";',
+    '    h+=\'<td style="color:#d4a000">\'+( r.items_queued||0)+"</td>";',
+    '    h+=\'<td style="color:#9a5a5a">\'+( r.items_rejected||0)+"</td>";',
+    '    h+="<td>"+(r.claude_calls||0)+"</td>";',
+    '    h+="<td>€"+(r.estimated_cost_eur||0).toFixed(4)+"</td>";',
+    '    h+="<td>"+(r.duration_ms?Math.round(r.duration_ms/1000)+"s":"—")+"</td></tr>";',
+    '  });',
+    '  h+="</tbody></table></div></div>";',
+    '',
+    '  h+=\'<div class="section open" id="sec-pub">\';',
+    '  h+=\'<div class="sec-head" data-sec="sec-pub" onclick="toggleSec(this.dataset.sec)">\';',
+    '  h+=\'<div class="sec-title">✅ Published (range)<span class="badge g">\'+pub.length+"</span></div>";',
+    '  h+=\'<div class="chev">▼</div></div>\';',
+    '  h+=\'<div class="sec-body"><div class="art-list">\'+articleCards(pub,20)+"</div></div></div>";',
+    '',
+    '  h+=\'<div class="section" id="sec-rej">\';',
+    '  h+=\'<div class="sec-head" data-sec="sec-rej" onclick="toggleSec(this.dataset.sec)">\';',
+    '  h+=\'<div class="sec-title">❌ Rejected (range)<span class="badge r">\'+rej.length+"</span></div>";',
+    '  h+=\'<div class="chev">▼</div></div>\';',
+    '  h+=\'<div class="sec-body"><div class="art-list">\'+articleCards(rej,10)+"</div></div></div>";',
+    '',
+    '  document.getElementById("content").innerHTML=h;',
+    '}',
+    '',
+    'setInterval(loadReport, 5*60*1000);',
+    'setRange("24h");',
+  ];
+  return lines.join('\n');
+}
+
+function renderAdminRoadmapPage() {
+  const nav = adminNav('roadmap');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kartalix — Roadmap</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d0d;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
+.content{max-width:900px;margin:0 auto;padding:2rem 1.5rem}
+.loading{text-align:center;padding:4rem 2rem;color:#555}
+.spinner{width:20px;height:20px;border:2px solid #222;border-top-color:#c8f135;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 1rem}
+@keyframes spin{to{transform:rotate(360deg)}}
+.md-body{font-family:'JetBrains Mono',monospace,sans-serif;font-size:14px;line-height:1.75;color:#ccc}
+.md-body h1{font-size:24px;font-weight:800;margin:36px 0 14px;padding-bottom:10px;border-bottom:2px solid #c8f135;color:#fff}
+.md-body h2{font-size:18px;font-weight:700;margin:32px 0 10px;color:#fff}
+.md-body h3{font-size:15px;font-weight:700;margin:24px 0 8px;color:#e8e6e0}
+.md-body h4{font-size:12px;font-weight:600;margin:18px 0 6px;color:#666;text-transform:uppercase;letter-spacing:.5px}
+.md-body p{margin-bottom:12px}
+.md-body ul,.md-body ol{padding-left:24px;margin-bottom:12px}
+.md-body li{margin-bottom:4px}
+.md-body strong{color:#fff;font-weight:600}
+.md-body em{color:#666}
+.md-body code{background:#1e1e1e;border:1px solid #2a2a2a;padding:2px 6px;font-size:12px;color:#c8f135}
+.md-body pre{background:#161616;border:1px solid #222;padding:16px;overflow-x:auto;margin-bottom:14px}
+.md-body pre code{background:none;border:none;padding:0;color:#a8d8a8}
+.md-body hr{border:none;border-top:1px solid #222;margin:28px 0}
+.md-body blockquote{border-left:3px solid #c8f135;padding:8px 14px;background:#161616;margin-bottom:12px;color:#888}
+.md-body table{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:13px}
+.md-body th{background:#161616;padding:8px 12px;text-align:left;font-weight:600;color:#fff;border-bottom:1px solid #222}
+.md-body td{padding:7px 12px;border-bottom:1px solid #1a1a1a}
+.md-body tr:hover td{background:#111}
+.sprint-done{color:#c8f135 !important}
+.sprint-next{color:#ffaa00 !important}
+</style>
+</head>
+<body>
+${nav}
+<div class="content">
+  <div id="roadmap-content" class="loading">
+    <div class="spinner"></div>
+    <div>Loading roadmap...</div>
+  </div>
+</div>
+<script>
+async function load() {
+  const el = document.getElementById('roadmap-content');
+  try {
+    const r = await fetch('https://raw.githubusercontent.com/gencerali/pitchos/main/ROADMAP.md?t=' + Date.now());
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const md = await r.text();
+    el.innerHTML = marked.parse(md);
+    el.className = 'md-body';
+    el.querySelectorAll('h3').forEach(h => {
+      if (h.textContent.includes('\\u2705')) h.classList.add('sprint-done');
+      if (h.textContent.includes('\\uD83D\\uDCCB')) h.classList.add('sprint-next');
+    });
+  } catch(e) {
+    el.innerHTML = '<p style="color:#ff4444;padding:2rem">Could not load roadmap: ' + e.message + '<br><small style="color:#555">Check GitHub repo visibility or ROADMAP.md exists at repo root.</small></p>';
+  }
+}
+load();
+<\/script>
+</body>
+</html>`;
+}
+
+function renderAdminReleasesPage() {
+  const nav = adminNav('releases');
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kartalix — Releases</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d0d;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.6}
+.content{max-width:860px;margin:0 auto;padding:2rem 1.5rem}
+h1{font-size:22px;font-weight:800;margin-bottom:6px;color:#fff}
+.subtitle{color:#555;font-size:12px;letter-spacing:.06em;margin-bottom:2rem}
+.card{background:#111;border:1px solid #222;padding:22px;margin-bottom:14px}
+.card h3{font-size:15px;font-weight:700;margin-bottom:4px;color:#fff}
+.date{color:#555;font-size:12px;margin-bottom:14px;letter-spacing:.04em}
+.card ul{padding-left:18px}
+.card li{color:#ccc;font-size:13px;margin-bottom:5px;line-height:1.5}
+.rtag{display:inline-block;font-size:.6rem;font-weight:700;padding:1px 6px;margin-right:5px;vertical-align:middle;letter-spacing:.08em}
+.feat{background:#1d4ed818;color:#4488ff;border:1px solid #1d4ed850}
+.fix{background:#c8f13518;color:#c8f135;border:1px solid #c8f13550}
+.perf{background:#ffaa0018;color:#ffaa00;border:1px solid #ffaa0050}
+</style>
+</head>
+<body>
+${nav}
+<div class="content">
+  <h1>Release Notes</h1>
+  <p class="subtitle">Sprint changelog — updated per deployment.</p>
+
+  <div class="card">
+    <h3>Sprints F — Source Intelligence Layer</h3>
+    <div class="date">May 5, 2026</div>
+    <ul>
+      <li><span class="rtag feat">feat</span> F1: Source independence gate — press-only cite chains blocked from "confirmed"</li>
+      <li><span class="rtag feat">feat</span> F2: YouTube into unified pipeline — story matching + NVS hint scoring</li>
+      <li><span class="rtag feat">feat</span> F3: source_configs Supabase table — sources editable without deploy</li>
+      <li><span class="rtag feat">feat</span> Sources admin UI — add, test, delete, activate/deactivate sources</li>
+      <li><span class="rtag feat">feat</span> Daily source auto-test cron + status dots in UI</li>
+      <li><span class="rtag feat">feat</span> Financials page — monthly cost/revenue chart + manual cost entries</li>
+      <li><span class="rtag feat">feat</span> Admin nav unified across all pages + Report/Roadmap/Releases tabs</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Sprint E — Source Expansion</h3>
+    <div class="date">May 4, 2026</div>
+    <ul>
+      <li><span class="rtag feat">feat</span> Scorer updated: national team + multi-sport BJK scoring bands</li>
+      <li><span class="rtag feat">feat</span> Synthesis prompt: national team / other-sport context injection</li>
+      <li><span class="rtag feat">feat</span> RSS cron moved to hourly (was 2-hourly)</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Sprint D — Original News Synthesis</h3>
+    <div class="date">May 2, 2026</div>
+    <ul>
+      <li><span class="rtag feat">feat</span> generateOriginalNews: multi-source, 300–400 word Kartalix voice synthesis</li>
+      <li><span class="rtag feat">feat</span> Synthesis dedup: synth:{hash}:{date} KV key prevents re-synthesis same day</li>
+      <li><span class="rtag feat">feat</span> Raw RSS/P4 articles removed from KV frontend — only templates + synthesis</li>
+      <li><span class="rtag fix">fix</span> Multi-source context via titleSimilarity(>0.25) for richer Claude input</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Sprint C — YouTube Embed</h3>
+    <div class="date">May 2, 2026</div>
+    <ul>
+      <li><span class="rtag feat">feat</span> 5 YouTube channels live (Beşiktaş JK, beIN Sports TR, A Spor, Rabona, TRT)</li>
+      <li><span class="rtag feat">feat</span> Match-specific video templates: T-VID-HLT, T-VID-GOL, T-VID-BP, T-VID-INT, T-VID-REF</li>
+      <li><span class="rtag feat">feat</span> classifyMatchVideo: routes to match templates; falls back to generic T-VID</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Sprint 3 — Pipeline Reliability + Content Quality</h3>
+    <div class="date">April 17, 2026 &nbsp;·&nbsp; 12 commits</div>
+    <ul>
+      <li><span class="rtag fix">fix</span> KV ceiling raised 8 → 50 articles — no more silent article drops</li>
+      <li><span class="rtag perf">perf</span> Permanent URL dedup against Supabase — eliminated re-scoring cost (~€17/mo saved)</li>
+      <li><span class="rtag fix">fix</span> pubDate: original RSS published_at stored in KV + Supabase</li>
+      <li><span class="rtag feat">feat</span> Scoring: 7-band NVS, age penalty (−15 @ 24h, −30 @ 48h), story-aware dedup</li>
+      <li><span class="rtag feat">feat</span> Post-scoring story dedup — one article per story cluster (highest NVS wins)</li>
+      <li><span class="rtag feat">feat</span> Match templates T05/T08b/T09 rewritten as Haiku-generated Turkish news prose</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Sprint 2 — Content Quality</h3>
+    <div class="date">April 6, 2026 &nbsp;·&nbsp; 18 commits</div>
+    <ul>
+      <li><span class="rtag feat">feat</span> 12 RSS sources with BJK keyword filter</li>
+      <li><span class="rtag feat">feat</span> Render.com proxy for blocked feeds (Fotomaç, A Spor)</li>
+      <li><span class="rtag feat">feat</span> Golden Score + NVS scoring (Haiku, batch 10)</li>
+      <li><span class="rtag feat">feat</span> Hero carousel + article grid + modal</li>
+      <li><span class="rtag feat">feat</span> Transfer Radar + Fan Pulse from real article data</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Sprint 1 — Live Pipeline</h3>
+    <div class="date">March 2026</div>
+    <ul>
+      <li><span class="rtag feat">feat</span> Cloudflare Worker fetch agent live</li>
+      <li><span class="rtag feat">feat</span> Claude API connected (Haiku scoring)</li>
+      <li><span class="rtag feat">feat</span> KV cache → fan site reads live news</li>
+      <li><span class="rtag feat">feat</span> Cron trigger, Supabase logging, NVS scoring</li>
+    </ul>
+  </div>
+</div>
 </body>
 </html>`;
 }
@@ -3241,10 +5188,7 @@ h2 span{font-size:.65rem;color:#555;font-weight:400}
 </style>
 </head>
 <body>
-<header>
-  <div class="logo">Kartal<span>ix</span> <span style="font-size:.7rem;color:#555;font-weight:400">Editör Paneli</span></div>
-  <a href="/" style="color:#666;font-size:.75rem;text-decoration:none;margin-left:auto">← Site</a>
-</header>
+${adminNav('news')}
 <main>
 
   <!-- LEFT: News list + submitted feedback -->

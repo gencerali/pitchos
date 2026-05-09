@@ -12,16 +12,51 @@ const DELTA = {
 // Official sources (bjk.com.tr) cross the generation threshold on first contribution.
 const OFFICIAL_INITIAL_DELTA = 60;
 
-// ─── ARCHIVAL WINDOWS (days without contribution) ─────────────
-const ARCHIVE_DAYS = {
-  sporting:      3,
+// ─── SOURCE INDEPENDENCE GATE ─────────────────────────────────
+// Stories can only reach 'confirmed' if at least one contribution came from
+// a broadcast or official source. Press/aggregator-only cite chains are capped
+// at 'developing' regardless of confidence score.
+// Prevents: "5 tabloids reprinting one rumour = confirmed story"
+const QUALITY_TIERS = new Set(['official', 'broadcast']);
+
+// ─── ARCHIVAL WINDOWS (days of silence before archiving) ──────
+// Keyed by story_type — each type has a natural lifecycle length.
+// Falls back to story_category if type not listed, then to 7 days.
+const ARCHIVE_DAYS_BY_TYPE = {
+  transfer:      15,   // rumours take weeks; silence means deal died or was covered
+  injury:         7,   // player recovers or situation resolves quickly
+  disciplinary:   5,   // short lifecycle — bans are served, fines paid
+  contract:      30,   // negotiations stretch for months
+  institutional: 30,   // board/ownership stories are slow-moving
+  other:          7,
+};
+const ARCHIVE_DAYS_BY_CATEGORY = {
   financial:     30,
   institutional: 30,
-  other:         7,
+  other:          7,
 };
 
 // ─── OPEN STATES (accept new contributions) ───────────────────
-const OPEN_STATES = ['emerging', 'developing', 'confirmed', 'active'];
+const OPEN_STATES = ['emerging', 'developing', 'confirmed', 'active', 'scheduled', 'pre_match', 'live', 'post_match'];
+
+// ─── MATCH STORY TIME-BASED STATE ────────────────────────────
+// Match stories advance by clock, not confidence.
+//   scheduled  → T-∞ to T-3d
+//   pre_match  → T-3d to T-30min
+//   live       → T-30min to T+110min (full-time)
+//   post_match → T+110min to T+48h
+//   archived   → T+48h+
+function nextMatchStoryState(matchDate) {
+  const now             = Date.now();
+  const kickoff         = new Date(matchDate).getTime();
+  const minsFromKickoff = (now - kickoff) / 60000;
+  const daysToKickoff   = (kickoff - now) / 86400000;
+  if (minsFromKickoff > 48 * 60) return 'archived';
+  if (minsFromKickoff > 110)     return 'post_match';
+  if (minsFromKickoff >= -30)    return 'live';
+  if (daysToKickoff   <= 3)      return 'pre_match';
+  return 'scheduled';
+}
 
 // ─── STAGE 1: ENTITY FINGERPRINT ─────────────────────────────
 // Pure JS. Returns open stories that share at least one player
@@ -111,14 +146,17 @@ Rules:
 
 // ─── STATE MACHINE ────────────────────────────────────────────
 // Cascades: a single contribution can jump multiple states if confidence warrants.
-function nextState(currentState, newConfidence, contributionType) {
+function nextState(currentState, newConfidence, contributionType, hasQuality = false) {
   // Debunked: contradicting contribution drives confidence below floor — story is false/denied
   if (contributionType === 'contradicting' && newConfidence < 15) return 'debunked';
 
   if (contributionType === 'contradicting' && newConfidence < 60) {
     if (currentState === 'confirmed' || currentState === 'active') return 'developing';
   }
-  if ((currentState === 'emerging' || currentState === 'developing') && newConfidence >= 60) return 'confirmed';
+  if ((currentState === 'emerging' || currentState === 'developing') && newConfidence >= 60) {
+    // Source independence gate: press-only chains cap at 'developing'
+    return hasQuality ? 'confirmed' : 'developing';
+  }
   if (currentState === 'emerging' && newConfidence >= 40) return 'developing';
   return currentState;
 }
@@ -136,19 +174,24 @@ async function recordTransition(storyId, fromState, toState, trigger, env, notes
 
 // ─── CREATE NEW STORY ─────────────────────────────────────────
 async function createStory(facts, article, decision, siteId, env) {
+  const isQualitySource = QUALITY_TIERS.has(article.trust_tier);
   const initialDelta = article.trust_tier === 'official' ? OFFICIAL_INITIAL_DELTA : DELTA.initial;
-  const initialState = initialDelta >= 60 ? 'confirmed' : initialDelta >= 40 ? 'developing' : 'emerging';
+  const initialState = nextState('emerging', initialDelta, 'initial', isQualitySource);
 
   // Use pre-classified type from extractFactsForStory when judge didn't provide one
   const storyType     = decision.story_type     || facts.story_type     || 'other';
   const storyCategory = decision.story_category || facts.story_category || 'other';
+
+  const entities = isQualitySource
+    ? { ...facts.entities, _quality_source: true }
+    : facts.entities;
 
   const rows = await supabase(env, 'POST', '/rest/v1/stories', {
     site_id:        siteId,
     story_type:     storyType,
     story_category: storyCategory,
     state:          initialState,
-    entities:       facts.entities,
+    entities,
     confidence:     initialDelta,
     title:          decision.title || article.title,
     first_contribution_at: new Date().toISOString(),
@@ -173,18 +216,28 @@ async function addContribution(storyId, article, facts, decision, env) {
 }
 
 // ─── UPDATE STORY AFTER CONTRIBUTION ─────────────────────────
-async function applyContribution(story, decision, env) {
-  const delta        = decision.confidence_delta ?? DELTA[decision.contribution_type] ?? 0;
+async function applyContribution(story, decision, article, env) {
+  const delta         = decision.confidence_delta ?? DELTA[decision.contribution_type] ?? 0;
   const newConfidence = Math.max(0, Math.min(100, story.confidence + delta));
-  const newState      = nextState(story.state, newConfidence, decision.contribution_type);
-  const trigger       = newState !== story.state ? 'confidence_threshold' : 'new_contribution';
 
-  await supabase(env, 'PATCH', `/rest/v1/stories?id=eq.${story.id}`, {
+  // Quality source flag: true once any official/broadcast source has contributed
+  const isQualitySource = QUALITY_TIERS.has(article?.trust_tier);
+  const hadQuality      = story.entities?._quality_source === true;
+  const hasQuality      = isQualitySource || hadQuality;
+
+  const newState  = nextState(story.state, newConfidence, decision.contribution_type, hasQuality);
+  const trigger   = newState !== story.state ? 'confidence_threshold' : 'new_contribution';
+
+  const patch = {
     confidence:           newConfidence,
     state:                newState,
     last_contribution_at: new Date().toISOString(),
-  });
+  };
+  if (isQualitySource && !hadQuality) {
+    patch.entities = { ...story.entities, _quality_source: true };
+  }
 
+  await supabase(env, 'PATCH', `/rest/v1/stories?id=eq.${story.id}`, patch);
   await recordTransition(story.id, story.state, newState, trigger, env, decision.reason);
 
   return { ...story, confidence: newConfidence, state: newState };
@@ -309,6 +362,10 @@ export async function matchOrCreateStory(article, facts, siteId, env, openStorie
   const { decision, usage } = await judgeMatch(facts, article, judgeInput, env);
 
   if (decision.match === 'new') {
+    // Match stories are seeded by the fixture API, not press articles — skip creation
+    if (decision.story_type === 'match') {
+      return { story: null, decision, isNew: false, usage };
+    }
     const story = await createStory(facts, article, decision, siteId, env);
     await addContribution(story.id, article, facts, decision, env);
     if (story.state === 'confirmed') {
@@ -320,6 +377,7 @@ export async function matchOrCreateStory(article, facts, siteId, env, openStorie
   // Match found — find the story object
   const matched = openStories.find(s => s.id === decision.match);
   if (!matched) {
+    if (decision.story_type === 'match') return { story: null, decision, isNew: false, usage };
     const story = await createStory(facts, article, { ...decision, match: 'new' }, siteId, env);
     await addContribution(story.id, article, facts, { ...decision, contribution_type: 'initial', confidence_delta: 30 }, env);
     if (story.state === 'confirmed') {
@@ -328,12 +386,104 @@ export async function matchOrCreateStory(article, facts, siteId, env, openStorie
     return { story, decision, isNew: true, usage };
   }
 
+  // Match stories: time-driven state — record contribution but never touch state
+  if (matched.story_type === 'match') {
+    await addContribution(matched.id, article, facts, decision, env);
+    await supabase(env, 'PATCH', `/rest/v1/stories?id=eq.${matched.id}`, {
+      last_contribution_at: new Date().toISOString(),
+    });
+    return { story: matched, decision, isNew: false, usage };
+  }
+
   await addContribution(matched.id, article, facts, decision, env);
-  const updated = await applyContribution(matched, decision, env);
+  const updated = await applyContribution(matched, decision, article, env);
   if (updated.state === 'confirmed' && matched.state !== 'confirmed') {
     await generateStoryArticle(updated, facts, article, siteId, env);
   }
   return { story: updated, decision, isNew: false, usage };
+}
+
+// ─── MATCH STORY — PROACTIVE CREATION ────────────────────────
+// Called hourly from processSite after getNextFixture.
+// Idempotent: returns existing story if already created for this fixture.
+export async function createMatchStory(match, siteId, env) {
+  const fixtureId = match.fixture_id;
+  if (!fixtureId) throw new Error('createMatchStory: fixture_id required');
+
+  const matchDate = `${match.date}T${match.time || '20:00'}:00+03:00`;
+  const newState  = nextMatchStoryState(matchDate);
+
+  // Idempotency: look up existing story by fixture_id in JSONB entities
+  const existing = await supabase(env, 'GET',
+    `/rest/v1/stories?site_id=eq.${siteId}&story_type=eq.match&entities->>fixture_id=eq.${fixtureId}&select=id,state,entities&limit=1`
+  );
+
+  if (existing?.length > 0) {
+    const story = existing[0];
+    if (newState !== story.state) {
+      await supabase(env, 'PATCH', `/rest/v1/stories?id=eq.${story.id}`, { state: newState });
+      await recordTransition(story.id, story.state, newState, 'time_elapsed', env, `Match date: ${matchDate}`);
+    }
+    return { ...story, state: newState };
+  }
+
+  if (newState === 'archived') return null; // past match, skip
+
+  const homeTeam = match.home ? 'Beşiktaş' : (match.opponent || 'Opponent');
+  const awayTeam = match.home ? (match.opponent || 'Opponent') : 'Beşiktaş';
+
+  const rows = await supabase(env, 'POST', '/rest/v1/stories', {
+    site_id:        siteId,
+    story_type:     'match',
+    story_category: 'sporting',
+    state:          newState,
+    entities: {
+      fixture_id: fixtureId,
+      match_date: matchDate,
+      clubs:      ['Beşiktaş', match.opponent].filter(Boolean),
+      players:    [],
+    },
+    confidence:     100,
+    title:          `${homeTeam} - ${awayTeam} (${match.date})`,
+    first_contribution_at: new Date().toISOString(),
+    last_contribution_at:  new Date().toISOString(),
+  });
+
+  const story = rows?.[0];
+  if (!story) throw new Error('createMatchStory: failed to create story row');
+  await recordTransition(story.id, null, newState, 'fixture_scheduled', env, 'Match story created');
+  console.log(`MATCH STORY: created fixture ${fixtureId} (${homeTeam} - ${awayTeam}) → ${newState}`);
+  return story;
+}
+
+// Look up the active match story for a fixture (for templates to set story_id)
+export async function getMatchStory(fixtureId, siteId, env) {
+  const rows = await supabase(env, 'GET',
+    `/rest/v1/stories?site_id=eq.${siteId}&story_type=eq.match&entities->>fixture_id=eq.${fixtureId}&select=id,state,entities,title&limit=1`
+  );
+  return rows?.[0] || null;
+}
+
+// ─── MATCH STORY — TIME ADVANCEMENT CRON ─────────────────────
+// Called on the daily 0 4 cron. Advances all open match stories
+// based on current clock position relative to their match_date.
+export async function advanceMatchStoryStates(siteId, env) {
+  const stories = await supabase(env, 'GET',
+    `/rest/v1/stories?site_id=eq.${siteId}&story_type=eq.match&state=not.in.(archived)&select=id,state,entities`
+  ) || [];
+
+  let advanced = 0;
+  for (const story of stories) {
+    const matchDate = story.entities?.match_date;
+    if (!matchDate) continue;
+    const newState = nextMatchStoryState(matchDate);
+    if (newState !== story.state) {
+      await supabase(env, 'PATCH', `/rest/v1/stories?id=eq.${story.id}`, { state: newState });
+      await recordTransition(story.id, story.state, newState, 'time_elapsed', env, `Match date: ${matchDate}`);
+      advanced++;
+    }
+  }
+  return { advanced };
 }
 
 // ─── ARCHIVAL CRON ────────────────────────────────────────────
@@ -344,7 +494,9 @@ export async function archiveStaleStories(siteId, env) {
   let archived = 0;
 
   for (const story of openStories) {
-    const days = ARCHIVE_DAYS[story.story_category] || 7;
+    const days = ARCHIVE_DAYS_BY_TYPE[story.story_type]
+              ?? ARCHIVE_DAYS_BY_CATEGORY[story.story_category]
+              ?? 7;
     const cutoff = days * 24 * 60 * 60 * 1000;
     const lastContrib = new Date(story.last_contribution_at).getTime();
 

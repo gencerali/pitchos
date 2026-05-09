@@ -118,10 +118,29 @@ export async function getRecentPublishedTitles(env, siteId) {
 
 // ─── SCORE ARTICLES (batch NVS) ──────────────────────────────
 export async function scoreArticles(articles, site, env) {
+  // Articles with nvs_hint bypass Claude — use the preset value directly
+  const hintByIndex = new Map();
+  const toScore = articles.filter((a, i) => {
+    if (a.nvs_hint != null) {
+      hintByIndex.set(i, {
+        nvs:          a.nvs_hint,
+        relevant:     true,
+        rival_pov:    false,
+        sentiment:    'positive',
+        category:     a.category || 'Match',
+        content_type: 'fact',
+        golden_score: Math.ceil(a.nvs_hint / 20),
+        nvs_notes:    `nvs_hint:${a.source_type || 'youtube'}`,
+      });
+      return false;
+    }
+    return true;
+  });
+
   const CHUNK = 10;
   const chunks = [];
-  for (let i = 0; i < articles.length; i += CHUNK) {
-    chunks.push(articles.slice(i, i + CHUNK));
+  for (let i = 0; i < toScore.length; i += CHUNK) {
+    chunks.push(toScore.slice(i, i + CHUNK));
   }
 
   const allScored = [];
@@ -157,17 +176,28 @@ BAND 85-94 VERY HIGH: Major signing/departure officially confirmed; dramatic res
 BAND 95-100 ELITE: Transfer contract officially signed and announced; BJK wins trophy; breaking news of historic significance
 
 CATEGORY GUIDE (assign exactly one):
-Match — fixtures, results, lineups, referee, pre/post-match, European match
+Match — BJK football fixtures, results, lineups, referee, pre/post-match, European match
 Transfer — signings, departures, loans, contract extensions, transfer rumors (confirmed or rumor)
 Injury — injuries, suspensions, fitness, return timelines
 Squad — training, youth, non-transfer roster management, tactical news, coach work
 Club — board, finance, stadium, fan groups, management, sponsor, official statements
+Other Sport — BJK basketball, handball, volleyball (men's or women's), e-sports or any other BJK sport branch result/news
+National Team — Turkey national team (football, basketball, etc.) article that features or highlights BJK players
+
+NVS GUIDANCE FOR SPECIAL CATEGORIES:
+- Other Sport (BJK branch): championship or trophy won → 90-95; tournament match result with score → 65-78; regular season result → 55-65; squad/training news → 35-50
+- Other Sport (non-BJK, e.g. general volleyball/basketball): relevant=false, nvs≤19
+- National Team football (Turkey A Milli): World Cup / EURO tournament match → 65-78; qualifying result → 55-65; friendly → 40-52; BJK player scores/assists in any game → +10 bonus on top of base band
+- National Team basketball/volleyball (Turkey): major tournament (Olympics, World Cup, EuroBasket, EuroVolley) → 60-75; qualifying → 48-60; BJK player performs → +8 bonus
+- When football leagues are closed (international break, summer) and major tournaments are live, treat national team results as primary content (push NVS to top of band)
 
 EXCLUSION RULES:
 - rival_pov=true (rival beats BJK, rival celebration): nvs ≤ 25
-- relevant=false (BJK barely mentioned): nvs ≤ 19
+- relevant=false (BJK barely mentioned AND not a national team or BJK other-sport article): nvs ≤ 19
 - sentiment=rival_celebration: nvs ≤ 30
 - Fenerbahçe/Galatasaray win article mentioning BJK loss: rival_pov=true
+- General Turkish Süper Lig news with no BJK angle: relevant=false
+- Turkey national team or BJK other-sport (handball/basketball/volleyball) results: relevant=true even without direct BJK player mention, score per NVS guidance above
 
 Return JSON array only. No markdown. No text outside JSON.`;
 
@@ -218,7 +248,16 @@ Return JSON array only. No markdown. No text outside JSON.`;
     if (chunks.length > 1) await new Promise(r => setTimeout(r, 300));
   }
 
-  return { scored: allScored, usage: totalUsage };
+  // Reconstruct full scored array in original article order
+  const fullScored = [];
+  let j = 0;
+  for (let i = 0; i < articles.length; i++) {
+    fullScored.push(hintByIndex.has(i)
+      ? hintByIndex.get(i)
+      : (allScored[j++] || { nvs: 50, content_type: 'fact', golden_score: 2 })
+    );
+  }
+  return { scored: fullScored, usage: totalUsage };
 }
 
 // ─── PERMANENT URL DEDUP (against Supabase) ──────────────────

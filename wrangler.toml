@@ -18,41 +18,65 @@ subrequests = 1000
 crons = ["*/5 * * * *", "0 */1 * * *", "0 4 * * *", "0 3 * * 1"]
 
 [[routes]]
-pattern = "app.kartalix.com/haber/*"
+pattern = "kartalix.com/haber/*"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "app.kartalix.com/rss"
+pattern = "kartalix.com/rss"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "app.kartalix.com/sitemap.xml"
+pattern = "kartalix.com/sitemap.xml"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "app.kartalix.com/admin"
+pattern = "kartalix.com/admin"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "app.kartalix.com/admin/*"
+pattern = "kartalix.com/admin/*"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "app.kartalix.com/article/*"
+pattern = "kartalix.com/article/*"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "app.kartalix.com/react"
+pattern = "kartalix.com/react"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "app.kartalix.com/comments"
+pattern = "kartalix.com/comments"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "app.kartalix.com/cache"
+pattern = "kartalix.com/cache"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "app.kartalix.com/widgets/*"
+pattern = "kartalix.com/widgets/*"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/hakkimizda"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/iletisim"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/gizlilik"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/kaynak-atif"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/run"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/force-cache"
 zone_name = "kartalix.com"

@@ -1,4 +1,4 @@
-import { callClaude, MODEL_FETCH, extractText, sleep, BJK_KEYWORDS } from './utils.js';
+import { callClaude, MODEL_FETCH, extractText, sleep, BJK_KEYWORDS, supabase } from './utils.js';
 import { BJK_REGEX, CUTOFF_48H } from './processor.js';
 
 // ─── RSS FEEDS ────────────────────────────────────────────────
@@ -38,6 +38,50 @@ export const RSS_FEEDS = [
   // Reddit r/besiktas — English-language fan community, international transfer news + sentiment
   { url: 'https://www.reddit.com/r/besiktas/.rss', name: 'Reddit BJK', trust: 'journalist', sport: 'football', is_p4: false, proxy: true, keywordFilter: true },
 ];
+
+// ─── DYNAMIC SOURCE CONFIG ────────────────────────────────────
+// Reads source_configs from Supabase. Returns [] on failure so callers
+// fall back to hardcoded RSS_FEEDS / YOUTUBE_CHANNELS arrays.
+export async function fetchSourceConfigs(siteId, env) {
+  try {
+    const rows = await supabase(env, 'GET',
+      `/rest/v1/source_configs?site_id=eq.${siteId}&is_active=eq.true&order=name`
+    );
+    return rows || [];
+  } catch(e) {
+    console.error('fetchSourceConfigs failed:', e.message);
+    return [];
+  }
+}
+
+// Convert source_configs rows → RSS_FEEDS shape
+export function configsToRSSFeeds(configs) {
+  return configs
+    .filter(c => c.source_type === 'rss' && c.url)
+    .map(c => ({
+      url:           c.url,
+      name:          c.name,
+      trust:         c.trust_tier,
+      sport:         c.sport || 'football',
+      is_p4:         c.is_p4 ?? true,
+      keywordFilter: c.bjk_filter ?? false,
+      proxy:         c.proxy ?? false,
+    }));
+}
+
+// Convert source_configs rows → YOUTUBE_CHANNELS shape
+export function configsToYTChannels(configs) {
+  return configs
+    .filter(c => c.source_type === 'youtube' && c.channel_id)
+    .map(c => ({
+      id:                 c.channel_id,
+      name:               c.name,
+      tier:               c.trust_tier,
+      all_qualify:        c.all_qualify ?? false,
+      embed_qualify:      c.treatment === 'embed' || c.treatment === 'embed_and_synthesize',
+      transcript_qualify: c.treatment === 'synthesize' || c.treatment === 'embed_and_synthesize',
+    }));
+}
 
 // ─── RENDER PROXY ─────────────────────────────────────────────
 export async function fetchViaRss2Json(feed) {

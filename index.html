@@ -988,11 +988,11 @@
 <footer>
   <div class="footer-logo">Kartalix</div>
   <div class="footer-links">
-    <a href="#">Hakkında</a>
-    <a href="/privacy.html">Gizlilik Politikası</a>
-    <a href="#">Kaynak Atıf</a>
-    <a href="#">İletişim</a>
-    <a href="/rss.xml">RSS</a>
+    <a href="/hakkimizda">Hakkımızda</a>
+    <a href="/gizlilik">Gizlilik Politikası</a>
+    <a href="/kaynak-atif">Kaynak Atıf</a>
+    <a href="/iletisim">İletişim</a>
+    <a href="/rss">RSS</a>
   </div>
   <div class="footer-copy">
     © 2026 Kartalix · Tüm haberler güvenilir kaynaklardan otomatik derlenmektedir.<br>
@@ -1002,7 +1002,7 @@
 
 <script>
   // ── CONFIG ──────────────────────────────────────────────────
-  const WORKER_URL = 'https://pitchos-fetch-agent.gencerali.workers.dev';
+  const WORKER_URL = 'https://kartalix.com';
   const SITE_CODE  = 'BJK';
 
   // ── CATEGORY & TRUST COLOR SYSTEMS ──────────────────────────
@@ -1459,7 +1459,10 @@
     if (a.template_id) {
       const statsBox = document.getElementById('avMatchStats');
       if (statsBox) {
-        fetch('https://app.kartalix.com/widgets/current-match-stats')
+        const statsUrl = a.fixture_id
+          ? `https://kartalix.com/widgets/bjk-match-stats?fixture=${a.fixture_id}`
+          : 'https://kartalix.com/widgets/current-match-stats';
+        fetch(statsUrl)
           .then(r => r.ok ? r.json() : null)
           .catch(() => null)
           .then(d => {
@@ -2070,7 +2073,7 @@
     if (!article) return;
     const articleUrl = article.url || article.original_url || '';
     try {
-      const res = await fetch(`https://pitchos-fetch-agent.gencerali.workers.dev/comments?article_url=${encodeURIComponent(articleUrl)}`);
+      const res = await fetch(`https://kartalix.com/comments?article_url=${encodeURIComponent(articleUrl)}`);
       const data = await res.json();
 
       document.getElementById('like-count').textContent = data.likes || 0;
@@ -2121,7 +2124,7 @@
     const newReaction = current === type ? null : type;
 
     try {
-      const res = await fetch('https://pitchos-fetch-agent.gencerali.workers.dev/react', {
+      const res = await fetch('https://kartalix.com/react', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
@@ -2152,7 +2155,7 @@
     msg.style.color='var(--muted)'; msg.textContent='Gönderiliyor...';
 
     try {
-      const res = await fetch('https://pitchos-fetch-agent.gencerali.workers.dev/comment', {
+      const res = await fetch('https://kartalix.com/comment', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({ article_url: _currentArticle.url || _currentArticle.original_url, name, surname, comment, honeypot })
@@ -2177,7 +2180,7 @@
   // ── STANDINGS WIDGET ────────────────────────────────────────
   (async function initSidebarWidgets() {
     try {
-      const { apiKey } = await fetch('https://app.kartalix.com/widgets/config').then(r => r.json());
+      const { apiKey } = await fetch('https://kartalix.com/widgets/config').then(r => r.json());
       if (!apiKey) return;
       // Load script and wait for it to fully execute before touching the DOM
       await new Promise((resolve, reject) => {
@@ -2210,7 +2213,7 @@
 
   async function loadBJKFixtures() {
     try {
-      const data = await fetch('https://app.kartalix.com/widgets/bjk-fixtures').then(r => r.json());
+      const data = await fetch('https://kartalix.com/widgets/bjk-fixtures').then(r => r.json());
       const mount = document.getElementById('fixturesMount');
       if (!mount) return;
       const fmtDate = iso => {

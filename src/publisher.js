@@ -1,6 +1,52 @@
 import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes } from './utils.js';
 import { normalizeTitle, titleSimilarity } from './processor.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
+import { getLastFixtures, getBJKStanding } from './api-football.js';
+
+// ─── FACTUAL GROUNDING ────────────────────────────────────────
+// Fetches verified API-Football stats and returns a Turkish-language
+// "DOĞRULANMIŞ VERİLER" block that is prepended to every synthesis prompt.
+// Prevents Claude from making false situational claims (wrong league position,
+// fabricated results, "kritik viraj" framing without supporting data).
+// Returns '' gracefully if API is unavailable so generation continues.
+async function buildGroundingContext(env) {
+  try {
+    const [fixtures, standing] = await Promise.all([
+      getLastFixtures(env, 5),
+      getBJKStanding(env),
+    ]);
+    const lines = [];
+
+    if (standing) {
+      const all = standing.all || {};
+      const gf  = all.goals?.for    ?? 0;
+      const ga  = all.goals?.against ?? 0;
+      lines.push(
+        `Süper Lig: ${standing.rank}. sıra | ${standing.points} puan | ` +
+        `${all.played ?? '?'} maç (${all.win ?? 0}G ${all.draw ?? 0}B ${all.lose ?? 0}M) | ` +
+        `${gf} gol attı, ${ga} gol yedi`
+      );
+    }
+
+    const finished = (fixtures || []).filter(f => f.is_finished);
+    if (finished.length > 0) {
+      const rows = finished.map(f => {
+        const outcome = f.score_bjk > f.score_opp ? 'G' : f.score_bjk === f.score_opp ? 'B' : 'M';
+        return `${f.opponent} ${f.score_bjk}-${f.score_opp}(${outcome})`;
+      });
+      lines.push(`Son maçlar (yeniden eskiye): ${rows.join(', ')}`);
+    }
+
+    if (lines.length === 0) return '';
+    return (
+      `\n\nDOĞRULANMIŞ VERİLER (API-Football, ${new Date().toISOString().slice(0, 10)}):\n` +
+      lines.join('\n') +
+      `\nSadece bu verilere dayanan durum değerlendirmesi yap — "kritik viraj", "büyük kriz" gibi yorumlar bu sayılarca desteklenmelidir.`
+    );
+  } catch {
+    return '';
+  }
+}
 
 // ─── HOT NEWS DELAY ──────────────────────────────────────────
 // P4 articles must not publish within 15 minutes of source pubDate.
@@ -169,11 +215,14 @@ async function synthesizeArticle(article, env) {
       }
     } catch(e) {}
   }
-  const editorialCtx = await getEditorialNotes(env, ['general', 'style']);
+  const [editorialCtx, groundingCtx] = await Promise.all([
+    getEditorialNotes(env, ['general', 'style']),
+    buildGroundingContext(env),
+  ]);
   const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak metinden özgün bir Kartalix haberi yaz.
 
 Kaynak başlık: ${article.title}
-Kaynak metin: ${sourceText}${editorialCtx}
+Kaynak metin: ${sourceText}${editorialCtx}${groundingCtx}
 
 Kurallar:
 - 250-350 kelime
@@ -182,6 +231,7 @@ Kurallar:
 - Haber cümlesiyle başla (kim ne yaptı/oldu)
 - BJK taraftarının perspektifinden, analitik ve yoğun bir ses tonu
 - Paragraflar arası boş satır bırak
+- DOĞRULANMIŞ VERİLERle çelişen ifade kullanma
 
 Sadece haber metnini yaz, başlık veya ekstra açıklama ekleme.`;
 
@@ -216,6 +266,15 @@ export async function writeArticles(articles, site, env) {
         published.publish_mode = 'rss_summary';
       }
       await new Promise(r => setTimeout(r, 300));
+
+    } else if (article.treatment === 'embed') {
+      // YouTube embed — video is the content, no facts/synthesis needed
+      try {
+        const card = await generateVideoEmbed(article._video, site, env);
+        if (card) published = { ...article, ...card, publish_mode: 'video_embed', nvs: article.nvs_hint || article.nvs || 72 };
+      } catch (e) {
+        console.error('YT embed in writeArticles failed:', e.message, '|', article.title?.slice(0, 50));
+      }
 
     } else {
       published.summary   = cleanRSS(article.summary || article.description || '');
@@ -1781,7 +1840,10 @@ export async function generateOriginalNews(sources, site, env) {
     `[Kaynak ${i + 1}] Başlık: ${a.title}\n${(a.summary || '').slice(0, 600)}`
   ).join('\n\n');
 
-  const editorialCtx = await getEditorialNotes(env, ['general', 'style']);
+  const [editorialCtx, groundingCtx] = await Promise.all([
+    getEditorialNotes(env, ['general', 'style']),
+    buildGroundingContext(env),
+  ]);
 
   const isNationalTeam = sources.some(a =>
     /milli takım|milli maç|a milli|b milli|national team|türkiye \d|\d\. türkiye/i.test(a.title + ' ' + (a.summary || ''))
@@ -1801,7 +1863,7 @@ export async function generateOriginalNews(sources, site, env) {
     ? `\nDİĞER SPOR DALI: Beşiktaş'ın bu branştaki başarısını futbol fanatiği bir okuyucuya da heyecan verecek şekilde anlat — kulüp kimliğini, turnuva bağlamını ve skoru net ortaya koy.`
     : '';
 
-  const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak bilgilerden yola çıkarak tamamen özgün bir Kartalix haberi yaz.${editorialCtx}${sportCtx}
+  const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak bilgilerden yola çıkarak tamamen özgün bir Kartalix haberi yaz.${editorialCtx}${sportCtx}${groundingCtx}
 
 ${sourceBlocks}
 
@@ -1812,6 +1874,7 @@ KURALLAR:
 - Haber cümlesiyle başla (kim, ne, ne zaman)
 - BJK taraftarının perspektifinden, analitik ve güçlü bir ses tonu
 - Paragraflar arası boş satır bırak
+- DOĞRULANMIŞ VERİLERle çelişen durum yorumu yapma
 - Sadece haber metnini yaz, başlık ekleme`;
 
   const res = await callClaude(env, MODEL_GENERATE, prompt, false, 800);

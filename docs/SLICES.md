@@ -41,23 +41,60 @@ Status: `in-progress`
 **Estimated**: 2–4 weeks (could stretch to 6 if evenings only)
 
 **Deliverables**:
-- [ ] Fact schema for Transfer story type (start narrow)
-- [ ] Firewall extraction logic
-- [ ] Source text destruction post-extraction (with audit log)
-- [ ] `facts` and `fact_lineage` tables migration
-- [ ] Wire firewall between Readability output and Produce Agent
-- [ ] Golden fixture: `rashica_transfer_5_contribs`
-- [ ] Golden fixture: `fotomac_403`
-- [ ] Golden fixture: `firewall_destroys_source_text` (legal core test)
+- [x] Fact schema for Transfer story type (start narrow)
+- [x] Firewall extraction logic
+- [x] Source text destruction post-extraction (with audit log)
+- [x] `facts` and `fact_lineage` tables migration — `0002_facts_firewall.sql` run 2026-05-09
+- [x] Wire firewall between Readability output and Produce Agent (transfer path: extractFacts → writeTransfer; all types: extractFactsForStory)
+- [x] Golden fixture: `firewall_destroys_source_text` — verified 2026-05-09 via /test-firewall: facts extracted, article generated from facts only, source_text_length logged, no source text stored
+- [ ] Golden fixture: `rashica_transfer_5_contribs` — 5 contributions about same player → one story
+- [ ] Golden fixture: `fotomac_403` — 403 source handled gracefully
 - [ ] Lawyer consultation outcome reviewed and architecture adjusted if needed ✅ done 2026-04-28
 - [ ] Hot News delay (15 min for P4) — implemented 2026-04-28, golden fixture still needed
 - [ ] Source attribution mandatory on all derived articles — implemented 2026-04-28
-- [ ] Remove Cloudflare Access gate from `/haber/*` (open article pages to public when firewall ships)
+- [x] Remove Cloudflare Access gate from `/haber/*` — never had one; site public since pictures removed + no copied content
 
 **Done when**: a P4 article goes through the pipeline and the published Kartalix article is provably non-derivative. You can show this to a lawyer. Article pages are publicly accessible.
 
 **Blockers**:
 - ~~Turkish IP lawyer consultation pending~~ ✅ resolved 2026-04-28
+
+---
+
+## SLICE 1.5 — Truth Layer: Factual Grounding + Verifier Gate
+
+**Why after Facts Firewall**: Slice 1 ensures articles are non-derivative (legal). Slice 1.5 ensures they're factually accurate (editorial). These are distinct concerns: you can write a fully original article that is still wrong ("BJK kritik virajda" when league data shows 4th place on 45 points is not a crisis). The truth layer makes generation fact-consistent by default.
+
+**The problem**: Claude synthesizes articles from RSS source text. If a source frames a story misleadingly, Claude inherits and amplifies that framing. If sources disagree on a score or date, Claude picks one arbitrarily. No mechanism prevents the system from writing articles that contradict verified API-Football data.
+
+**Phase 1 — Factual Grounding** ✅ DONE (2026-05-08)
+
+_Inject verified API-Football stats into every synthesis prompt before generation. Claude cannot contradict data it can see._
+
+- [x] `buildGroundingContext(env)` in publisher.js — fetches last 5 results + current Süper Lig standings, returns `DOĞRULANMIŞ VERİLER` block in Turkish
+- [x] Injected into `synthesizeArticle()` (single-source inline synthesis) and `generateOriginalNews()` (multi-source batch synthesis)
+- [x] Graceful fallback: returns `''` if API-Football is unavailable; generation continues without grounding
+- [x] Both synthesis functions fetch grounding in parallel with editorial notes — no added latency
+
+**Phase 2 — Interpretation Guard** (~30 min)
+
+_Editorial notes rule that governs crisis/disaster framing. Uses existing system, no new code._
+
+- [ ] Add to editorial notes via `/admin/editorial`: "KURAL: 'kritik viraj', 'büyük kriz', 'çöküş' gibi dramatik ifadeler kullanma — bu tür yorumlar yalnızca DOĞRULANMIŞ VERİLERDE görünen ligin mevcut durumu ile destekleniyorsa kullanılabilir"
+- [ ] Run `/admin/editorial/distill` to activate immediately
+
+**Phase 3 — Verifier Gate** (~8h, do before public launch)
+
+_Post-generation Haiku call extracts factual claims → cross-checks against structured data → flags mismatches. Prevents wrong scores, standings, and dates in published articles._
+
+- [ ] `verifyArticle(body, groundingCtx, env)` in publisher.js — Haiku call, ~300 tokens, extracts verifiable claims from body and cross-checks each against grounding data
+- [ ] Returns `{ passed: bool, issues: string[] }` — `issues` lists specific discrepancies
+- [ ] If `!passed`: regenerate once; if still failing, publish with `needs_review: true` flag
+- [ ] `verification_result JSONB` column on `content_items` — stores `{ passed, issues, checked_at }`
+- [ ] Admin report: surface `needs_review: true` articles with warning badge
+- [ ] `fact_issues` Supabase table: `article_id, claim, expected, actual, resolution` — audit trail
+
+**Done when**: 100 synthesis articles generated with grounding active, zero instances of published articles contradicting API-Football standings or recent results.
 
 ---
 
@@ -290,33 +327,59 @@ _Goal: more volume, more reliable, broader coverage (national team, other sports
 
 ---
 
+**Sprint G — Sentiment Judge** ← AFTER SPRINT F, BEFORE SPRINT A
+
+_One extra Haiku call per scoring batch. Directly improves content quality every hour: a fan site that leads with rival celebrations is broken._
+
+**Why**: Current NVS scoring does all three judgments (relevance + value + sentiment) in a single prompt. Rival-celebration framing and opponent-POV articles regularly slip through at NVS 40–60. The single-prompt approach cannot reliably separate "BJK won 3-0 [good]" from "Galatasaray clinched the title [bad for BJK fans]".
+
+**What it does**: Second Haiku call per scoring batch, runs in parallel with NVS. Asks: "Is this article written from a rival/opponent fan perspective, or does it lead with the fan team losing without framing it as their story?" Returns `rival_pov: bool + confidence`. NVS penalty: −30 on confirmed rival_pov.
+
+- [ ] `sentimentJudge(articles, env)` in processor.js — parallel Haiku call, batch of 10
+- [ ] `rival_pov` field added to scored article shape
+- [ ] NVS penalty applied: −30 for rival_pov confirmed
+- [ ] `rival_pov` stored in content_items (new column or in nvs_notes JSON)
+- [ ] Golden fixture: `galatasaray_title_filtered` — rival celebration article lands NVS < 20
+
+**Estimated**: 3–4 hours
+
+---
+
 **Sprint F — Source Intelligence Layer** ← AFTER SPRINT E
 
 _Goal: fix the dual-pipeline architecture. All sources through one truth system. Source rules without a code deploy._
 
 _Architectural basis: external review confirmed the root bug — YouTube and RSS operate under different truth definitions. This sprint closes that gap. Five agreed points from the review are implemented here; three (entity extraction, Evidence Events rewrite, dynamic source trust) are deferred to Slice 8 as they require runtime data._
 
-**F1 — Source independence gate** (~2h):
-- [ ] `story-matcher.js`: before allowing `confirmed` state transition, require at least one `broadcast` or `official` tier contribution
-- [ ] Press/aggregator-only contributions cap story state at `developing` regardless of confidence score
-- [ ] Fixes: "5 tabloids reprinting one leak = confirmed story" — cite-chain inflation
-- [ ] Zero Claude calls, pure logic
+**F1 — Source independence gate** (~2h): ✅ DONE 2026-05-05
+- [x] `story-matcher.js`: quality gate — `confirmed` requires at least one `broadcast` or `official` contribution
+- [x] Press/aggregator-only chains cap at `developing`
+- [x] `QUALITY_TIERS` flag persisted in `entities._quality_source` JSONB
 
-**F2 — YouTube into unified pipeline** (~6h):
-- [ ] Normalize qualifying YouTube videos to article shape with `nvs_hint` + `treatment` fields
-- [ ] Route through `storyMatcher` before writing — BJK özet video now contributes to active match story
-- [ ] `writeArticles` branches on `treatment`: `embed` → `generateVideoEmbed`, `synthesize` → `generateRabonaDigest`
-- [ ] `nvs_hint` respected in `scoreArticles` — skip Claude scoring when hint is set (zero cost for embeds)
-- [ ] nvs_hint values: BJK official = 88, broadcast özet = 78, Rabona = 74
-- [ ] Fixes: YouTube floating disconnected from story system; no truth evaluation in embed path
+**F2 — YouTube into unified pipeline** (~6h): ✅ DONE 2026-05-05
+- [x] `videoToArticle()` normalizes video → article shape with `trust_tier`, `nvs_hint`, `treatment`
+- [x] `processYouTubeVideos` calls `extractFactsForStory` + `matchOrCreateStory` per qualifying video (cap 3/run)
+- [x] `writeArticles` has `treatment: 'embed'` branch (scaffolding for full pipeline unification)
+- [x] `scoreArticles` nvs_hint bypass — no Claude call for preset-score sources
+- [x] Archive windows fixed: `ARCHIVE_DAYS_BY_TYPE` keyed to story_type (transfer=15d, injury=7d, disciplinary=5d, contract=30d)
 
-**F3 — Lightweight source config** (~7h):
-- [ ] New Supabase table: `source_configs` (id, name, url, source_type, trust_tier, treatment, bjk_filter, keywords[], exclude_keywords[], is_active, notes)
-- [ ] `treatment` values: `embed` | `synthesize` | `signal_only` (score + story match, no article published)
-- [ ] Worker reads `source_configs` from Supabase at cron start — replaces hardcoded RSS_FEEDS + YOUTUBE_CHANNELS arrays
-- [ ] `/admin/sources` endpoint: table view + per-source edit (active toggle, treatment, trust_tier, notes)
-- [ ] Gives operational control without code deploys
-- [ ] Note: full web admin dashboard stays in v2 backlog. This is the minimal viable ops layer.
+**F2.5 — Match story as pipeline container** (~6h): ✅ DONE 2026-05-05
+_Decision (2026-05-05): match stories should live in the story system with time-based state transitions, not confidence-based. Templates contribute to match stories; press articles, videos, and transcripts about the same fixture all attach to the same story object. Single pipeline for all source types._
+- [ ] `createMatchStory(fixture, siteId, env)` — proactive creation from fixture API at T-14 days; `story_type: 'match'`, `fixture_id`, `match_date`
+- [ ] Match story state machine: `scheduled → pre_match (T-3d) → live (kickoff) → post_match (FT) → archived (T+2d)` — driven by time, not confidence
+- [ ] `matchOrCreateStory` bypass for `story_type: 'match'` — contributions never call `nextState`; state advances via time-cron only
+- [ ] Templates set `story_id` on output `content_items` (they know `fixture_id`, look up the match story)
+- [ ] Press/video articles about a match get entity-matched to the open match story (BJK + opponent club overlap)
+- [ ] New cron (daily): advance match story states based on `match_date`
+
+**F3 — Lightweight source config** (~7h): ✅ DONE 2026-05-05
+- [x] `source_configs` Supabase table — migration at `docs/migrations/0001_source_configs.sql`
+- [x] `fetchSourceConfigs`, `configsToRSSFeeds`, `configsToYTChannels` in `fetcher.js`
+- [x] Worker reads from DB at cron start; falls back to hardcoded if table empty
+- [x] `POST /admin/sources/seed` — one-time idempotent seed from hardcoded arrays
+- [x] `GET/PATCH/DELETE /admin/sources` — JSON CRUD API
+- [x] `/admin/sources/ui` — table view with inline edit (active, trust_tier, treatment, nvs_hint, bjk_filter, notes)
+- **Activation steps**: run SQL migration → POST /admin/sources/seed → verify at /admin/sources/ui
 
 **Done when**: a YouTube video about a Beşiktaş match appears in story contributions. A press-only rumour wave cannot reach "confirmed." You can deactivate a source from `/admin/sources` without a deploy.
 
@@ -343,6 +406,39 @@ _Widget calls go direct from browser to `v3.football.api-sports.io` and count to
 
 ---
 
+## SLICE 3.9 — Voice Agent
+
+**Why before operational control**: content quality affects every article published from this point. Legal (Slice 1) is the floor; voice is the ceiling. A fast, complete, legally-clean feed that sounds robotic loses to a human journalist. This is the gap that determines whether Kartalix feels like a real media organization or an aggregator with a skin.
+
+**Estimated**: 1–2 weeks
+
+**The problem**: Claude generations follow predictable patterns — certain phrase structures, over-formal register, no cultural texture. Turkish sports journalism has specific idioms, emotional vocabulary, sentence rhythm, and a fan-POV register that readers recognize immediately. Currently none of this is in the system.
+
+**What already exists**: `editorial:references` KV store + weekly redistill cron. Seeding it with 15–20 high-quality Turkish sports articles covers ~60% of the gap immediately. The Voice Agent covers the remaining 40% through continuous learning.
+
+**Phase 1 — Seed (1–2 hours, do immediately)**:
+- [ ] Paste 15–20 well-written Turkish sports articles into `/admin/editorial` as reference articles — Fotomaç match reports, NTV Spor injury news, beIN Sports editorial pieces, Rabona Digital analysis
+- [ ] Add explicit cultural vocabulary to editorial notes: BJK-specific idioms ("Kartallar", "Siyah-Beyazlılar", "Çarşı ruhu"), emotional register ("şampiyonluk hasreti", "gurur", "hayal kırıklığı"), headline patterns
+- [ ] Add anti-patterns to editorial notes: forbid AI tells ("It is worth noting", "Certainly", "Furthermore", clinical passive constructions)
+- [ ] Run `/admin/editorial/distill` to extract and activate rules immediately
+
+**Phase 2 — Voice Agent cron (1 week)**:
+- [ ] Weekly cron (Sunday 02:00) reads top 15 most-shared Turkish sports articles from tracked sources (RSS already fetches these)
+- [ ] `extractStyleDNA(article, env)` — Haiku call: extract sentence rhythm, idiom usage, quote introduction patterns, emotional vocabulary — explicitly NOT content, only style
+- [ ] `voice_patterns` Supabase table or KV key: growing library of style examples with engagement weight
+- [ ] Generation prompts updated: prepend 3 random style examples from `voice_patterns` with instruction "Bu örneklerdeki yazım tarzına benzer şekilde yaz — içerik değil, ses ve ritim"
+- [ ] Style examples rotated per generation to prevent pattern lock-in
+
+**Phase 3 — Engagement feedback (wires into Slice 8)**:
+- [ ] Track which articles get more shares/time-on-page
+- [ ] High-engagement articles → their style examples get higher weight in `voice_patterns`
+- [ ] Low-engagement patterns decay over time
+- [ ] Result: system learns what resonates with BJK fans without manual curation
+
+**Done when**: a senior Turkish sports journalist reads three Kartalix articles without immediately identifying them as AI-generated.
+
+---
+
 ## SLICE 4 — Operational Control (HITL + Telegram)
 
 **Why fourth**: gets you out of the loop on routine, in the loop on sensitive. Without this, you're either drowning in alerts or missing critical issues.
@@ -360,6 +456,27 @@ _Widget calls go direct from browser to `v3.football.api-sports.io` and count to
 - [ ] Held stories surface in morning digest
 
 **Done when**: you go a week without manually checking the system, and it just works.
+
+---
+
+## SLICE 4.5 — Squad Intelligence
+
+**Why before Slice 6 (multi-team)**: `BJK_KEYWORDS` is hardcoded in utils.js. Adding Team 2 means manually updating a JS file and redeploying. Squad Intelligence makes keywords a data concern, not a code concern.
+
+**Estimated**: 1–2 weeks
+
+**Deliverables**:
+- [ ] `squad_members` Supabase table: `id, site_id, name, name_variations (JSONB), role (player/coach/staff/president), status (current/departed_1y/departed_2y/target/rumored), position, nationality, shirt_number, joined_at, departed_at`
+- [ ] Seed BJK squad from current `BJK_KEYWORDS` hardcoded list
+- [ ] `buildKeywordConfig(siteId, env)` — reads `squad_members`, auto-generates keyword list with name variations and transliterations (Haiku call, weekly)
+- [ ] Worker reads `keyword_config` from Supabase at cron start instead of `BJK_KEYWORDS` constant — falls back to hardcoded if table empty
+- [ ] Transfer window mode: `status = target/rumored` players added to keyword list automatically during May–Aug and Jan–Feb
+- [ ] `departed_2y` players dropped from active keywords automatically
+- [ ] Supabase trigger or weekly cron: when player row changes status, rebuild keyword_config for that site
+- [ ] Admin UI: squad list at `/admin/squad` — add/edit/remove players, update status, "Regenerate keywords" button
+- [ ] Golden fixture: `squad_keywords_auto_rebuild`
+
+**Done when**: adding a new player to the squad table causes their name to appear in the keyword filter on the next cron run, with no code change.
 
 ---
 
@@ -383,6 +500,40 @@ _Widget calls go direct from browser to `v3.football.api-sports.io` and count to
 **Done when**: 100 articles published, 100 images attached, 0 copyright concerns.
 
 **Deferred to v2**: IT1 (AA subscription)
+
+---
+
+## SLICE 5.5 — Distribute Agent
+
+**Why before authors**: distribution architecture needs to exist before content scales. Currently all published content reaches only one channel (KV → web). Growth requires multi-channel without rewriting the publish path.
+
+**Estimated**: 1–2 weeks
+
+**Architecture**: all published `content_items` pass through a `distribute(article, site, env)` function that fans out to enabled channels based on NVS tier. Channels are config-driven per site — no hardcoding.
+
+**Channel rules by NVS**:
+```
+NVS ≥ 80 → web + RSS + social post + push notification
+NVS ≥ 60 → web + RSS + social post
+NVS ≥ 40 → web + RSS
+NVS < 40  → web only
+```
+
+**Deliverables**:
+- [ ] `distribute(article, site, env)` function in publisher.js — replaces direct KV write, fans out to channels
+- [ ] **Web + RSS**: already done, wire through distribute function
+- [ ] **Push notifications** (NVS ≥ 80): Web Push API, zero cost, service worker on fan site — breaking news, goal flashes, confirmed transfers
+- [ ] `push_subscriptions` Supabase table: endpoint, keys, site_id, created_at
+- [ ] `/subscribe-push` endpoint on fan site for service worker registration
+- [ ] `distribution_log` Supabase table: article_id, channel, status, sent_at — full audit trail
+- [ ] Channel toggles per site in Supabase `sites` table: `distribution_config JSONB`
+- [ ] **Twitter/X**: stub only — wire when API revenue covers $100/month. Config: list of accounts from DECISIONS.md
+- [ ] **Newsletter**: stub — weekly digest, wire in Slice 9
+- [ ] Golden fixture: `distribute_nvs_80_all_channels`
+
+**Blocked**: Twitter ($100/mo X API Basic) — stub exists, activate when ad revenue covers it
+
+**Done when**: a goal flash publishes to web AND sends a push notification to subscribed fans within 30 seconds, with no manual action.
 
 ---
 
@@ -442,6 +593,7 @@ _Widget calls go direct from browser to `v3.football.api-sports.io` and count to
 **Deliverables**:
 - [ ] CLO synchronous mode: FSEK rule engine, image-rights checker, quote-length checker, IT3-leak detector
 - [ ] CFO full mode: per-agent and per-source cost attribution, Telegram weekly reports
+- [ ] CFO prerequisite: thread cost tracking through synthesis, template generators, YT pipeline — currently only fetch+score phase is tracked via `addCost`; Sonnet synthesis/template calls (~90% of spend) are invisible to the admin report (discovered 2026-05-09, gap ~9x vs Anthropic console)
 - [ ] Per-`site_id` legal profiles
 - [ ] Weekly cost + legal report to `@kartalix-ops`
 - [ ] Golden fixture: `clo_blocks_quote_overflow`
@@ -461,14 +613,20 @@ _Widget calls go direct from browser to `v3.football.api-sports.io` and count to
 
 **Deliverables**:
 - [ ] `agent_signals`, `agent_learnings` tables
+- [ ] `engagement_events` table: clicks, time-on-page, shares per article
+- [ ] Pageview/click tracking per article (lightweight, no third-party)
 - [ ] Engage → Qualify (relevance threshold tuning)
 - [ ] Engage → Produce (template priority weights)
 - [ ] Distribute → Intake (source trust adjustment)
 - [ ] Trust score modes (auto / locked / hybrid with bands)
 - [ ] Human-override learning signals (highest weight)
 - [ ] Type-aware learning (per story type baselines)
+- [ ] **Source Performance table**: persistent `source_performance` — articles_contributed, articles_published, avg_nvs, avg_engagement, false_positive_rate, updated weekly; auto-downgrades trust tier on persistently bad sources
+- [ ] Voice Agent Phase 3: high-engagement articles reinforce their style patterns in `voice_patterns`; low-engagement patterns decay
+- [ ] Weekly Learn Agent cron: pattern extraction from engagement signals, writes to `agent_learnings`
+- [ ] Journalist accuracy tracker: transfer rumors tagged with journalist source; confirmed/denied 90 days later; accuracy % per journalist feeds into trust score
 
-**Done when**: a known-bad source's trust score drops over time without you touching it.
+**Done when**: a known-bad source's trust score drops over time without you touching it. A high-engagement writing style gets reinforced without you touching the prompts.
 
 ---
 
@@ -476,19 +634,50 @@ _Widget calls go direct from browser to `v3.football.api-sports.io` and count to
 
 **This is the "no" list.** When new ideas arrive during v1, they go here, not into v1 scope.
 
-- IT1 licensed photography (AA subscription integration)
+**Content & Quality**
+- Full 3-judgment Qualify Agent (separate Relevance + Value + Sentiment as parallel Haiku calls) — current single-prompt NVS is working; tripling call count for marginal gain. Revisit when false-positive rate exceeds 10%
+- Fan comments as learning signal — analyze comment themes weekly (Haiku), extract topics fans care about, player names mentioned → keyword updates. Too early without traffic
+- Opinion/analysis pieces — weekly Kartalix Analiz: squad gaps, transfer targets, tactical piece (Sprint 10 per legacy roadmap)
+- Story evolution UI: rumor → reported → confirmed → signed visual timeline
+
+**Distribution & Reach**
+- Twitter/X auto-post — wire when monthly ad revenue covers $100/month X API Basic. Account list in DECISIONS.md
+- Email newsletter weekly digest — Slice 9
+- Kartalix Pro subscription tier (Transfer Radar Pro, €3.99/mo) — Slice 9
+- Push notification polish: quiet hours, per-topic subscriptions, opt-out management
+- WhatsApp channel — zero cost, high Turkish engagement, post NVS ≥ 80 articles
+
+**Engagement Features**
+- Live match blog (T10) real-time updates — currently fires per event but no long-lived updating article; needs WebSocket or SSE on fan site
+- Polls on match days — auto-generated from match context, Engage Agent v2
+- Transfer Radar board — confidence scoring (source trust × mention frequency × specificity), visual rumor tracker
+- Fan Pulse dashboard — daily sentiment from article mix (injury rate, transfer activity, NVS avg)
+- Related articles widget — by category + player name, client-side from KV
+
+**Multi-team & Scale**
+- Pitchos onboarding for Team 2 — Galatasaray or Fenerbahçe (larger audience), all config in Supabase sites table
+- Cross-team learning propagation — global learnings (team_id=NULL) apply to all teams on onboard
+- Pitchos onboarding admin UI — add team without SQL
+- Web admin dashboard — replace current worker-served admin with proper React app
+
+**Legal & Infrastructure**
+- IT1 licensed photography (AP/AA subscription integration)
 - Async LLM audit modes for CLO/CFO
-- Source addition admin UI (currently Supabase dashboard manual)
-- Story type expansion: Disciplinary, Financial, Management, Commentary, Editorial
-- Cultural/fan story type
-- Infrastructure/stadium/academy/women's team coverage
-- AI-generated images (IT5) per-story integration
+- IT5 AI-generated images — abstract only, no real people
 - QIA (Quality Intelligence Agent) full-site scanner
-- Pitchos onboarding for second club (Juventus)
-- Pitchos onboarding admin UI
-- Web-based author submission form
-- Web admin dashboard
-- Multi-language content (English, Italian)
+- Fixed egress IP proxy for api-sports widget caching (see Phase 3.6.1)
+- WebSub real-time push for breaking news — RSS push instead of pull
+
+**International**
+- Multi-language content (English, Italian, German)
+- First non-Turkish team (Bundesliga or Premier League)
+- Country-specific legal templates
+- Journalist partnership program (paid verified accounts)
+
+**Revenue**
+- AdSense integration (apply after Sprint 4, 6-week approval clock)
+- White-label platform offering to club media teams
+- Subscription bundle — all teams €9.99/month
 
 ---
 
@@ -497,14 +686,31 @@ _Widget calls go direct from browser to `v3.football.api-sports.io` and count to
 | # | Slice | Estimate | Status |
 |---|-------|----------|--------|
 | 0 | Build Scaffold + PM | 1–2 wks | in-progress (Telegram/PM agent pending) |
-| 1 | Facts Firewall | 2–4 wks | in-progress (firewall + story matching live; golden fixtures pending) |
+| 1 | Facts Firewall | 2–4 wks | done (2026-05-09) — two minor golden fixtures deferred |
+| 1.5 | Truth Layer (Grounding + Verifier Gate) | 2–3 h Phase 1 done; Phase 3 ~8h | Phase 1 ✅ done; Phase 2 (editorial rule) todo; Phase 3 not-started |
 | 2 | Story-Centric Foundation | 2–3 wks | in-progress (story matcher live; DB tables pending) |
 | 3 | Story Types Narrow Set | 3–4 wks | in-progress (all templates done; source expansion Sprint E current) |
-| 4 | Operational Control | 2 wks | not-started |
+| 3.7 | Cost Guard | 2–3 h | done |
+| 3.9 | Voice Agent | 1–2 wks | not-started — Phase 1 (seed editorial references) can start immediately |
+| 4 | Operational Control (HITL + Telegram) | 2 wks | not-started |
+| 4.5 | Squad Intelligence | 1–2 wks | not-started |
 | 5 | Visual Asset Agent | 2–3 wks | not-started |
+| 5.5 | Distribute Agent | 1–2 wks | not-started |
 | 6 | Editorial QA + Authors | 2–3 wks | not-started |
-| 7 | Governance Layer | 2 wks | not-started |
+| 7 | Governance Layer (CLO + CFO) | 2 wks | not-started |
 | 8 | Self-Learning Loops | 3 wks | not-started |
+
+**Agents live or planned**:
+| Agent | Slice | Status |
+|---|---|---|
+| Fetch Agent (intake + qualify + produce + distribute) | live | worker-fetch-agent.js |
+| Proxy Agent (bypass 403 feeds) | live | pitchos-proxy |
+| PM Agent (Telegram Monday/Friday) | 0 | scaffold built, not wired |
+| Sentiment Judge (rival-pov detection) | 3 Sprint G | not-started |
+| Voice Agent (style learning) | 3.9 | not-started |
+| CLO (legal compliance) | 7 | not-started |
+| CFO (cost attribution) | 7 | not-started |
+| Learn Agent (self-improving loops) | 8 | not-started |
 
 **What's live and working (as of 2026-05-04)**:
 - Full template set: T01–T13, T-XG, T-REF, T-HT, T-RED, T-VAR, T-OG, T-PEN (18 templates)
@@ -524,4 +730,4 @@ _Widget calls go direct from browser to `v3.football.api-sports.io` and count to
 
 ---
 
-*Last updated: 2026-05-04 (session 10 — Sprint F planned; architectural dual-pipeline gap identified and scoped)*
+*Last updated: 2026-05-09 (session 12 — added Sprint G Sentiment Judge, Slice 3.9 Voice Agent, Slice 4.5 Squad Intelligence, Slice 5.5 Distribute Agent; expanded v2 backlog from legacy roadmap; agent map added)*

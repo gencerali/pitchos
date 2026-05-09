@@ -8,7 +8,15 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: Sprint F — F1 source independence gate (~2h). Start with `story-matcher.js`: add trust tier check to prevent press-only cite chains reaching "confirmed" state.
+**NEXT**: Apply for Google AdSense at `kartalix.com` — site is live, content is original, domain is clean. Then Slice 2 — Story-Centric Foundation.
+
+**Domain migration** ✅ DONE (2026-05-09): canonical domain is now `kartalix.com`. All wrangler.toml routes + BASE_URL + CORS origins updated. `app.kartalix.com` still works as alias. DB tables (`stories`, `story_contributions`, `story_state_transitions`) already exist from earlier work; story matcher is live. Remaining: run DB migration if tables are missing, verify story matching end-to-end, golden fixtures.
+
+**Slice 1 — Facts Firewall** ✅ DONE (2026-05-09): facts + fact_lineage tables live, extraction wired for all story types, source text destruction confirmed, /haber/* public. Two minor golden fixtures deferred.
+
+**Sprint F — Source Intelligence Layer** ✅ DONE (2026-05-09): DB migration run, 17 sources seeded, `/admin/sources/ui` live. Slice 1.5 Phase 1 grounding live in synthesis prompts; Phase 2 interpretation guard added to editorial notes.
+
+**Admin UI consolidation** ✅ DONE (2026-05-07): Report page moved from standalone `report.html` (own login) into `/admin/report` worker route with unified cookie auth. Roadmap and Releases added as `/admin/roadmap` and `/admin/releases` tabs. `adminNav()` now has 6 tabs. Login redirects back to originally requested page. `report.html` deleted.
 
 **Sprint E — Source Expansion** ✅ DONE (2026-05-04):
 1. ✅ Scorer updated: national team + multi-sport BJK scoring bands added
@@ -19,8 +27,8 @@ Update this at the END of every work session. Not the start — the end. Future-
 6. ❌ Step 4: Twitter blocked — X API free tier has no search; Nitter dead; $100/month Basic needed. Parked until revenue.
 
 **Sprint F — Source Intelligence Layer** (planned, starts after Sprint E):
-- F1: Source independence gate — press-only cite chains can't reach "confirmed" (~2h)
-- F2: YouTube into unified pipeline — story matching + nvs_hint scoring (~6h)
+- ✅ F1: Source independence gate — press-only cite chains can't reach "confirmed" (~2h)
+- ✅ F2: YouTube into unified pipeline — story matching + nvs_hint scoring (~6h)
 - F3: Lightweight source config — `source_configs` Supabase table + `/admin/sources` edit UI (~7h)
 - Full scope and rationale: SLICES.md Sprint F section
 
@@ -95,4 +103,4 @@ Update this at the END of every work session. Not the start — the end. Future-
 - match_result + squad filtered from story system (`SKIP_STORY_TYPES`) — handled by templates
 - story-matcher: judge prompt includes pre-classified type hint; createStory uses it as fallback
 
-*Last updated: 2026-05-04 (session 10 — Sprint F scoped; Rabona digest + non-BJK filter + Supadata live)*
+*Last updated: 2026-05-05 (session 11 — F1+F2+F2.5 done; full sprint F complete except F3)*
