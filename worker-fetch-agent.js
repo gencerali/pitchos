@@ -4017,6 +4017,7 @@ ADMINNAV_PLACEHOLDER
 let currentSlug = null;
 let currentPage = 1;
 let searchTimer = null;
+const articleCache = {};
 
 function schedSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(() => load(1), 350); }
 
@@ -4057,8 +4058,9 @@ async function load(page) {
   if (data.error) { list.innerHTML = '<p style="padding:1rem;color:#c0392b">Hata: ' + esc(data.error) + '</p>'; return; }
   if (!articles.length) { list.innerHTML = '<p style="padding:1rem;color:#444">Haber bulunamadı.</p>'; }
   else {
+    articles.forEach(a => { articleCache[a.slug] = a; });
     list.innerHTML = articles.map(a => \`
-      <div class="art-row\${currentSlug===a.slug?' active':''}" onclick="openArticle(\${JSON.stringify(a).replace(/'/g,"&apos;")})" data-slug="\${esc(a.slug)}">
+      <div class="art-row\${currentSlug===a.slug?' active':''}" data-slug="\${esc(a.slug)}" onclick="openBySlug(this.dataset.slug)">
         <div class="art-title">\${esc(a.title||'(başlıksız)')}</div>
         <div class="art-meta">
           <span class="badge \${badgeClass(a.publish_mode)}">\${badgeLabel(a.publish_mode)}</span>
@@ -4075,6 +4077,8 @@ async function load(page) {
     \${has_more ? '<button class="btn btn-secondary btn-sm" onclick="load('+(currentPage+1)+')">Sonraki →</button>' : ''}
   \`;
 }
+
+function openBySlug(slug) { openArticle(articleCache[slug]); }
 
 function openArticle(a) {
   currentSlug = a.slug;
