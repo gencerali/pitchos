@@ -1535,7 +1535,7 @@
   async function init() {
     let articles = [];
     try {
-      const res  = await fetch(`${WORKER_URL}/cache?site=${SITE_CODE}`);
+      const res  = await fetch(`${WORKER_URL}/cache`);
       const data = await res.json();
       articles   = Array.isArray(data) && data.length > 0 ? data : MOCK_ARTICLES;
     } catch {
