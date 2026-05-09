@@ -1717,7 +1717,7 @@ Sadece JSON döndür:
       const q     = (url.searchParams.get('q') || '').trim();
       const mode  = url.searchParams.get('mode') || '';
       const nr    = url.searchParams.get('needs_review') === '1';
-      let filter  = `site_id=eq.${site.id}&order=published_at.desc&limit=${limit}&offset=${offset}`;
+      let filter  = `site_id=eq.${site.id}&order=fetched_at.desc&limit=${limit}&offset=${offset}`;
       if (mode === 'synthesis') filter += '&publish_mode=eq.synthesis';
       else if (mode === 'template') filter += '&publish_mode=like.template%';
       else if (mode === 'youtube')  filter += '&publish_mode=like.youtube%';
@@ -1725,7 +1725,7 @@ Sadece JSON döndür:
       if (nr) filter += '&needs_review=eq.true';
       if (q)  filter += `&title=ilike.*${encodeURIComponent(q)}*`;
       const rows = await supabase(env, 'GET',
-        `/rest/v1/content_items?${filter}&select=id,slug,title,summary,full_body,category,publish_mode,nvs_score,needs_review,published_at,image_url,source_name`
+        `/rest/v1/content_items?${filter}&select=id,slug,title,summary,full_body,category,publish_mode,nvs_score,needs_review,fetched_at,image_url,source_name`
       );
       return Response.json({ articles: rows || [], page, has_more: (rows || []).length === limit }, { headers: h });
     }
@@ -1739,16 +1739,29 @@ Sadece JSON döndür:
       if (!title?.trim()) return Response.json({ error: 'title required' }, { status: 400, headers: h });
 
       if (is_new) {
-        const now  = new Date().toISOString();
+        const now     = new Date().toISOString();
         const newSlug = generateSlug(title, now);
-        await supabase(env, 'POST', '/rest/v1/content_items', [{
+        const newRow  = {
           site_id: site.id, title: title.trim(), summary: summary || '',
           full_body: full_body || '', category: category || 'Haber',
           image_url: image_url || '', source_type: 'kartalix', source_name: 'Kartalix',
           publish_mode: 'manual', status: 'published', nvs_score: 75,
+          content_type: 'fact', sport: 'football', original_url: '',
           reviewed_by: 'admin', slug: newSlug,
           fetched_at: now, reviewed_at: now,
-        }]);
+        };
+        const inserted = await supabase(env, 'POST', '/rest/v1/content_items', [newRow]);
+        if (!inserted) return Response.json({ error: 'Supabase insert failed' }, { status: 500, headers: h });
+        // Add to KV so article shows on homepage immediately
+        const kv = await env.PITCHOS_CACHE.get('articles:BJK');
+        if (kv) {
+          const arts = JSON.parse(kv);
+          arts.unshift({ title: newRow.title, summary: newRow.summary, full_body: newRow.full_body,
+            source: 'Kartalix', source_name: 'Kartalix', category: newRow.category,
+            published_at: now, nvs: 75, slug: newSlug, image_url: newRow.image_url || '',
+            publish_mode: 'manual', is_kartalix_content: true });
+          await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+        }
         return Response.json({ ok: true, slug: newSlug, is_new: true }, { headers: h });
       }
 
@@ -4037,8 +4050,11 @@ async function load(page) {
   const nr = document.getElementById('nrFilter').checked ? '1' : '';
   const params = new URLSearchParams({ page: currentPage, q, mode: m, needs_review: nr });
   const res = await fetch('/admin/content-data?' + params);
-  const { articles, has_more } = await res.json();
+  const data = await res.json();
+  const articles = data.articles || [];
+  const has_more = data.has_more || false;
   const list = document.getElementById('artList');
+  if (data.error) { list.innerHTML = '<p style="padding:1rem;color:#c0392b">Hata: ' + esc(data.error) + '</p>'; return; }
   if (!articles.length) { list.innerHTML = '<p style="padding:1rem;color:#444">Haber bulunamadı.</p>'; }
   else {
     list.innerHTML = articles.map(a => \`
@@ -4048,7 +4064,7 @@ async function load(page) {
           <span class="badge \${badgeClass(a.publish_mode)}">\${badgeLabel(a.publish_mode)}</span>
           \${a.nvs_score ? '<span class="nvs">NVS '+a.nvs_score+'</span>' : ''}
           \${a.needs_review ? '<span class="nr-flag">⚠️</span>' : ''}
-          <span class="art-date">\${fmtDate(a.published_at)}</span>
+          <span class="art-date">\${fmtDate(a.fetched_at)}</span>
         </div>
       </div>\`).join('');
   }
@@ -4072,7 +4088,7 @@ function openArticle(a) {
   document.getElementById('eCat').value     = a.category || 'Haber';
   document.getElementById('eImg').value     = a.image_url || '';
   document.getElementById('eSlug').value    = a.slug || '';
-  document.getElementById('eSlugRow').style.display = 'block';
+  document.getElementById('eSlugRow').style.display  = 'block';
   document.getElementById('previewBtn').style.display = a.slug ? 'inline-block' : 'none';
   document.getElementById('saveStatus').textContent = '';
   document.getElementById('deleteBtn') && (document.getElementById('deleteBtn').style.display = 'inline-block');
