@@ -261,4 +261,222 @@ function normalizeFixture(f) {
   };
 }
 
+// ─── GENERIC: TEAM NEXT FIXTURE ───────────────────────────────
+// Returns next scheduled fixture for any team. Used for rival tracking.
+export async function getNextFixtureForTeam(teamId, leagueId, season, env) {
+  const data = await apiFetch(
+    `/fixtures?team=${teamId}&league=${leagueId}&season=${season}&next=1&timezone=Europe/Istanbul`,
+    env
+  );
+  if (!data || data.length === 0) return null;
+  return normalizeFixture(data[0]);
+}
+
+// ─── GENERIC: LAST N FIXTURES FOR TEAM ────────────────────────
+export async function getLastFixturesForTeam(teamId, leagueId, season, env, count = 5) {
+  const data = await apiFetch(
+    `/fixtures?team=${teamId}&league=${leagueId}&season=${season}&last=${count}&timezone=Europe/Istanbul`,
+    env
+  );
+  if (!data) return [];
+  return data.map(normalizeFixture);
+}
+
+// ─── GENERIC: STANDINGS FOR ANY LEAGUE ────────────────────────
+// Returns full standings table for any league/season.
+export async function getLeagueStandings(leagueId, season, env) {
+  const data = await apiFetch(`/standings?league=${leagueId}&season=${season}`, env);
+  if (!data || data.length === 0) return null;
+  return data[0]?.league?.standings?.[0] || null;
+}
+
+// ─── LEAGUE CONTEXT ───────────────────────────────────────────
+// Full contextual picture for a team in a league: position meaning,
+// gaps to meaningful cutoffs, rival tracking, form.
+// Results cached in KV to avoid redundant API calls within same cron window.
+// leagueId/season/teamId are from the site config — fully multi-tenant.
+export async function getLeagueContext(teamId, leagueId, season, env, opponentId = null) {
+  const cacheKey = `league-context:${leagueId}:${season}:${teamId}`;
+  const cached = await env.PITCHOS_CACHE.get(cacheKey);
+  if (cached) {
+    try {
+      const parsed = JSON.parse(cached);
+      // Merge in fresh season notes (manually updated, not cached)
+      const notes = await env.PITCHOS_CACHE.get(`season:notes:${teamId}`);
+      if (notes) parsed.season_notes = notes;
+      return parsed;
+    } catch {}
+  }
+
+  const [table, recentFixtures] = await Promise.all([
+    getLeagueStandings(leagueId, season, env),
+    getLastFixturesForTeam(teamId, leagueId, season, env, 5),
+  ]);
+
+  if (!table) return null;
+
+  const teamRow  = table.find(r => r.team?.id === teamId);
+  if (!teamRow) return null;
+
+  const position = teamRow.rank;
+  const points   = teamRow.points;
+  const played   = teamRow.all?.played ?? 0;
+  const totalTeams = table.length;
+  // Estimate games remaining from the team with most played
+  const maxPlayed  = Math.max(...table.map(r => r.all?.played ?? 0));
+  const totalRounds = maxPlayed + (table[0]?.all?.played === maxPlayed ? 0 : 1);
+  const gamesRemaining = Math.max(0, (totalTeams - 1) * 2 - played);
+  const maxPointsPossible = points + gamesRemaining * 3;
+
+  // Parse position meaning from API's description field
+  const rawDesc    = teamRow.description || '';
+  const positionMeaning = parsePositionMeaning(rawDesc);
+
+  // Compute gaps to meaningful cutoffs using the full table
+  const cutoffs    = deriveCutoffs(table);
+  const gaps       = {};
+  for (const [label, cutoffPos] of Object.entries(cutoffs)) {
+    const cutoffRow   = table.find(r => r.rank === cutoffPos);
+    const cutoffPts   = cutoffRow?.points ?? 0;
+    const gap         = cutoffPts - points;
+    const possible    = gap <= 0 || maxPointsPossible >= cutoffPts;
+    gaps[label]       = { position: cutoffPos, points_gap: gap, possible };
+  }
+
+  // Recent form (league fixtures only, finished)
+  const form = recentFixtures
+    .filter(f => f.is_finished && f.league_id === leagueId)
+    .slice(0, 5)
+    .map(f => f.score_bjk > f.score_opp ? 'G' : f.score_bjk === f.score_opp ? 'B' : 'M');
+
+  // Identify meaningful rivals (teams within 6 points in adjacent meaningful positions)
+  const rivals = identifyRivals(table, teamRow, cutoffs);
+
+  // Fetch next fixture for up to 3 rivals (cached 2h separately)
+  const rivalFixtures = {};
+  await Promise.all(
+    rivals.slice(0, 3).map(async r => {
+      const rvKey  = `rival-next:${r.id}:${leagueId}`;
+      let   cached = await env.PITCHOS_CACHE.get(rvKey);
+      if (!cached) {
+        const fx = await getNextFixtureForTeam(r.id, leagueId, season, env);
+        cached = JSON.stringify(fx);
+        await env.PITCHOS_CACHE.put(rvKey, cached, { expirationTtl: 7200 });
+      }
+      try { rivalFixtures[r.name] = JSON.parse(cached); } catch {}
+    })
+  );
+
+  // Opponent context (match opponent)
+  let opponentCtx = null;
+  if (opponentId && opponentId !== teamId) {
+    const oppRow = table.find(r => r.team?.id === opponentId);
+    if (oppRow) {
+      opponentCtx = {
+        id:       oppRow.team.id,
+        name:     oppRow.team.name,
+        position: oppRow.rank,
+        points:   oppRow.points,
+        description: parsePositionMeaning(oppRow.description || ''),
+        motivation: deriveMotivation(oppRow, table, cutoffs),
+      };
+    }
+  }
+
+  const season_notes = await env.PITCHOS_CACHE.get(`season:notes:${teamId}`) || null;
+
+  const result = {
+    team:             teamRow.team.name,
+    team_id:          teamId,
+    position,
+    points,
+    played,
+    games_remaining:  gamesRemaining,
+    position_meaning: positionMeaning,
+    gaps,
+    form,
+    rivals,
+    rival_fixtures:   rivalFixtures,
+    opponent:         opponentCtx,
+    season_notes,
+  };
+
+  // Cache for 1 hour
+  await env.PITCHOS_CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 });
+  return result;
+}
+
+// ─── HELPERS ──────────────────────────────────────────────────
+
+function parsePositionMeaning(description) {
+  if (!description) return null;
+  const d = description.toLowerCase();
+  if (d.includes('champions league') || d.includes('ucl')) return 'UEFA Şampiyonlar Ligi';
+  if (d.includes('europa league') || d.includes('uel'))     return 'UEFA Avrupa Ligi';
+  if (d.includes('conference') || d.includes('uecl'))       return 'UEFA Konferans Ligi';
+  if (d.includes('relegation') || d.includes('küme düşme')) return 'Küme Düşme';
+  if (d.includes('promotion'))                               return 'Terfi';
+  return description;
+}
+
+// Derive the position numbers for meaningful cutoffs from the table.
+// Uses API description fields — works for any league automatically.
+function deriveCutoffs(table) {
+  const cutoffs = {};
+  let   relegStart = null;
+
+  for (const row of table) {
+    const desc = (row.description || '').toLowerCase();
+    const pos  = row.rank;
+    if ((desc.includes('champions league') || desc.includes('ucl')) && !cutoffs.ucl) {
+      cutoffs.ucl = pos;
+    }
+    if ((desc.includes('europa league') && !desc.includes('conference')) && !cutoffs.uel) {
+      cutoffs.uel = pos;
+    }
+    if (desc.includes('conference') && !cutoffs.uecl) {
+      cutoffs.uecl = pos;
+    }
+    if (desc.includes('relegation') || desc.includes('küme')) {
+      if (!relegStart) relegStart = pos;
+    }
+  }
+  if (relegStart) cutoffs.relegation = relegStart;
+  return cutoffs;
+}
+
+// Identify rivals: teams contesting the same meaningful positions as this team.
+function identifyRivals(table, teamRow, cutoffs) {
+  const teamPos    = teamRow.rank;
+  const teamPts    = teamRow.points;
+  const rivals     = [];
+  const seen       = new Set([teamRow.team.id]);
+
+  // Teams within 6 points above or below that sit near a cutoff boundary
+  const boundaries = Object.values(cutoffs);
+  for (const row of table) {
+    if (seen.has(row.team.id)) continue;
+    const ptsDiff = Math.abs(row.points - teamPts);
+    const nearBoundary = boundaries.some(b => Math.abs(row.rank - b) <= 1 || Math.abs(teamPos - b) <= 1);
+    if (ptsDiff <= 6 && nearBoundary) {
+      rivals.push({ id: row.team.id, name: row.team.name, position: row.rank, points: row.points });
+      seen.add(row.team.id);
+    }
+  }
+  return rivals.slice(0, 4);
+}
+
+// Derive motivation level for a team based on their standing situation.
+function deriveMotivation(row, table, cutoffs) {
+  const pos  = row.rank;
+  const pts  = row.points;
+  const top  = table[0]?.points ?? pts;
+  if (Math.abs(pos - (cutoffs.ucl  || 0)) <= 1 && (top - pts) <= 6) return 'şampiyonluk_yarişi';
+  if (Math.abs(pos - (cutoffs.ucl  || 0)) <= 2) return 'avrupa_mücadelesi';
+  if (Math.abs(pos - (cutoffs.uel  || 0)) <= 2) return 'avrupa_mücadelesi';
+  if (pos >= (cutoffs.relegation || 99) - 2)     return 'küme_düşmeme_savaşı';
+  if (pos >= (cutoffs.relegation || 99))          return 'küme_düşme_bölgesi';
+  return 'orta_sıra';
+}
+
 export { BJK_ID, SUPERLIG, SEASON };

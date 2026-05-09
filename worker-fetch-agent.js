@@ -388,7 +388,9 @@ export default {
     if (url.pathname === '/test-verifier') {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
-        const groundingCtx = await buildGroundingContext(env);
+        const sites = await getActiveSites(env);
+        const site  = sites?.[0] || null;
+        const groundingCtx = await buildGroundingContext(env, site);
         if (!groundingCtx) {
           return Response.json({ error: 'No grounding data available — API-Football returned nothing' }, { headers });
         }
@@ -1354,6 +1356,26 @@ export default {
     }
 
     // ── EDITORIAL NOTES API (structured guidelines) ──────────
+    if (url.pathname === '/admin/season-notes') {
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const teamId = url.searchParams.get('team_id') || '549';
+      if (request.method === 'GET') {
+        const notes = await env.PITCHOS_CACHE.get(`season:notes:${teamId}`);
+        return Response.json({ team_id: teamId, notes: notes || '' }, { headers });
+      }
+      if (request.method === 'POST') {
+        const { notes } = await request.json();
+        if (notes?.trim()) {
+          await env.PITCHOS_CACHE.put(`season:notes:${teamId}`, notes.trim(), { expirationTtl: 86400 * 90 });
+        } else {
+          await env.PITCHOS_CACHE.delete(`season:notes:${teamId}`);
+        }
+        // Invalidate league context cache so next synthesis picks up new notes
+        await env.PITCHOS_CACHE.delete(`league-context:203:2025:${teamId}`);
+        return Response.json({ ok: true, team_id: teamId }, { headers });
+      }
+      return new Response('Method not allowed', { status: 405 });
+    }
     if (url.pathname === '/admin/notes') {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       if (request.method === 'GET') {

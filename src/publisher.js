@@ -1,7 +1,7 @@
 import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes } from './utils.js';
 import { normalizeTitle, titleSimilarity } from './processor.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
-import { getLastFixtures, getBJKStanding } from './api-football.js';
+import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
 
 // ─── FACTUAL GROUNDING ────────────────────────────────────────
 // Fetches verified API-Football stats and returns a Turkish-language
@@ -9,42 +9,87 @@ import { getLastFixtures, getBJKStanding } from './api-football.js';
 // Prevents Claude from making false situational claims (wrong league position,
 // fabricated results, "kritik viraj" framing without supporting data).
 // Returns '' gracefully if API is unavailable so generation continues.
-async function buildGroundingContext(env) {
+async function buildGroundingContext(env, site = null, opponentId = null) {
   try {
-    const [fixtures, standing] = await Promise.all([
-      getLastFixtures(env, 5),
-      getBJKStanding(env),
-    ]);
+    // Use site config for multi-tenant support; fall back to BJK defaults
+    const teamId   = site?.team_id   || 549;
+    const leagueId = site?.league_id || 203;
+    const season   = site?.season    || 2025;
+
+    const ctx = await getLeagueContext(teamId, leagueId, season, env, opponentId);
+
+    // Fallback to legacy path if league context unavailable
+    if (!ctx) {
+      const [fixtures, standing] = await Promise.all([
+        getLastFixtures(env, 5),
+        getBJKStanding(env),
+      ]);
+      if (!standing && !fixtures?.length) return '';
+      const lines = [];
+      if (standing) {
+        const all = standing.all || {};
+        lines.push(`${standing.rank}. sıra | ${standing.points} puan | ${all.played ?? '?'} maç`);
+      }
+      const finished = (fixtures || []).filter(f => f.is_finished);
+      if (finished.length) {
+        lines.push(`Son maçlar: ${finished.map(f => {
+          const o = f.score_bjk > f.score_opp ? 'G' : f.score_bjk === f.score_opp ? 'B' : 'M';
+          return `${f.opponent} ${f.score_bjk}-${f.score_opp}(${o})`;
+        }).join(', ')}`);
+      }
+      return `\n\nDOĞRULANMIŞ VERİLER (API-Football, ${new Date().toISOString().slice(0, 10)}):\n` +
+        lines.join('\n') + `\nSadece bu verilere dayanan durum değerlendirmesi yap.`;
+    }
+
     const lines = [];
+    const today = new Date().toISOString().slice(0, 10);
 
-    if (standing) {
-      const all = standing.all || {};
-      const gf  = all.goals?.for    ?? 0;
-      const ga  = all.goals?.against ?? 0;
-      lines.push(
-        `Süper Lig: ${standing.rank}. sıra | ${standing.points} puan | ` +
-        `${all.played ?? '?'} maç (${all.win ?? 0}G ${all.draw ?? 0}B ${all.lose ?? 0}M) | ` +
-        `${gf} gol attı, ${ga} gol yedi`
-      );
+    // Position and standing
+    const posMeaning = ctx.position_meaning ? ` (${ctx.position_meaning})` : '';
+    lines.push(`${ctx.team}: ${ctx.position}. sıra${posMeaning} | ${ctx.points} puan | ${ctx.games_remaining} maç kaldı`);
+
+    // Season targets and achievability
+    const targetLines = [];
+    if (ctx.gaps.ucl)  targetLines.push(`UCL (${ctx.gaps.ucl.position}. sıra): ${ctx.gaps.ucl.points_gap <= 0 ? 'zaten burada' : ctx.gaps.ucl.possible ? `${ctx.gaps.ucl.points_gap} puan geride, mümkün` : `${ctx.gaps.ucl.points_gap} puan geride, imkansız`}`);
+    if (ctx.gaps.uel)  targetLines.push(`UEL (${ctx.gaps.uel.position}. sıra): ${ctx.gaps.uel.points_gap <= 0 ? 'zaten burada' : ctx.gaps.uel.possible ? `${ctx.gaps.uel.points_gap} puan geride, mümkün` : 'imkansız'}`);
+    if (ctx.gaps.uecl) targetLines.push(`UECL (${ctx.gaps.uecl.position}. sıra): ${ctx.gaps.uecl.points_gap <= 0 ? 'zaten burada' : ctx.gaps.uecl.possible ? `${ctx.gaps.uecl.points_gap} puan geride, mümkün` : 'imkansız'}`);
+    if (ctx.gaps.relegation) {
+      const rg = ctx.gaps.relegation;
+      targetLines.push(`Küme düşme (${rg.position}. sıra): ${rg.points_gap >= 0 ? `${rg.points_gap} puan güvende` : `TEHLIKE — ${Math.abs(rg.points_gap)} puan geride`}`);
+    }
+    if (targetLines.length) lines.push(`Hedefler: ${targetLines.join(' | ')}`);
+
+    // Recent form
+    if (ctx.form?.length) {
+      lines.push(`Son form: ${ctx.form.join('-')}`);
     }
 
-    const finished = (fixtures || []).filter(f => f.is_finished);
-    if (finished.length > 0) {
-      const rows = finished.map(f => {
-        const outcome  = f.score_bjk > f.score_opp ? 'G' : f.score_bjk === f.score_opp ? 'B' : 'M';
-        const compTag  = f.league_id === 203 ? 'SL' : f.league?.includes('Kupa') || f.league?.includes('Cup') ? 'Kupa' : f.league?.slice(0, 6) || '?';
-        return `${f.opponent} ${f.score_bjk}-${f.score_opp}(${outcome}/${compTag})`;
+    // Rivals and their next matches
+    if (ctx.rivals?.length) {
+      const rivalLines = ctx.rivals.map(r => {
+        const next = ctx.rival_fixtures?.[r.name];
+        const nextStr = next ? ` (${next.home ? 'E' : 'D'}: ${next.opponent}, ${next.date})` : '';
+        return `${r.name} ${r.position}. sıra ${r.points}p${nextStr}`;
       });
-      lines.push(`Son maçlar (yeniden eskiye): ${rows.join(', ')}`);
+      lines.push(`Puan yarışındaki rakipler: ${rivalLines.join(' | ')}`);
     }
 
-    if (lines.length === 0) return '';
+    // Opponent context
+    if (ctx.opponent) {
+      const opp = ctx.opponent;
+      lines.push(`Rakip: ${opp.name} — ${opp.position}. sıra | ${opp.points} puan | Motivasyon: ${opp.motivation}${opp.description ? ` (${opp.description})` : ''}`);
+    }
+
+    // Manual season notes
+    if (ctx.season_notes) lines.push(`Sezon notu: ${ctx.season_notes}`);
+
     return (
-      `\n\nDOĞRULANMIŞ VERİLER (API-Football, ${new Date().toISOString().slice(0, 10)}):\n` +
+      `\n\nDOĞRULANMIŞ VERİLER (API-Football, ${today}):\n` +
       lines.join('\n') +
-      `\nSadece bu verilere dayanan durum değerlendirmesi yap — "kritik viraj", "büyük kriz" gibi yorumlar bu sayılarca desteklenmelidir.`
+      `\nBu verilerle çelişen durum yorumu yapma. "kritik viraj", "büyük kriz" gibi ifadeler yalnızca sayılar bunu destekliyorsa kullanılabilir.`
     );
-  } catch {
+  } catch (e) {
+    console.error('buildGroundingContext failed:', e.message);
     return '';
   }
 }
@@ -235,7 +280,7 @@ Bilmiyorsan null yaz.`;
 // Articles arrive sorted by NVS, so only the highest-value P4 articles get facts.
 const MAX_FACTS_EXTRACTS = 5;
 
-async function synthesizeArticle(article, env) {
+async function synthesizeArticle(article, env, site = null) {
   const srcUrl = article.url || article.original_url || '';
   let sourceText = article.summary || '';
   if (srcUrl && srcUrl !== '#') {
@@ -250,7 +295,7 @@ async function synthesizeArticle(article, env) {
   }
   const [editorialCtx, groundingCtx] = await Promise.all([
     getEditorialNotes(env, ['general', 'style']),
-    buildGroundingContext(env),
+    buildGroundingContext(env, site),
   ]);
   const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak metinden özgün bir Kartalix haberi yaz.
 
@@ -335,7 +380,7 @@ export async function writeArticles(articles, site, env) {
       // Auto-synthesis: for high-NVS articles, fetch source and write a full Kartalix article
       if ((article.nvs || 0) >= 60 && results.filter(r => r.publish_mode === 'synthesis').length < 4) {
         try {
-          const result = await synthesizeArticle(article, env);
+          const result = await synthesizeArticle(article, env, site);
           const body = result.body;
           if (body && body.length > 200) {
             published.full_body          = body;
@@ -1898,7 +1943,7 @@ export async function generateOriginalNews(sources, site, env) {
 
   const [editorialCtx, groundingCtx] = await Promise.all([
     getEditorialNotes(env, ['general', 'style']),
-    buildGroundingContext(env),
+    buildGroundingContext(env, site),
   ]);
 
   const isNationalTeam = sources.some(a =>
