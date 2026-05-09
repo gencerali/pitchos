@@ -3625,7 +3625,11 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null) {
   const title     = a.title || 'Haber';
   const desc      = (a.summary || a.full_body || '').replace(/<[^>]+>/g, ' ').slice(0, 200).trim();
   const image     = a.image_url || '';
-  const source    = a.source || a.source_name || '';
+  const rawSource = a.source || a.source_name || '';
+  const isKartalix = !rawSource || rawSource === 'Kartalix' ||
+    ['synthesis','manual'].includes(a.publish_mode) ||
+    (a.publish_mode && (a.publish_mode.startsWith('template') || a.publish_mode.startsWith('youtube') || a.publish_mode === 'video_embed'));
+  const source    = isKartalix ? 'Kartalix' : rawSource;
   const category  = a.category || 'Haber';
   const nvs       = a.nvs || a.nvs_score || 0;
   const pageUrl   = `${BASE_URL}/haber/${slug}`;
@@ -3739,7 +3743,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
     <div class="cat-tag">${escHtml(category)}</div>
     <h1>${escHtml(title)}</h1>
     <div class="article-meta">
-      <span>📰 ${escHtml(source)}</span>
+      ${isKartalix ? '<span style="color:#555;font-size:0.72rem">Kartalix</span>' : `<span>📰 ${escHtml(source)}</span>`}
       <time datetime="${isoDate}">${dateStr}</time>
       ${nvs >= 40 ? `<span class="nvs-pill">NVS ${nvs}</span>` : ''}
       <span style="color:#555;font-size:0.68rem">YZ destekli</span>
@@ -3788,9 +3792,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
       } catch(e){}
     })();
     </script>` : ''}
-    <div class="source-attr">Kaynak: <a href="${escHtml(srcUrl || '#')}" target="_blank" rel="noopener"><strong>${escHtml(source)}</strong> →</a>
-    ${srcUrl ? `<span style="color:#555;font-size:0.7rem;display:block;margin-top:4px">Kartalix, bu haberdeki olgusal bilgileri bağımsız olarak derlemiştir. Orijinal haber için yukarıdaki kaynağı ziyaret edin.</span>` : ''}
-    </div>
+    ${!isKartalix && srcUrl ? `<div class="source-attr">Kaynak: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(source)}</strong> →</a></div>` : ''}
   </article>
   <div class="reaction-bar">
     <button id="btnLike" class="rxn-btn" onclick="react('like')">👍 <span id="likeCount" class="rxn-count">0</span></button>
