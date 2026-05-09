@@ -3292,7 +3292,7 @@ async function serveRSSFeed(env) {
     <guid isPermaLink="true">${escXml(url)}</guid>
     <description>${desc}</description>
     <pubDate>${new Date(a.published_at || Date.now()).toUTCString()}</pubDate>
-    <source url="${escXml(BASE_URL)}">${escXml(a.source || 'Kartalix')}</source>
+    <source url="${escXml(BASE_URL)}">Kartalix</source>
   </item>`;
   }).join('\n');
 

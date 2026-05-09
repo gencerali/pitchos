@@ -76,12 +76,12 @@ _Inject verified API-Football stats into every synthesis prompt before generatio
 - [x] Graceful fallback: returns `''` if API-Football is unavailable; generation continues without grounding
 - [x] Both synthesis functions fetch grounding in parallel with editorial notes — no added latency
 
-**Phase 2 — Interpretation Guard** (~30 min)
+**Phase 2 — Interpretation Guard** ✅ DONE (2026-05-09)
 
 _Editorial notes rule that governs crisis/disaster framing. Uses existing system, no new code._
 
-- [ ] Add to editorial notes via `/admin/editorial`: "KURAL: 'kritik viraj', 'büyük kriz', 'çöküş' gibi dramatik ifadeler kullanma — bu tür yorumlar yalnızca DOĞRULANMIŞ VERİLERDE görünen ligin mevcut durumu ile destekleniyorsa kullanılabilir"
-- [ ] Run `/admin/editorial/distill` to activate immediately
+- [x] Add to editorial notes via `/admin/editorial`: interpretation guard rule added
+- [x] Run `/admin/editorial/distill` to activate immediately
 
 **Phase 3 — Verifier Gate** (~8h, do before public launch)
 
