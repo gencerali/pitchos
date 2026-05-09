@@ -303,15 +303,13 @@ Kaynak başlık: ${article.title}
 Kaynak metin: ${sourceText}${editorialCtx}${groundingCtx}
 
 Kurallar:
-- 250-350 kelime
-- Türkçe, doğrudan gazetecilik diliyle yaz
-- "...kaynağına göre" veya "...iddia ediyor" gibi ifadeler kullanma — bilgiyi doğrudan sun
+- 250-350 kelime, Türkçe
+- Ateşli bir BJK taraftarı gibi yaz — duygusal bağ kur, heyecan ve gerilimi yansıt
 - Haber cümlesiyle başla (kim ne yaptı/oldu)
-- BJK taraftarının perspektifinden, analitik ve yoğun bir ses tonu
+- "...kaynağına göre" veya "...iddia ediyor" gibi ifadeler kullanma — bilgiyi doğrudan sun
+- DOĞRULANMIŞ VERİLER arka plan bilgisidir: rakamları aynen aktarma, sezon bağlamını habere doğal şekilde dokut
 - Paragraflar arası boş satır bırak
-- DOĞRULANMIŞ VERİLERle çelişen ifade kullanma
-
-Sadece haber metnini yaz, başlık veya ekstra açıklama ekleme.`;
+- Sadece haber metnini yaz, başlık ekleme`;
 
   const res = await callClaude(env, MODEL_FETCH, prompt, false, 600);
   let body = extractText(res.content).trim();
@@ -1973,9 +1971,9 @@ KURALLAR:
 - Hiçbir kaynağa atıf yapma — "kaynağına göre", "iddia ediyor", "bildirildi" gibi ifadeler yasak
 - Bilgiyi Kartalix'in kendi sesi olarak doğrudan sun
 - Haber cümlesiyle başla (kim, ne, ne zaman)
-- BJK taraftarının perspektifinden, analitik ve güçlü bir ses tonu
+- Ateşli bir BJK taraftarı gibi yaz — tutku, gerilim ve sezon bağlamını hissettir
+- DOĞRULANMIŞ VERİLER arka plan bilgisidir: rakamları birebir aktarma, sezon bağlamını (hedefler, yarış, tehlike) haberin dokusuna işle
 - Paragraflar arası boş satır bırak
-- DOĞRULANMIŞ VERİLERle çelişen durum yorumu yapma
 - Sadece haber metnini yaz, başlık ekleme`;
 
   const res = await callClaude(env, MODEL_GENERATE, prompt, false, 800);
