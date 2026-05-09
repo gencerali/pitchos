@@ -9,6 +9,9 @@ import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-footbal
 // Prevents Claude from making false situational claims (wrong league position,
 // fabricated results, "kritik viraj" framing without supporting data).
 // Returns '' gracefully if API is unavailable so generation continues.
+const MONTHS_TR = ['','Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+function monthName(m) { return MONTHS_TR[m] || ''; }
+
 async function buildGroundingContext(env, site = null, opponentId = null) {
   try {
     // Use site config for multi-tenant support; fall back to BJK defaults
@@ -44,16 +47,23 @@ async function buildGroundingContext(env, site = null, opponentId = null) {
     const lines = [];
     const today = new Date().toISOString().slice(0, 10);
 
-    // Position and standing
+    // Position and standing — with practical European implication
     const posMeaning = ctx.position_meaning ? ` (${ctx.position_meaning})` : '';
-    lines.push(`${ctx.team}: ${ctx.position}. sıra${posMeaning} | ${ctx.points} puan | ${ctx.games_remaining} maç kaldı`);
+    const ownSpotStr = ctx.own_spot
+      ? ` → ${ctx.own_spot.comp_short} ${ctx.own_spot.entry_round}${ctx.own_spot.start_month ? `, ${monthName(ctx.own_spot.start_month)} başı` : ''}${ctx.own_spot.extra_games && ctx.own_spot.extra_games !== '0' ? `, ${ctx.own_spot.extra_games} eleme maçı` : ''}`
+      : '';
+    lines.push(`${ctx.team}: ${ctx.position}. sıra${posMeaning}${ownSpotStr} | ${ctx.points} puan | ${ctx.games_remaining} maç kaldı`);
 
-    // Season targets and achievability
+    // Season targets with practical spot implications
     const targetLines = [];
-    if (ctx.gaps.ucl)  targetLines.push(`UCL (${ctx.gaps.ucl.position}. sıra): ${ctx.gaps.ucl.points_gap <= 0 ? 'zaten burada' : ctx.gaps.ucl.possible ? `${ctx.gaps.ucl.points_gap} puan geride, mümkün` : `${ctx.gaps.ucl.points_gap} puan geride, imkansız`}`);
-    if (ctx.gaps.uel)  targetLines.push(`UEL (${ctx.gaps.uel.position}. sıra): ${ctx.gaps.uel.points_gap <= 0 ? 'zaten burada' : ctx.gaps.uel.possible ? `${ctx.gaps.uel.points_gap} puan geride, mümkün` : 'imkansız'}`);
-    if (ctx.gaps.uecl) targetLines.push(`UECL (${ctx.gaps.uecl.position}. sıra): ${ctx.gaps.uecl.points_gap <= 0 ? 'zaten burada' : ctx.gaps.uecl.possible ? `${ctx.gaps.uecl.points_gap} puan geride, mümkün` : 'imkansız'}`);
-    if (ctx.gaps.relegation) {
+    for (const [label, g] of Object.entries(ctx.gaps || {})) {
+      if (label === 'relegation') continue;
+      const spotStr = g.spot ? ` [${g.spot.comp_short} ${g.spot.entry_round}${g.spot.start_month ? ` ${monthName(g.spot.start_month)}` : ''}${g.spot.extra_games && g.spot.extra_games !== '0' ? ` +${g.spot.extra_games} maç` : ''}]` : '';
+      if (g.points_gap <= 0)      targetLines.push(`${label.toUpperCase()} (${g.position}. sıra): zaten burada${spotStr}`);
+      else if (g.possible)        targetLines.push(`${label.toUpperCase()} (${g.position}. sıra): ${g.points_gap} puan geride, mümkün${spotStr}`);
+      else                        targetLines.push(`${label.toUpperCase()} (${g.position}. sıra): imkansız`);
+    }
+    if (ctx.gaps?.relegation) {
       const rg = ctx.gaps.relegation;
       targetLines.push(`Küme düşme (${rg.position}. sıra): ${rg.points_gap >= 0 ? `${rg.points_gap} puan güvende` : `TEHLIKE — ${Math.abs(rg.points_gap)} puan geride`}`);
     }

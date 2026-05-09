@@ -3,6 +3,7 @@
 // All functions return null on error — callers must handle gracefully.
 // API key stored as Workers secret: API_FOOTBALL_KEY
 // Docs: https://www.api-football.com/documentation-v3
+import { supabase } from './utils.js';
 
 const BASE_URL  = 'https://v3.football.api-sports.io';
 const BJK_ID    = 549;    // Beşiktaş JK (verified 2026-04-29)
@@ -308,9 +309,10 @@ export async function getLeagueContext(teamId, leagueId, season, env, opponentId
     } catch {}
   }
 
-  const [table, recentFixtures] = await Promise.all([
+  const [table, recentFixtures, eurSpots] = await Promise.all([
     getLeagueStandings(leagueId, season, env),
     getLastFixturesForTeam(teamId, leagueId, season, env, 5),
+    getEuropeanSpots(leagueId, season, env),
   ]);
 
   if (!table) return null;
@@ -329,18 +331,20 @@ export async function getLeagueContext(teamId, leagueId, season, env, opponentId
   const maxPointsPossible = points + gamesRemaining * 3;
 
   // Parse position meaning from API's description field
-  const rawDesc    = teamRow.description || '';
+  const rawDesc         = teamRow.description || '';
   const positionMeaning = parsePositionMeaning(rawDesc);
+  const ownSpot         = spotForPosition(eurSpots, position);
 
   // Compute gaps to meaningful cutoffs using the full table
-  const cutoffs    = deriveCutoffs(table);
-  const gaps       = {};
+  const cutoffs = deriveCutoffs(table);
+  const gaps    = {};
   for (const [label, cutoffPos] of Object.entries(cutoffs)) {
-    const cutoffRow   = table.find(r => r.rank === cutoffPos);
-    const cutoffPts   = cutoffRow?.points ?? 0;
-    const gap         = cutoffPts - points;
-    const possible    = gap <= 0 || maxPointsPossible >= cutoffPts;
-    gaps[label]       = { position: cutoffPos, points_gap: gap, possible };
+    const cutoffRow = table.find(r => r.rank === cutoffPos);
+    const cutoffPts = cutoffRow?.points ?? 0;
+    const gap       = cutoffPts - points;
+    const possible  = gap <= 0 || maxPointsPossible >= cutoffPts;
+    const spot      = spotForPosition(eurSpots, cutoffPos);
+    gaps[label]     = { position: cutoffPos, points_gap: gap, possible, spot };
   }
 
   // Recent form (league fixtures only, finished)
@@ -393,6 +397,7 @@ export async function getLeagueContext(teamId, leagueId, season, env, opponentId
     played,
     games_remaining:  gamesRemaining,
     position_meaning: positionMeaning,
+    own_spot:         ownSpot,
     gaps,
     form,
     rivals,
@@ -404,6 +409,27 @@ export async function getLeagueContext(teamId, leagueId, season, env, opponentId
   // Cache for 1 hour
   await env.PITCHOS_CACHE.put(cacheKey, JSON.stringify(result), { expirationTtl: 3600 });
   return result;
+}
+
+// ─── EUROPEAN SPOTS ───────────────────────────────────────────
+// Fetches league_european_spots rows for a league/season from Supabase.
+// Cached in KV for 24h — data never changes mid-season.
+export async function getEuropeanSpots(leagueId, season, env) {
+  const cacheKey = `eur-spots:${leagueId}:${season}`;
+  const cached   = await env.PITCHOS_CACHE.get(cacheKey);
+  if (cached) { try { return JSON.parse(cached); } catch {} }
+
+  const rows = await supabase(env, 'GET',
+    `/rest/v1/league_european_spots?league_id=eq.${leagueId}&season=eq.${season}&order=position_from.asc`
+  );
+  if (!rows || rows.length === 0) return [];
+  await env.PITCHOS_CACHE.put(cacheKey, JSON.stringify(rows), { expirationTtl: 86400 });
+  return rows;
+}
+
+// Find the spot entry for a given finishing position.
+export function spotForPosition(spots, position) {
+  return spots.find(s => position >= s.position_from && position <= s.position_to) || null;
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────
