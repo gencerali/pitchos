@@ -31,8 +31,9 @@ async function buildGroundingContext(env) {
     const finished = (fixtures || []).filter(f => f.is_finished);
     if (finished.length > 0) {
       const rows = finished.map(f => {
-        const outcome = f.score_bjk > f.score_opp ? 'G' : f.score_bjk === f.score_opp ? 'B' : 'M';
-        return `${f.opponent} ${f.score_bjk}-${f.score_opp}(${outcome})`;
+        const outcome  = f.score_bjk > f.score_opp ? 'G' : f.score_bjk === f.score_opp ? 'B' : 'M';
+        const compTag  = f.league_id === 203 ? 'SL' : f.league?.includes('Kupa') || f.league?.includes('Cup') ? 'Kupa' : f.league?.slice(0, 6) || '?';
+        return `${f.opponent} ${f.score_bjk}-${f.score_opp}(${outcome}/${compTag})`;
       });
       lines.push(`Son maçlar (yeniden eskiye): ${rows.join(', ')}`);
     }
