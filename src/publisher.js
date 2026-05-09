@@ -65,7 +65,7 @@ async function buildGroundingContext(env, site = null, opponentId = null) {
     }
     if (ctx.gaps?.relegation) {
       const rg = ctx.gaps.relegation;
-      targetLines.push(`Küme düşme (${rg.position}. sıra): ${rg.points_gap >= 0 ? `${rg.points_gap} puan güvende` : `TEHLIKE — ${Math.abs(rg.points_gap)} puan geride`}`);
+      targetLines.push(`Küme düşme (${rg.position}. sıra): ${rg.points_gap <= 0 ? `${Math.abs(rg.points_gap)} puan güvende` : `TEHLIKE — ${rg.points_gap} puan geride`}`);
     }
     if (targetLines.length) lines.push(`Hedefler: ${targetLines.join(' | ')}`);
 

@@ -83,16 +83,28 @@ _Editorial notes rule that governs crisis/disaster framing. Uses existing system
 - [x] Add to editorial notes via `/admin/editorial`: interpretation guard rule added
 - [x] Run `/admin/editorial/distill` to activate immediately
 
-**Phase 3 — Verifier Gate** (~8h, do before public launch)
+**Phase 3 — Verifier Gate** ✅ DONE (2026-05-09)
 
 _Post-generation Haiku call extracts factual claims → cross-checks against structured data → flags mismatches. Prevents wrong scores, standings, and dates in published articles._
 
-- [ ] `verifyArticle(body, groundingCtx, env)` in publisher.js — Haiku call, ~300 tokens, extracts verifiable claims from body and cross-checks each against grounding data
-- [ ] Returns `{ passed: bool, issues: string[] }` — `issues` lists specific discrepancies
-- [ ] If `!passed`: regenerate once; if still failing, publish with `needs_review: true` flag
-- [ ] `verification_result JSONB` column on `content_items` — stores `{ passed, issues, checked_at }`
-- [ ] Admin report: surface `needs_review: true` articles with warning badge
-- [ ] `fact_issues` Supabase table: `article_id, claim, expected, actual, resolution` — audit trail
+- [x] `verifyArticle(body, groundingCtx, env)` in publisher.js — Haiku call, ~300 tokens, extracts verifiable claims from body and cross-checks each against grounding data
+- [x] Returns `{ passed: bool, issues: string[] }` — `issues` lists specific discrepancies
+- [x] If `!passed`: regenerate once; if still failing, publish with `needs_review: true` flag
+- [x] `verification_result JSONB` column on `content_items` — migration `0003_verifier_gate.sql` written; **run in Supabase SQL Editor**
+- [x] Admin report: surface `needs_review: true` articles with ⚠️ badge
+- [ ] `fact_issues` Supabase table — deferred to Slice 7 (audit trail, not blocking)
+
+**Grounding enhancements** (also 2026-05-09):
+- [x] `buildGroundingContext()` fully multi-tenant: reads `site.team_id/league_id/season`, falls back to BJK legacy path
+- [x] `getLeagueContext(teamId, leagueId, season, env, opponentId)` in api-football.js — standings, recent fixtures, European spots, rival tracking, opponent motivation — cached 1h KV
+- [x] `league_european_spots` Supabase table: maps finishing position → competition + entry round + start month + extra qualifying games (migration `0005_league_european_spots.sql` written; **run in Supabase SQL Editor**)
+- [x] Competition labels in grounding: `(outcome/SL)` or `(outcome/Kupa)` to prevent false verification failures on Cup vs League results
+- [x] Grounding tone fixed: data is context, not script — prompt instructs Claude to weave data naturally, not echo it
+
+**Pending DB migrations** (code deployed, DB not yet updated):
+- [ ] Run `0003_verifier_gate.sql` — adds `needs_review`, `verification_result` to `content_items`
+- [ ] Run `0004_sites_team_league.sql` — adds `team_id`, `league_id`, `season` to `sites`; sets BJK row
+- [ ] Run `0005_league_european_spots.sql` — creates table + seeds Süper Lig 2025-26 + Serie A 2025-26
 
 **Done when**: 100 synthesis articles generated with grounding active, zero instances of published articles contradicting API-Football standings or recent results.
 
@@ -687,7 +699,7 @@ NVS < 40  → web only
 |---|-------|----------|--------|
 | 0 | Build Scaffold + PM | 1–2 wks | in-progress (Telegram/PM agent pending) |
 | 1 | Facts Firewall | 2–4 wks | done (2026-05-09) — two minor golden fixtures deferred |
-| 1.5 | Truth Layer (Grounding + Verifier Gate) | 2–3 h Phase 1 done; Phase 3 ~8h | Phase 1 ✅ done; Phase 2 (editorial rule) todo; Phase 3 not-started |
+| 1.5 | Truth Layer (Grounding + Verifier Gate) | 2–3 h Phase 1 done; Phase 3 ~8h | ✅ all phases done (2026-05-09) — 3 DB migrations pending run in Supabase |
 | 2 | Story-Centric Foundation | 2–3 wks | in-progress (story matcher live; DB tables pending) |
 | 3 | Story Types Narrow Set | 3–4 wks | in-progress (all templates done; source expansion Sprint E current) |
 | 3.7 | Cost Guard | 2–3 h | done |
@@ -730,4 +742,4 @@ NVS < 40  → web only
 
 ---
 
-*Last updated: 2026-05-09 (session 12 — added Sprint G Sentiment Judge, Slice 3.9 Voice Agent, Slice 4.5 Squad Intelligence, Slice 5.5 Distribute Agent; expanded v2 backlog from legacy roadmap; agent map added)*
+*Last updated: 2026-05-09 (session 13 — Slice 1.5 Phase 3 Verifier Gate done; multi-tenant league context + getLeagueContext + league_european_spots table; 3 DB migrations written, pending Supabase run)*

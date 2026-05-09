@@ -8,7 +8,22 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: Apply for Google AdSense at `kartalix.com` — site is live, content is original, domain is clean. Then Slice 2 — Story-Centric Foundation.
+**NEXT**: Run 3 pending DB migrations in Supabase SQL Editor (copy-paste each file in order):
+1. `docs/migrations/0003_verifier_gate.sql` — adds `needs_review` + `verification_result` to `content_items`
+2. `docs/migrations/0004_sites_team_league.sql` — adds `team_id/league_id/season` to `sites`; sets BJK row (team_id=549, league_id=203, season=2025)
+3. `docs/migrations/0005_league_european_spots.sql` — creates `league_european_spots` table + seeds Süper Lig + Serie A data
+
+After running migrations:
+- Test `/test-verifier` to confirm rich grounding context with European spots is working
+- POST to `/admin/season-notes` (body: `{"teamId":549,"notes":"Türkiye Kupası: Konyaspor'a yarı finalde elendi (2026-05-09). Şampiyonluk imkansız. Hedef: UEL garantisi (3. sıra)."}`)
+- Apply for Google AdSense at `ads.google.com`
+
+**Slice 1.5 — Truth Layer** ✅ ALL PHASES DONE (2026-05-09):
+- Phase 1: grounding context injected into all synthesis prompts
+- Phase 2: interpretation guard editorial rule active
+- Phase 3: `verifyArticle()` + retry logic + `needs_review` flag + admin ⚠️ badge + multi-tenant `getLeagueContext()` + `league_european_spots` table
+- Competition labels in grounding: `(outcome/SL)` / `(outcome/Kupa)` — prevents false Cup vs League verification failures
+- 3 migrations written, pending Supabase run (see above)
 
 **Domain migration** ✅ DONE (2026-05-09): canonical domain is now `kartalix.com`. All wrangler.toml routes + BASE_URL + CORS origins updated. `app.kartalix.com` still works as alias. DB tables (`stories`, `story_contributions`, `story_state_transitions`) already exist from earlier work; story matcher is live. Remaining: run DB migration if tables are missing, verify story matching end-to-end, golden fixtures.
 
@@ -103,4 +118,4 @@ Update this at the END of every work session. Not the start — the end. Future-
 - match_result + squad filtered from story system (`SKIP_STORY_TYPES`) — handled by templates
 - story-matcher: judge prompt includes pre-classified type hint; createStory uses it as fallback
 
-*Last updated: 2026-05-05 (session 11 — F1+F2+F2.5 done; full sprint F complete except F3)*
+*Last updated: 2026-05-09 (session 13 — Slice 1.5 all phases done; 3 DB migrations pending Supabase run; AdSense application next after migrations)*
