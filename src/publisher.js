@@ -134,6 +134,8 @@ Sorun varsa: {"passed":false,"issues":["iddia X ama gerçek Y"]}`;
   }
 }
 
+export { buildGroundingContext, verifyArticle };
+
 // ─── OG IMAGE EXTRACTION ─────────────────────────────────────
 function extractOGImage(html) {
   const m = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)

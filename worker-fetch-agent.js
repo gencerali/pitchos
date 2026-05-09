@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings } from './src/api-football.js';
@@ -384,6 +384,32 @@ export default {
       }
       await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(enriched), { expirationTtl: 7200 });
       return Response.json({ enriched: enriched.length, articles: enriched.map(a => ({ title: a.title?.slice(0, 40), mode: a.publish_mode, len: a.full_body?.length || 0 })) });
+    }
+    if (url.pathname === '/test-verifier') {
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      try {
+        const groundingCtx = await buildGroundingContext(env);
+        if (!groundingCtx) {
+          return Response.json({ error: 'No grounding data available — API-Football returned nothing' }, { headers });
+        }
+        // Test 1: deliberately wrong claims — should fail
+        const wrongBody = `Beşiktaş bu sezon Süper Lig'de 1. sırada yer alıyor ve 90 puanla liderliğini sürdürüyor. Son 5 maçta 5 galibiyet aldı.`;
+        // Test 2: neutral/safe body — should pass
+        const safeBody  = `Beşiktaş, teknik direktörü gözetiminde bu hafta yoğun antrenman temposunu sürdürdü. Takım, önümüzdeki maça odaklanmış durumda.`;
+
+        const [wrongResult, safeResult] = await Promise.all([
+          verifyArticle(wrongBody, groundingCtx, env),
+          verifyArticle(safeBody,  groundingCtx, env),
+        ]);
+
+        return Response.json({
+          grounding_preview: groundingCtx.slice(0, 400),
+          test_wrong: { body: wrongBody, result: wrongResult },
+          test_safe:  { body: safeBody,  result: safeResult },
+        }, { headers });
+      } catch (e) {
+        return Response.json({ error: e.message }, { status: 500, headers });
+      }
     }
     if (url.pathname === '/debug') {
       const res = await fetch(`${env.SUPABASE_URL}/rest/v1/sites?status=eq.live&select=*`, {
