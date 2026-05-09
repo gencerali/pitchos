@@ -3017,7 +3017,7 @@ async function buildReport(env, from, to) {
 
   const [runs, contentItems, cachedRaw, sourceConfigs, storiesRaw] = await Promise.all([
     supabase(env, 'GET', `/rest/v1/fetch_logs?site_id=eq.${SITE}&order=created_at.desc&limit=100${lF}&select=created_at,status,items_fetched,items_published,items_queued,items_rejected,items_scored,estimated_cost_eur,duration_ms,claude_calls,error_message`),
-    supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${SITE}&order=fetched_at.desc&limit=500${iF}&select=id,title,source_name,category,content_type,nvs_score,status,fetched_at,reviewed_at,original_url,nvs_notes`),
+    supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${SITE}&order=fetched_at.desc&limit=500${iF}&select=id,title,source_name,category,content_type,nvs_score,status,fetched_at,reviewed_at,original_url,nvs_notes,needs_review,publish_mode`),
     env.PITCHOS_CACHE.get('articles:BJK'),
     supabase(env, 'GET', `/rest/v1/source_configs?site_id=eq.${SITE}&select=name,source_type,trust_tier,is_active`),
     supabase(env, 'GET', `/rest/v1/stories?site_id=eq.${SITE}&select=id,story_type,state,created_at&order=created_at.desc&limit=200`),
@@ -3153,6 +3153,7 @@ async function buildReport(env, from, to) {
     trust_tier_dist,
     source_type_map:       srcMap,
     story_stats,
+    needs_review_items:    published.filter(a => a.needs_review),
     runs_in_range:         (runs || []).length,
     time_range:            { from: from || null, to: to || null },
   };
@@ -4795,6 +4796,7 @@ function reportDashboardJs() {
     '  var pub=d.top_published||[];',
     '  var rej=d.top_rejected||[];',
     '  var all=d.all_fetched||[];',
+    '  var needsReview=d.needs_review_items||[];',
     '  var pubCount=d.published_count!=null?d.published_count:pub.length;',
     '  var maxF=f.total_fetched||1;',
     '  var stDist=d.source_type_dist||[];',
@@ -4932,6 +4934,13 @@ function reportDashboardJs() {
     '  });',
     '  h+="</tbody></table></div></div>";',
     '',
+    '  if(needsReview.length){',
+    '    h+=\'<div class="section open" id="sec-review">\';',
+    '    h+=\'<div class="sec-head" data-sec="sec-review" onclick="toggleSec(this.dataset.sec)">\';',
+    '    h+=\'<div class="sec-title">⚠️ Needs Review<span class="badge" style="background:#b45309;color:#fff">\'+needsReview.length+"</span></div>";',
+    '    h+=\'<div class="chev">▼</div></div>\';',
+    '    h+=\'<div class="sec-body"><div class="art-list">\'+articleCards(needsReview,20)+"</div></div></div>";',
+    '  }',
     '  h+=\'<div class="section open" id="sec-pub">\';',
     '  h+=\'<div class="sec-head" data-sec="sec-pub" onclick="toggleSec(this.dataset.sec)">\';',
     '  h+=\'<div class="sec-title">✅ Published (range)<span class="badge g">\'+pub.length+"</span></div>";',

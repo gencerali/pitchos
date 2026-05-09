@@ -104,6 +104,36 @@ export function cleanRSS(text) {
     .slice(0, 300);
 }
 
+// ─── VERIFIER GATE ────────────────────────────────────────────
+// Post-generation Haiku call. Extracts factual claims (standings, scores,
+// recent results) and cross-checks against grounding data.
+// Fails open — if API data is unavailable or call errors, returns passed:true.
+async function verifyArticle(body, groundingCtx, env) {
+  if (!groundingCtx || !groundingCtx.includes('DOĞRULANMIŞ VERİLER')) {
+    return { passed: true, issues: [] };
+  }
+  const prompt = `Aşağıdaki Beşiktaş haberinde yer alan somut olgusal iddiaları (sıralama, puan, skor, son maç sonuçları) doğrulanmış verilerle karşılaştır. Yalnızca açık çelişkileri listele — belirsiz veya genel ifadeleri işaretleme.
+${groundingCtx}
+
+MAKALE:
+${body.slice(0, 1200)}
+
+JSON formatında yanıt ver, başka hiçbir şey ekleme:
+Sorun yoksa: {"passed":true,"issues":[]}
+Sorun varsa: {"passed":false,"issues":["iddia X ama gerçek Y"]}`;
+
+  try {
+    const res = await callClaude(env, MODEL_FETCH, prompt, false, 150);
+    const text = extractText(res.content).trim();
+    const m = text.match(/\{[\s\S]*?\}/);
+    if (!m) return { passed: true, issues: [] };
+    const parsed = JSON.parse(m[0]);
+    return { passed: !!parsed.passed, issues: Array.isArray(parsed.issues) ? parsed.issues.slice(0, 5) : [] };
+  } catch {
+    return { passed: true, issues: [] };
+  }
+}
+
 // ─── OG IMAGE EXTRACTION ─────────────────────────────────────
 function extractOGImage(html) {
   const m = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
@@ -236,7 +266,25 @@ Kurallar:
 Sadece haber metnini yaz, başlık veya ekstra açıklama ekleme.`;
 
   const res = await callClaude(env, MODEL_FETCH, prompt, false, 600);
-  return extractText(res.content).trim();
+  let body = extractText(res.content).trim();
+
+  const verification = await verifyArticle(body, groundingCtx, env);
+  if (!verification.passed && verification.issues.length > 0) {
+    console.log(`VERIFY FAIL: ${verification.issues.join('; ')}`);
+    try {
+      const fixPrompt = prompt + `\n\nDİKKAT — aşağıdaki olgusal hatalar tespit edildi, düzelt:\n${verification.issues.join('\n')}`;
+      const res2 = await callClaude(env, MODEL_FETCH, fixPrompt, false, 600);
+      const body2 = extractText(res2.content).trim();
+      if (body2.length > 200) {
+        console.log(`VERIFY REGENERATED OK`);
+        return { body: body2, needs_review: false, verification_result: { passed: true, issues: [], regenerated: true } };
+      }
+    } catch {}
+    console.log(`VERIFY FAIL — needs_review flagged`);
+    return { body, needs_review: true, verification_result: verification };
+  }
+
+  return { body, needs_review: false, verification_result: verification };
 }
 
 export async function writeArticles(articles, site, env) {
@@ -284,11 +332,14 @@ export async function writeArticles(articles, site, env) {
       // Auto-synthesis: for high-NVS articles, fetch source and write a full Kartalix article
       if ((article.nvs || 0) >= 60 && results.filter(r => r.publish_mode === 'synthesis').length < 4) {
         try {
-          const body = await synthesizeArticle(article, env);
+          const result = await synthesizeArticle(article, env);
+          const body = result.body;
           if (body && body.length > 200) {
-            published.full_body    = body;
-            published.publish_mode = 'synthesis';
-            console.log(`SYNTHESIS OK [${article.nvs}]: "${article.title?.slice(0, 50)}" — ${body.length}ch`);
+            published.full_body          = body;
+            published.publish_mode       = 'synthesis';
+            published.needs_review       = result.needs_review || false;
+            published.verification_result = result.verification_result || null;
+            console.log(`SYNTHESIS OK [${article.nvs}]: "${article.title?.slice(0, 50)}" — ${body.length}ch${result.needs_review ? ' ⚠️ needs_review' : ''}`);
           }
         } catch(e) {
           console.error('Synthesis failed:', e.message, '|', article.title?.slice(0, 50));
@@ -340,9 +391,11 @@ export async function saveArticles(env, siteId, articles) {
     nvs_notes:    a.nvs_notes || '',
     golden_score: a.golden_score != null ? String(a.golden_score) : null,
     image_url:    a.image_url || '',
-    publish_mode: a.publish_mode || 'rss_summary',
-    status:       'published',
-    reviewed_by:  'auto',
+    publish_mode:        a.publish_mode || 'rss_summary',
+    needs_review:        a.needs_review || false,
+    verification_result: a.verification_result || null,
+    status:              'published',
+    reviewed_by:         'auto',
     fetched_at:   a.published_at || a.fetched_at || new Date().toISOString(),
     reviewed_at:  new Date().toISOString(),
     slug:         a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
@@ -1878,8 +1931,24 @@ KURALLAR:
 - Sadece haber metnini yaz, başlık ekleme`;
 
   const res = await callClaude(env, MODEL_GENERATE, prompt, false, 800);
-  const body = extractText(res.content).trim();
+  let body = extractText(res.content).trim();
   if (!body || body.length < 150) return null;
+
+  let needsReview = false;
+  let verificationResult = null;
+  const verification = await verifyArticle(body, groundingCtx, env);
+  if (!verification.passed && verification.issues.length > 0) {
+    console.log(`ORIGINAL NEWS VERIFY FAIL: ${verification.issues.join('; ')}`);
+    try {
+      const fixPrompt = prompt + `\n\nDİKKAT — aşağıdaki olgusal hatalar tespit edildi, düzelt:\n${verification.issues.join('\n')}`;
+      const res2 = await callClaude(env, MODEL_GENERATE, fixPrompt, false, 800);
+      const body2 = extractText(res2.content).trim();
+      if (body2.length > 150) { body = body2; verificationResult = { passed: true, regenerated: true, issues: [] }; }
+      else { needsReview = true; verificationResult = verification; }
+    } catch { needsReview = true; verificationResult = verification; }
+  } else {
+    verificationResult = verification;
+  }
 
   const primary = sources[0];
   const slug = generateSlug(primary.title, new Date().toISOString().slice(0, 10));
@@ -1890,6 +1959,7 @@ KURALLAR:
     category: primary.category || 'Club', content_type: 'kartalix_generated',
     sport: 'football', nvs_score: primary.nvs || 65,
     publish_mode: 'original_synthesis', status: 'published',
+    needs_review: needsReview, verification_result: verificationResult,
     slug, published_at: new Date().toISOString(), reviewed_at: new Date().toISOString(), reviewed_by: 'auto',
   }).catch(() => null);
 
@@ -1915,6 +1985,8 @@ KURALLAR:
     sport:               'football',
     template_id:         null,
     fixture_id:          null,
+    needs_review:        needsReview,
+    verification_result: verificationResult,
     ...(saved?.[0] ? { id: saved[0].id } : {}),
   };
 }
