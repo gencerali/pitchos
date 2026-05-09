@@ -1701,6 +1701,90 @@ Sadece JSON döndür:
       });
     }
 
+    // ── CONTENT CMS ──────────────────────────────────────────────
+    if (url.pathname === '/admin/content') {
+      return new Response(renderContentPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
+    if (url.pathname === '/admin/content-data') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+      const page  = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
+      const limit = 20;
+      const offset = (page - 1) * limit;
+      const q     = (url.searchParams.get('q') || '').trim();
+      const mode  = url.searchParams.get('mode') || '';
+      const nr    = url.searchParams.get('needs_review') === '1';
+      let filter  = `site_id=eq.${site.id}&order=published_at.desc&limit=${limit}&offset=${offset}`;
+      if (mode === 'synthesis') filter += '&publish_mode=eq.synthesis';
+      else if (mode === 'template') filter += '&publish_mode=like.template%';
+      else if (mode === 'youtube')  filter += '&publish_mode=like.youtube%';
+      else if (mode === 'manual')   filter += '&publish_mode=eq.manual';
+      if (nr) filter += '&needs_review=eq.true';
+      if (q)  filter += `&title=ilike.*${encodeURIComponent(q)}*`;
+      const rows = await supabase(env, 'GET',
+        `/rest/v1/content_items?${filter}&select=id,slug,title,summary,full_body,category,publish_mode,nvs_score,needs_review,published_at,image_url,source_name`
+      );
+      return Response.json({ articles: rows || [], page, has_more: (rows || []).length === limit }, { headers: h });
+    }
+
+    if (url.pathname === '/admin/content-save' && request.method === 'POST') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+      const { slug, title, summary, full_body, category, image_url, is_new } = await request.json();
+      if (!title?.trim()) return Response.json({ error: 'title required' }, { status: 400, headers: h });
+
+      if (is_new) {
+        const now  = new Date().toISOString();
+        const newSlug = generateSlug(title, now);
+        await supabase(env, 'POST', '/rest/v1/content_items', [{
+          site_id: site.id, title: title.trim(), summary: summary || '',
+          full_body: full_body || '', category: category || 'Haber',
+          image_url: image_url || '', source_type: 'kartalix', source_name: 'Kartalix',
+          publish_mode: 'manual', status: 'published', nvs_score: 75,
+          reviewed_by: 'admin', slug: newSlug,
+          fetched_at: now, reviewed_at: now,
+        }]);
+        return Response.json({ ok: true, slug: newSlug, is_new: true }, { headers: h });
+      }
+
+      await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}`, {
+        title: title.trim(), summary: summary || '',
+        full_body: full_body || '', category: category || 'Haber',
+        image_url: image_url || '', source_name: 'Kartalix', source_type: 'kartalix',
+        needs_review: false, reviewed_at: new Date().toISOString(),
+      });
+      // Update KV in-place so article page reflects changes immediately
+      const kv = await env.PITCHOS_CACHE.get('articles:BJK');
+      if (kv) {
+        const arts = JSON.parse(kv).map(a => a.slug === slug
+          ? { ...a, title: title.trim(), summary: summary || '', full_body: full_body || '', category: category || 'Haber', image_url: image_url || '' }
+          : a);
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+      }
+      return Response.json({ ok: true, slug }, { headers: h });
+    }
+
+    if (url.pathname === '/admin/content-delete' && request.method === 'POST') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+      const { slug } = await request.json();
+      if (!slug) return Response.json({ error: 'slug required' }, { status: 400, headers: h });
+      await supabase(env, 'DELETE', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&site_id=eq.${site.id}`);
+      const kv = await env.PITCHOS_CACHE.get('articles:BJK');
+      if (kv) {
+        const arts = JSON.parse(kv).filter(a => a.slug !== slug);
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+      }
+      return Response.json({ ok: true }, { headers: h });
+    }
+
     if (url.pathname === '/rss') {
       return serveRSSFeed(env);
     }
@@ -3802,14 +3886,287 @@ loadReactions();
 </html>`;
 }
 
+function renderContentPage() {
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kartalix — İçerik</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+.cms{display:flex;flex:1;overflow:hidden}
+.list-panel{width:360px;min-width:300px;border-right:1px solid #222;display:flex;flex-direction:column;overflow:hidden}
+.editor-panel{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.toolbar{padding:.6rem .85rem;border-bottom:1px solid #222;display:flex;gap:.5rem;align-items:center;flex-shrink:0;background:#111}
+input[type=search],input[type=text],input[type=url],select,textarea{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;font-family:inherit;font-size:.83rem;outline:none;padding:.35rem .6rem}
+input[type=search]:focus,input[type=text]:focus,input[type=url]:focus,select:focus,textarea:focus{border-color:#444}
+input[type=search]{flex:1;height:30px}
+select{height:30px;color:#aaa}
+.filter-check{font-size:.72rem;color:#888;white-space:nowrap;cursor:pointer;display:flex;align-items:center;gap:.3rem}
+.filter-check input{accent-color:#E30A17}
+.btn{border:none;border-radius:4px;font-size:.75rem;font-weight:700;padding:.35rem .85rem;cursor:pointer;white-space:nowrap}
+.btn-primary{background:#E30A17;color:#fff}.btn-primary:hover{opacity:.85}
+.btn-secondary{background:#2a2a2a;color:#ccc;border:1px solid #333}.btn-secondary:hover{background:#333}
+.btn-danger{background:transparent;color:#c0392b;border:1px solid #c0392b}.btn-danger:hover{background:#c0392b;color:#fff}
+.btn-sm{padding:.25rem .6rem;font-size:.7rem}
+.art-list{flex:1;overflow-y:auto}
+.art-row{padding:.65rem .85rem;border-bottom:1px solid #1e1e1e;cursor:pointer;transition:background .12s}
+.art-row:hover{background:#161616}
+.art-row.active{background:#1a1a1a;border-left:2px solid #E30A17}
+.art-title{font-size:.82rem;color:#ddd;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.art-meta{margin-top:.3rem;display:flex;gap:.45rem;align-items:center;flex-wrap:wrap}
+.badge{font-size:.58rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:1px 6px;border-radius:3px}
+.badge-synth{background:#1a3a1a;color:#4a9a4a}
+.badge-tmpl{background:#1a2a3a;color:#4a7aaa}
+.badge-yt{background:#3a1a1a;color:#aa4a4a}
+.badge-manual{background:#2a2a1a;color:#aaaa4a}
+.badge-rss{background:#2a2a2a;color:#777}
+.nvs{font-size:.63rem;color:#555}
+.nr-flag{font-size:.72rem;color:#f0a500}
+.art-date{font-size:.63rem;color:#444;margin-left:auto}
+.editor-inner{flex:1;display:flex;flex-direction:column;padding:1.25rem 1.5rem;overflow-y:auto;gap:.85rem}
+.editor-empty{flex:1;display:flex;align-items:center;justify-content:center;color:#333;font-size:.9rem}
+.field label{display:block;font-size:.65rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem}
+.field input[type=text],.field input[type=url]{width:100%;height:34px}
+.field textarea{width:100%;resize:vertical}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
+.editor-actions{display:flex;gap:.6rem;align-items:center;padding:.85rem 1.5rem;border-top:1px solid #222;flex-shrink:0;background:#111}
+.save-status{font-size:.72rem;color:#555;margin-left:.5rem}
+.pagination{padding:.5rem .85rem;border-top:1px solid #1e1e1e;display:flex;gap:.5rem;flex-shrink:0}
+</style>
+</head>
+<body>
+ADMINNAV_PLACEHOLDER
+<div class="cms">
+  <div class="list-panel">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Başlık ara…" oninput="schedSearch()">
+      <select id="modeFilter" onchange="load(1)">
+        <option value="">Tümü</option>
+        <option value="synthesis">Sentez</option>
+        <option value="template">Şablon</option>
+        <option value="youtube">YouTube</option>
+        <option value="manual">Manuel</option>
+      </select>
+    </div>
+    <div class="toolbar" style="padding:.4rem .85rem">
+      <label class="filter-check"><input type="checkbox" id="nrFilter" onchange="load(1)"> ⚠️ Sadece inceleme gerektirenler</label>
+      <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="newArticle()">+ Yeni</button>
+    </div>
+    <div class="art-list" id="artList"><p style="padding:1rem;color:#444">Yükleniyor…</p></div>
+    <div class="pagination" id="pagination"></div>
+  </div>
+  <div class="editor-panel">
+    <div class="editor-empty" id="editorEmpty">← Düzenlemek için bir haber seçin</div>
+    <div id="editorForm" style="display:none;flex:1;flex-direction:column;overflow:hidden">
+      <div class="editor-inner">
+        <div class="field">
+          <label>Başlık</label>
+          <input type="text" id="eTitle" placeholder="Haber başlığı">
+        </div>
+        <div class="field">
+          <label>Özet <span style="color:#444;text-transform:none;font-weight:400">(isteğe bağlı)</span></label>
+          <textarea id="eSummary" rows="2" placeholder="Kısa özet…"></textarea>
+        </div>
+        <div class="field">
+          <label>İçerik <span id="wc" style="color:#444;text-transform:none;font-weight:400"></span></label>
+          <textarea id="eBody" rows="16" placeholder="Haber metni veya HTML…" oninput="updateWc()"></textarea>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label>Kategori</label>
+            <select id="eCat" style="width:100%;height:34px">
+              <option>Haber</option><option>Analiz</option><option>Maç</option><option>Transfer</option><option>Sakatlık</option><option>Kulüp</option><option>Milli Takım</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Görsel URL</label>
+            <input type="url" id="eImg" placeholder="https://…">
+          </div>
+        </div>
+        <div class="field" id="eSlugRow" style="display:none">
+          <label>Slug <span style="color:#444;text-transform:none;font-weight:400">(sadece okuma)</span></label>
+          <input type="text" id="eSlug" readonly style="color:#555;cursor:default">
+        </div>
+      </div>
+      <div class="editor-actions">
+        <button class="btn btn-primary" onclick="saveArticle()">Kaydet</button>
+        <button class="btn btn-secondary" id="previewBtn" onclick="previewArticle()" style="display:none">Önizle ↗</button>
+        <span class="save-status" id="saveStatus"></span>
+        <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="deleteArticle()">Sil</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+let currentSlug = null;
+let currentPage = 1;
+let searchTimer = null;
+
+function schedSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(() => load(1), 350); }
+
+function badgeClass(m) {
+  if (!m) return 'badge-rss';
+  if (m === 'synthesis') return 'badge-synth';
+  if (m.startsWith('template')) return 'badge-tmpl';
+  if (m.startsWith('youtube') || m === 'video_embed') return 'badge-yt';
+  if (m === 'manual') return 'badge-manual';
+  return 'badge-rss';
+}
+function badgeLabel(m) {
+  if (!m) return 'RSS';
+  if (m === 'synthesis') return 'SENTEZ';
+  if (m.startsWith('template')) return m.replace('template_','').replace('template','ŞABLON').toUpperCase();
+  if (m.startsWith('youtube') || m === 'video_embed') return 'YT';
+  if (m === 'manual') return 'MANUEL';
+  return m.toUpperCase().slice(0,8);
+}
+function fmtDate(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  return d.toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'}) + ' ' + d.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'});
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function load(page) {
+  currentPage = page || 1;
+  const q  = document.getElementById('q').value.trim();
+  const m  = document.getElementById('modeFilter').value;
+  const nr = document.getElementById('nrFilter').checked ? '1' : '';
+  const params = new URLSearchParams({ page: currentPage, q, mode: m, needs_review: nr });
+  const res = await fetch('/admin/content-data?' + params);
+  const { articles, has_more } = await res.json();
+  const list = document.getElementById('artList');
+  if (!articles.length) { list.innerHTML = '<p style="padding:1rem;color:#444">Haber bulunamadı.</p>'; }
+  else {
+    list.innerHTML = articles.map(a => \`
+      <div class="art-row\${currentSlug===a.slug?' active':''}" onclick="openArticle(\${JSON.stringify(a).replace(/'/g,"&apos;")})" data-slug="\${esc(a.slug)}">
+        <div class="art-title">\${esc(a.title||'(başlıksız)')}</div>
+        <div class="art-meta">
+          <span class="badge \${badgeClass(a.publish_mode)}">\${badgeLabel(a.publish_mode)}</span>
+          \${a.nvs_score ? '<span class="nvs">NVS '+a.nvs_score+'</span>' : ''}
+          \${a.needs_review ? '<span class="nr-flag">⚠️</span>' : ''}
+          <span class="art-date">\${fmtDate(a.published_at)}</span>
+        </div>
+      </div>\`).join('');
+  }
+  const pg = document.getElementById('pagination');
+  pg.innerHTML = \`
+    \${currentPage > 1 ? '<button class="btn btn-secondary btn-sm" onclick="load('+(currentPage-1)+')">← Önceki</button>' : ''}
+    <span style="font-size:.72rem;color:#555;margin:auto">Sayfa \${currentPage}</span>
+    \${has_more ? '<button class="btn btn-secondary btn-sm" onclick="load('+(currentPage+1)+')">Sonraki →</button>' : ''}
+  \`;
+}
+
+function openArticle(a) {
+  currentSlug = a.slug;
+  document.querySelectorAll('.art-row').forEach(r => r.classList.toggle('active', r.dataset.slug === a.slug));
+  document.getElementById('editorEmpty').style.display  = 'none';
+  const f = document.getElementById('editorForm');
+  f.style.display = 'flex';
+  document.getElementById('eTitle').value   = a.title || '';
+  document.getElementById('eSummary').value = a.summary || '';
+  document.getElementById('eBody').value    = a.full_body || a.summary || '';
+  document.getElementById('eCat').value     = a.category || 'Haber';
+  document.getElementById('eImg').value     = a.image_url || '';
+  document.getElementById('eSlug').value    = a.slug || '';
+  document.getElementById('eSlugRow').style.display = 'block';
+  document.getElementById('previewBtn').style.display = a.slug ? 'inline-block' : 'none';
+  document.getElementById('saveStatus').textContent = '';
+  document.getElementById('deleteBtn') && (document.getElementById('deleteBtn').style.display = 'inline-block');
+  updateWc();
+}
+
+function newArticle() {
+  currentSlug = null;
+  document.querySelectorAll('.art-row').forEach(r => r.classList.remove('active'));
+  document.getElementById('editorEmpty').style.display  = 'none';
+  const f = document.getElementById('editorForm');
+  f.style.display = 'flex';
+  document.getElementById('eTitle').value   = '';
+  document.getElementById('eSummary').value = '';
+  document.getElementById('eBody').value    = '';
+  document.getElementById('eCat').value     = 'Haber';
+  document.getElementById('eImg').value     = '';
+  document.getElementById('eSlug').value    = '';
+  document.getElementById('eSlugRow').style.display = 'none';
+  document.getElementById('previewBtn').style.display = 'none';
+  document.getElementById('saveStatus').textContent = '';
+  document.getElementById('eTitle').focus();
+  updateWc();
+}
+
+function updateWc() {
+  const text = document.getElementById('eBody').value.replace(/<[^>]+>/g,'');
+  const words = text.trim() ? text.trim().split(/\\s+/).length : 0;
+  document.getElementById('wc').textContent = words ? words + ' kelime' : '';
+}
+
+function previewArticle() {
+  if (currentSlug) window.open('/haber/' + currentSlug, '_blank');
+}
+
+async function saveArticle() {
+  const title    = document.getElementById('eTitle').value.trim();
+  const summary  = document.getElementById('eSummary').value.trim();
+  const full_body = document.getElementById('eBody').value;
+  const category = document.getElementById('eCat').value;
+  const image_url = document.getElementById('eImg').value.trim();
+  const st = document.getElementById('saveStatus');
+  if (!title) { st.textContent = 'Başlık zorunlu.'; st.style.color='#E30A17'; return; }
+  st.textContent = 'Kaydediliyor…'; st.style.color = '#666';
+  const res = await fetch('/admin/content-save', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ slug: currentSlug, title, summary, full_body, category, image_url, is_new: !currentSlug })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    st.textContent = 'Kaydedildi ✓'; st.style.color = '#3a9a3a';
+    if (data.is_new) {
+      currentSlug = data.slug;
+      document.getElementById('eSlug').value = data.slug;
+      document.getElementById('eSlugRow').style.display = 'block';
+      document.getElementById('previewBtn').style.display = 'inline-block';
+    }
+    load(currentPage);
+  } else {
+    st.textContent = data.error || 'Hata oluştu.'; st.style.color = '#E30A17';
+  }
+}
+
+async function deleteArticle() {
+  if (!currentSlug) return;
+  if (!confirm('Bu haberi silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return;
+  const res = await fetch('/admin/content-delete', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ slug: currentSlug })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    currentSlug = null;
+    document.getElementById('editorForm').style.display  = 'none';
+    document.getElementById('editorEmpty').style.display = 'flex';
+    load(currentPage);
+  }
+}
+
+load(1);
+</script>
+</body>
+</html>`.replace('ADMINNAV_PLACEHOLDER', adminNav('content'));
+}
+
 function adminNav(active) {
   const links = [
-    { href: '/admin',             label: 'Haberler',   key: 'news'       },
-    { href: '/admin/sources/ui',  label: 'Sources',    key: 'sources'    },
-    { href: '/admin/financials',  label: 'Financials', key: 'financials' },
-    { href: '/admin/report',      label: 'Report',     key: 'report'     },
-    { href: '/admin/roadmap',     label: 'Roadmap',    key: 'roadmap'    },
-    { href: '/admin/releases',    label: 'Releases',   key: 'releases'   },
+    { href: '/admin/content',     label: 'İçerik',     key: 'content'    },
+    { href: '/admin',             label: 'Editör',     key: 'news'       },
+    { href: '/admin/sources/ui',  label: 'Kaynaklar',  key: 'sources'    },
+    { href: '/admin/financials',  label: 'Maliyet',    key: 'financials' },
+    { href: '/admin/report',      label: 'Rapor',      key: 'report'     },
+    { href: '/admin/roadmap',     label: 'Yol Haritası', key: 'roadmap'  },
+    { href: '/admin/releases',    label: 'Sürümler',   key: 'releases'   },
   ];
   const navLinks = links.map(l => {
     const isActive = active === l.key;
