@@ -62,6 +62,10 @@ pattern = "kartalix.com/hakkimizda"
 zone_name = "kartalix.com"
 
 [[routes]]
+pattern = "kartalix.com/impressum"
+zone_name = "kartalix.com"
+
+[[routes]]
 pattern = "kartalix.com/iletisim"
 zone_name = "kartalix.com"
 

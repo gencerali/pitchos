@@ -3390,6 +3390,7 @@ footer a:hover{color:#E30A17;text-decoration:none}
   <a href="/iletisim">İletişim</a>
   <a href="/gizlilik">Gizlilik Politikası</a>
   <a href="/kaynak-atif">Kaynak Atıf</a>
+  <a href="/impressum">Impressum</a>
   <a href="/rss">RSS</a>
 </footer>
 </body>
@@ -3740,6 +3741,7 @@ loadReactions();
   <a href="/iletisim" style="color:#666;margin:0 0.75rem;text-decoration:none">İletişim</a>
   <a href="/gizlilik" style="color:#666;margin:0 0.75rem;text-decoration:none">Gizlilik Politikası</a>
   <a href="/kaynak-atif" style="color:#666;margin:0 0.75rem;text-decoration:none">Kaynak Atıf</a>
+  <a href="/impressum" style="color:#666;margin:0 0.75rem;text-decoration:none">Impressum</a>
   <a href="/rss" style="color:#666;margin:0 0.75rem;text-decoration:none">RSS</a>
 </footer>
 </body>
