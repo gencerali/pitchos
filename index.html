@@ -2074,7 +2074,7 @@
     if (!article) return;
     const articleUrl = article.url || article.original_url || '';
     try {
-      const res = await fetch(`https://kartalix.com/comments?article_url=${encodeURIComponent(articleUrl)}`);
+      const res = await fetch(`https://kartalix.com/comments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ article_url: articleUrl }) });
       const data = await res.json();
 
       document.getElementById('like-count').textContent = data.likes || 0;

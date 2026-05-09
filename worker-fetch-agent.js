@@ -97,7 +97,10 @@ export default {
 
     if (url.pathname === '/comments') {
       const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
-      const article_url = url.searchParams.get('article_url');
+      let article_url = url.searchParams.get('article_url');
+      if (!article_url && request.method === 'POST') {
+        try { ({ article_url } = await request.json()); } catch { /* ignore */ }
+      }
       if (!article_url) return Response.json({ comments: [], likes: 0, dislikes: 0 }, { headers });
       const [comments, reactions] = await Promise.all([
         supabase(env, 'GET',
