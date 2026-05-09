@@ -432,10 +432,16 @@ export async function writeArticles(articles, site, env) {
 export async function saveArticles(env, siteId, articles) {
   if (!articles || articles.length === 0) return;
 
-  const rows = articles.map(a => ({
+  // rss_summary = raw feed text, never synthesized — do not publish
+  const publishable = articles.filter(a => a.publish_mode !== 'rss_summary');
+  if (publishable.length === 0) return;
+
+  const isSynthesized = m => m === 'synthesis' || (m && m.startsWith('template')) || m === 'video_embed' || m === 'youtube_embed' || (m && m.startsWith('youtube_'));
+
+  const rows = publishable.map(a => ({
     site_id:      siteId,
-    source_type:  'rss',
-    source_name:  a.source_name || a.source || 'Unknown',
+    source_type:  isSynthesized(a.publish_mode) ? 'kartalix' : 'rss',
+    source_name:  isSynthesized(a.publish_mode) ? 'Kartalix'  : (a.source_name || a.source || 'Unknown'),
     original_url: a.url || a.original_url || '',
     title:        a.title || '',
     summary:      a.summary || '',

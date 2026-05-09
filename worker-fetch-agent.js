@@ -286,7 +286,7 @@ export default {
 
         // Strategy 1 — Supabase
         const rows = await supabase(env, 'GET',
-          `/rest/v1/content_items?site_id=eq.${site.id}&order=published_at.desc&limit=100&select=title,summary,full_body,source_name,original_url,category,nvs_score,golden_score,published_at,sport,publish_mode,image_url,slug,content_type`
+          `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=neq.rss_summary&order=published_at.desc&limit=100&select=title,summary,full_body,source_name,original_url,category,nvs_score,golden_score,published_at,sport,publish_mode,image_url,slug,content_type`
         );
 
         if (rows && rows.length > 0) {
