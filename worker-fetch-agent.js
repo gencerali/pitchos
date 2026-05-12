@@ -1253,7 +1253,7 @@ export default {
           site_id: `eq.${site.id}`,
           nvs_score: 'gte.55',
           fetched_at: `gte.${since}`,
-          publish_mode: 'not.in.(synthesis,original_synthesis)',
+          publish_mode: 'not.in.(rewrite,original_synthesis)',
           order: 'nvs_score.desc',
           limit: '10',
         });
@@ -1287,7 +1287,7 @@ export default {
 
         if (publish) {
           const upRes = await supabase(env, 'PATCH', `/rest/v1/content_items?id=eq.${article.id}`, {
-            full_body: result.body, publish_mode: 'synthesis', needs_review: result.needs_review || false,
+            full_body: result.body, publish_mode: 'rewrite', needs_review: result.needs_review || false,
           });
           if (upRes?.error) return Response.json({ ...preview, publish_error: upRes.error }, { headers });
           preview.published = true;
@@ -1914,7 +1914,7 @@ Sadece JSON döndür:
       const live   = url.searchParams.get('live') === '1';
       const status = url.searchParams.get('status') || '';
       let filter  = `site_id=eq.${site.id}&order=fetched_at.desc&limit=${limit}&offset=${offset}`;
-      if (mode === 'synthesis') filter += '&publish_mode=eq.synthesis';
+      if (mode === 'synthesis') filter += '&publish_mode=in.(rewrite,synthesis)'; // 'synthesis' kept for legacy DB rows
       else if (mode === 'template') filter += '&publish_mode=like.template%';
       else if (mode === 'youtube')  filter += '&publish_mode=like.youtube%';
       else if (mode === 'manual')   filter += '&publish_mode=eq.manual';
@@ -3594,14 +3594,14 @@ async function processSite(site, env, ctx) {
       // Synthesis bodies are patched in here as well, no separate KV write needed.
       const confirmedArticles = [...pubResult.saved, ...queueResult.saved];
       const synthesisUrlMap = new Map(
-        allWritten.filter(a => a.publish_mode === 'synthesis' && a.full_body?.length > 200)
+        allWritten.filter(a => a.publish_mode === 'rewrite' && a.full_body?.length > 200)
           .map(a => [a.url || a.original_url, a])
       );
       const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
       const latestKV  = latestRaw ? JSON.parse(latestRaw) : [];  // may contain template cards
       const newKVItems = confirmedArticles.map(a => {
         const syn = synthesisUrlMap.get(a.url || a.original_url);
-        return toKVShape(syn ? { ...a, full_body: syn.full_body, publish_mode: 'synthesis' } : a);
+        return toKVShape(syn ? { ...a, full_body: syn.full_body, publish_mode: 'rewrite' } : a);
       });
       const finalKV = mergeAndDedupe([...newKVItems, ...latestKV], 100);
       await cacheToKV(env, site.short_code, finalKV);
@@ -4183,7 +4183,7 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null) {
   const image     = a.image_url || '';
   const rawSource = a.source || a.source_name || '';
   const isKartalix = !rawSource || rawSource === 'Kartalix' ||
-    ['synthesis','manual'].includes(a.publish_mode) ||
+    ['rewrite','original_synthesis','manual'].includes(a.publish_mode) ||
     (a.publish_mode && (a.publish_mode.startsWith('template') || a.publish_mode.startsWith('youtube') || a.publish_mode === 'video_embed'));
   const source    = isKartalix ? 'Kartalix' : rawSource;
   const category  = a.category || 'Haber';
@@ -4523,7 +4523,7 @@ ADMINNAV_PLACEHOLDER
       <input type="search" id="q" placeholder="Başlık ara…" oninput="schedSearch()">
       <select id="modeFilter" onchange="load(1)">
         <option value="">Tümü</option>
-        <option value="synthesis">Sentez</option>
+        <option value="synthesis">YZ Yaz</option>
         <option value="template">Şablon</option>
         <option value="youtube">YouTube</option>
         <option value="manual">Manuel</option>
@@ -4609,7 +4609,8 @@ function schedSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(() 
 
 function badgeClass(m) {
   if (!m) return 'badge-rss';
-  if (m === 'synthesis') return 'badge-synth';
+  if (m === 'rewrite' || m === 'synthesis') return 'badge-synth';
+  if (m === 'original_synthesis') return 'badge-synth';
   if (m.startsWith('template')) return 'badge-tmpl';
   if (m.startsWith('youtube') || m === 'video_embed') return 'badge-yt';
   if (m === 'manual') return 'badge-manual';
@@ -4617,7 +4618,9 @@ function badgeClass(m) {
 }
 function badgeLabel(m) {
   if (!m) return 'RSS';
-  if (m === 'synthesis') return 'SENTEZ';
+  if (m === 'rewrite') return 'YZ YAZ';
+  if (m === 'synthesis') return 'YZ YAZ'; // legacy
+  if (m === 'original_synthesis') return 'SENTEZLEŞTİR';
   if (m.startsWith('template')) return m.replace('template_','').replace('template','ŞABLON').toUpperCase();
   if (m.startsWith('youtube') || m === 'video_embed') return 'YT';
   if (m === 'manual') return 'MANUEL';

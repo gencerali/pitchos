@@ -431,13 +431,13 @@ export async function writeArticles(articles, site, env) {
       published.publish_mode = 'rss_summary';
 
       // Auto-synthesis: for high-NVS articles, fetch source and write a full Kartalix article
-      if ((article.nvs || 0) >= 60 && results.filter(r => r.publish_mode === 'synthesis').length < 4) {
+      if ((article.nvs || 0) >= 60 && results.filter(r => r.publish_mode === 'rewrite').length < 4) {
         try {
           const result = await synthesizeArticle(article, env, site);
           const body = result?.body;
           if (body && body.length > 200) {
             published.full_body          = body;
-            published.publish_mode       = 'synthesis';
+            published.publish_mode       = 'rewrite';
             published.needs_review       = result.needs_review || false;
             published.verification_result = result.verification_result || null;
             console.log(`SYNTHESIS OK [${article.nvs}]: "${article.title?.slice(0, 50)}" — ${body.length}ch${result.needs_review ? ' ⚠️ needs_review' : ''}`);
@@ -483,7 +483,7 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
   const publishable = articles.filter(a => a.publish_mode !== 'rss_summary');
   if (publishable.length === 0) return { saved: [], failed: [] };
 
-  const isSynthesized = m => m === 'synthesis' || (m && m.startsWith('template')) || m === 'video_embed' || m === 'youtube_embed' || (m && m.startsWith('youtube_'));
+  const isSynthesized = m => m === 'rewrite' || m === 'original_synthesis' || (m && m.startsWith('template')) || m === 'video_embed' || m === 'youtube_embed' || (m && m.startsWith('youtube_'));
 
   const rows = publishable.map(a => ({
     site_id:      siteId,

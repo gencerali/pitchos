@@ -294,18 +294,35 @@ Out of scope for Sprint C (addressed in Slice 1 extension):
 
 **Full YouTube pipeline plan** (Steps 1–9, including captions + firewall + produce branching): logged in DECISIONS.md 2026-05-02 entry. Planned for after Slice 1 ships.
 
-**Sprint D — Original News Synthesis** ✅ DONE (2026-05-02)
+**Sprint D — Single-Source Rewrite** ✅ DONE (2026-05-02) · _renamed 2026-05-12_
 
-_Architectural decision: RSS/P4 sources are inputs only. All published content is original Claude-generated Kartalix articles. No referenced news._
+_Note: this was originally called "synthesis" but renamed to "rewrite" (publish_mode: 'rewrite') to accurately reflect what it does — reads one source, rewrites it in Kartalix voice. True synthesis (multi-source, independent angle) is a future sprint below._
 
-- [x] Raw RSS/P4 articles removed from KV frontend feed — only templates + original synthesis visible
-- [x] `generateOriginalNews(sources, site, env)` in publisher.js — multi-source, 300–400 word, no attribution
-- [x] Synthesis loop in backgroundWork: NVS≥55, cap 5/run, skip match_result/squad (template-handled)
-- [x] Dedup key `synth:{hash}:{date}` in KV — same story not re-synthesized same day
-- [x] Multi-source: related articles (titleSimilarity>0.25) bundled for richer Claude context
-- [x] National team + multi-sport scoring updated: World Cup, Olympics, BJK handball/basketball/volleyball all scored and synthesised
-- [x] Synthesis prompt: context-aware national team (spotlight BJK players) + other-sport framing
-- [x] `/force-synthesis` debug endpoint — dry-run + `?publish=1`, shows total_recent/already_covered/new_candidates
+- [x] `synthesizeArticle()` in publisher.js — fetch one source via proxy, Claude rewrites in Kartalix voice (300–350 words)
+- [x] Proxy wake-up: GET /health with 35s timeout before article fetch — handles Render free-tier cold start
+- [x] Skip if source fetch fails — stays rss_summary, not published (2026-05-12)
+- [x] `generateOriginalNews(sources, site, env)` — multi-source context bundling (titleSimilarity>0.25), publish_mode: 'original_synthesis'
+- [x] `/force-synthesis` debug endpoint
+
+**Sprint D2 — True Multi-Source Synthesis** ← FUTURE SPRINT
+
+_The real editorial product. Single-source rewriting has low value — it just reproduces one article in different words. True synthesis: gather 3–5 independent sources covering the same story, identify what each adds, write an original Kartalix take from an independent angle that cannot be attributed to any single source._
+
+**What makes it different from Sprint D:**
+- Sources are gathered by story cluster (story-matching system, already built in Slice 2)
+- Each source's full text is fetched (proxy, already built)
+- Claude sees ALL sources together and is instructed to write from an angle that is distinct from any single one
+- Output is genuinely original — not a rewrite of source A, not a summary of A+B+C
+
+**Prerequisites:** Story clustering (Slice 2 ✅), proxy reliability (2026-05-12 ✅), Facts Firewall (Slice 1 ✅)
+
+**Deliverables:**
+- [ ] `synthesizeStory(story, contributions, site, env)` in publisher.js — takes a confirmed story + its N contributions, fetches full text of top 3–5 sources, passes all to Claude with synthesis prompt
+- [ ] Synthesis prompt: "You have N independent sources. Write an original Kartalix article that takes its own angle. Do not reproduce any single source's framing."
+- [ ] Wire to story state machine: fires when story reaches `confirmed` state with ≥3 contributions
+- [ ] publish_mode: `synthesis` (this is the proper use of the word)
+- [ ] Dedup: one synthesis per story per day (KV key: `synth:{story_id}:{date}`)
+- [ ] `/force-story-synthesis?story_id=` debug endpoint
 
 **Sprint E — Source Expansion** ← CURRENT SPRINT
 
