@@ -309,18 +309,33 @@ DETAYLAR: [önemli rakamlar, tarihler, maç/kulüp/turnuva adları — yoksa bo�
   }
 }
 
+const PROXY_BASE = 'https://pitchos-proxy.onrender.com';
+
 export async function synthesizeArticle(article, env, site = null) {
   const srcUrl = article.url || article.original_url || '';
-  let sourceText = article.summary || '';
+  let sourceText = null; // null = source not fetched; synthesis requires real source text
+
   if (srcUrl && srcUrl !== '#') {
     try {
-      const proxyUrl = 'https://pitchos-proxy.onrender.com/article?url=' + encodeURIComponent(srcUrl);
-      const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(12000) });
+      // Wake up Render free tier — cold start takes 10-30s; /health responds as soon as it's up
+      await fetch(PROXY_BASE + '/health', { signal: AbortSignal.timeout(35000) }).catch(() => {});
+      // Service is now awake — fetch the article
+      const res = await fetch(PROXY_BASE + '/article?url=' + encodeURIComponent(srcUrl),
+        { signal: AbortSignal.timeout(15000) });
       if (res.ok) {
         const data = await res.json();
         if (data.content && data.content.length > 200) sourceText = data.content.slice(0, 2000);
       }
-    } catch(e) {}
+    } catch(e) {
+      console.log('synthesizeArticle: proxy fetch failed:', e.message, '|', srcUrl);
+    }
+  }
+
+  // No source text = proxy failed or URL missing. Rewriting only the RSS summary
+  // produces no editorial value — skip and let it stay as rss_summary (not published).
+  if (!sourceText) {
+    console.log('synthesizeArticle: skipping — no source content for', srcUrl);
+    return { body: null };
   }
   const [editorialCtx, groundingCtx, keyEntities] = await Promise.all([
     getEditorialNotes(env, ['general', 'style']),
@@ -419,13 +434,15 @@ export async function writeArticles(articles, site, env) {
       if ((article.nvs || 0) >= 60 && results.filter(r => r.publish_mode === 'synthesis').length < 4) {
         try {
           const result = await synthesizeArticle(article, env, site);
-          const body = result.body;
+          const body = result?.body;
           if (body && body.length > 200) {
             published.full_body          = body;
             published.publish_mode       = 'synthesis';
             published.needs_review       = result.needs_review || false;
             published.verification_result = result.verification_result || null;
             console.log(`SYNTHESIS OK [${article.nvs}]: "${article.title?.slice(0, 50)}" — ${body.length}ch${result.needs_review ? ' ⚠️ needs_review' : ''}`);
+          } else if (!body) {
+            console.log(`SYNTHESIS SKIPPED [${article.nvs}]: "${article.title?.slice(0, 50)}" — no source, stays rss_summary`);
           }
         } catch(e) {
           console.error('Synthesis failed:', e.message, '|', article.title?.slice(0, 50));
