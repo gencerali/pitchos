@@ -12,10 +12,10 @@
 import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
-import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings } from './src/api-football.js';
+import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
 // ─── NEXT MATCH CONFIG ────────────────────────────────────────
@@ -629,10 +629,9 @@ export default {
         const site = sites?.[0];
         if (!site) return Response.json({ error: 'no active site' }, { headers: { 'Access-Control-Allow-Origin': '*' } });
         const fixture = await getNextFixture(env);
-        const match = fixture ? {
-          ...NEXT_MATCH, ...fixture,
-          venue_lat: NEXT_MATCH.venue_lat, venue_lon: NEXT_MATCH.venue_lon, tv: NEXT_MATCH.tv,
-        } : NEXT_MATCH;
+        const match = fixture
+          ? { ...NEXT_MATCH, ...fixture, ...await resolveVenueCoords(fixture.venue, fixture.venue_city).then(c => ({ venue_lat: c.lat, venue_lon: c.lon })), tv: NEXT_MATCH.tv }
+          : NEXT_MATCH;
         const h2h = match.opponent_id ? await getH2H(match.opponent_id, env) : [];
         const weather = await getMatchWeather(match.venue_lat, match.venue_lon);
         const matchDateTime = new Date(`${match.date}T${match.time}:00+03:00`);
@@ -666,7 +665,7 @@ export default {
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const fixture = await getNextFixture(env);
         const match = fixture
-          ? { ...NEXT_MATCH, ...fixture, venue_lat: NEXT_MATCH.venue_lat, venue_lon: NEXT_MATCH.venue_lon, tv: NEXT_MATCH.tv }
+          ? { ...NEXT_MATCH, ...fixture, ...await resolveVenueCoords(fixture.venue, fixture.venue_city).then(c => ({ venue_lat: c.lat, venue_lon: c.lon })), tv: NEXT_MATCH.tv }
           : NEXT_MATCH;
         const opponentId = match.opponent_id || NEXT_MATCH.opponent_id;
         const h2h = await getH2H(opponentId, env);
@@ -707,7 +706,7 @@ export default {
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const fixture = await getNextFixture(env);
         const match = fixture
-          ? { ...NEXT_MATCH, ...fixture, venue_lat: NEXT_MATCH.venue_lat, venue_lon: NEXT_MATCH.venue_lon, tv: NEXT_MATCH.tv }
+          ? { ...NEXT_MATCH, ...fixture, ...await resolveVenueCoords(fixture.venue, fixture.venue_city).then(c => ({ venue_lat: c.lat, venue_lon: c.lon })), tv: NEXT_MATCH.tv }
           : NEXT_MATCH;
         const [h2h, weather, table] = await Promise.all([
           match.opponent_id ? getH2H(match.opponent_id, env) : Promise.resolve([]),
@@ -962,7 +961,7 @@ export default {
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const fixture = await getNextFixture(env);
         const match = fixture
-          ? { ...NEXT_MATCH, ...fixture, venue_lat: NEXT_MATCH.venue_lat, venue_lon: NEXT_MATCH.venue_lon, tv: NEXT_MATCH.tv }
+          ? { ...NEXT_MATCH, ...fixture, ...await resolveVenueCoords(fixture.venue, fixture.venue_city).then(c => ({ venue_lat: c.lat, venue_lon: c.lon })), tv: NEXT_MATCH.tv }
           : NEXT_MATCH;
         const fixtureId = match.fixture_id || NEXT_MATCH.fixture_id;
         const injuries = await getInjuries(env, fixtureId);
@@ -1002,7 +1001,7 @@ export default {
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const fixture = await getNextFixture(env);
         const match = fixture
-          ? { ...NEXT_MATCH, ...fixture, venue_lat: NEXT_MATCH.venue_lat, venue_lon: NEXT_MATCH.venue_lon, tv: NEXT_MATCH.tv }
+          ? { ...NEXT_MATCH, ...fixture, ...await resolveVenueCoords(fixture.venue, fixture.venue_city).then(c => ({ venue_lat: c.lat, venue_lon: c.lon })), tv: NEXT_MATCH.tv }
           : NEXT_MATCH;
         const [recent, table] = await Promise.all([
           getLastFixtures(env, 5),
@@ -1031,6 +1030,45 @@ export default {
           recent_count: recent.length, standing: bjkRow ? `${bjkRow.rank}. sıra` : 'N/A',
           words: (card.full_body || '').split(/\s+/).length,
           preview: (card.full_body || '').slice(0, 500),
+        }, { headers });
+      } catch(e) {
+        return Response.json({ error: e.message }, { headers, status: 500 });
+      }
+    }
+    if (url.pathname === '/force-t08c') {
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      try {
+        const sites = await getActiveSites(env);
+        const site = sites?.[0];
+        if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
+        const fixture = await getNextFixture(env);
+        const match = fixture
+          ? { ...NEXT_MATCH, ...fixture, ...await resolveVenueCoords(fixture.venue, fixture.venue_city).then(c => ({ venue_lat: c?.lat, venue_lon: c?.lon })), tv: NEXT_MATCH.tv }
+          : NEXT_MATCH;
+        const [bjkLastLineup, oppLastLineup, injuries, predHistory] = await Promise.all([
+          getBJKLastLineupData(env),
+          match.opponent_id ? getOpponentLastLineup(match.opponent_id, env) : Promise.resolve(null),
+          getInjuries(env, match.fixture_id),
+          env.PITCHOS_CACHE.get('lineup_history', 'json').catch(() => null),
+        ]);
+        const card = await generateLineupCard(match, bjkLastLineup, oppLastLineup, injuries, predHistory || [], site, env);
+        if (!card) return Response.json({ error: 'generateLineupCard returned null — check BJK last lineup data' }, { headers, status: 500 });
+        // Write to KV so article is immediately visible on site
+        const cachedRaw = await env.PITCHOS_CACHE.get('articles:' + (site.short_code || 'BJK'));
+        const cached = cachedRaw ? JSON.parse(cachedRaw) : [];
+        const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 75, is_kartalix_content: true, is_template: true });
+        await cacheToKV(env, site.short_code || 'BJK', mergeAndDedupe([kvCard, ...cached.filter(a => a.template_id !== 'T08c')], 100));
+        return Response.json({
+          success: true, title: card.title, slug: card.slug,
+          url: `https://kartalix.com/haber/${card.slug}`,
+          predicted_players: card.predicted_players,
+          formation: card.formation,
+          opp_formation: oppLastLineup?.formation || null,
+          opp_players: oppLastLineup?.startXI?.length || 0,
+          injuries_excluded: (injuries || []).map(i => i.name),
+          bjk_lineup_subs: bjkLastLineup?.substitutes?.length || 0,
+          history_entries: (predHistory || []).length,
+          svg_length: card.full_body?.length,
         }, { headers });
       } catch(e) {
         return Response.json({ error: e.message }, { headers, status: 500 });
@@ -1196,6 +1234,67 @@ export default {
         return Response.json({ error: e.message }, { headers, status: 500 });
       }
     }
+    if (url.pathname === '/force-synthesis') {
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      try {
+        const publish = url.searchParams.get('publish') === '1';
+        const sites = await getActiveSites(env);
+        const site = sites?.[0];
+        if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
+
+        // Pull recent high-NVS articles that aren't already synthesized
+        const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const params = new URLSearchParams({
+          select: 'id,title,summary,original_url,nvs_score,publish_mode,fetched_at',
+          site_id: `eq.${site.id}`,
+          nvs_score: 'gte.55',
+          fetched_at: `gte.${since}`,
+          publish_mode: 'not.in.(synthesis,original_synthesis)',
+          order: 'nvs_score.desc',
+          limit: '10',
+        });
+        const candidates = await supabase(env, 'GET', `/rest/v1/content_items?${params}`);
+
+        if (!candidates?.length) return Response.json({ error: 'no candidates in last 24h with NVS≥55' }, { headers, status: 404 });
+
+        const article = candidates[0];
+        const articleForSynth = {
+          title: article.title,
+          summary: article.summary || '',
+          url: article.original_url || '',
+          original_url: article.original_url || '',
+          nvs: article.nvs_score,
+        };
+
+        const result = await synthesizeArticle(articleForSynth, env, site);
+        if (!result?.body || result.body.length < 150) {
+          return Response.json({ error: 'synthesis returned empty body', article: article.title }, { headers, status: 500 });
+        }
+
+        const preview = {
+          total_candidates: candidates.length,
+          picked: article.title,
+          nvs: article.nvs_score,
+          publish_mode_was: article.publish_mode,
+          words: result.body.split(/\s+/).length,
+          needs_review: result.needs_review,
+          preview: result.body.slice(0, 600),
+        };
+
+        if (publish) {
+          const upRes = await supabase(env, 'PATCH', `/rest/v1/content_items?id=eq.${article.id}`, {
+            full_body: result.body, publish_mode: 'synthesis', needs_review: result.needs_review || false,
+          });
+          if (upRes?.error) return Response.json({ ...preview, publish_error: upRes.error }, { headers });
+          preview.published = true;
+          preview.updated_id = article.id;
+        }
+
+        return Response.json(preview, { headers });
+      } catch(e) {
+        return Response.json({ error: e.message }, { headers, status: 500 });
+      }
+    }
     if (url.pathname === '/watcher') {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
@@ -1334,6 +1433,73 @@ export default {
         renderFinancialsPage(monthsData, FIXED_ITEMS),
         { headers: { 'Content-Type': 'text/html;charset=UTF-8' } }
       );
+    }
+
+    // ── GOLDEN FIXTURE VERIFIER ───────────────────────────────
+    // GET /admin/golden-fixtures — verifies Slice 2 acceptance criteria against live data
+    if (url.pathname === '/admin/golden-fixtures') {
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const SITE_ID = env.SITE_ID || (await getActiveSites(env))?.[0]?.id;
+
+      const [storiesRaw, contribsRaw, transitionsRaw] = await Promise.all([
+        supabase(env, 'GET', `/rest/v1/stories?site_id=eq.${SITE_ID}&select=id,title,state,confidence,story_type,first_contribution_at,last_contribution_at&order=last_contribution_at.desc&limit=200`),
+        supabase(env, 'GET', `/rest/v1/story_contributions?select=story_id,contribution_type,confidence_delta,added_at&order=added_at.desc&limit=500`),
+        supabase(env, 'GET', `/rest/v1/story_state_transitions?select=story_id,from_state,to_state,trigger,triggered_at&order=triggered_at.desc&limit=200`),
+      ]);
+
+      const stories = storiesRaw || [];
+      const contribs = contribsRaw || [];
+      const transitions = transitionsRaw || [];
+
+      // GF1: rashica_transfer_5_contribs — at least one story with ≥2 contributions (dedup working)
+      const contribsByStory = {};
+      contribs.forEach(c => { contribsByStory[c.story_id] = (contribsByStory[c.story_id] || 0) + 1; });
+      const multiContribStories = stories
+        .filter(s => (contribsByStory[s.id] || 0) >= 2)
+        .map(s => ({ id: s.id, title: s.title, state: s.state, type: s.story_type, contributions: contribsByStory[s.id] }))
+        .sort((a, b) => b.contributions - a.contributions)
+        .slice(0, 5);
+      const gf1Pass = multiContribStories.length > 0 && multiContribStories[0].contributions >= 2;
+
+      // GF2: story_state_transitions — at least one story that advanced beyond 'emerging'
+      const advancedTransitions = transitions.filter(t => t.from_state && t.from_state !== t.to_state);
+      const uniqueAdvanced = [...new Set(advancedTransitions.map(t => t.story_id))];
+      const gf2Pass = uniqueAdvanced.length > 0;
+      const transitionSample = advancedTransitions.slice(0, 5).map(t => ({
+        story_id: t.story_id.slice(0, 8),
+        from: t.from_state,
+        to: t.to_state,
+        trigger: t.trigger,
+        at: t.triggered_at,
+      }));
+
+      // GF3: confidence_scoring — at least one story reached 'active' (means confidence hit threshold)
+      const activeStories = stories.filter(s => s.state === 'active' || s.state === 'confirmed');
+      const gf3Pass = activeStories.length > 0;
+
+      return Response.json({
+        gf1_multi_contribution_dedup: {
+          pass: gf1Pass,
+          description: 'Multiple articles about same story → single story row (not duplicated)',
+          top_stories: multiContribStories,
+        },
+        gf2_state_transitions: {
+          pass: gf2Pass,
+          description: 'State machine fires and records transitions',
+          stories_with_transitions: uniqueAdvanced.length,
+          sample: transitionSample,
+        },
+        gf3_confidence_scoring: {
+          pass: gf3Pass,
+          description: 'Confidence math reaches publication threshold',
+          active_stories: activeStories.length,
+          sample: activeStories.slice(0, 3).map(s => ({ title: s.title?.slice(0, 50), state: s.state, confidence: s.confidence })),
+        },
+        summary: {
+          total_stories: stories.length,
+          all_pass: gf1Pass && gf2Pass && gf3Pass,
+        },
+      }, { headers });
     }
 
     // ── KV CACHE MANAGEMENT ───────────────────────────────────
@@ -1706,6 +1872,30 @@ Sadece JSON döndür:
       return new Response(renderContentPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
+    if (url.pathname === '/admin/source-stats') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+      const hours = parseInt(url.searchParams.get('hours') || '24');
+      const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+      const sourceName = url.searchParams.get('source') || '';
+      let filter = `site_id=eq.${site.id}&fetched_at=gte.${since}&order=fetched_at.desc&limit=200`;
+      if (sourceName) filter += `&source_name=eq.${encodeURIComponent(sourceName)}`;
+      const rows = await supabase(env, 'GET',
+        `/rest/v1/content_items?${filter}&select=title,source_name,nvs_score,publish_mode,fetched_at,original_url`
+      ) || [];
+      const bySource = {};
+      for (const r of rows) {
+        const s = r.source_name || 'unknown';
+        if (!bySource[s]) bySource[s] = [];
+        bySource[s].push({ title: r.title, nvs: r.nvs_score, mode: r.publish_mode, fetched_at: r.fetched_at, url: r.original_url });
+      }
+      const summary = Object.entries(bySource)
+        .sort((a,b) => b[1].length - a[1].length)
+        .map(([source, articles]) => ({ source, count: articles.length, articles }));
+      return Response.json({ hours, total: rows.length, by_source: summary }, { headers: h });
+    }
     if (url.pathname === '/admin/content-data') {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const sites = await getActiveSites(env);
@@ -1717,6 +1907,8 @@ Sadece JSON döndür:
       const q     = (url.searchParams.get('q') || '').trim();
       const mode  = url.searchParams.get('mode') || '';
       const nr    = url.searchParams.get('needs_review') === '1';
+      const live   = url.searchParams.get('live') === '1';
+      const status = url.searchParams.get('status') || '';
       let filter  = `site_id=eq.${site.id}&order=fetched_at.desc&limit=${limit}&offset=${offset}`;
       if (mode === 'synthesis') filter += '&publish_mode=eq.synthesis';
       else if (mode === 'template') filter += '&publish_mode=like.template%';
@@ -1724,8 +1916,38 @@ Sadece JSON döndür:
       else if (mode === 'manual')   filter += '&publish_mode=eq.manual';
       if (nr) filter += '&needs_review=eq.true';
       if (q)  filter += `&title=ilike.*${encodeURIComponent(q)}*`;
+      if (['published','pending','archived'].includes(status)) filter += `&status=eq.${status}`;
+
+      if (live) {
+        // KV-first: merge all KV articles with Supabase data. KV-only articles get _kv_only:true.
+        const kv = await env.PITCHOS_CACHE.get('articles:BJK');
+        const kvArticles = kv ? JSON.parse(kv) : [];
+        const kvSlugs = kvArticles.map(a => a.slug).filter(Boolean);
+        if (!kvSlugs.length) return Response.json({ articles: [], page, has_more: false }, { headers: h });
+        const dbRows = await supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${site.id}&slug=in.(${kvSlugs.join(',')})&select=id,slug,title,summary,full_body,category,publish_mode,nvs_score,needs_review,fetched_at,image_url,source_name,status,template_id`
+        );
+        const dbBySlug = new Map((dbRows || []).map(r => [r.slug, r]));
+        const merged = kvArticles
+          .filter(a => a.slug)
+          .map(a => dbBySlug.get(a.slug) || {
+            id: null, slug: a.slug, title: a.title || '',
+            summary: a.summary || '', full_body: a.full_body || '',
+            category: a.category || 'Haber',
+            publish_mode: a.publish_mode || 'rss_summary',
+            nvs_score: a.nvs || a.nvs_score || 0,
+            needs_review: false, fetched_at: a.published_at || null,
+            image_url: a.image_url || '',
+            source_name: a.source_name || a.source || '',
+            status: 'published', template_id: a.template_id || null,
+            _kv_only: true,
+          });
+        const paged = merged.slice(offset, offset + limit);
+        return Response.json({ articles: paged, page, has_more: merged.length > offset + limit }, { headers: h });
+      }
+
       const rows = await supabase(env, 'GET',
-        `/rest/v1/content_items?${filter}&select=id,slug,title,summary,full_body,category,publish_mode,nvs_score,needs_review,fetched_at,image_url,source_name`
+        `/rest/v1/content_items?${filter}&select=id,slug,title,summary,full_body,category,publish_mode,nvs_score,needs_review,fetched_at,image_url,source_name,status,template_id`
       );
       return Response.json({ articles: rows || [], page, has_more: (rows || []).length === limit }, { headers: h });
     }
@@ -1735,12 +1957,12 @@ Sadece JSON döndür:
       const sites = await getActiveSites(env);
       const site  = sites?.[0];
       if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
-      const { slug, title, summary, full_body, category, image_url, is_new } = await request.json();
+      const { slug, title, summary, full_body, category, image_url, is_new, kv_only } = await request.json();
       if (!title?.trim()) return Response.json({ error: 'title required' }, { status: 400, headers: h });
 
-      if (is_new) {
+      if (is_new || kv_only) {
         const now     = new Date().toISOString();
-        const newSlug = generateSlug(title, now);
+        const newSlug = (kv_only && slug) ? slug : generateSlug(title, now);
         const newRow  = {
           site_id: site.id, title: title.trim(), summary: summary || '',
           full_body: full_body || '', category: category || 'Haber',
@@ -1752,17 +1974,25 @@ Sadece JSON döndür:
         };
         const inserted = await supabase(env, 'POST', '/rest/v1/content_items', [newRow]);
         if (!inserted) return Response.json({ error: 'Supabase insert failed' }, { status: 500, headers: h });
-        // Add to KV so article shows on homepage immediately
-        const kv = await env.PITCHOS_CACHE.get('articles:BJK');
-        if (kv) {
-          const arts = JSON.parse(kv);
-          arts.unshift({ title: newRow.title, summary: newRow.summary, full_body: newRow.full_body,
-            source: 'Kartalix', source_name: 'Kartalix', category: newRow.category,
-            published_at: now, nvs: 75, slug: newSlug, image_url: newRow.image_url || '',
-            publish_mode: 'manual', is_kartalix_content: true });
-          await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+        const kv2 = await env.PITCHOS_CACHE.get('articles:BJK');
+        if (kv2) {
+          const arts = JSON.parse(kv2);
+          if (kv_only) {
+            // Article already in KV — update in-place so publish_mode becomes 'manual'
+            const patched = arts.map(a => a.slug === newSlug
+              ? { ...a, title: newRow.title, summary: newRow.summary, full_body: newRow.full_body,
+                  category: newRow.category, image_url: newRow.image_url, publish_mode: 'manual', is_kartalix_content: true }
+              : a);
+            await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(patched), { expirationTtl: 7200 });
+          } else {
+            arts.unshift({ title: newRow.title, summary: newRow.summary, full_body: newRow.full_body,
+              source: 'Kartalix', source_name: 'Kartalix', category: newRow.category,
+              published_at: now, nvs: 75, slug: newSlug, image_url: newRow.image_url || '',
+              publish_mode: 'manual', is_kartalix_content: true });
+            await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+          }
         }
-        return Response.json({ ok: true, slug: newSlug, is_new: true }, { headers: h });
+        return Response.json({ ok: true, slug: newSlug, is_new: !kv_only }, { headers: h });
       }
 
       await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}`, {
@@ -1798,6 +2028,60 @@ Sadece JSON döndür:
       return Response.json({ ok: true }, { headers: h });
     }
 
+    if (url.pathname === '/admin/content-archive' && request.method === 'POST') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+      const { slug } = await request.json();
+      if (!slug) return Response.json({ error: 'slug required' }, { status: 400, headers: h });
+      await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&site_id=eq.${site.id}`,
+        { status: 'archived' });
+      const kv = await env.PITCHOS_CACHE.get('articles:BJK');
+      if (kv) {
+        const arts = JSON.parse(kv).filter(a => a.slug !== slug);
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+      }
+      return Response.json({ ok: true }, { headers: h });
+    }
+
+    if (url.pathname === '/admin/live-slugs' && request.method === 'GET') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const kv = await env.PITCHOS_CACHE.get('articles:BJK');
+      const slugs = kv ? JSON.parse(kv).map(a => a.slug).filter(Boolean) : [];
+      return new Response(JSON.stringify(slugs), { headers: h });
+    }
+
+    if (url.pathname === '/admin/sync-kv-to-db' && request.method === 'POST') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+      const kv = await env.PITCHOS_CACHE.get('articles:BJK');
+      const kvArticles = kv ? JSON.parse(kv) : [];
+      const kvSlugs = kvArticles.map(a => a.slug).filter(Boolean);
+      if (!kvSlugs.length) return Response.json({ synced: 0, message: 'KV is empty' }, { headers: h });
+      const dbRows = await supabase(env, 'GET',
+        `/rest/v1/content_items?site_id=eq.${site.id}&slug=in.(${kvSlugs.join(',')})&select=slug`);
+      const dbSlugs = new Set((dbRows || []).map(r => r.slug));
+      const kvOnly = kvArticles.filter(a => a.slug && !dbSlugs.has(a.slug));
+      if (!kvOnly.length) return Response.json({ synced: 0, message: 'All KV articles already in DB' }, { headers: h });
+      const now = new Date().toISOString();
+      const rows = kvOnly.map(a => ({
+        site_id: site.id, slug: a.slug, title: a.title || '', summary: a.summary || '',
+        full_body: a.full_body || '', category: a.category || 'Haber',
+        source_type: a.is_kartalix_content ? 'kartalix' : 'rss',
+        source_name: a.source_name || a.source || 'Kartalix',
+        publish_mode: a.publish_mode || 'rss_summary', status: 'published',
+        nvs_score: a.nvs || a.nvs_score || 50, content_type: 'fact',
+        sport: a.sport || 'football', original_url: a.url || a.original_url || '',
+        image_url: a.image_url || '', template_id: a.template_id || null,
+        fetched_at: a.published_at || now, reviewed_at: now, reviewed_by: 'sync_kv_to_db',
+      }));
+      await supabase(env, 'POST', '/rest/v1/content_items', rows);
+      return Response.json({ synced: kvOnly.length, slugs: kvOnly.map(a => a.slug) }, { headers: h });
+    }
+
     if (url.pathname === '/rss') {
       return serveRSSFeed(env);
     }
@@ -1818,7 +2102,7 @@ Sadece JSON döndür:
     }
     if (url.pathname.startsWith('/haber/')) {
       const slug = url.pathname.replace('/haber/', '').replace(/\/$/, '');
-      return serveArticlePage(slug, env);
+      return serveArticlePage(slug, env, ctx);
     }
 
     return new Response('Kartalix Fetch Agent — OK', { status: 200 });
@@ -2033,6 +2317,92 @@ function buildStandingsContext(table) {
   ].filter(Boolean).join(' | ');
 }
 
+// ─── VENUE COORDINATES MAP (Süper Lig 2025/26) ───────────────
+// API-Football returns venue.name but no lat/lon. This map covers all
+// current Süper Lig grounds; keyed by the name API-Football returns.
+const VENUE_COORDS = {
+  // Beşiktaş
+  'Tüpraş Stadyumu':                  { lat: 41.0443, lon: 29.0083 },
+  'BJK Tüpraş Stadyumu':              { lat: 41.0443, lon: 29.0083 },
+  'Vodafone Park':                    { lat: 41.0443, lon: 29.0083 },
+  // Galatasaray
+  'Rams Park':                        { lat: 41.1043, lon: 28.9330 },
+  'RAMS Park':                        { lat: 41.1043, lon: 28.9330 },
+  'Türk Telekom Stadyumu':            { lat: 41.1043, lon: 28.9330 },
+  // Fenerbahçe
+  'Ülker Stadyumu':                   { lat: 40.9928, lon: 29.0544 },
+  'Şükrü Saracoğlu Stadyumu':         { lat: 40.9928, lon: 29.0544 },
+  // Trabzonspor
+  'Papara Park':                      { lat: 40.9995, lon: 39.7267 },
+  'Medical Park Trabzon Stadyumu':    { lat: 40.9995, lon: 39.7267 },
+  // Başakşehir
+  'Başakşehir Fatih Terim Stadyumu':  { lat: 41.0934, lon: 28.8024 },
+  'Fatih Terim Stadyumu':             { lat: 41.0934, lon: 28.8024 },
+  // Gaziantep
+  'Kalyon Stadyumu':                  { lat: 37.0662, lon: 37.3833 },
+  'Gaziantep Stadyumu':               { lat: 37.0662, lon: 37.3833 },
+  // Antalyaspor
+  'Antalya Stadyumu':                 { lat: 36.8676, lon: 30.7060 },
+  // Konyaspor
+  'Konya Büyükşehir Stadyumu':        { lat: 37.8711, lon: 32.4847 },
+  // Sivasspor
+  'Yeni 4 Eylül Stadyumu':            { lat: 39.7477, lon: 37.0173 },
+  '4 Eylül Stadyumu':                 { lat: 39.7477, lon: 37.0173 },
+  // Alanyaspor
+  'Bahçeşehir Okul Stadyumu':         { lat: 36.5440, lon: 32.0187 },
+  // Adana Demirspor
+  'Yeni Adana Stadyumu':              { lat: 36.9915, lon: 35.3294 },
+  // Kasımpaşa
+  'Recep Tayyip Erdoğan Stadyumu':    { lat: 41.0523, lon: 28.9528 },
+  'Nef Stadyumu':                     { lat: 41.0523, lon: 28.9528 },
+  // Kayserispor
+  'Kadir Has Stadyumu':               { lat: 38.6912, lon: 35.4847 },
+  // Samsunspor
+  'Yeni Samsun Stadyumu':             { lat: 41.2780, lon: 36.3364 },
+  // Rizespor
+  'Çaykur Didi Stadyumu':             { lat: 41.0276, lon: 40.5218 },
+  // Ankaragücü
+  'Eryaman Stadyumu':                 { lat: 39.8950, lon: 32.7380 },
+  // Hatayspor (currently using Atatürk in Mersin post-earthquake)
+  'Mersin Stadyumu':                  { lat: 36.7994, lon: 34.6156 },
+  'Atatürk Stadyumu':                 { lat: 36.2028, lon: 36.1637 },
+  // Göztepe
+  'Gürsel Aksel Stadyumu':            { lat: 38.4278, lon: 27.1505 },
+  // Eyüpspor
+  'Eyüp Stadyumu':                    { lat: 41.0503, lon: 28.9327 },
+  // Bodrum FK
+  'Bodrum İlçe Stadyumu':             { lat: 37.0343, lon: 27.4305 },
+};
+
+// Sync map lookup — returns null if venue is unknown (don't fake coords).
+function getVenueCoords(venueName) {
+  if (!venueName) return null;
+  if (VENUE_COORDS[venueName]) return VENUE_COORDS[venueName];
+  const lower = venueName.toLowerCase();
+  const found = Object.entries(VENUE_COORDS).find(([k]) => k.toLowerCase().includes(lower) || lower.includes(k.toLowerCase()));
+  return found ? found[1] : null;
+}
+
+// Async fallback: geocode venue_city via Open-Meteo (free, no auth).
+// Used when venue name isn't in the static map (European away, cup, promoted teams).
+async function geocodeCity(city) {
+  if (!city) return null;
+  try {
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en&format=json`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const r = data.results?.[0];
+    if (r?.latitude && r?.longitude) return { lat: r.latitude, lon: r.longitude };
+  } catch(e) { console.error('geocodeCity failed:', e.message); }
+  return null;
+}
+
+// Resolves coords for a fixture: static map → city geocode → null (weather skipped).
+async function resolveVenueCoords(venueName, venueCity) {
+  return getVenueCoords(venueName) ?? await geocodeCity(venueCity);
+}
+
 // ─── OPEN-METEO WEATHER (no auth) ────────────────────────────
 async function getMatchWeather(lat, lon) {
   if (!lat || !lon) return null;
@@ -2098,7 +2468,7 @@ const toKVShape = a => ({
   title:               a.title        || '',
   summary:             a.summary      || a.description || '',
   full_body:           a.full_body && a.full_body.length > 300
-    ? sanitizeBodyHtml(a.full_body).slice(0, 8000)
+    ? (a.is_template ? a.full_body : sanitizeBodyHtml(a.full_body).slice(0, 8000))
     : (a.summary || a.description || ''),
   source:              a.source       || a.source_name || '',
   source_name:         a.source_name  || a.source || '',
@@ -2713,7 +3083,8 @@ async function processSite(site, env, ctx) {
 
   // ── KV WRITE IMMEDIATELY (before templates, enrichment, Supabase) ──
   const existing = await getCachedArticles(env, site.short_code);
-  const immediateKV = mergeAndDedupe([...top100, ...existing], 100).map(toKVShape);
+  const kvCandidates = top100.filter(a => a.publish_mode !== 'rss_summary');
+  const immediateKV = mergeAndDedupe([...kvCandidates, ...existing.filter(a => a.publish_mode !== 'rss_summary')], 100).map(toKVShape);
   await cacheToKV(env, site.short_code, immediateKV);
   console.log('KV WRITE IMMEDIATE: done', immediateKV.length, 'articles');
 
@@ -2736,8 +3107,8 @@ async function processSite(site, env, ctx) {
           time:           liveFixture.time,
           venue:          liveFixture.venue || NEXT_MATCH.venue,
           venue_city:     liveFixture.venue_city || NEXT_MATCH.venue_city,
-          venue_lat:      NEXT_MATCH.venue_lat,  // API-Football doesn't provide coords
-          venue_lon:      NEXT_MATCH.venue_lon,
+          venue_lat:      null, // resolved below via resolveVenueCoords
+          venue_lon:      null,
           tv:             NEXT_MATCH.tv,          // not in API, keep hardcoded
           match_day:      liveFixture.date,
           cup:            null,
@@ -2745,7 +3116,10 @@ async function processSite(site, env, ctx) {
           opponent_id:    liveFixture.opponent_id,
           referee:        liveFixture.referee || null,
         };
-        console.log(`NEXT MATCH (API): ${nextMatch.opponent} on ${nextMatch.date} ${nextMatch.time}`);
+        const coords = await resolveVenueCoords(nextMatch.venue, nextMatch.venue_city);
+        nextMatch.venue_lat = coords.lat;
+        nextMatch.venue_lon = coords.lon;
+        console.log(`NEXT MATCH (API): ${nextMatch.opponent} on ${nextMatch.date} ${nextMatch.time} @ ${nextMatch.venue} (${coords.lat},${coords.lon})`);
       }
     } catch(e) { console.error('getNextFixture failed, using fallback:', e.message); }
 
@@ -2934,6 +3308,91 @@ async function processSite(site, env, ctx) {
       }
     } catch(e) { console.error('Template T03 failed:', e.message); }
 
+    // T08c Predicted Lineup Pitch — fires once per match in the 48-72h window
+    try {
+      const t08cKey = `flag:t08c:${nextMatch.date}`;
+      const t08cExists = await env.PITCHOS_CACHE.get(t08cKey);
+      if (!t08cExists) {
+        const matchDateTime = new Date(`${nextMatch.date}T${nextMatch.time}:00+03:00`);
+        const hoursToKickoff = (matchDateTime - new Date()) / (1000 * 60 * 60);
+        if (hoursToKickoff > 0 && hoursToKickoff <= 72) {
+          console.log(`TEMPLATE T08c: ${hoursToKickoff.toFixed(1)}h to kickoff — generating predicted lineup...`);
+          const [bjkLastLineup, oppLastLineup, injuries, predHistory] = await Promise.all([
+            getBJKLastLineupData(env),
+            nextMatch.opponent_id ? getOpponentLastLineup(nextMatch.opponent_id, env) : Promise.resolve(null),
+            getInjuries(env, nextMatch.fixture_id),
+            env.PITCHOS_CACHE.get('lineup_history', 'json').catch(() => null),
+          ]);
+          const card = await generateLineupCard(nextMatch, bjkLastLineup, oppLastLineup, injuries, predHistory || [], site, env);
+          if (card) {
+            await linkToMatchStory(card);
+            await env.PITCHOS_CACHE.put(t08cKey, '1', { expirationTtl: 86400 });
+            // Store prediction for accuracy comparison after real lineup is announced
+            if (nextMatch.fixture_id && card.predicted_players) {
+              await env.PITCHOS_CACHE.put(
+                `lineup_predict:${nextMatch.fixture_id}`,
+                JSON.stringify({
+                  fixture_id:        nextMatch.fixture_id,
+                  opponent:          nextMatch.opponent,
+                  date:              nextMatch.date,
+                  predicted_players: card.predicted_players,
+                  formation:         card.formation,
+                  generated_at:      new Date().toISOString(),
+                  compared:          false,
+                }),
+                { expirationTtl: 60 * 60 * 24 * 14 }
+              );
+            }
+            const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+            const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
+            const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 75, is_kartalix_content: true, is_template: true });
+            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+            console.log('KV WRITE WITH T08c: done');
+          }
+        }
+      }
+    } catch(e) { console.error('Template T08c failed:', e.message); }
+
+    // T08c Accuracy Comparison — fires when real lineup confirmed (~60min before kickoff)
+    try {
+      if (nextMatch.fixture_id) {
+        const matchDateTime = new Date(`${nextMatch.date}T${nextMatch.time}:00+03:00`);
+        const hoursToKickoff = (matchDateTime - new Date()) / (1000 * 60 * 60);
+        if (hoursToKickoff >= 0 && hoursToKickoff <= 1.5) {
+          const predictKey = `lineup_predict:${nextMatch.fixture_id}`;
+          const prediction = await env.PITCHOS_CACHE.get(predictKey, 'json');
+          if (prediction && !prediction.compared) {
+            const realLineup = await getFixtureLineup(nextMatch.fixture_id, env);
+            if (realLineup?.startXI?.length >= 11) {
+              const realNames = realLineup.startXI.map(p => p.name.toLowerCase());
+              const correct = (prediction.predicted_players || []).filter(pred =>
+                realNames.some(r => {
+                  const predLast = pred.toLowerCase().split(' ').pop();
+                  return r.includes(pred.toLowerCase()) || r.split(' ').pop() === predLast;
+                })
+              );
+              const correctCount = correct.length;
+              await env.PITCHOS_CACHE.put(predictKey, JSON.stringify({
+                ...prediction,
+                real_players:  realLineup.startXI.map(p => p.name),
+                correct,
+                correct_count: correctCount,
+                accuracy:      correctCount / 11,
+                compared:      true,
+                compared_at:   new Date().toISOString(),
+              }), { expirationTtl: 60 * 60 * 24 * 30 });
+              // Append to rolling history (last 10)
+              const histRaw = await env.PITCHOS_CACHE.get('lineup_history', 'json').catch(() => null);
+              const hist = Array.isArray(histRaw) ? histRaw : [];
+              hist.unshift({ fixture_id: nextMatch.fixture_id, opponent: nextMatch.opponent, date: nextMatch.date, correct_count: correctCount });
+              await env.PITCHOS_CACHE.put('lineup_history', JSON.stringify(hist.slice(0, 10)));
+              console.log(`T08c COMPARE: ${correctCount}/11 correct vs ${nextMatch.opponent}`);
+            }
+          }
+        }
+      }
+    } catch(e) { console.error('T08c comparison failed:', e.message); }
+
     // T01 Match Preview — fires once per match in the 0–48h window
     try {
       const t01Key = `flag:t01:${nextMatch.date}`;
@@ -3117,6 +3576,25 @@ async function processSite(site, env, ctx) {
       if (toPublish.length > 0) await saveArticles(env, site.id, toPublish, 'published');
       if (toQueue.length > 0)   await saveArticles(env, site.id, toQueue,   'pending');
       await saveSeenHashes(env, site.short_code, toPublish);
+
+      // Evict failed-synthesis articles from KV — they have no DB record and must not stay live.
+      // Match by original URL (slug in KV may differ from what writeArticles generated).
+      const rssOnly = allWritten.filter(a => a.publish_mode === 'rss_summary');
+      if (rssOnly.length > 0) {
+        const badUrls = new Set(rssOnly.map(a => a.url || a.original_url).filter(Boolean));
+        const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+        if (latestRaw) {
+          const latest = JSON.parse(latestRaw);
+          const cleaned = latest.filter(a => {
+            const u = a.url || a.original_url || '';
+            return !u || !badUrls.has(u);
+          });
+          if (cleaned.length < latest.length) {
+            await cacheToKV(env, site.short_code, cleaned);
+            console.log(`KV EVICT: removed ${latest.length - cleaned.length} rss_summary articles (no DB record)`);
+          }
+        }
+      }
 
       // ── STORY MATCHING ───────────────────────────────────────
       // Capped at 5 per run — each article requires 2 Claude calls (extractFacts + judge).
@@ -3382,25 +3860,65 @@ async function buildMatchStats(fixtureId, env) {
 
 const BASE_URL = 'https://kartalix.com';
 
-async function serveArticlePage(slug, env) {
+// Auto-backfill: create a Supabase record for an article that is live in KV but has no DB row.
+// Called in background (ctx.waitUntil) so it never delays the served response.
+async function backfillArticleToSupabase(kvArticle, env) {
+  try {
+    const sites = await getActiveSites(env);
+    const site  = sites?.[0];
+    if (!site) return;
+    const now = new Date().toISOString();
+    await supabase(env, 'POST', '/rest/v1/content_items', [{
+      site_id:      site.id,
+      slug:         kvArticle.slug,
+      title:        kvArticle.title || '',
+      summary:      kvArticle.summary || '',
+      full_body:    kvArticle.full_body || '',
+      category:     kvArticle.category || 'Haber',
+      source_type:  kvArticle.is_kartalix_content ? 'kartalix' : 'rss',
+      source_name:  kvArticle.source_name || kvArticle.source || 'Kartalix',
+      publish_mode: kvArticle.publish_mode || 'rss_summary',
+      status:       'published',
+      nvs_score:    kvArticle.nvs || kvArticle.nvs_score || 50,
+      content_type: 'fact',
+      sport:        kvArticle.sport || 'football',
+      original_url: kvArticle.url || kvArticle.original_url || '',
+      image_url:    kvArticle.image_url || '',
+      template_id:  kvArticle.template_id || null,
+      fetched_at:   kvArticle.published_at || now,
+      reviewed_at:  now,
+      reviewed_by:  'auto_backfill',
+    }]);
+    console.log(`BACKFILL: saved KV-only article to DB: ${kvArticle.slug}`);
+  } catch(e) {
+    console.error('backfillArticleToSupabase failed:', e.message);
+  }
+}
+
+async function serveArticlePage(slug, env, ctx) {
   const cached = await env.PITCHOS_CACHE.get('articles:BJK');
   const articles = cached ? JSON.parse(cached) : [];
 
-  // Find by slug first, fall back to Supabase
-  let article = articles.find(a => a.slug === slug);
+  // Find by slug in KV first
+  const kvArticle = articles.find(a => a.slug === slug);
+  let article = kvArticle || null;
 
-  if (!article) {
-    const rows = await supabase(env, 'GET',
-      `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&select=*&limit=1`);
-    if (rows && rows.length > 0) {
-      const r = rows[0];
-      article = {
-        title: r.title, summary: r.summary || '', full_body: r.full_body || '',
-        source: r.source_name || '', category: r.category || 'Haber',
-        published_at: r.fetched_at, image_url: r.image_url || '',
-        nvs: r.nvs_score || 0, url: r.original_url || '#', slug,
-      };
-    }
+  // Always verify against Supabase (status filter + canonical data)
+  const rows = await supabase(env, 'GET',
+    `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&status=not.in.(rejected,archived)&select=*&limit=1`);
+  if (rows && rows.length > 0) {
+    const r = rows[0];
+    article = {
+      title: r.title, summary: r.summary || '', full_body: r.full_body || '',
+      source: r.source_name || '', category: r.category || 'Haber',
+      published_at: r.fetched_at, image_url: r.image_url || '',
+      nvs: r.nvs_score || 0, url: r.original_url || '#', slug,
+      is_kartalix_content: r.content_type === 'kartalix_generated',
+      template_id: r.template_id || null,
+    };
+  } else if (kvArticle && ctx) {
+    // KV-only: article is live but has no DB record — backfill in background
+    ctx.waitUntil(backfillArticleToSupabase(kvArticle, env));
   }
 
   if (!article) {
@@ -3527,6 +4045,7 @@ footer a{color:#666;margin:0 0.75rem}
 footer a:hover{color:#E30A17;text-decoration:none}
 @media(max-width:600px){main{padding:1.5rem 1rem 3rem}h1{font-size:1.3rem}}
 </style>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5282305686231853" crossorigin="anonymous"></script>
 </head>
 <body>
 <header>
@@ -3732,6 +4251,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
 .rxn-count{font-size:.82rem;font-weight:700;min-width:1ch}
 @media(max-width:600px){main{padding:1.5rem 1rem 3rem}h1{font-size:1.35rem}}
 </style>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5282305686231853" crossorigin="anonymous"></script>
 </head>
 <body>
 <header>
@@ -3750,7 +4270,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
     </div>
     ${image ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
     <div class="article-body">${bodyHtml}</div>
-    ${fixtureId && templateId ? `<div id="matchStatsBox" style="margin:1.5rem 0"></div>
+    ${fixtureId && templateId && ['T10','T11','T12','T-XG','T-HT','T-RED','T-VAR','T-PEN'].includes(templateId) ? `<div id="matchStatsBox" style="margin:1.5rem 0"></div>
     <script>
     (async function(){
       try {
@@ -3940,6 +4460,12 @@ select{height:30px;color:#aaa}
 .badge-rss{background:#2a2a2a;color:#777}
 .nvs{font-size:.63rem;color:#555}
 .nr-flag{font-size:.72rem;color:#f0a500}
+.status-pill{font-size:.6rem;font-weight:700;letter-spacing:.05em;padding:1px 7px;border-radius:10px;white-space:nowrap}
+.sp-live{background:#14532d;color:#4ade80}
+.sp-pub{background:#1e3a5f;color:#60a5fa}
+.sp-pend{background:#3a2e00;color:#fbbf24}
+.sp-arch{background:#2a2a2a;color:#555}
+.sp-kv{background:#2a1a3a;color:#a78bfa}
 .art-date{font-size:.63rem;color:#444;margin-left:auto}
 .editor-inner{flex:1;display:flex;flex-direction:column;padding:1.25rem 1.5rem;overflow-y:auto;gap:.85rem}
 .editor-empty{flex:1;display:flex;align-items:center;justify-content:center;color:#333;font-size:.9rem}
@@ -3964,6 +4490,13 @@ ADMINNAV_PLACEHOLDER
         <option value="template">Şablon</option>
         <option value="youtube">YouTube</option>
         <option value="manual">Manuel</option>
+      </select>
+      <select id="statusFilter" onchange="load(1)">
+        <option value="">Tüm Durumlar</option>
+        <option value="live">Canlı</option>
+        <option value="published">Yayında</option>
+        <option value="pending">Beklemede</option>
+        <option value="archived">Arşiv</option>
       </select>
     </div>
     <div class="toolbar" style="padding:.4rem .85rem">
@@ -4005,12 +4538,22 @@ ADMINNAV_PLACEHOLDER
           <label>Slug <span style="color:#444;text-transform:none;font-weight:400">(sadece okuma)</span></label>
           <input type="text" id="eSlug" readonly style="color:#555;cursor:default">
         </div>
+        <div class="field" id="eFbRow" style="display:none">
+          <label>YZ Rehberlik Notu <span style="color:#444;text-transform:none;font-weight:400;letter-spacing:0">— Talimat Üret için kaynak olarak kullanılır</span></label>
+          <textarea id="eFbText" rows="3" placeholder="Ton, eksik bilgi, üslup, düzeltme önerileri…"></textarea>
+          <div style="display:flex;gap:.5rem;margin-top:.4rem;align-items:center">
+            <button class="btn btn-secondary btn-sm" onclick="saveFb()">Notu Kaydet</button>
+            <span id="eFbStatus" style="font-size:.72rem;color:#555"></span>
+          </div>
+          <div id="eFbList" style="margin-top:.5rem"></div>
+        </div>
       </div>
       <div class="editor-actions">
         <button class="btn btn-primary" onclick="saveArticle()">Kaydet</button>
         <button class="btn btn-secondary" id="previewBtn" onclick="previewArticle()" style="display:none">Önizle ↗</button>
         <span class="save-status" id="saveStatus"></span>
-        <button class="btn btn-danger btn-sm" style="margin-left:auto" onclick="deleteArticle()">Sil</button>
+        <button class="btn btn-secondary btn-sm" style="margin-left:auto" onclick="archiveArticle()">Arşivle</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteArticle()">Sil</button>
       </div>
     </div>
   </div>
@@ -4018,8 +4561,11 @@ ADMINNAV_PLACEHOLDER
 <script>
 let currentSlug = null;
 let currentPage = 1;
+let currentTemplateId = null;
+let currentIsKVOnly = false;
 let searchTimer = null;
 const articleCache = {};
+let liveSlugSet = new Set();
 
 function schedSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(() => load(1), 350); }
 
@@ -4046,12 +4592,31 @@ function fmtDate(s) {
 }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
+function statusPill(a) {
+  if (!a.slug) return '';
+  if (a._kv_only)              return '<span class="status-pill sp-kv">Canlı·DB yok</span>';
+  if (a.status === 'archived') return '<span class="status-pill sp-arch">Arşiv</span>';
+  if (a.status === 'pending')  return '<span class="status-pill sp-pend">Beklemede</span>';
+  if (a.status === 'published') {
+    if (liveSlugSet.has(a.slug)) return '<span class="status-pill sp-live">Canlı</span>';
+    return '<span class="status-pill sp-pub">Yayında</span>';
+  }
+  return \`<span class="status-pill sp-arch">\${esc(a.status||'?')}</span>\`;
+}
+
 async function load(page) {
   currentPage = page || 1;
+  try {
+    const kr = await fetch('/admin/live-slugs');
+    if (kr.ok) { const slugs = await kr.json(); liveSlugSet = new Set(slugs); }
+  } catch(e) {}
   const q  = document.getElementById('q').value.trim();
   const m  = document.getElementById('modeFilter').value;
   const nr = document.getElementById('nrFilter').checked ? '1' : '';
+  const sf = document.getElementById('statusFilter').value;
   const params = new URLSearchParams({ page: currentPage, q, mode: m, needs_review: nr });
+  if (sf === 'live') params.set('live', '1');
+  else if (sf) params.set('status', sf);
   const res = await fetch('/admin/content-data?' + params);
   const data = await res.json();
   const articles = data.articles || [];
@@ -4066,6 +4631,7 @@ async function load(page) {
         <div class="art-title">\${esc(a.title||'(başlıksız)')}</div>
         <div class="art-meta">
           <span class="badge \${badgeClass(a.publish_mode)}">\${badgeLabel(a.publish_mode)}</span>
+          \${statusPill(a)}
           \${a.nvs_score ? '<span class="nvs">NVS '+a.nvs_score+'</span>' : ''}
           \${a.needs_review ? '<span class="nr-flag">⚠️</span>' : ''}
           <span class="art-date">\${fmtDate(a.fetched_at)}</span>
@@ -4084,6 +4650,7 @@ function openBySlug(slug) { openArticle(articleCache[slug]); }
 
 function openArticle(a) {
   currentSlug = a.slug;
+  currentIsKVOnly = a._kv_only || false;
   document.querySelectorAll('.art-row').forEach(r => r.classList.toggle('active', r.dataset.slug === a.slug));
   document.getElementById('editorEmpty').style.display  = 'none';
   const f = document.getElementById('editorForm');
@@ -4098,11 +4665,18 @@ function openArticle(a) {
   document.getElementById('previewBtn').style.display = a.slug ? 'inline-block' : 'none';
   document.getElementById('saveStatus').textContent = '';
   document.getElementById('deleteBtn') && (document.getElementById('deleteBtn').style.display = 'inline-block');
+  currentTemplateId = a.template_id || null;
+  document.getElementById('eFbText').value = '';
+  document.getElementById('eFbStatus').textContent = '';
+  document.getElementById('eFbList').innerHTML = '';
+  document.getElementById('eFbRow').style.display = 'block';
+  if (a.slug) loadArticleFb(a.slug);
   updateWc();
 }
 
 function newArticle() {
   currentSlug = null;
+  currentIsKVOnly = false;
   document.querySelectorAll('.art-row').forEach(r => r.classList.remove('active'));
   document.getElementById('editorEmpty').style.display  = 'none';
   const f = document.getElementById('editorForm');
@@ -4114,6 +4688,7 @@ function newArticle() {
   document.getElementById('eImg').value     = '';
   document.getElementById('eSlug').value    = '';
   document.getElementById('eSlugRow').style.display = 'none';
+  document.getElementById('eFbRow').style.display = 'none';
   document.getElementById('previewBtn').style.display = 'none';
   document.getElementById('saveStatus').textContent = '';
   document.getElementById('eTitle').focus();
@@ -4141,11 +4716,12 @@ async function saveArticle() {
   st.textContent = 'Kaydediliyor…'; st.style.color = '#666';
   const res = await fetch('/admin/content-save', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ slug: currentSlug, title, summary, full_body, category, image_url, is_new: !currentSlug })
+    body: JSON.stringify({ slug: currentSlug, title, summary, full_body, category, image_url, is_new: !currentSlug, kv_only: currentIsKVOnly })
   });
   const data = await res.json();
   if (data.ok) {
     st.textContent = 'Kaydedildi ✓'; st.style.color = '#3a9a3a';
+    currentIsKVOnly = false;
     if (data.is_new) {
       currentSlug = data.slug;
       document.getElementById('eSlug').value = data.slug;
@@ -4172,6 +4748,64 @@ async function deleteArticle() {
     document.getElementById('editorEmpty').style.display = 'flex';
     load(currentPage);
   }
+}
+
+async function archiveArticle() {
+  if (!currentSlug) return;
+  if (!confirm('Bu haberi arşivlemek istediğinize emin misiniz? Makale yayından kaldırılır, link erişilemez olur.')) return;
+  const res = await fetch('/admin/content-archive', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ slug: currentSlug })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    currentSlug = null;
+    document.getElementById('editorForm').style.display  = 'none';
+    document.getElementById('editorEmpty').style.display = 'flex';
+    load(currentPage);
+  }
+}
+
+async function loadArticleFb(slug) {
+  try {
+    const res = await fetch('/article/feedback');
+    const ct = res.headers.get('content-type') || '';
+    if (!res.ok || !ct.includes('json')) return;
+    const all = await res.json();
+    const items = all.filter(f => f.article_slug === slug);
+    const list = document.getElementById('eFbList');
+    if (!items.length) { list.innerHTML = ''; return; }
+    list.innerHTML = items.map(f => \`
+      <div style="background:#1a2a1a;border-left:2px solid #3a5a3a;padding:.35rem .6rem;margin-bottom:.3rem;font-size:.75rem;color:#9a9;border-radius:0 3px 3px 0;display:flex;justify-content:space-between;gap:.5rem;align-items:flex-start">
+        <span style="flex:1">\${esc(f.comment)}</span>
+        <button onclick="delArticleFb('\${f.id}')" style="background:transparent;border:none;color:#555;cursor:pointer;font-size:.7rem;flex-shrink:0">✕</button>
+      </div>
+    \`).join('');
+  } catch(e) {}
+}
+
+async function saveFb() {
+  if (!currentSlug) return;
+  const text = document.getElementById('eFbText').value.trim();
+  const st = document.getElementById('eFbStatus');
+  if (!text) { st.textContent = 'Not boş olamaz.'; st.style.color = '#E30A17'; return; }
+  st.textContent = 'Kaydediliyor…'; st.style.color = '#666';
+  const title = document.getElementById('eTitle').value.trim();
+  const res = await fetch('/article/feedback', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ article_slug: currentSlug, article_title: title, template_id: currentTemplateId, comment: text })
+  });
+  if (res.ok) {
+    document.getElementById('eFbText').value = '';
+    st.textContent = '✓ Kaydedildi'; st.style.color = '#3a9a3a';
+    setTimeout(() => { st.textContent = ''; st.style.color = '#555'; }, 2500);
+    await loadArticleFb(currentSlug);
+  } else { st.textContent = 'Hata.'; st.style.color = '#E30A17'; }
+}
+
+async function delArticleFb(id) {
+  await fetch('/article/feedback', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'delete', id }) });
+  if (currentSlug) await loadArticleFb(currentSlug);
 }
 
 load(1);
@@ -5691,8 +6325,13 @@ const ARTICLES = ${JSON.stringify(articles.slice(0, 40))};
 let feedbacks = [];
 
 async function loadNewsList() {
-  const fbRes = await fetch('/article/feedback');
-  feedbacks = fbRes.ok ? await fbRes.json() : [];
+  try {
+    const fbRes = await fetch('/article/feedback');
+    if (fbRes.ok) {
+      const ct = fbRes.headers.get('content-type') || '';
+      feedbacks = ct.includes('json') ? await fbRes.json() : [];
+    }
+  } catch(e) { feedbacks = []; }
 
   const pending = feedbacks.filter(f => !f.processed);
   document.getElementById('fbCount').textContent = pending.length ? \`\${pending.length} not bekliyor\` : '';

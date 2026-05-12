@@ -156,6 +156,7 @@ export async function getFixtureLineup(fixtureId, env) {
   const bjk = data.find(t => t.team?.id === BJK_ID);
   if (!bjk) return null;
   const startXI = (bjk.startXI || []).map(p => ({
+    id:     p.player?.id     ?? null,
     name:   p.player?.name   || '',
     number: p.player?.number ?? null,
     pos:    p.player?.pos    || null,
@@ -166,6 +167,7 @@ export async function getFixtureLineup(fixtureId, env) {
     formation:   bjk.formation || null,
     startXI,
     substitutes: (bjk.substitutes || []).map(p => ({
+      id:     p.player?.id     ?? null,
       name:   p.player?.name   || '',
       number: p.player?.number ?? null,
       pos:    p.player?.pos    || null,
@@ -260,6 +262,58 @@ function normalizeFixture(f) {
     score_opp:     oppScore,
     referee:       f.fixture?.referee || null,
   };
+}
+
+// ─── BJK LAST LINEUP + RATINGS ────────────────────────────────
+// Returns last confirmed BJK starting XI + substitutes with per-player ratings.
+// Used as the prediction base for T08c lineup card.
+export async function getBJKLastLineupData(env) {
+  const lastFixtures = await getLastFixtures(env, 1);
+  const lastFixtureId = lastFixtures?.[0]?.fixture_id;
+  if (!lastFixtureId) return null;
+  const [lineup, players] = await Promise.all([
+    getFixtureLineup(lastFixtureId, env),
+    getFixturePlayers(lastFixtureId, env),
+  ]);
+  if (!lineup) return null;
+  const ratingById = {}, ratingByName = {}, ratingByLast = {};
+  for (const p of (players || [])) {
+    if (p.id) ratingById[p.id] = p.rating;
+    ratingByName[p.name] = p.rating;
+    const last = (p.name || '').trim().split(/\s+/).pop().toLowerCase();
+    if (last) ratingByLast[last] = p.rating;
+  }
+  function lookupRating(p) {
+    if (p.id && ratingById[p.id]) return ratingById[p.id];
+    if (ratingByName[p.name]) return ratingByName[p.name];
+    const last = (p.name || '').trim().split(/\s+/).pop().toLowerCase();
+    return ratingByLast[last] || null;
+  }
+  return {
+    fixture_id:  lastFixtureId,
+    formation:   lineup.formation,
+    startXI:     lineup.startXI.map(p => ({ ...p, rating: lookupRating(p) })),
+    substitutes: lineup.substitutes.map(p => ({ ...p, rating: lookupRating(p) })),
+  };
+}
+
+// ─── OPPONENT LAST LINEUP ─────────────────────────────────────
+// Returns last confirmed starting XI for any team. Used to show
+// opponent's formation on the T08c pitch card.
+export async function getOpponentLastLineup(opponentId, env) {
+  if (!opponentId) return null;
+  const fixtures = await apiFetch(`/fixtures?team=${opponentId}&last=1&timezone=Europe/Istanbul`, env);
+  if (!fixtures?.length) return null;
+  const fixtureId = fixtures[0]?.fixture?.id;
+  if (!fixtureId) return null;
+  const lineupData = await apiFetch(`/fixtures/lineups?fixture=${fixtureId}`, env);
+  if (!lineupData?.length) return null;
+  const oppTeam = lineupData.find(t => t.team?.id === opponentId);
+  if (!oppTeam) return null;
+  const startXI = (oppTeam.startXI || [])
+    .map(p => ({ name: p.player?.name || '', pos: p.player?.pos || null, grid: p.player?.grid || null, rating: null }))
+    .filter(p => p.name);
+  return startXI.length < 8 ? null : { formation: oppTeam.formation || null, startXI, teamName: oppTeam.team?.name || '' };
 }
 
 // ─── GENERIC: TEAM NEXT FIXTURE ───────────────────────────────

@@ -8,15 +8,20 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: Run 3 pending DB migrations in Supabase SQL Editor (copy-paste each file in order):
-1. `docs/migrations/0003_verifier_gate.sql` — adds `needs_review` + `verification_result` to `content_items`
-2. `docs/migrations/0004_sites_team_league.sql` — adds `team_id/league_id/season` to `sites`; sets BJK row (team_id=549, league_id=203, season=2025)
-3. `docs/migrations/0005_league_european_spots.sql` — creates `league_european_spots` table + seeds Süper Lig + Serie A data
+**NEXT**: Choose one of:
+1. **Slice 3 expansion** — story type normalization (free-text types like "transfer_interest", "player_transfer" are leaking into classification; fold into controlled set). Or: story admin UI in report page to see open stories + contributions.
+2. **Monetisation** — wait for AdSense approval, then place ad units in article pages.
+3. **bjk.com.tr content** (backlog) — try ScrapingBee JS-rendered access when budget allows.
 
-After running migrations:
-- Test `/test-verifier` to confirm rich grounding context with European spots is working
-- POST to `/admin/season-notes` (body: `{"teamId":549,"notes":"Türkiye Kupası: Konyaspor'a yarı finalde elendi (2026-05-09). Şampiyonluk imkansız. Hedef: UEL garantisi (3. sıra)."}`)
-- Apply for Google AdSense at `ads.google.com`
+**Slice 2 close-out** ✅ DONE (2026-05-10): All golden fixtures verified against live production data via `/admin/golden-fixtures`. 130 stories in DB, 42 active, top story has 46 contributions. State machine transitions logged for 46 stories (emerging→developing→confirmed→active). `all_pass: true`.
+
+**rss_summary KV leak fix** ✅ DONE (2026-05-09): `rss_summary` articles were written to KV cache before `saveArticles()` filter ran, giving them public slugs at `/haber/*`. Fixed by filtering `publish_mode !== 'rss_summary'` from both `top100` and `existing` before the immediate KV write. Stray article `2026-05-09-yonetimden-istifa-aciklamasi` evicted from KV cache (worker returns 404; edge CDN will expire shortly).
+
+**AdSense** ✅ DONE (2026-05-09): Snippet added to all public pages (homepage, /haber/*, static pages). `ads.txt` created and pushed. Site submitted for review — awaiting Google approval.
+
+**Synthesis quality fix** ✅ DONE (2026-05-09): `extractKeyEntities()` Haiku pre-call extracts named people/event/details from source; injected as ZORUNLU BİLGİLER block into synthesis prompt. Synthesis model upgraded Haiku → Sonnet (MODEL_GENERATE). First-sentence rule now explicitly requires KİŞİLER + OLAY. Both initial synthesis and verify-retry use Sonnet. `/force-synthesis` endpoint added for manual testing.
+
+**DB migrations + cleanup** ✅ DONE (2026-05-09): 0003/0004/0005 migrations run. `content_items_source_type_check` constraint expanded to include `kartalix`+`youtube`. Source cleanup UPDATE run. Season notes set (Konyaspor cup elimination, UEL target). Verifier passing.
 
 **Slice 1.5 — Truth Layer** ✅ ALL PHASES DONE (2026-05-09):
 - Phase 1: grounding context injected into all synthesis prompts

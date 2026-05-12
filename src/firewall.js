@@ -1,5 +1,25 @@
 import { callClaude, extractText, MODEL_FETCH } from './utils.js';
 
+// ─── CONTROLLED STORY TYPE SET ───────────────────────────────
+const VALID_STORY_TYPES = new Set(['transfer', 'injury', 'disciplinary', 'contract', 'institutional', 'match_result', 'squad', 'other']);
+
+// Maps Claude free-text output → nearest controlled type.
+// Claude sometimes invents compound types ("transfer_interest", "player_contract_extension").
+// This catches them by keyword scan before they reach the DB.
+export function normalizeStoryType(raw) {
+  if (!raw) return 'other';
+  if (VALID_STORY_TYPES.has(raw)) return raw;
+  const t = raw.toLowerCase();
+  if (t.includes('transfer') || t.includes('signing') || t.includes('loan')) return 'transfer';
+  if (t.includes('injur') || t.includes('medical') || t.includes('recovery')) return 'injury';
+  if (t.includes('disciplin') || t.includes('suspension') || t.includes('ban') || t.includes('fine')) return 'disciplinary';
+  if (t.includes('contract') || t.includes('renewal') || t.includes('extension') || t.includes('buyout')) return 'contract';
+  if (t.includes('institutional') || t.includes('management') || t.includes('ownership') || t.includes('executive') || t.includes('appointment') || t.includes('managerial')) return 'institutional';
+  if (t.includes('match') || t.includes('result') || t.includes('score') || t.includes('goal')) return 'match_result';
+  if (t.includes('squad') || t.includes('lineup') || t.includes('formation')) return 'squad';
+  return 'other';
+}
+
 // ─── STORY TYPE CLASSIFIER ────────────────────────────────────
 // Single Haiku call — classifies news before fact extraction so
 // each story type gets the right schema.
@@ -9,23 +29,23 @@ export async function classifyStoryType(article, env) {
 
 Article: ${text}
 
-Story types (pick the best fit):
-- transfer: player moving between clubs, loan, signing
-- injury: player injury or medical news
+You MUST return one of exactly these story_type values — no others, no variations:
+- transfer: player moving between clubs, loan, signing, transfer interest
+- injury: player injury, medical news, recovery timeline
 - disciplinary: suspension, ban, fine, card accumulation
 - contract: contract renewal, extension, buyout, termination
 - match_result: a specific finished match, score, goal event
-- squad: lineup, formation, squad call-up
-- institutional: club ownership, management change, financial restructuring
-- other: anything else
+- squad: lineup announcement, formation, call-up
+- institutional: club ownership, management change, board decision, financial restructuring
+- other: anything not covered above
 
-{"story_type": "<type>", "story_category": "sporting" | "financial" | "institutional" | "other"}
+{"story_type": "<one of the 8 values above>", "story_category": "sporting" | "financial" | "institutional" | "other"}
 
 sporting: transfer, injury, disciplinary, contract, match_result, squad
 financial: contract value as primary story, FFP, debt
 institutional: ownership, board, management
 
-Return only the JSON.`;
+Return only the JSON. Do not invent new story_type values.`;
 
   try {
     const res  = await callClaude(env, MODEL_FETCH, prompt, false, 80);
@@ -34,7 +54,7 @@ Return only the JSON.`;
     if (!json) return { story_type: 'other', story_category: 'other' };
     const parsed = JSON.parse(json[0]);
     return {
-      story_type:     parsed.story_type     || 'other',
+      story_type:     normalizeStoryType(parsed.story_type),
       story_category: parsed.story_category || 'other',
     };
   } catch {

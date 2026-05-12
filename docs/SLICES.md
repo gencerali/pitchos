@@ -101,33 +101,33 @@ _Post-generation Haiku call extracts factual claims → cross-checks against str
 - [x] Competition labels in grounding: `(outcome/SL)` or `(outcome/Kupa)` to prevent false verification failures on Cup vs League results
 - [x] Grounding tone fixed: data is context, not script — prompt instructs Claude to weave data naturally, not echo it
 
-**Pending DB migrations** (code deployed, DB not yet updated):
-- [ ] Run `0003_verifier_gate.sql` — adds `needs_review`, `verification_result` to `content_items`
-- [ ] Run `0004_sites_team_league.sql` — adds `team_id`, `league_id`, `season` to `sites`; sets BJK row
-- [ ] Run `0005_league_european_spots.sql` — creates table + seeds Süper Lig 2025-26 + Serie A 2025-26
+**DB migrations** ✅ ALL RUN (2026-05-09):
+- [x] `0003_verifier_gate.sql` — `needs_review` + `verification_result` on `content_items`
+- [x] `0004_sites_team_league.sql` — `team_id/league_id/season` on `sites`; BJK row set
+- [x] `0005_league_european_spots.sql` — table exists with prior seed data (unique constraint confirmed)
 
 **Done when**: 100 synthesis articles generated with grounding active, zero instances of published articles contradicting API-Football standings or recent results.
 
 ---
 
-## SLICE 2 — Story-Centric Foundation
+## SLICE 2 — Story-Centric Foundation ✅ DONE (2026-05-10)
 
 **Why second**: replaces article-centric thinking with story-centric data model. Slices 3+ depend on this.
 
 **Estimated**: 2–3 weeks
 
 **Deliverables**:
-- [ ] `stories`, `story_contributions`, `story_state_transitions` tables
-- [ ] Story matching algorithm (entity overlap + event type + temporal + semantic)
-- [ ] Story state machine (emerging → developing → confirmed → active → resolved → archived → debunked)
-- [ ] Generation triggers tied to state transitions
-- [ ] Sub-story lineage (parent_story_id, ancestry_path)
-- [ ] Confidence scoring math
-- [ ] Golden fixture: `story_matching_entity_overlap`
-- [ ] Golden fixture: `story_state_transitions`
-- [ ] Golden fixture: `confidence_scoring`
+- [x] `stories`, `story_contributions`, `story_state_transitions` tables — live, 130 stories in DB
+- [x] Story matching algorithm (entity overlap + Claude judge)
+- [x] Story state machine (emerging → developing → confirmed → active → resolved → archived → debunked)
+- [x] Generation triggers tied to state transitions — confirmed → active fires synthesis
+- [x] Sub-story lineage (parent_story_id field on stories table)
+- [x] Confidence scoring math — source independence gate, quality tier multiplier, OFFICIAL_INITIAL_DELTA=60
+- [x] Golden fixture: `story_matching_entity_overlap` — PASS: top story has 46 contributions (Sergen Yalçın)
+- [x] Golden fixture: `story_state_transitions` — PASS: 46 stories with logged transitions (emerging→developing→confirmed→active)
+- [x] Golden fixture: `confidence_scoring` — PASS: 42 active stories, top at conf:100
 
-**Done when**: 5 contributions about Rashica produce one Kartalix article that evolves, not five articles.
+**Verified 2026-05-10**: `/admin/golden-fixtures` endpoint returns `all_pass: true` against live production data. 130 stories, 42 active, 46 stories with state transitions logged.
 
 ---
 
@@ -167,9 +167,9 @@ NFR1 note: 7,500/day is 25× estimated peak production volume (~300 calls/day on
 
 NFR4 note: Open-Meteo (`api.open-meteo.com`) is free, no key, covers any lat/long, works in Cloudflare Workers. One additional fetch call per T01 Preview. Venue coords map already planned as fallback.
 
-- [ ] **Provider decision**: stay on API-Football Pro (close PR #1) OR proceed with SoccerData verification
-- [ ] `API_FOOTBALL_KEY` wired as Workers secret (`npx wrangler secret put API_FOOTBALL_KEY`) — rotate key first (exposed in session 4)
-- [ ] Add Open-Meteo call to T01 Match Preview for weather context
+- [x] **Provider decision**: stay on API-Football Pro ✅ (2026-05-10)
+- [x] `API_FOOTBALL_KEY` rotated and re-wired as Workers secret ✅ (2026-05-10)
+- [x] Open-Meteo weather in T01 Match Preview — already implemented via `getMatchWeather()` ✅
 - [ ] Venue coords map: add lat/long for BJK home ground + common away grounds
 
 **Phase 2 — Story type classification + match lifecycle**
@@ -178,6 +178,7 @@ NFR4 note: Open-Meteo (`api.open-meteo.com`) is free, no key, covers any lat/lon
 - [x] `extractFactsForStory()` — two-step (classify → schema-appropriate extract) (2026-05-01)
 - [x] match_result + squad filtered from story system via `SKIP_STORY_TYPES` (2026-05-01)
 - [x] Story-matcher judge includes pre-classified type hint (2026-05-01)
+- [ ] **Story type normalization** *(discovered 2026-05-10)*: production DB has 35+ free-form types leaking from Claude (`transfer_interest`, `player_transfer`, `player_replacement_transfer`, `institutional_statement`, etc.). Fix: update `classifyStoryType()` prompt to enforce the controlled set (transfer, injury, disciplinary, contract, institutional, other) and map any non-standard judge output to the nearest controlled type before DB write. Optionally: one-off SQL UPDATE to normalize existing rows.
 - [ ] Intelligent match lifecycle (signal-driven open/close, no fixed window) — deferred
 - [ ] Match story phase detection (pre/live/post) stored on story entity — deferred
 - [ ] Sub-story spawning for non-routine match events — deferred
@@ -325,6 +326,12 @@ _Goal: more volume, more reliable, broader coverage (national team, other sports
 - [ ] Live match watcher: stays on `*/5 * * * *` but skips RSS fetch+score entirely
 - [ ] Expected gain: 6× reduction in Claude scoring cost (288 → 48 scoring calls/day)
 
+**bjk.com.tr content access** ❌ BLOCKED — backlog item:
+- bjk.com.tr is fully CAPTCHA-protected (Cloudflare). Blocks datacenter IPs, headless browsers (rss.app), Jina.ai, Google webcache, archive.today — everything.
+- KEY FINDING (2026-05-10): @Besiktas tweets that contain 🔗 embed the direct bjk.com.tr URL in the RSS description HTML (e.g. `https://bjk.com.tr/tr/haber/94315`). URL extraction is now implemented in the fetcher — URLs are stored, content fetch fails silently.
+- Next angle to try: ScrapingBee with `render_js=true` ($49/month), or Bright Data residential proxy ($500/month). Only worth it when ad revenue covers cost.
+- Workaround: synthesize from tweet title only for official announcements. Twitter @Besiktas posts the same content as bjk.com.tr within minutes.
+
 **Step 4 — Twitter** ❌ BLOCKED:
 - X API free tier: search not included (CreditsDepleted 402 confirmed 2026-05-04)
 - X API Basic: $100/month — over budget until ad revenue
@@ -409,12 +416,33 @@ _Widget calls go direct from browser to `v3.football.api-sports.io` and count to
 **Why now is too early**: current traffic is low, quota is 7,500/day. Revisit when daily widget calls exceed ~1,000 (≈333 page loads/day).
 
 **Phase 4 — Golden fixtures**
->>>>>>> Stashed changes
 - [ ] Golden fixture: `match_lifecycle_signal_driven`
 - [ ] Golden fixture: `juventus_false_positive` (siyah-beyaz case)
 - [ ] Golden fixture: `transfer_state_progression`
 
 **Done when**: each of the three types runs end-to-end with appropriate templates and triggers.
+
+---
+
+**Sprint H — Template Audit + Match Widget Guard**
+
+_Two related problems discovered 2026-05-10: (1) no visibility into which templates fired for a given match and whether the output was quality; (2) match statistics widget is injecting into too many article types (transfer news, injury reports, etc.) where match stats are irrelevant or misleading._
+
+**H1 — Template audit endpoint** (~3h):
+- [ ] `GET /admin/template-audit?date=YYYY-MM-DD` — for a given match date, returns which templates fired (T01–T13, T-XG, T-REF, T-HT, T-RED, T-VAR, T-OG, T-PEN) and which did not
+- [ ] For each fired template: show slug, word count, first 200 chars of body, nvs_score
+- [ ] For each missing template: show why it likely didn't fire (no fixture found, flag already set, API returned null, etc.) — pull from fetch_logs error_message
+- [ ] Admin UI tab "Match Audit" in report page — date picker, fires the endpoint, renders grid of 12 template slots (green = fired, red = missed, yellow = fired but short body <150 words)
+- [ ] Word-count threshold alert: flag templates with body < 150 words as likely stubs
+
+**H2 — Match widget placement guard** (~2h):
+- [ ] Currently `renderArticleHTML` injects the fixture widget on any article where `slug` contains a date and `template_id` is set — too broad
+- [ ] Restrict widget injection to match-day template IDs only: `['T01','T02','T03','T05','T07','T08b','T09','T10','T11','T12','T13','T-XG','T-HT','T-RED','T-VAR','T-OG','T-PEN','T-REF','T-VID-HLT','T-VID-GOL']`
+- [ ] Synthesis-generated articles (`is_kartalix_content: true`, no `template_id`): never inject match widget
+- [ ] Transfer/injury story articles from story system (`content_type: 'kartalix_generated'`, `story_type` not 'match'): never inject match widget
+- [ ] Add `widget_eligible: bool` to KV article shape — set true only for match templates; `renderArticleHTML` reads this flag
+
+**Done when**: template audit shows which slots fired and which missed for any match date; fixture widget no longer appears on transfer/institutional news articles.
 
 ---
 
@@ -468,6 +496,62 @@ _Widget calls go direct from browser to `v3.football.api-sports.io` and count to
 - [ ] Held stories surface in morning digest
 
 **Done when**: you go a week without manually checking the system, and it just works.
+
+---
+
+## SLICE 4.2 — Security Hardening
+
+**Why here**: Kartalix is a live public website generating original content and handling admin operations. As traffic grows so does attack surface — a single compromised admin cookie or unprotected endpoint is a full takeover. This slice must ship before Slice 5+ because distribution (push notifications, social posting) dramatically raises the blast radius of any breach.
+
+**Estimated**: 1 week
+
+**Threat model for Kartalix**:
+- Admin panel takeover (cookie theft, brute-force, session fixation)
+- Content injection (XSS in article body, admin input)
+- API abuse (unbounded scraping of `/cache`, `/haber/*`, `/admin/*`)
+- Supabase key exposure (service key in logs, error responses)
+- Dependency compromise (npm packages, CDN scripts)
+- Cloudflare misconfiguration (wrong route order, public admin routes)
+
+**Phase 1 — Admin auth hardening** (~3h):
+- [ ] Replace static `kx-editor=1` cookie with signed JWT or HMAC token — current cookie is trivially forgeable; anyone who knows the value has full admin access
+- [ ] Add `HttpOnly; Secure; SameSite=Strict` flags to all auth cookies
+- [ ] Admin login rate-limit: max 5 attempts per IP per 10 minutes (KV-based counter), lockout with exponential backoff
+- [ ] Session expiry: admin cookies expire after 8 hours of inactivity
+- [ ] `/admin/*` routes: reject any request without valid auth before reaching any handler (currently some routes skip auth checks)
+
+**Phase 2 — HTTP security headers** (~2h):
+- [ ] `Content-Security-Policy`: restrict script sources to `self` + known CDNs (Google Analytics, AdSense, api-sports widgets, YouTube iframes) — block inline scripts except nonces
+- [ ] `X-Frame-Options: DENY` — prevent clickjacking on admin panel
+- [ ] `X-Content-Type-Options: nosniff`
+- [ ] `Referrer-Policy: strict-origin-when-cross-origin`
+- [ ] `Permissions-Policy`: disable camera, microphone, geolocation
+- [ ] Apply to all worker responses via a shared `secureHeaders()` helper
+
+**Phase 3 — Rate limiting + API abuse prevention** (~3h):
+- [ ] Public endpoints (`/cache`, `/haber/*`, `/rss`, `/sitemap.xml`): max 60 req/min per IP using Cloudflare rate limiting rules (WAF) — configure in Cloudflare dashboard, zero code change
+- [ ] Admin endpoints (`/admin/*`): max 20 req/min per IP
+- [ ] `/admin/notes`, `/admin/redistill`, `/force-*` endpoints: POST-only + auth check (some currently accept GET)
+- [ ] Error responses: never return raw error messages or stack traces to clients — log internally, return generic `{"error":"internal"}` with request ID
+- [ ] Supabase service key: audit all `console.log` and error paths to ensure key never appears in Worker logs or responses
+
+**Phase 4 — Content security** (~2h):
+- [ ] Article body sanitization: `sanitizeBodyHtml()` already exists — verify it strips `<script>`, `onclick`, `javascript:` hrefs, and `<iframe src>` not from whitelist (YouTube, api-sports)
+- [ ] Admin input (notes, reference articles, source configs): strip any HTML before storing to KV/Supabase — treat all admin input as untrusted text
+- [ ] Subresource Integrity (SRI): add `integrity` hash to any third-party `<script>` tags loaded from CDN (Google Analytics, AdSense loader)
+
+**Phase 5 — Secrets audit** (~1h):
+- [ ] Rotate `API_FOOTBALL_KEY` (exposed in session 4 logs) — `npx wrangler secret put API_FOOTBALL_KEY`
+- [ ] Audit `wrangler.toml` vars section: move any sensitive values to secrets (currently `ANTHROPIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY` should all be secrets, not vars)
+- [ ] Add `.dev.vars` to `.gitignore` if not already present
+- [ ] Review Cloudflare Worker logs: purge any logs containing key values
+
+**Golden fixtures**:
+- [ ] `admin_auth_forgery_blocked` — crafted fake cookie returns 401 on all admin routes
+- [ ] `rate_limit_triggers` — 61st request in 1 minute returns 429
+- [ ] `xss_stripped` — article body with `<script>alert(1)</script>` stored and rendered as escaped text, not executed
+
+**Done when**: OWASP Top 10 items A01 (Broken Access Control), A02 (Cryptographic Failures), A03 (Injection), A05 (Security Misconfiguration), A07 (Identification/Auth Failures) are all addressed. A penetration tester reviewing the admin panel finds no trivial entry points.
 
 ---
 

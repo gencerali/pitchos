@@ -1,5 +1,6 @@
 import { callClaude, extractText, supabase, generateSlug, MODEL_FETCH, MODEL_GENERATE, getEditorialNotes } from './utils.js';
 import { fetchViaReadability } from './publisher.js';
+import { normalizeStoryType } from './firewall.js';
 
 // ─── CONFIDENCE DELTAS ────────────────────────────────────────
 const DELTA = {
@@ -178,8 +179,9 @@ async function createStory(facts, article, decision, siteId, env) {
   const initialDelta = article.trust_tier === 'official' ? OFFICIAL_INITIAL_DELTA : DELTA.initial;
   const initialState = nextState('emerging', initialDelta, 'initial', isQualitySource);
 
-  // Use pre-classified type from extractFactsForStory when judge didn't provide one
-  const storyType     = decision.story_type     || facts.story_type     || 'other';
+  // Use pre-classified type from extractFactsForStory when judge didn't provide one.
+  // Normalize both sources — judge occasionally invents non-standard compound types.
+  const storyType     = normalizeStoryType(decision.story_type || facts.story_type || 'other');
   const storyCategory = decision.story_category || facts.story_category || 'other';
 
   const entities = isQualitySource

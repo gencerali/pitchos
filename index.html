@@ -1211,7 +1211,7 @@
 
   function buildBodyHtml(bodyRaw) {
     if (!bodyRaw) return '';
-    if (/<(p|h[1-6]|ul|ol|img|blockquote|figure)\b/i.test(bodyRaw)) {
+    if (/<(p|h[1-6]|ul|ol|img|blockquote|figure|svg)\b/i.test(bodyRaw)) {
       return sanitizeForView(bodyRaw);
     }
     const clean = bodyRaw.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
@@ -1923,8 +1923,8 @@
   function formatArticleBody(text) {
     if (!text) return '';
     // If Readability HTML — render it directly
-    if (/<(p|h[1-6]|ul|ol|img|blockquote|figure)\b/i.test(text)) {
-      // Strip only dangerous tags, keep structure + images
+    if (/<(p|h[1-6]|ul|ol|img|blockquote|figure|svg)\b/i.test(text)) {
+      // Strip only dangerous tags, keep structure + images + SVG
       return text
         .replace(/<script[\s\S]*?<\/script>/gi, '')
         .replace(/<style[\s\S]*?<\/style>/gi, '')

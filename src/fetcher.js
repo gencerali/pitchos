@@ -122,9 +122,14 @@ export async function fetchViaRss2Json(feed) {
                   : feed.sport;
       if (sport !== 'football') return null;
 
+      // For tweet feeds: extract embedded bjk.com.tr (or other official site) links
+      // from description HTML — tweets with 🔗 embed the actual article URL
+      const embeddedOfficialUrl = desc.match(/href="(https:\/\/(?:www\.)?bjk\.com\.tr\/[^"]+)"/i)?.[1] || null;
+
       return {
         title:        title.trim(),
         url:          url.trim(),
+        original_url: embeddedOfficialUrl || url.trim(),
         summary:      desc.replace(/<[^>]+>/g, '').slice(0, 300),
         image_url:    null,
         published_at,

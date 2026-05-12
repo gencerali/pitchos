@@ -1,7 +1,8 @@
-import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes } from './utils.js';
+﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes } from './utils.js';
 import { normalizeTitle, titleSimilarity } from './processor.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
+// Note: getBJKLastLineupData + getOpponentLastLineup imported by caller (worker) to avoid circular deps
 
 // ─── FACTUAL GROUNDING ────────────────────────────────────────
 // Fetches verified API-Football stats and returns a Turkish-language
@@ -290,7 +291,25 @@ Bilmiyorsan null yaz.`;
 // Articles arrive sorted by NVS, so only the highest-value P4 articles get facts.
 const MAX_FACTS_EXTRACTS = 5;
 
-async function synthesizeArticle(article, env, site = null) {
+async function extractKeyEntities(title, sourceText, env) {
+  const prompt = `Aşağıdaki spor haberinin en kritik bilgilerini çıkar. Sadece metinde geçen gerçek bilgileri yaz — tahmin etme.
+
+Başlık: ${title}
+Metin: ${sourceText.slice(0, 1200)}
+
+Şu formatta yanıt ver:
+KİŞİLER: [haberde geçen oyuncu/teknik direktör/yönetici isimleri, virgülle ayır — yoksa boş bırak]
+OLAY: [ne oldu — kısa, fiil içeren tek cümle]
+DETAYLAR: [önemli rakamlar, tarihler, maç/kulüp/turnuva adları — yoksa boş bırak]`;
+  try {
+    const res = await callClaude(env, MODEL_FETCH, prompt, false, 150);
+    return extractText(res.content).trim();
+  } catch {
+    return '';
+  }
+}
+
+export async function synthesizeArticle(article, env, site = null) {
   const srcUrl = article.url || article.original_url || '';
   let sourceText = article.summary || '';
   if (srcUrl && srcUrl !== '#') {
@@ -303,25 +322,36 @@ async function synthesizeArticle(article, env, site = null) {
       }
     } catch(e) {}
   }
-  const [editorialCtx, groundingCtx] = await Promise.all([
+  const [editorialCtx, groundingCtx, keyEntities] = await Promise.all([
     getEditorialNotes(env, ['general', 'style']),
     buildGroundingContext(env, site),
+    extractKeyEntities(article.title, sourceText, env),
   ]);
+
+  const entityBlock = keyEntities
+    ? `\n\nZORUNLU BİLGİLER — bunlar haberde mutlaka yer almalı:\n${keyEntities}`
+    : '';
+
+  const isOfficial = article.trust_tier === 'official';
+  const sourceLabel = isOfficial
+    ? `Kaynak: Beşiktaş JK resmi açıklaması — bu bilgi kesindir, "iddia" veya "kaynağına göre" çerçevesi yasak.`
+    : `Kaynak metin: ${sourceText}`;
+
   const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak metinden özgün bir Kartalix haberi yaz.
 
 Kaynak başlık: ${article.title}
-Kaynak metin: ${sourceText}${editorialCtx}${groundingCtx}
+${isOfficial ? `Kaynak metin: ${sourceText}\n${sourceLabel}` : sourceLabel}${entityBlock}${editorialCtx}${groundingCtx}
 
 Kurallar:
 - 250-350 kelime, Türkçe
 - Ateşli bir BJK taraftarı gibi yaz — duygusal bağ kur, heyecan ve gerilimi yansıt
-- Haber cümlesiyle başla (kim ne yaptı/oldu)
+- İLK CÜMLE: KİŞİLER ve OLAY bilgisini içermeli — kim, ne yaptı/oldu net şekilde belirt
 - "...kaynağına göre" veya "...iddia ediyor" gibi ifadeler kullanma — bilgiyi doğrudan sun
 - DOĞRULANMIŞ VERİLER arka plan bilgisidir: rakamları aynen aktarma, sezon bağlamını habere doğal şekilde dokut
 - Paragraflar arası boş satır bırak
 - Sadece haber metnini yaz, başlık ekleme`;
 
-  const res = await callClaude(env, MODEL_FETCH, prompt, false, 600);
+  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 700);
   let body = extractText(res.content).trim();
 
   const verification = await verifyArticle(body, groundingCtx, env);
@@ -329,7 +359,7 @@ Kurallar:
     console.log(`VERIFY FAIL: ${verification.issues.join('; ')}`);
     try {
       const fixPrompt = prompt + `\n\nDİKKAT — aşağıdaki olgusal hatalar tespit edildi, düzelt:\n${verification.issues.join('\n')}`;
-      const res2 = await callClaude(env, MODEL_FETCH, fixPrompt, false, 600);
+      const res2 = await callClaude(env, MODEL_GENERATE, fixPrompt, false, 700);
       const body2 = extractText(res2.content).trim();
       if (body2.length > 200) {
         console.log(`VERIFY REGENERATED OK`);
@@ -1623,9 +1653,10 @@ Sadece tanıtım cümlesini yaz.`;
     reviewed_by:  'auto',
   });
 
+  if (!saved?.[0]) console.error(`T-VID: Supabase write failed [${video.video_id}] — using fallback shape`);
   console.log(`T-VID: "${title.slice(0, 60)}" [${video.channel_name}]`);
   return saved?.[0] || { title, summary: intro, full_body, template_id: 'T-VID', slug,
-    published_at: video.published_at, source_name: video.channel_name, nvs_score: nvs };
+    publish_mode: 'youtube_embed', published_at: video.published_at, source_name: video.channel_name, nvs_score: nvs };
 }
 
 // ─── MATCH VIDEO TEMPLATES ───────────────────────────────────
@@ -1692,9 +1723,10 @@ export async function generateMatchVideoEmbed(video, videoType, match, site, env
     reviewed_by:  'auto',
   });
 
+  if (!saved?.[0]) console.error(`${cfg.template}: Supabase write failed [${video.video_id}] — using fallback shape`);
   console.log(`${cfg.template}: "${title.slice(0, 60)}" [${video.channel_name}]`);
   return saved?.[0] || { title, summary: intro, full_body, template_id: cfg.template, slug,
-    published_at: video.published_at, source_name: video.channel_name, nvs_score: cfg.nvs };
+    publish_mode: 'youtube_embed', published_at: video.published_at, source_name: video.channel_name, nvs_score: cfg.nvs };
 }
 
 // ─── T-xG DELTA ──────────────────────────────────────────────
@@ -2112,4 +2144,239 @@ KURALLAR:
     template_id: null, fixture_id: null,
     ...(saved?.[0] ? { id: saved[0].id } : {}),
   };
+}
+
+// ─── TEMPLATE 08c — BROADCAST PITCH CARD (3D perspective) ────
+// Perspective trapezoid pitch, jersey icons, SofaScore-style rating badges.
+// Sidebar: BJK XI + subs + prose. Opponent shown smaller in far half.
+// Fires 48–72h before kickoff. KV stores prediction for accuracy loop.
+
+
+function svgE(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function lastName(full) {
+  if (!full) return '?';
+  const p = full.trim().split(/\s+/);
+  const last = p[p.length-1];
+  return last.length > 11 ? last.slice(0,10)+'.' : last;
+}
+function rCol(r) {
+  if (!r||r<=0) return null;
+  if (r>=9)  return {bg:'#3b82f6',text:'#fff'};
+  if (r>=8)  return {bg:'#16a34a',text:'#fff'};
+  if (r>=7)  return {bg:'#eab308',text:'#111'};
+  if (r>=6)  return {bg:'#f97316',text:'#fff'};
+  return             {bg:'#dc2626',text:'#fff'};
+}
+const TEAM_COLS = {
+  'Galatasaray':['#c8102e','#f0b519'],'Fenerbahçe':['#1a3c6e','#f5d800'],
+  'Trabzonspor':['#6b1a9c','#e8282b'],'Başakşehir FK':['#002f6c','#f78f1e'],
+  'Başakşehir':['#002f6c','#f78f1e'],'Rizespor':['#1e3a8a','#93c5fd'],
+  'Kayserispor':['#cc0000','#f5d800'],'Sivasspor':['#cc3300','#f5d800'],
+  'Konyaspor':['#006633','#ffffff'],'Antalyaspor':['#cc0000','#ffffff'],
+  'Alanyaspor':['#ff6600','#ffffff'],'Adana Demirspor':['#003399','#cc0000'],
+  'Kasımpaşa':['#cc0000','#ffffff'],'Samsunspor':['#cc0000','#ffffff'],
+  'Ankaragücü':['#002f6c','#f5d800'],'Eyüpspor':['#cc0000','#ffffff'],
+  'Göztepe':['#ff6600','#cc0000'],'Bodrum FK':['#003399','#ffffff'],
+  'Hatayspor':['#cc0000','#ffffff'],
+};
+
+function buildPitchCard(bjkXI, bjkFm, oppXI, oppFm, teamName, oppName, subs, matchInfo, prose) {
+  const W=500, H=440;
+  const px=16, py=16;
+  const fw=W-2*px, fh=H-2*py;  // 468 × 408
+  const midY=H/2;               // 220
+
+  // ── flat 2D pitch ────────────────────────────────────────────
+  let pitch=`<rect width="${W}" height="${H}" fill="#0a1628"/>`;
+  for(let i=0;i<10;i++)
+    pitch+=`<rect x="${px}" y="${+(py+i*fh/10).toFixed(1)}" width="${fw}" height="${+(fh/10).toFixed(1)}" fill="${i%2===0?'#15803d':'#166634'}"/>`;
+  pitch+=`<rect x="${px}" y="${py}" width="${fw}" height="${fh}" fill="none" stroke="rgba(255,255,255,0.65)" stroke-width="1.5" rx="2"/>`;
+  pitch+=`<line x1="${px}" y1="${midY}" x2="${W-px}" y2="${midY}" stroke="rgba(255,255,255,0.55)" stroke-width="1.5"/>`;
+  pitch+=`<circle cx="${W/2}" cy="${midY}" r="44" fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="1.5"/>`;
+  pitch+=`<circle cx="${W/2}" cy="${midY}" r="3" fill="rgba(255,255,255,0.4)"/>`;
+  const bW=160, bH=50;
+  pitch+=`<rect x="${(W-bW)/2}" y="${py}" width="${bW}" height="${bH}" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>`;
+  pitch+=`<rect x="${(W-bW)/2}" y="${H-py-bH}" width="${bW}" height="${bH}" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>`;
+  pitch+=`<circle cx="${W/2}" cy="${py+66}" r="2.5" fill="rgba(255,255,255,0.35)"/>`;
+  pitch+=`<circle cx="${W/2}" cy="${H-py-66}" r="2.5" fill="rgba(255,255,255,0.35)"/>`;
+
+  // ── team logo watermarks (semi-transparent) ──────────────────
+  const bjkLogo='https://media.api-sports.io/football/teams/549.png';
+  const oppLogo=matchInfo&&matchInfo.opponent_logo?matchInfo.opponent_logo:'';
+  const lSz=80;
+  pitch+=`<image href="${bjkLogo}" x="${(W-lSz)/2}" y="${Math.round((midY+(H-py))/2-lSz/2)}" width="${lSz}" height="${lSz}" opacity="0.18" preserveAspectRatio="xMidYMid meet"/>`;
+  if(oppLogo) pitch+=`<image href="${svgE(oppLogo)}" x="${(W-lSz)/2}" y="${Math.round((py+midY)/2-lSz/2)}" width="${lSz}" height="${lSz}" opacity="0.18" preserveAspectRatio="xMidYMid meet"/>`;
+
+  // ── Kartalix K icon watermark at center ──────────────────────
+  const kSz=34;
+  pitch+=`<g opacity="0.28" transform="translate(${W/2-kSz/2},${midY-kSz/2}) scale(${(kSz/64).toFixed(4)})"><rect x="8" y="4" width="12" height="56" fill="#fff"/><polygon points="20,32 56,4 46,4 20,22" fill="#fff"/><polygon points="20,32 58,60 68,60 20,36" fill="#E30A17"/><rect x="8" y="29" width="12" height="7" fill="#E30A17"/></g>`;
+
+  // ── formation-aware row grouper ──────────────────────────────
+  function byRow(players){
+    const rows={};
+    for(const p of(players||[])){
+      const parts=(p.grid||'').split(':').map(Number);
+      const validRow=parts.length>=2&&!isNaN(parts[0])&&parts[0]>0;
+      const validCol=parts.length>=2&&!isNaN(parts[1])&&parts[1]>0;
+      let row,col;
+      if(validRow){
+        row=parts[0];col=validCol?parts[1]:((rows[row]?rows[row].length:0)+1);
+      } else {
+        const posMap={G:1,D:2,M:3,F:4};
+        row=posMap[(p.pos||'M').charAt(0).toUpperCase()]||3;
+        col=(rows[row]?rows[row].length:0)+1;
+      }
+      if(!rows[row]) rows[row]=[];
+      rows[row].push(Object.assign({},p,{_r:row,_c:col}));
+    }
+    return rows;
+  }
+
+  // ── player node: circle, name overlaid (overflows edges = "on circle"), rating pill below ─
+  const R=11;
+  function pNode(x,y,fill,stroke,name,rating){
+    const nm=lastName(name);
+    const shortNm=nm.length>7?nm.slice(0,6):nm;
+    let o=`<circle cx="${x}" cy="${y}" r="${R}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"/>`;
+    o+=`<text x="${x}" y="${y+3}" text-anchor="middle" fill="#fff" font-size="8" font-weight="700" font-family="system-ui,sans-serif" paint-order="stroke" stroke="${fill}" stroke-width="1.5" stroke-linejoin="round">${svgE(shortNm)}</text>`;
+    if(rating&&Number(rating)>0){
+      const c=rCol(Number(rating));
+      if(c){
+        const ry=y+R+8;
+        o+=`<rect x="${x-10}" y="${ry-6}" width="20" height="11" rx="5.5" fill="${c.bg}"/>`;
+        o+=`<text x="${x}" y="${ry+2}" text-anchor="middle" fill="${c.text}" font-size="7" font-weight="700" font-family="system-ui,sans-serif">${Number(rating).toFixed(1)}</text>`;
+      }
+    }
+    return o;
+  }
+
+  const oc=TEAM_COLS[oppName]||['#7f1d1d','#fca5a5'];
+
+  function renderBJK(players){
+    const rows=byRow(players),nums=Object.keys(rows).map(Number).sort(function(a,b){return a-b;}),n=nums.length;
+    const gap=n>1?Math.round((fh/2-40)/Math.max(n-1,1)):0;
+    let out='';
+    nums.forEach(function(rn,i){
+      const rp=rows[rn].sort(function(a,b){return a._c-b._c;});
+      const y=H-py-18-i*gap;
+      rp.forEach(function(pl,j){
+        const x=Math.round(px+20+(j+1)*(fw-40)/(rp.length+1));
+        out+=pNode(x,y,'#1e3a5f','#93c5fd',pl.name,pl.rating);
+      });
+    });
+    return out;
+  }
+
+  function renderOpp(players){
+    if(!players||!players.length) return '';
+    const rows=byRow(players),nums=Object.keys(rows).map(Number).sort(function(a,b){return a-b;}),n=nums.length;
+    const gap=n>1?Math.round((fh/2-40)/Math.max(n-1,1)):0;
+    let out='';
+    nums.forEach(function(rn,i){
+      const rp=rows[rn].sort(function(a,b){return a._c-b._c;});
+      const y=py+18+i*gap;
+      rp.forEach(function(pl,j){
+        const x=Math.round(px+20+(j+1)*(fw-40)/(rp.length+1));
+        out+=pNode(x,y,oc[0],oc[1],pl.name,null);
+      });
+    });
+    return out;
+  }
+
+  const m11Lbl=`<text x="${W/2}" y="${H-py-4}" text-anchor="middle" fill="rgba(255,255,255,0.5)" font-size="10" font-weight="700" letter-spacing="0.1em" font-family="system-ui,sans-serif">MUHTEMEL 11 — ${svgE(bjkFm||'')}</text>`;
+  const oppFmLbl=oppFm?`<text x="${W/2}" y="${py+10}" text-anchor="middle" fill="rgba(255,255,255,0.38)" font-size="9">${svgE(oppName)} ${svgE(oppFm)}</text>`:'';
+  const bjkSvg=renderBJK(bjkXI);
+  const oppSvg=renderOpp(oppXI||[]);
+  const svgEl=`<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;border-radius:8px 8px 0 0" preserveAspectRatio="xMidYMid meet">
+${pitch}${bjkSvg}${oppSvg}${m11Lbl}${oppFmLbl}</svg>`;
+
+  function sidRow(p,dim){
+    const r=p.rating?Number(p.rating):null,c=r!==null?rCol(r):null;
+    const rep=p.isReplacement?'<span style="color:#f59e0b;font-size:9px;margin-left:2px">⇅</span>':'';
+    const bdg=c?`<span style="background:${c.bg};color:${c.text};border-radius:8px;padding:1px 5px;font-size:10px;font-weight:700;min-width:30px;text-align:center;display:inline-block;flex-shrink:0">${r.toFixed(1)}</span>`:'<span style="min-width:30px;display:inline-block;flex-shrink:0"></span>';
+    return `<div style="display:flex;align-items:center;gap:5px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.05)">${bdg}<span style="color:${dim?'#9ca3af':'#f1f5f9'};font-size:${dim?'0.72':'0.8'}rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${svgE(p.name)}${rep}</span></div>`;
+  }
+  const proseHtml=(prose||'').split(/\n+/).filter(function(l){return l.trim().length>5;})
+    .map(function(l){return`<p style="margin:0 0 0.8rem;line-height:1.7;font-size:0.92rem">${svgE(l.trim())}</p>`;}).join('');
+  const mdStr=matchInfo&&matchInfo.date?new Date(matchInfo.date).toLocaleDateString('tr-TR',{day:'numeric',month:'long'}):'';
+
+  const header=`<div style="background:linear-gradient(135deg,#1a1a2e,#16213e);padding:0.9rem 1.25rem;border-bottom:2px solid #E30A17;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem"><div style="display:flex;align-items:center;gap:0.6rem"><svg width="26" height="26" viewBox="0 0 26 26" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0"><path d="M13 1 L24 6 L24 15 Q24 22 13 25 Q2 22 2 15 L2 6 Z" fill="#E30A17"/><text x="13" y="18" text-anchor="middle" fill="#fff" font-size="12" font-weight="900" font-family="system-ui,sans-serif">K</text></svg><div><div style="color:#f1f5f9;font-weight:700;font-size:1rem">${svgE(teamName)} <span style="color:#9ca3af;font-weight:400">—</span> ${svgE(oppName)}</div><div style="color:#6b7280;font-size:0.72rem;margin-top:2px">${mdStr}${matchInfo&&matchInfo.time?' · '+matchInfo.time:''} · ${svgE(bjkFm||'')} · Kartalix Muhtemel 11</div></div></div><span style="background:rgba(227,10,23,0.15);border:1px solid rgba(227,10,23,0.35);color:#f87171;font-size:0.6rem;font-weight:700;padding:2px 7px;border-radius:4px;letter-spacing:0.03em;white-space:nowrap">Muhtemel 11</span></div>`;
+
+  const playerStrip=`<div style="background:#111827;padding:0.75rem 1rem 0.6rem;border-top:1px solid rgba(255,255,255,0.06)"><div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:flex-start"><div style="flex:1;min-width:200px"><div style="color:#E30A17;font-weight:700;font-size:0.65rem;letter-spacing:0.08em;margin-bottom:0.4rem;text-transform:uppercase">İlk 11 — ${svgE(bjkFm||'')}</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:0 0.75rem">${bjkXI.map(function(p){return sidRow(p,false);}).join('')}</div><div style="margin-top:0.4rem;font-size:0.62rem;color:#4b5563">Futbolcu performans skorları son maçtan alınmıştır.</div></div><div style="min-width:140px"><div style="color:#4b5563;font-size:0.62rem;font-weight:700;letter-spacing:0.08em;margin-bottom:0.4rem;text-transform:uppercase">Yedekler</div>${(subs||[]).slice(0,7).map(function(p){return sidRow(p,true);}).join('')}</div></div></div>`;
+
+  return `<div style="max-width:900px;margin:1.5rem auto;background:#0f1117;border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.6);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif">${header}<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:520px;margin:0 auto">${svgEl}</div>${playerStrip}</div>${proseHtml?`<div style="max-width:900px;margin:0 auto 1.5rem;padding:0.8rem 0.25rem 0;font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif">${proseHtml}</div>`:''}`;
+}
+
+export async function generateLineupCard(match, bjkLastLineup, oppLastLineup, injuries, predictionHistory, site, env) {
+  if (!bjkLastLineup || bjkLastLineup.startXI.length < 8) {
+    console.log('T08c: no BJK last lineup data, skipping'); return null;
+  }
+  const injuredSet = new Set((injuries||[]).map(function(i){return i.name.toLowerCase();}));
+  const kept     = bjkLastLineup.startXI.filter(function(p){return !injuredSet.has(p.name.toLowerCase());});
+  const excluded = bjkLastLineup.startXI.filter(function(p){return  injuredSet.has(p.name.toLowerCase());});
+  const subPool  = (bjkLastLineup.substitutes||[])
+    .filter(function(p){return !injuredSet.has(p.name.toLowerCase());})
+    .sort(function(a,b){return (b.rating||0)-(a.rating||0);});
+  const usedSubs = new Set();
+  const replacements = excluded.map(function(out){
+    const pg=(out.pos||'M').charAt(0).toUpperCase();
+    const sub=subPool.find(function(s){return !usedSubs.has(s.name)&&(s.pos||'M').charAt(0).toUpperCase()===pg;})
+            ||subPool.find(function(s){return !usedSubs.has(s.name);});
+    if(!sub) return null;
+    usedSubs.add(sub.name);
+    return Object.assign({},sub,{isReplacement:true,grid:out.grid});
+  }).filter(Boolean);
+  const predictedXI=[...kept,...replacements];
+  // Pad to 11 if position-matched subs couldn't fill all injured slots
+  while(predictedXI.length<11){
+    const next=subPool.find(function(s){return !usedSubs.has(s.name);});
+    if(!next)break;
+    usedSubs.add(next.name);
+    predictedXI.push(Object.assign({},next,{isReplacement:true}));
+  }
+  if(predictedXI.length<8){console.log('T08c: not enough players, skipping');return null;}
+  const displaySubs=subPool.filter(function(s){return !usedSubs.has(s.name);}).slice(0,7);
+
+  const histLine=predictionHistory&&predictionHistory.length
+    ?`Son ${predictionHistory.length} tahminimizde ortalama ${(predictionHistory.reduce(function(s,h){return s+(h.correct_count||0);},0)/predictionHistory.length).toFixed(1)}/11 dogruluk.`:'';
+  const excludedLine=excluded.length?`Eksik: ${excluded.map(function(p){return p.name;}).join(', ')}`:'';
+  const replLine=replacements.length?`Degisiklik: ${replacements.map(function(r){return r.name;}).join(', ')}`:'';
+
+  const t08cNotes=await getEditorialNotes(env,['match','T08c']);
+  const prosePrompt=`${t08cNotes}Sen Kartalix editörüsün. Beşiktaş'ın ${match.opponent} maçı için tahmini 11 haberi yaz.
+MAÇ: Beşiktaş ${match.home?'(Ev)':'(Deplasman)'} - ${match.opponent} | ${match.date} ${match.time} | ${match.league}
+DİZİLİŞ: ${bjkLastLineup.formation||'?'} | KADRO: ${predictedXI.map(function(p){return p.name;}).join(', ')}
+${excludedLine} ${replLine} ${histLine}
+2 paragraf ~100 kelime. Sadece ${match.opponent} maçı için tahmin ve hangi pozisyonlar soru işareti. Geçen maçın skorunu veya istatistiklerini ekleme. "Resmi kadro açıklaması maçtan yaklaşık 1 saat önce yapılacaktır." ile bitir. Emoji/başlık yok.`;
+
+  let prose='';
+  try{
+    const res=await callClaude(env,'claude-haiku-4-5-20251001',prosePrompt,false,500);
+    prose=extractText(res.content).trim();
+  }catch(e){console.error('T08c prose failed:',e.message);}
+  if(!prose) prose=`Beşiktaş'ın ${match.opponent} maçı için geçen haftanın kadrosu baz alınarak tahmini 11 oluşturuldu.${excludedLine?' '+excludedLine+'.':''}\n\nResmi kadro açıklaması maçtan yaklaşık 1 saat önce yapılacaktır.`;
+
+  const full_body=buildPitchCard(predictedXI,bjkLastLineup.formation,
+    oppLastLineup?oppLastLineup.startXI:[],oppLastLineup?oppLastLineup.formation:null,
+    'Beşiktaş',match.opponent,displaySubs,match,prose);
+
+  const matchDate=new Date(match.date).toLocaleDateString('tr-TR',{day:'numeric',month:'long',year:'numeric'});
+  const title=`Beşiktaş - ${match.opponent} Muhtemel 11 | ${matchDate}`;
+  const summary=`Geçen haftanın kadrosuna dayalı Beşiktaş tahmini: ${predictedXI.slice(0,5).map(function(p){return p.name;}).join(', ')} ve diğerleri.`.slice(0,300);
+  const slug=generateSlug(title,match.kickoff_iso||(match.date+'T10:00:00Z'));
+
+  const saved=await supabase(env,'POST','/rest/v1/content_items',{
+    site_id:site?.id,source_type:'kartalix',source_name:'Kartalix',original_url:'',
+    title,summary,full_body,category:'Match',content_type:'kartalix_generated',sport:'football',
+    nvs_score:75,publish_mode:'template_lineup',status:'published',
+    template_id:'T08c',slug,
+    published_at:new Date().toISOString(),reviewed_at:new Date().toISOString(),reviewed_by:'auto',
+  },{'Prefer':'resolution=merge-duplicates,return=representation'});
+
+  console.log(`T08c: "${title.slice(0,60)}" — ${predictedXI.length} players, ${excluded.length} excluded`);
+  const base=saved?saved[0]||null:null;
+  const ret=base?Object.assign({},base):Object.assign({},{title,summary,full_body,template_id:'T08c',slug,publish_mode:'template_lineup',published_at:new Date().toISOString()});
+  return Object.assign({},ret,{predicted_players:predictedXI.map(function(p){return p.name;}),formation:bjkLastLineup.formation});
 }
