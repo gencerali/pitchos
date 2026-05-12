@@ -18,6 +18,10 @@ import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
+// ─── PIPELINE FAILURE LOG ────────────────────────────────────
+const FAILURES_KEY = 'pipeline:failures';
+const FAILURES_TTL = 7 * 24 * 3600; // 7 days
+
 // ─── NEXT MATCH CONFIG ────────────────────────────────────────
 const NEXT_MATCH = {
   home: false,
@@ -2052,6 +2056,18 @@ Sadece JSON döndür:
       return new Response(JSON.stringify(slugs), { headers: h });
     }
 
+    if (url.pathname === '/admin/pipeline-failures') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      if (request.method === 'GET') {
+        const failures = JSON.parse(await env.PITCHOS_CACHE.get(FAILURES_KEY) || '[]');
+        return new Response(JSON.stringify({ failures }), { headers: h });
+      }
+      if (request.method === 'DELETE') {
+        await env.PITCHOS_CACHE.delete(FAILURES_KEY);
+        return new Response(JSON.stringify({ ok: true }), { headers: h });
+      }
+    }
+
     if (url.pathname === '/admin/sync-kv-to-db' && request.method === 'POST') {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const sites = await getActiveSites(env);
@@ -3081,12 +3097,14 @@ async function processSite(site, env, ctx) {
   // generated cards — neither comes from scraped image_url fields.
   // P4 flag is still tracked for firewall/lineage purposes.
 
-  // ── KV WRITE IMMEDIATELY (before templates, enrichment, Supabase) ──
+  // ── DB-FIRST: read existing KV for template dedup — no early write ──
+  // KV is updated only after Supabase confirms the save. Nothing goes live
+  // without a DB record.
   const existing = await getCachedArticles(env, site.short_code);
   const kvCandidates = top100.filter(a => a.publish_mode !== 'rss_summary');
+  // immediateKV kept as in-memory reference for template existence checks but
+  // NOT written to KV here.
   const immediateKV = mergeAndDedupe([...kvCandidates, ...existing.filter(a => a.publish_mode !== 'rss_summary')], 100).map(toKVShape);
-  await cacheToKV(env, site.short_code, immediateKV);
-  console.log('KV WRITE IMMEDIATE: done', immediateKV.length, 'articles');
 
   // ── BACKGROUND WORK: templates + supabase (after KV is safe) ─
   const backgroundWork = async () => {
@@ -3547,25 +3565,13 @@ async function processSite(site, env, ctx) {
       }
     } catch(e) { console.error('Live match detection failed:', e.message); }
 
-    // Save to Supabase (best effort)
+    // ── DB-FIRST SAVE + KV WRITE ─────────────────────────────────
+    // Articles reach KV only after Supabase confirms the write. Any failure
+    // is recorded in KV so the admin panel can surface it immediately.
     try {
       const top100forWrite = top100.slice(0, 100);
       const allWritten = await writeArticles(top100forWrite, site, env);
       console.log(`Write phase: ${allWritten.map(a => a.publish_mode).join(', ')}`);
-
-      // Patch KV with synthesized bodies so the page shows full articles
-      const synthesized = allWritten.filter(a => a.publish_mode === 'synthesis' && a.full_body?.length > 200);
-      if (synthesized.length > 0) {
-        const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
-        const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-        const urlMap = new Map(synthesized.map(a => [a.url || a.original_url, a]));
-        const patched = latest.map(a => {
-          const syn = urlMap.get(a.url || a.original_url);
-          return syn ? { ...a, full_body: syn.full_body, publish_mode: 'synthesis' } : a;
-        });
-        await cacheToKV(env, site.short_code, patched);
-        console.log(`KV PATCH WITH SYNTHESIS: ${synthesized.length} articles updated`);
-      }
 
       const publishThreshold = site.auto_publish_threshold || 30;
       const toPublish = allWritten.filter(a => a.nvs >= publishThreshold && a.publish_mode !== 'hot_news_hold');
@@ -3573,27 +3579,35 @@ async function processSite(site, env, ctx) {
       stats.published = toPublish.length;
       stats.queued    = toQueue.length;
 
-      if (toPublish.length > 0) await saveArticles(env, site.id, toPublish, 'published');
-      if (toQueue.length > 0)   await saveArticles(env, site.id, toQueue,   'pending');
-      await saveSeenHashes(env, site.short_code, toPublish);
+      const pubResult   = toPublish.length > 0 ? await saveArticles(env, site.id, toPublish, 'published') : { saved: [], failed: [] };
+      const queueResult = toQueue.length   > 0 ? await saveArticles(env, site.id, toQueue,   'pending')   : { saved: [], failed: [] };
 
-      // Evict failed-synthesis articles from KV — they have no DB record and must not stay live.
-      // Match by original URL (slug in KV may differ from what writeArticles generated).
-      const rssOnly = allWritten.filter(a => a.publish_mode === 'rss_summary');
-      if (rssOnly.length > 0) {
-        const badUrls = new Set(rssOnly.map(a => a.url || a.original_url).filter(Boolean));
-        const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
-        if (latestRaw) {
-          const latest = JSON.parse(latestRaw);
-          const cleaned = latest.filter(a => {
-            const u = a.url || a.original_url || '';
-            return !u || !badUrls.has(u);
-          });
-          if (cleaned.length < latest.length) {
-            await cacheToKV(env, site.short_code, cleaned);
-            console.log(`KV EVICT: removed ${latest.length - cleaned.length} rss_summary articles (no DB record)`);
-          }
-        }
+      // Surface any DB write failures to the admin panel immediately
+      const allFailed = [...pubResult.failed, ...queueResult.failed];
+      if (allFailed.length > 0) {
+        await recordPipelineFailures(env, site.short_code, allFailed, pubResult.error || queueResult.error || 'unknown');
+      }
+
+      await saveSeenHashes(env, site.short_code, pubResult.saved);
+
+      // Write to KV — only articles confirmed in Supabase + any template cards already there.
+      // Synthesis bodies are patched in here as well, no separate KV write needed.
+      const confirmedArticles = [...pubResult.saved, ...queueResult.saved];
+      const synthesisUrlMap = new Map(
+        allWritten.filter(a => a.publish_mode === 'synthesis' && a.full_body?.length > 200)
+          .map(a => [a.url || a.original_url, a])
+      );
+      const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+      const latestKV  = latestRaw ? JSON.parse(latestRaw) : [];  // may contain template cards
+      const newKVItems = confirmedArticles.map(a => {
+        const syn = synthesisUrlMap.get(a.url || a.original_url);
+        return toKVShape(syn ? { ...a, full_body: syn.full_body, publish_mode: 'synthesis' } : a);
+      });
+      const finalKV = mergeAndDedupe([...newKVItems, ...latestKV], 100);
+      await cacheToKV(env, site.short_code, finalKV);
+      console.log(`KV WRITE (DB-confirmed): ${newKVItems.length} new + ${latestKV.length} existing → ${finalKV.length} total`);
+      if (allFailed.length > 0) {
+        console.error(`DB WRITE FAILURES (${allFailed.length}): ${allFailed.map(a => '"' + (a.title||'').slice(0,50) + '"').join(', ')}`);
       }
 
       // ── STORY MATCHING ───────────────────────────────────────
@@ -3608,14 +3622,16 @@ async function processSite(site, env, ctx) {
           try {
             const { story, isNew } = await matchOrCreateStory(article, article._facts, site.id, env, openStories);
             console.log(`Story match [${article.title?.slice(0, 40)}]: ${isNew ? 'NEW' : 'MATCHED'} → ${story.id} (conf:${story.confidence} state:${story.state})`);
-            // Add newly created stories to the in-memory list so subsequent articles can match against them
             if (isNew) openStories = [...openStories, story];
           } catch (e) {
             console.error('Story match failed:', e.message, '| article:', article.title?.slice(0, 40));
           }
         }
       }
-    } catch(e) { console.error('Supabase save failed:', e.message); }
+    } catch(e) {
+      console.error('Pipeline save failed:', e.message);
+      await recordPipelineFailures(env, site.short_code, [], e.message);
+    }
 
     await logFetch(env, site.id, 'success', stats, null, funnelStats);
     if (stats.costEur > 0) await addCost(env, stats.costEur);
@@ -3859,6 +3875,27 @@ async function buildMatchStats(fixtureId, env) {
 // ─── SPRINT 4: ARTICLE PAGES ─────────────────────────────────
 
 const BASE_URL = 'https://kartalix.com';
+
+// Stored in KV so it survives across requests and the admin panel can read it.
+async function recordPipelineFailures(env, siteCode, articles, error) {
+  try {
+    const existing = JSON.parse(await env.PITCHOS_CACHE.get(FAILURES_KEY) || '[]');
+    const newEntries = articles.length > 0
+      ? articles.map(a => ({
+          ts:           new Date().toISOString(),
+          site:         siteCode,
+          slug:         a.slug || '',
+          title:        (a.title || '').slice(0, 100),
+          publish_mode: a.publish_mode || '',
+          error:        String(error || 'db_write_failed'),
+        }))
+      : [{ ts: new Date().toISOString(), site: siteCode, slug: '', title: '', publish_mode: '', error: String(error) }];
+    const updated = [...newEntries, ...existing].slice(0, 100);
+    await env.PITCHOS_CACHE.put(FAILURES_KEY, JSON.stringify(updated), { expirationTtl: FAILURES_TTL });
+  } catch(e) {
+    console.error('recordPipelineFailures failed:', e.message);
+  }
+}
 
 // Auto-backfill: create a Supabase record for an article that is live in KV but has no DB row.
 // Called in background (ctx.waitUntil) so it never delays the served response.
@@ -4503,6 +4540,7 @@ ADMINNAV_PLACEHOLDER
       <label class="filter-check"><input type="checkbox" id="nrFilter" onchange="load(1)"> ⚠️ Sadece inceleme gerektirenler</label>
       <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="newArticle()">+ Yeni</button>
     </div>
+    <div id="failureBanner" style="display:none;background:#7f1d1d;color:#fca5a5;padding:.6rem 1rem;font-size:0.78rem;border-bottom:1px solid #991b1b"></div>
     <div class="art-list" id="artList"><p style="padding:1rem;color:#444">Yükleniyor…</p></div>
     <div class="pagination" id="pagination"></div>
   </div>
@@ -4604,12 +4642,33 @@ function statusPill(a) {
   return \`<span class="status-pill sp-arch">\${esc(a.status||'?')}</span>\`;
 }
 
+async function checkPipelineFailures() {
+  try {
+    const r = await fetch('/admin/pipeline-failures');
+    if (!r.ok) return;
+    const { failures } = await r.json();
+    const banner = document.getElementById('failureBanner');
+    if (!banner) return;
+    if (!failures || failures.length === 0) { banner.style.display = 'none'; return; }
+    const latest = failures[0];
+    banner.style.display = 'block';
+    banner.innerHTML = \`⚠️ <strong>DB Yazma Hatası:</strong> Son hata: "\${esc(latest.title || latest.error)}" (\${new Date(latest.ts).toLocaleString('tr-TR')}).
+      \${failures.length} kayıt etkilendi.
+      <button onclick="clearFailures()" style="margin-left:1rem;background:#991b1b;color:#fff;border:none;border-radius:4px;padding:2px 10px;cursor:pointer;font-size:0.75rem">Temizle</button>\`;
+  } catch(e) {}
+}
+async function clearFailures() {
+  await fetch('/admin/pipeline-failures', { method: 'DELETE' });
+  document.getElementById('failureBanner').style.display = 'none';
+}
+
 async function load(page) {
   currentPage = page || 1;
   try {
     const kr = await fetch('/admin/live-slugs');
     if (kr.ok) { const slugs = await kr.json(); liveSlugSet = new Set(slugs); }
   } catch(e) {}
+  checkPipelineFailures();
   const q  = document.getElementById('q').value.trim();
   const m  = document.getElementById('modeFilter').value;
   const nr = document.getElementById('nrFilter').checked ? '1' : '';

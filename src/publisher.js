@@ -459,12 +459,12 @@ export async function writeArticles(articles, site, env) {
 }
 
 // ─── SUPABASE SAVES ───────────────────────────────────────────
-export async function saveArticles(env, siteId, articles) {
-  if (!articles || articles.length === 0) return;
+export async function saveArticles(env, siteId, articles, status = 'published') {
+  if (!articles || articles.length === 0) return { saved: [], failed: [] };
 
-  // rss_summary = raw feed text, never synthesized — do not publish
+  // rss_summary = raw feed text, never synthesized — do not save to DB
   const publishable = articles.filter(a => a.publish_mode !== 'rss_summary');
-  if (publishable.length === 0) return;
+  if (publishable.length === 0) return { saved: [], failed: [] };
 
   const isSynthesized = m => m === 'synthesis' || (m && m.startsWith('template')) || m === 'video_embed' || m === 'youtube_embed' || (m && m.startsWith('youtube_'));
 
@@ -486,25 +486,31 @@ export async function saveArticles(env, siteId, articles) {
     publish_mode:        a.publish_mode || 'rss_summary',
     needs_review:        a.needs_review || false,
     verification_result: a.verification_result || null,
-    status:              'published',
+    status,
     reviewed_by:         'auto',
     fetched_at:   a.published_at || a.fetched_at || new Date().toISOString(),
     reviewed_at:  new Date().toISOString(),
     slug:         a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
   }));
 
-  console.log('SUPABASE INSERT: attempting', rows.length, 'rows');
-  console.log('SUPABASE SAMPLE ROW:', JSON.stringify(rows[0]).slice(0, 200));
+  console.log('SUPABASE INSERT: attempting', rows.length, 'rows (status=' + status + ')');
 
-  const result = await supabase(env, 'POST', '/rest/v1/content_items', rows);
+  try {
+    const result = await supabase(env, 'POST', '/rest/v1/content_items', rows,
+      { 'Prefer': 'resolution=ignore-duplicates' });
 
-  if (result && result.error) {
-    console.error('SUPABASE INSERT ERROR:', JSON.stringify(result.error));
-  } else {
-    console.log('SUPABASE INSERT OK:', rows.length, 'articles saved');
+    if (result && result.error) {
+      const errMsg = JSON.stringify(result.error);
+      console.error('SUPABASE INSERT ERROR:', errMsg);
+      return { saved: [], failed: publishable, error: errMsg };
+    }
+
+    console.log('SUPABASE INSERT OK:', publishable.length, 'articles confirmed in DB');
+    return { saved: publishable, failed: [] };
+  } catch (e) {
+    console.error('SUPABASE INSERT EXCEPTION:', e.message);
+    return { saved: [], failed: publishable, error: e.message };
   }
-
-  return result;
 }
 
 export async function logFetch(env, siteId, status, stats, errorMsg, funnelStats) {
