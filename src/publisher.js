@@ -444,7 +444,7 @@ export async function writeArticles(articles, site, env) {
       published.publish_mode = 'rss_summary';
 
       // Auto-synthesis: for high-NVS articles, fetch source and write a full Kartalix article
-      if ((article.nvs || 0) >= 60 && results.filter(r => r.publish_mode === 'rewrite').length < 4) {
+      if ((article.nvs || 0) >= 60 && results.filter(r => r.publish_mode === 'rewrite').length < 6) {
         try {
           const result = await synthesizeArticle(article, env, site);
           const body = result?.body;
