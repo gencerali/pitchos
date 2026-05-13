@@ -1,6 +1,15 @@
 import { callClaude, MODEL_FETCH, extractText, sleep, BJK_KEYWORDS, supabase } from './utils.js';
 import { BJK_REGEX, CUTOFF_48H } from './processor.js';
 
+// Strip common source domain suffixes appended by aggregator RSS feeds (Google News, etc.)
+// e.g. "Recep Uçar: Maç Çok Önemli - BJK.com.tr" → "Recep Uçar: Maç Çok Önemli"
+function cleanTitle(title) {
+  return title
+    .replace(/\s*[\|\-–—]\s*(bjk\.com\.tr|bjkspor\.net|bjk\.com|besiktas\.com\.tr)[\s.]*$/i, '')
+    .replace(/\s*[\|\-–—]\s*[a-z0-9\-]+\.(com\.tr|net\.tr|org\.tr|com|net|org)\s*$/i, '')
+    .trim();
+}
+
 // ─── RSS FEEDS ────────────────────────────────────────────────
 // trust values: official, broadcast, press, journalist, international, aggregator
 // journalist/international: filtered by BJK_KEYWORDS (title + description)
@@ -241,7 +250,7 @@ async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS) {
                     || item.match(/<title[^>]*>\s*([^\s<][^<]*)<\/title>/i)?.[1]
                     || '';
     if (!rawTitle) console.log(`EMPTY TITLE in ${sourceName}: ${item.slice(0, 200)}`);
-    const title      = stripCDATA(rawTitle).trim() || stripCDATA(getTag(item, 'title'));
+    const title      = cleanTitle(stripCDATA(rawTitle).trim() || stripCDATA(getTag(item, 'title')));
     const rawDesc    = stripCDATA(getTag(item, 'description') || getTag(item, 'summary'));
     const rawContent = stripCDATA(getTagNS(item, 'content:encoded') || getTagNS(item, 'content'));
     const url_       = getRSSLink(item) || getTag(item, 'guid') || getTag(item, 'id') || '';
