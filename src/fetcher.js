@@ -10,9 +10,9 @@ export const RSS_FEEDS = [
   // Official — BJK Resmi fetched via fetchBJKOfficial() HTML scraper (no working RSS)
 
   // Team-specific feeds — no keyword filter needed
-  { url: 'https://www.ntvspor.net/rss/kategori/futbol',    name: 'NTV Spor',     trust: 'broadcast', sport: 'football', is_p4: true,  ntvFallback: 'https://www.ntvspor.net/futbol/takim/besiktas' },
+  { url: 'https://www.ntvspor.net/rss/kategori/futbol',    name: 'NTV Spor',     trust: 'broadcast', sport: 'football', is_p4: true,  keywordFilter: true, ntvFallback: 'https://www.ntvspor.net/futbol/takim/besiktas' },
   { url: 'https://www.ahaber.com.tr/rss/besiktas.xml',     name: 'A Haber',      trust: 'press',     sport: 'football', is_p4: true  },
-  { url: 'https://www.trthaber.com/spor_articles.rss',     name: 'TRT Haber',    trust: 'broadcast', sport: 'football', is_p4: false },
+  { url: 'https://www.trthaber.com/spor_articles.rss',     name: 'TRT Haber',    trust: 'broadcast', sport: 'football', is_p4: false, keywordFilter: true },
 
   // General sports feeds — BJK_KEYWORDS filter applied, all commercial press = P4
   { url: 'https://www.hurriyet.com.tr/rss/spor',           name: 'Hürriyet',     trust: 'press',     sport: 'football', is_p4: true,  keywordFilter: true },
@@ -20,12 +20,14 @@ export const RSS_FEEDS = [
   { url: 'https://www.haberturk.com/rss/spor.xml',         name: 'Habertürk Spor', trust: 'press',   sport: 'football', is_p4: true,  keywordFilter: true },
   // Fanatik — RSS URL 404, correct URL unknown. Re-add when confirmed.
   // { url: 'https://www.fanatik.com.tr/rss/besiktas', name: 'Fanatik', ... }
-  // Milliyet, Sporx, Ajansspor — RSS URLs unverified, returning 0. Re-add when confirmed.
+  // Milliyet, Sporx, Ajansspor — no working direct RSS found. Covered by Google News below.
   { url: 'https://www.duhuliye.com/rss',                   name: 'Duhuliye',     trust: 'press',      sport: 'football', is_p4: true,  keywordFilter: true },
+  { url: 'https://www.fotospor.com/feed/rss_sondakika.xml', name: 'Fotospor',    trust: 'press',      sport: 'football', is_p4: true,  keywordFilter: true },
 
   // Google News — aggregates Turkish press (Fanatik, Milliyet, Sporx, Ajansspor etc.)
   // Free, no auth. keywordFilter not needed — query is already BJK-specific.
   { url: 'https://news.google.com/rss/search?q=Besiktas+BJK&hl=tr&gl=TR&ceid=TR:tr', name: 'Google News', trust: 'press', sport: 'football', is_p4: true, proxy: true },
+  { url: 'https://news.google.com/rss/search?q=Besiktas+transfer&hl=tr&gl=TR&ceid=TR:tr', name: 'Google News Transfer', trust: 'press', sport: 'football', is_p4: true, proxy: true, keywordFilter: true },
 
   // Proxy feeds (403-blocked direct, routed via pitchos-proxy) — all P4
   { url: 'https://www.fotomac.com.tr/rss/Besiktas.xml',    name: 'Fotomaç',      trust: 'press',     sport: 'football', is_p4: true,  proxy: true },
@@ -161,11 +163,17 @@ export async function fetchRSSArticles(site, overrideFeeds = null) {
     if (feed.proxy) {
       const proxyItems = await fetchViaRss2Json(feed);
       const raw = proxyItems.length;
+      const cutoff = Date.now() - CUTOFF_48H;
+      // Apply same date cutoff as fetchOneFeed: articles with no parseable date = treat as now
+      const afterDate = proxyItems.filter(a => {
+        const pubMs = a.published_at ? new Date(a.published_at).getTime() : Date.now();
+        return pubMs >= cutoff;
+      });
       const filtered = feed.keywordFilter
-        ? proxyItems.filter(a => keywords.some(k => (a.title + ' ' + (a.summary || '')).toLowerCase().includes(k.toLowerCase())))
-        : proxyItems;
+        ? afterDate.filter(a => keywords.some(k => (a.title + ' ' + (a.summary || '')).toLowerCase().includes(k.toLowerCase())))
+        : afterDate;
       allArticles.push(...filtered);
-      bySource[feed.name] = { raw, after_date: raw, after_keyword: filtered.length };
+      bySource[feed.name] = { raw, after_date: afterDate.length, after_keyword: filtered.length };
       continue;
     }
 
@@ -243,9 +251,19 @@ async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS) {
       const d = new Date(pubDate);
       if (!isNaN(d.getTime())) { published_at = d.toISOString(); pubMs = d.getTime(); }
     }
+    // Fallback: extract date from URL path (e.g. /2026/04/15/ or /20260415)
+    if (!pubMs && url_) {
+      const m = url_.match(/\/(20\d{2})[\/\-](0[1-9]|1[0-2])[\/\-](0[1-9]|[12]\d|3[01])/);
+      if (m) {
+        const d = new Date(`${m[1]}-${m[2]}-${m[3]}T12:00:00Z`);
+        if (!isNaN(d.getTime())) { published_at = d.toISOString(); pubMs = d.getTime(); }
+      }
+    }
+    // Articles with no parseable date at all: treat as now (fresh) but cap per-source to avoid floods
+    const pubMsForCutoff = pubMs || Date.now();
     const image_url = getImageUrl(item, rawDesc);
 
-    if (pubMs && pubMs < cutoff) continue;
+    if (pubMsForCutoff < cutoff) continue;
     recentCount++;
 
     const haystack = (title + ' ' + (rawDesc || '')).toLowerCase();

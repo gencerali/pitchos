@@ -131,8 +131,8 @@ export function decidePublishMode(article) {
   const pubDate = (article.published_at || '').slice(0, 10);
   const isToday = pubDate === today;
 
-  if (cat === 'match' && type === 'fact' && isToday)  return 'template_matchday';
   if (trust === 'official')                            return 'template_official';
+  if (cat === 'match' && type === 'fact' && isToday)  return 'template_matchday';
   if (cat === 'match' && type === 'fact' && !isToday) return 'template_postmatch';
   if (cat === 'injury')                               return 'template_injury';
   if (cat === 'transfer' && nvs >= 70)                return 'template_transfer';
@@ -324,7 +324,7 @@ export async function synthesizeArticle(article, env, site = null) {
         { signal: AbortSignal.timeout(15000) });
       if (res.ok) {
         const data = await res.json();
-        if (data.content && data.content.length > 200) sourceText = data.content.slice(0, 2000);
+        if (data.content && data.content.length > 200) sourceText = data.content.slice(0, 10000);
       }
     } catch(e) {
       console.log('synthesizeArticle: proxy fetch failed:', e.message, '|', srcUrl);
@@ -358,15 +358,16 @@ Kaynak başlık: ${article.title}
 ${isOfficial ? `Kaynak metin: ${sourceText}\n${sourceLabel}` : sourceLabel}${entityBlock}${editorialCtx}${groundingCtx}
 
 Kurallar:
-- 250-350 kelime, Türkçe
+- 250-400 kelime, Türkçe
 - Ateşli bir BJK taraftarı gibi yaz — duygusal bağ kur, heyecan ve gerilimi yansıt
 - İLK CÜMLE: KİŞİLER ve OLAY bilgisini içermeli — kim, ne yaptı/oldu net şekilde belirt
 - "...kaynağına göre" veya "...iddia ediyor" gibi ifadeler kullanma — bilgiyi doğrudan sun
 - DOĞRULANMIŞ VERİLER arka plan bilgisidir: rakamları aynen aktarma, sezon bağlamını habere doğal şekilde dokut
+- Kaynak metinde tırnak içinde doğrudan alıntı varsa, o alıntıları kelimesi kelimesine koru — asla parafraz yapma
 - Paragraflar arası boş satır bırak
 - Sadece haber metnini yaz, başlık ekleme`;
 
-  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 700);
+  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 1000);
   let body = extractText(res.content).trim();
 
   const verification = await verifyArticle(body, groundingCtx, env);
@@ -397,7 +398,13 @@ export async function writeArticles(articles, site, env) {
     const mode = decidePublishMode(article);
     let published = { ...article, publish_mode: mode };
 
-    if (mode === 'template_matchday') {
+    if (mode === 'template_official') {
+      // Official source tweet — publish verbatim, no synthesis, no template extraction.
+      published.summary      = cleanRSS(article.summary || article.description || '');
+      published.full_body    = published.summary;
+      // keep publish_mode = 'template_official'
+
+    } else if (mode === 'template_matchday') {
       const written = await writeMatchDay(article, env);
       if (written) published = written;
       else published.summary = cleanRSS(article.summary || article.description || '');
@@ -483,7 +490,7 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
   const publishable = articles.filter(a => a.publish_mode !== 'rss_summary');
   if (publishable.length === 0) return { saved: [], failed: [] };
 
-  const isSynthesized = m => m === 'rewrite' || m === 'original_synthesis' || (m && m.startsWith('template')) || m === 'video_embed' || m === 'youtube_embed' || (m && m.startsWith('youtube_'));
+  const isSynthesized = m => m === 'rewrite' || m === 'original_synthesis' || (m && m.startsWith('template') && m !== 'template_official') || m === 'video_embed' || m === 'youtube_embed' || (m && m.startsWith('youtube_'));
 
   const rows = publishable.map(a => ({
     site_id:      siteId,
@@ -749,14 +756,6 @@ export async function generateMuhtemel11(match, articles, site, env) {
     return null;
   }
 
-  const SQUAD = [
-    'ersin', 'vasquez', 'murillo', 'agbadou', 'djalo', 'uduokhai',
-    'emirhan', 'rıdvan', 'taylan', 'sazdağı', 'özcan',
-    'orkun', 'kökçü', 'ndidi', 'asllani', 'salih', 'kartal kayra',
-    'rashica', 'olaitan', 'cerny', 'abraham', 'el bilal', 'oh',
-    'jota', 'cengiz', 'hekimoğlu', 'sergen', 'yalçın'
-  ];
-
   const prompt = `Aşağıdaki haberlerden Beşiktaş'ın ${match.opponent} maçı için muhtemel 11'ini çıkar.
 Sadece JSON döndür:
 {
@@ -768,8 +767,6 @@ Sadece JSON döndür:
 }
 En az 8 oyuncu bulamazsan confidence: 0 yaz.
 ASLA uydurma. Sadece haberde geçen isimler.
-
-Bilinen kadro: ${SQUAD.join(', ')}
 
 ${lineupArticles.map(a =>
   `Kaynak: ${a.source_name || a.source}\nBaşlık: ${a.title}\n${(a.full_body || a.summary || '').slice(0, 400)}`
@@ -885,48 +882,62 @@ export async function generateConfirmedLineup(match, lineup, site, env) {
 
   const matchDate = new Date(match.date).toLocaleDateString('tr-TR', { day:'numeric', month:'long', year:'numeric' });
   const oppSlug   = match.opponent.toLowerCase().replace(/\s+/g,'-').replace(/[ğ]/g,'g').replace(/[ü]/g,'u').replace(/[ş]/g,'s').replace(/[ı]/g,'i').replace(/[ö]/g,'o').replace(/[ç]/g,'c');
+
+  // Turkish vowel harmony helpers for T09 intro
+  const timeSuffix = (() => {
+    const [h, m] = (match.time || '19:00').split(':').map(Number);
+    if (m === 30) return 'da';
+    if (m === 15 || m === 45) return 'te';
+    // locative suffix based on last vowel of spoken hour name
+    const s = [null,'de','de','te','te','te','da','de','de','da','da','de','de','te','te','te','da','de','de','da','de','de','de'];
+    return s[h] || 'da';
+  })();
+  const venueLocative = (() => {
+    if (!match.venue) return '';
+    const lv = match.venue.toLowerCase().replace(/[^aeıioöuü]/g, '').slice(-1);
+    return `${match.venue}'${['e','i','ö','ü'].includes(lv) ? 'de' : 'da'}`;
+  })();
   const formation = lineup.formation || '';
-  const players   = lineup.startXI.map(p => p.name);
-  const bench     = lineup.substitutes.map(p => p.name);
-  const coach     = lineup.coach || 'Sergen Yalçın';
+  const coach     = lineup.coach || '';
 
-  console.log(`TEMPLATE 09: API lineup — ${formation} — ${players.join(', ')}`);
+  // Group players by position using API-provided pos field — avoids Claude guessing positions
+  const gk   = lineup.startXI.filter(p => p.pos === 'G').map(p => p.name);
+  const defs = lineup.startXI.filter(p => p.pos === 'D').map(p => p.name);
+  const mids = lineup.startXI.filter(p => p.pos === 'M').map(p => p.name);
+  const fwds = lineup.startXI.filter(p => p.pos === 'F').map(p => p.name);
+  // Fallback: any unpositioned players go into a flat list
+  const positioned = [...gk, ...defs, ...mids, ...fwds];
+  const unpositioned = lineup.startXI.filter(p => !['G','D','M','F'].includes(p.pos)).map(p => p.name);
+  const allStarting = [...positioned, ...unpositioned];
 
-  const t09Notes = await getEditorialNotes(env, ['match', 'T09']);
-  const prosePrompt = `${t09Notes}Sen Kartalix'in spor editörüsün. Beşiktaş'ın resmi ilk 11'i açıklandı. Kısa, haber dilinde Türkçe yaz.
+  // Build the structured lineup block deterministically — Claude only writes prose intro
+  const lineupBlock = [
+    gk.length   ? `Kaleci: ${gk.join(', ')}` : null,
+    defs.length ? `Savunma: ${defs.join(', ')}` : null,
+    mids.length ? `Orta Saha: ${mids.join(', ')}` : null,
+    fwds.length ? `Forvet: ${fwds.join(', ')}` : null,
+    unpositioned.length ? `Diğer: ${unpositioned.join(', ')}` : null,
+  ].filter(Boolean).join('\n');
 
-MAÇ: Beşiktaş - ${match.opponent} | ${matchDate} ${match.time} | ${match.league}${match.week ? ' ' + match.week + '. Hafta' : ''}
-ANTRENÖR: ${coach}
-RESMİ İLK 11 (${formation}): ${players.join(', ')}
-${bench.length ? 'YEDEKLER: ' + bench.join(', ') : ''}
+  console.log(`TEMPLATE 09: API lineup — ${formation} — ${allStarting.join(', ')}`);
 
-KURALLAR:
-- 2 kısa paragraf (~80 kelime), ardından kadro listesi
-- 1. paragraf: kadronun açıklandığını haber ver, maçı tanıt
-- 2. paragraf: dikkat çekici seçim veya sürpriz varsa yorumla, yoksa ${coach}'ın tercihleri olarak çerçevele
-- Ardından "Beşiktaş'ın İlk 11'i (${formation}):" başlığı ve oyuncu listesi
-- SEO: "Beşiktaş ilk 11", "${match.opponent} maçı" doğal geçsin
-- Emoji KULLANMA
-
-Sadece haber metnini yaz.`;
-
-  let prose = '';
-  try {
-    const res = await callClaude(env, 'claude-haiku-4-5-20251001', prosePrompt, false, 500);
-    prose = extractText(res.content).trim();
-  } catch(e) { console.error('T09 prose failed:', e.message); }
-
-  if (!prose) {
-    prose = `Beşiktaş, ${matchDate} tarihinde oynayacağı ${match.opponent} maçının ilk 11'ini açıkladı. ${coach}, ${formation ? formation + ' dizilişini' : 'kadrosunu'} belirledi.\n\nBeşiktaş'ın İlk 11'i (${formation}):\n${players.map((p,i)=>`${i+1}. ${p}`).join('\n')}\n\nResmi kadro açıklandı.`;
-  }
+  // Fully deterministic — no Claude. Any prose generation risks hallucinating squad knowledge.
+  const bench = lineup.substitutes?.map(p => p.name) || [];
+  const kickoffPart = match.time ? `bugün saat ${match.time}'${timeSuffix}` : 'bugün';
+  const intro = (venueLocative
+    ? `Beşiktaş'ımızın ${kickoffPart} ${venueLocative} oynayacağı ${match.opponent} maçının ilk 11'i açıklandı.`
+    : `Beşiktaş'ımızın ${kickoffPart} oynayacağı ${match.opponent} maçının ilk 11'i açıklandı.`)
+    + (coach ? ` ${coach}, ${formation ? formation + ' dizilişini' : 'kadroyu'} tercih etti.` : '');
+  const benchLine = bench.length ? `\nYedekler: ${bench.join(', ')}` : '';
+  const full_body = `${intro}\n\nBeşiktaş'ın İlk 11'i (${formation}):\n${lineupBlock}${benchLine}`;
 
   const title   = `Beşiktaş'ın ${match.opponent} Maçı İlk 11'i Belli Oldu | ${matchDate}`;
-  const summary = `${coach}, ${matchDate} tarihindeki ${match.opponent} maçı için ilk 11'i açıkladı. ${formation ? 'Diziliş: ' + formation + '.' : ''} ${players.slice(0,5).join(', ')} ve diğerleri sahada.`.slice(0, 300);
+  const summary = `${match.opponent} maçının ilk 11'i açıklandı. ${coach ? coach + ', ' : ''}${formation ? formation + ' dizilişini' : 'kadroyu'} tercih etti. ${allStarting.slice(0,5).join(', ')} ve diğerleri sahada.`.slice(0, 300);
 
   return {
     title,
     summary,
-    full_body:           prose,
+    full_body,
     source_name:         platformName,
     source:              platformName,
     source_emoji:        platformEmoji,
@@ -1831,10 +1842,11 @@ Sadece Türkçe haber metnini yaz.`;
 // Fires once when liveFixture.status === 'HT'. Summarises first half.
 // allEvents: raw /fixtures/events response array for the fixture.
 export async function generateHalftimeReport(match, allEvents, site, env) {
-  const bjkGoals = (allEvents || []).filter(e => e.type === 'Goal' && e.team?.id === 549 && e.detail !== 'Missed Penalty');
-  const oppGoals = (allEvents || []).filter(e => e.type === 'Goal' && e.team?.id !== 549 && e.detail !== 'Missed Penalty');
-  const bjkCards = (allEvents || []).filter(e => e.type === 'Card' && e.team?.id === 549);
-  const oppCards = (allEvents || []).filter(e => e.type === 'Card' && e.team?.id !== 549);
+  const tid = site?.team_id || match?.team_id || 549;
+  const bjkGoals = (allEvents || []).filter(e => e.type === 'Goal' && e.team?.id === tid && e.detail !== 'Missed Penalty');
+  const oppGoals = (allEvents || []).filter(e => e.type === 'Goal' && e.team?.id !== tid && e.detail !== 'Missed Penalty');
+  const bjkCards = (allEvents || []).filter(e => e.type === 'Card' && e.team?.id === tid);
+  const oppCards = (allEvents || []).filter(e => e.type === 'Card' && e.team?.id !== tid);
 
   const htNotes = await getEditorialNotes(env, ['match', 'template', 'T-HT']);
   const prompt = `${htNotes}Sen Kartalix'in maç muhabirsin. İlk yarı sona erdi. Kısa devre özeti yaz.
@@ -1885,7 +1897,7 @@ YAZIM KURALLARI:
 export async function generateRedCardFlash(match, cardEvent, site, env) {
   const player   = cardEvent.player?.name || 'Bilinmeyen';
   const minute   = cardEvent.time?.elapsed || '?';
-  const isOurs   = cardEvent.team?.id === 549;
+  const isOurs   = cardEvent.team?.id === (site?.team_id || match?.team_id || 549);
   const isSecond = (cardEvent.detail || '').toLowerCase().includes('yellow red');
 
   const notes = await getEditorialNotes(env, ['match', 'template', 'T-RED']);
@@ -1968,7 +1980,7 @@ YAZIM KURALLARI:
 export async function generateMissedPenaltyFlash(match, penEvent, site, env) {
   const player = penEvent.player?.name || 'Bilinmeyen';
   const minute = penEvent.time?.elapsed || '?';
-  const isOurs = penEvent.team?.id === 549;
+  const isOurs = penEvent.team?.id === (site?.team_id || match?.team_id || 549);
 
   const notes = await getEditorialNotes(env, ['match', 'template', 'T-PEN']);
   const prompt = `${notes}Sen Kartalix'in maç muhabirsin. Kaçırılan penaltı haberi yaz.
@@ -2226,7 +2238,8 @@ function buildPitchCard(bjkXI, bjkFm, oppXI, oppFm, teamName, oppName, subs, mat
   pitch+=`<circle cx="${W/2}" cy="${H-py-66}" r="2.5" fill="rgba(255,255,255,0.35)"/>`;
 
   // ── team logo watermarks (semi-transparent) ──────────────────
-  const bjkLogo='https://media.api-sports.io/football/teams/549.png';
+  const bjkTeamId = (site?.team_id || matchInfo?.team_id || 549);
+  const bjkLogo=`https://media.api-sports.io/football/teams/${bjkTeamId}.png`;
   const oppLogo=matchInfo&&matchInfo.opponent_logo?matchInfo.opponent_logo:'';
   const lSz=80;
   pitch+=`<image href="${bjkLogo}" x="${(W-lSz)/2}" y="${Math.round((midY+(H-py))/2-lSz/2)}" width="${lSz}" height="${lSz}" opacity="0.18" preserveAspectRatio="xMidYMid meet"/>`;

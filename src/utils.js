@@ -102,15 +102,46 @@ export async function getActiveSites(env) {
 // Returns a formatted instruction block to prepend to any Claude prompt.
 export async function getEditorialNotes(env, scopes = []) {
   try {
-    const raw = await env.PITCHOS_CACHE.get('editorial:notes');
-    if (!raw) return '';
-    const notes = JSON.parse(raw);
-    const relevant = notes.filter(n =>
-      n.active !== false &&
-      (n.scope === 'global' || scopes.includes(n.scope))
-    );
-    if (relevant.length === 0) return '';
-    return `EDİTÖR TALİMATLARI — bu kurallara kesinlikle uy, bunlar en yüksek önceliklidir:\n${relevant.map(n => `- [${n.scope}] ${n.text}`).join('\n')}\n\n`;
+    const [rawNotes, rawPatterns] = await Promise.all([
+      env.PITCHOS_CACHE.get('editorial:notes'),
+      env.PITCHOS_CACHE.get('editorial:voice_patterns'),
+    ]);
+
+    let block = '';
+
+    if (rawNotes) {
+      const notes = JSON.parse(rawNotes);
+      const relevant = notes.filter(n =>
+        n.active !== false &&
+        (n.scope === 'global' || scopes.includes(n.scope))
+      );
+      if (relevant.length > 0) {
+        block += `EDİTÖR TALİMATLARI — bu kurallara kesinlikle uy, bunlar en yüksek önceliklidir:\n${relevant.map(n => `- [${n.scope}] ${n.text}`).join('\n')}\n\n`;
+      }
+    }
+
+    if (rawPatterns) {
+      const patterns = JSON.parse(rawPatterns);
+      if (patterns.length > 0) {
+        // Pick 3 weighted-random style examples to inject as style guidance
+        const pool = patterns.flatMap(p => Array(Math.max(1, Math.round((p.weight || 1) * 2))).fill(p));
+        const picked = [];
+        const used = new Set();
+        for (let i = 0; i < Math.min(3, patterns.length); i++) {
+          let tries = 0;
+          while (tries++ < 20) {
+            const idx = Math.floor(Math.random() * pool.length);
+            const p = pool[idx];
+            if (!used.has(p.id)) { used.add(p.id); picked.push(p); break; }
+          }
+        }
+        if (picked.length > 0) {
+          block += `YAZIM TARZI ÖRNEKLERİ — aşağıdaki cümle ritmi ve dil tarzını yansıt (içerik değil, sadece ses ve üslup):\n${picked.map(p => `• ${p.example_sentences}`).join('\n')}\n\n`;
+        }
+      }
+    }
+
+    return block;
   } catch(e) {
     return '';
   }

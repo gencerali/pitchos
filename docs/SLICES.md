@@ -214,22 +214,19 @@ Parked — data gap confirmed:
 - ~~Per-player shot breakdown~~ — shots.total null per player; not viable
 - T08 Press Conference Quotes — RSS-only pipeline (no structured data source)
 
-**Phase 3.5 — In-match event flash templates (Sprint A)** ← NEXT SPRINT
+**Phase 3.5 — In-match event flash templates (Sprint A)** ✅ DONE (2026-05-13)
 
 _All events available from single endpoint: `/fixtures/events?fixture={id}`. Watcher already polls this for goals. Extend to other event types._
 
-- [ ] T-RED Red Card Flash — `type:"Card", detail:"Red Card"` or `"Second Yellow Card"` — high fan engagement, tactical context ("10 kişi kaldı")
-- [ ] T-VAR VAR Decision Flash — `type:"Var"` — highest controversy events, fans demand instant reaction
-- [ ] T-OG Own Goal Alert — `type:"Goal", detail:"Own Goal"` — distinct from goal flash (opponent own goal = good news)
-- [ ] T-PEN Missed Penalty — `type:"Chance Missed"` on a penalty minute — emotional flash
-- [ ] T-HT Halftime Report — status `"HT"` detected, mini first-half summary (stats from `/fixtures/statistics`)
+- [x] T-RED Red Card Flash — `type:"Card", detail:"Red Card"` or `"Yellow Red Card"`
+- [x] T-VAR VAR Decision Flash — `type:"Var"`
+- [x] T-OG Own Goal Alert — `type:"Goal", detail:"Own Goal"` — handled by `generateGoalFlash` (already OG-aware); watcher routes by `ev.team.id !== 549`
+- [x] T-PEN Missed Penalty — `type:"Goal", detail:"Missed Penalty"`
+- [x] T-HT Halftime Report — `liveFixture.status === 'HT'`, `ht_published` flag in `match:BJK:live`
+- [x] `fetchAllEvents` — single call to `/fixtures/events?fixture={id}` (no team/type filter), reused for all Sprint A checks
+- [x] `seen_event_ids` persisted in `match:BJK:live` KV — prevents duplicate flashes across watcher ticks
 
-Implementation notes:
-- Extend `match:BJK:live` KV state to include `last_event_hash` — fingerprint of all events seen so far
-- On each watcher tick, compare event list hash vs stored; if changed, classify new events and fire appropriate template
-- All event types polled with ONE additional API call to `/fixtures/events` per tick (already done for goals via `fetchGoalEvents`)
-
-**Phase 3.6 — Widgets (Sprint B)** ← AFTER SPRINT A
+**Phase 3.6 — Widgets (Sprint B)** ✅ DONE (2026-05-13)
 
 _Zero backend changes. Pure frontend embeds via api-sports.io widget JS. Host a Turkish `tr.json` translation file._
 
@@ -259,8 +256,8 @@ Deliverables:
 - [x] Fixture (game) widget auto-injected on match-day article pages (2026-05-01)
 - [x] `/widgets/config` endpoint — serves API key with CORS restricted to app.kartalix.com (2026-05-01)
 - [x] Widget key = same as API_FOOTBALL_KEY — confirmed by api-sports docs (2026-05-01)
-- [ ] `tr.json` Turkish translation file + `/widgets/tr.json` endpoint
-- [ ] H2H widget on T02 articles
+- [x] `tr.json` Turkish translation file + `/widgets/tr.json` endpoint (2026-05-13)
+- [x] H2H widget on T02 articles (2026-05-13)
 
 **Sprint C — YouTube Embed (embed-only quick win)** ← AFTER SPRINT B
 
@@ -304,44 +301,31 @@ _Note: this was originally called "synthesis" but renamed to "rewrite" (publish_
 - [x] `generateOriginalNews(sources, site, env)` — multi-source context bundling (titleSimilarity>0.25), publish_mode: 'original_synthesis'
 - [x] `/force-synthesis` debug endpoint
 
-**Sprint D2 — True Multi-Source Synthesis** ← FUTURE SPRINT
+**Sprint D2 — True Multi-Source Synthesis** ✅ DONE (2026-05-13)
 
-_The real editorial product. Single-source rewriting has low value — it just reproduces one article in different words. True synthesis: gather 3–5 independent sources covering the same story, identify what each adds, write an original Kartalix take from an independent angle that cannot be attributed to any single source._
-
-**What makes it different from Sprint D:**
-- Sources are gathered by story cluster (story-matching system, already built in Slice 2)
-- Each source's full text is fetched (proxy, already built)
-- Claude sees ALL sources together and is instructed to write from an angle that is distinct from any single one
-- Output is genuinely original — not a rewrite of source A, not a summary of A+B+C
-
-**Prerequisites:** Story clustering (Slice 2 ✅), proxy reliability (2026-05-12 ✅), Facts Firewall (Slice 1 ✅)
+_The real editorial product. Gather 3–5 independent sources covering the same story, write an original Kartalix take from an independent angle that cannot be attributed to any single source._
 
 **Deliverables:**
-- [ ] `synthesizeStory(story, contributions, site, env)` in publisher.js — takes a confirmed story + its N contributions, fetches full text of top 3–5 sources, passes all to Claude with synthesis prompt
-- [ ] Synthesis prompt: "You have N independent sources. Write an original Kartalix article that takes its own angle. Do not reproduce any single source's framing."
-- [ ] Wire to story state machine: fires when story reaches `confirmed` state with ≥3 contributions
-- [ ] publish_mode: `synthesis` (this is the proper use of the word)
-- [ ] Dedup: one synthesis per story per day (KV key: `synth:{story_id}:{date}`)
-- [ ] `/force-story-synthesis?story_id=` debug endpoint
+- [x] `synthesizeStory(story, siteId, env)` in story-matcher.js — confirmed story + ≥3 contributions, fetches full text of top 5 sources via Readability proxy, Claude Sonnet writes from independent angle
+- [x] Synthesis prompt instructs Claude to find an angle none of the sources used
+- [x] Fires automatically when active/confirmed story gets 3rd+ contribution (async, non-blocking)
+- [x] publish_mode: `synthesis` (distinct from `synthesis_generated` single-source)
+- [x] Dedup: one synthesis per story per day (KV key: `synth:{story_id}:{date}`)
+- [x] `/force-story-synthesis?story_id=` debug endpoint
 
-**Sprint E — Source Expansion** ← CURRENT SPRINT
+**Sprint E — Source Expansion** ✅ DONE (2026-05-13)
 
 _Goal: more volume, more reliable, broader coverage (national team, other sports, breaking transfers)._
 
-**Step 1 — Disabled RSS feeds** (~1h):
-- [ ] Find working URLs for Fanatik, Milliyet Spor, Sporx, Ajansspor (currently commented out)
-- [ ] Add to RSS_FEEDS in src/fetcher.js, test with `/run`
-- [ ] Expected gain: +30–50 articles/day
+- [x] Step 1: Fanatik/Milliyet/Sporx/Ajansspor — no working direct RSS found; covered by Google News BJK feed
+- [x] Fotospor `sondakika` feed added (`keywordFilter: true`)
+- [x] Google News Transfer search feed added (`keywordFilter: true`)
+- [x] Step 2: Transfermarkt TR added (trust: journalist, proxy, keywordFilter: true)
+- [x] Step 3: RSS cron moved to hourly `0 */1 * * *`
+- [x] NTV Spor + TRT Haber: added `keywordFilter: true` (broad football feeds — prevents non-BJK articles reaching scoring)
+- [x] **Feed quality hotfix** (2026-05-13): proxy path was missing date cutoff entirely; undated articles now use URL date extraction → treat-as-now fallback; Google News Transfer was `keywordFilter: false` (fixed); one-time flood cleared via Supabase URL dedup
 
-**Step 2 — Transfermarkt RSS** (~30min):
-- [ ] Add `https://www.transfermarkt.com.tr/besiktas-jk/ticker/verein/114/format/atom` to RSS_FEEDS
-- [ ] Trust tier: `journalist`, P4: false (Transfermarkt is authoritative for transfers)
-- [ ] Expected gain: high-signal transfer rumours 24-48h before Turkish press
-
-**Step 3 — Cron separation** (~2h):
-- [ ] RSS intake: move to `0 */1 * * *` (hourly) — RSS feeds don't update faster than this
-- [ ] Live match watcher: stays on `*/5 * * * *` but skips RSS fetch+score entirely
-- [ ] Expected gain: 6× reduction in Claude scoring cost (288 → 48 scoring calls/day)
+❌ Step 4: Twitter blocked — X API Basic $100/month, over budget until revenue
 
 **bjk.com.tr content access** ❌ BLOCKED — backlog item:
 - bjk.com.tr is fully CAPTCHA-protected (Cloudflare). Blocks datacenter IPs, headless browsers (rss.app), Jina.ai, Google webcache, archive.today — everything.
@@ -363,21 +347,9 @@ _Goal: more volume, more reliable, broader coverage (national team, other sports
 
 ---
 
-**Sprint G — Sentiment Judge** ← AFTER SPRINT F, BEFORE SPRINT A
+**Sprint G — Sentiment Judge** ✅ DONE (already integrated, confirmed 2026-05-13)
 
-_One extra Haiku call per scoring batch. Directly improves content quality every hour: a fan site that leads with rival celebrations is broken._
-
-**Why**: Current NVS scoring does all three judgments (relevance + value + sentiment) in a single prompt. Rival-celebration framing and opponent-POV articles regularly slip through at NVS 40–60. The single-prompt approach cannot reliably separate "BJK won 3-0 [good]" from "Galatasaray clinched the title [bad for BJK fans]".
-
-**What it does**: Second Haiku call per scoring batch, runs in parallel with NVS. Asks: "Is this article written from a rival/opponent fan perspective, or does it lead with the fan team losing without framing it as their story?" Returns `rival_pov: bool + confidence`. NVS penalty: −30 on confirmed rival_pov.
-
-- [ ] `sentimentJudge(articles, env)` in processor.js — parallel Haiku call, batch of 10
-- [ ] `rival_pov` field added to scored article shape
-- [ ] NVS penalty applied: −30 for rival_pov confirmed
-- [ ] `rival_pov` stored in content_items (new column or in nvs_notes JSON)
-- [ ] Golden fixture: `galatasaray_title_filtered` — rival celebration article lands NVS < 20
-
-**Estimated**: 3–4 hours
+`rival_pov` field with −25 NVS cap is integrated directly into the main `scoreArticles` Haiku call in processor.js — not a separate call. The single-prompt approach handles rival-POV detection as part of NVS scoring. No separate `sentimentJudge` function needed.
 
 ---
 
@@ -479,12 +451,15 @@ _Two related problems discovered 2026-05-10: (1) no visibility into which templa
 - [ ] Add anti-patterns to editorial notes: forbid AI tells ("It is worth noting", "Certainly", "Furthermore", clinical passive constructions)
 - [ ] Run `/admin/editorial/distill` to extract and activate rules immediately
 
-**Phase 2 — Voice Agent cron (1 week)**:
-- [ ] Weekly cron (Sunday 02:00) reads top 15 most-shared Turkish sports articles from tracked sources (RSS already fetches these)
-- [ ] `extractStyleDNA(article, env)` — Haiku call: extract sentence rhythm, idiom usage, quote introduction patterns, emotional vocabulary — explicitly NOT content, only style
-- [ ] `voice_patterns` Supabase table or KV key: growing library of style examples with engagement weight
-- [ ] Generation prompts updated: prepend 3 random style examples from `voice_patterns` with instruction "Bu örneklerdeki yazım tarzına benzer şekilde yaz — içerik değil, ses ve ritim"
-- [ ] Style examples rotated per generation to prevent pattern lock-in
+**Phase 2 — Voice Agent cron** ✅ DONE (2026-05-13):
+- [x] Weekly cron (Sunday 02:00) added — `runVoicePatternExtraction(env)` in worker cron handler
+- [x] `extractStyleDNA` via Haiku: sentence rhythm, idiom usage, emotional vocabulary — NOT content
+- [x] Phase 1 seed: 13 Turkish voice rules added to editorial:notes via `seedVoiceRules()` — activate with POST /admin/seed-voice
+- [x] `editorial:voice_patterns` KV key: growing library (30-pattern cap, weighted by NVS score)
+- [x] `getEditorialNotes` updated: injects 3 weighted-random style examples into all generation prompts
+- [x] Style examples weighted by NVS score + rotated randomly per generation to prevent pattern lock-in
+- [x] /admin/tools page: "Ses Tarzı Kütüphanesi" card with manual trigger + view buttons
+- First run: wait until ≥3 synthesis articles in DB, then POST /admin/run-voice-patterns
 
 **Phase 3 — Engagement feedback (wires into Slice 8)**:
 - [ ] Track which articles get more shares/time-on-page

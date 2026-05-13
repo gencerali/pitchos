@@ -13,7 +13,7 @@ import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArt
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard } from './src/publisher.js';
-import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates } from './src/story-matcher.js';
+import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
@@ -145,7 +145,7 @@ export default {
       }
     }
     if (url.pathname === '/run') {
-      ctx.waitUntil(runAllSites(env, ctx));
+      ctx.waitUntil(runAllSites(env, ctx, { forceRun: true }));
       return Response.json({ status: 'started', message: 'Running in background — check /cache in ~60s' });
     }
     if (url.pathname === '/widgets/config') {
@@ -204,6 +204,47 @@ export default {
       if (!payload) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
       await env.PITCHOS_CACHE.put(cacheKey, payload, { expirationTtl: 86400 });
       return new Response(payload, { headers: { 'Content-Type': 'application/json', ...CORS } });
+    }
+
+    if (url.pathname === '/widgets/tr.json') {
+      const TR = {
+        "all":"Tümü","live":"Canlı","finished":"Bitti","scheduled":"Planlandı","favorites":"Favoriler",
+        "home":"Ev","away":"Deplasman","rank":"Sıra","team":"Takım",
+        "played":"O","wins":"G","draws":"B","losses":"M",
+        "goals_for":"+G","goals_against":"-G","goal_diff":"A","points":"P",
+        "form":"Form","league":"Lig","season":"Sezon","round":"Tur",
+        "venue":"Stadyum","referee":"Hakem",
+        "lineup":"Kadro","bench":"Yedekler","substitutions":"Değişiklikler",
+        "goals":"Goller","goal":"Gol","own_goal":"Kendi Kalesine",
+        "assist":"Asist","var":"VAR",
+        "yellow_card":"Sarı Kart","red_card":"Kırmızı Kart","missed_penalty":"Kaçırılan Penaltı",
+        "player":"Oyuncu","coach":"Teknik Direktör","formation":"Diziliş",
+        "stats":"İstatistikler","events":"Olaylar",
+        "h2h":"Karşılıklı","head_to_head":"Karşılıklı Maçlar",
+        "standing":"Puan Durumu","standings":"Puan Durumu",
+        "last_5":"Son 5","last_matches":"Son Maçlar",
+        "no_data":"Veri bulunamadı","loading":"Yükleniyor...","error":"Hata oluştu",
+        "half_time":"Devre Arası","full_time":"Maç Sonu","extra_time":"Uzatmalar","penalties":"Penaltılar",
+        "NS":"Başlamadı","TBD":"Belirsiz","1H":"1. Yarı","HT":"Devre Arası","2H":"2. Yarı",
+        "ET":"Uzatmalar","BT":"Penaltılar","P":"Penaltılar","SUSP":"Askıya Alındı",
+        "INT":"Durduruldu","FT":"Bitti","AET":"Uzatmalarda Bitti","PEN":"Penaltılarda Bitti",
+        "PST":"Ertelendi","CANC":"İptal","ABD":"Terk Edildi","AWD":"Hükmen","WO":"Rakipsiz",
+        "LIVE":"Canlı",
+        "G":"Kaleci","D":"Defans","M":"Orta Saha","F":"Forvet",
+        "shots_on_goal":"İsabetli Şut","shots_off_goal":"İsabetsiz Şut","total_shots":"Toplam Şut",
+        "blocked_shots":"Engellenen Şut","corner_kicks":"Köşe Vuruşu","offsides":"Ofsayt",
+        "ball_possession":"Top Hakimiyeti","yellow_cards":"Sarı Kart","red_cards":"Kırmızı Kart",
+        "goalkeeper_saves":"Kaleci Kurtarışı","total_passes":"Toplam Pas",
+        "passes_accurate":"İsabetli Pas","passes_percent":"Pas %","fouls":"Faul",
+        "expected_goals":"Beklenen Gol (xG)"
+      };
+      return new Response(JSON.stringify(TR), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'public, max-age=86400',
+        },
+      });
     }
 
     if (url.pathname === '/widgets/current-match-stats') {
@@ -1158,6 +1199,28 @@ export default {
         return Response.json({ error: e.message }, { headers, status: 500 });
       }
     }
+    if (url.pathname === '/force-story-synthesis') {
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const storyId = url.searchParams.get('story_id');
+      if (!storyId) return Response.json({ error: 'story_id required' }, { headers, status: 400 });
+      try {
+        const sites = await getActiveSites(env);
+        const site = sites?.[0];
+        if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
+        const rows = await supabase(env, 'GET',
+          `/rest/v1/stories?id=eq.${storyId}&select=*&limit=1`);
+        const story = rows?.[0];
+        if (!story) return Response.json({ error: 'story not found' }, { headers, status: 404 });
+        // Clear dedup key so force always runs
+        const today = new Date().toISOString().slice(0, 10);
+        await env.PITCHOS_CACHE.delete(`synth:${storyId}:${today}`);
+        const result = await synthesizeStory(story, site.id, env);
+        return Response.json({ ok: true, published: !!result, title: result?.title || null }, { headers });
+      } catch (e) {
+        return Response.json({ error: e.message }, { headers, status: 500 });
+      }
+    }
+
     if (url.pathname === '/force-txgdelta') {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
@@ -1832,6 +1895,15 @@ Sadece JSON döndür:
       return new Response(JSON.stringify(report), { headers: { 'Content-Type': 'application/json' } });
     }
 
+    if (url.pathname === '/admin/tools') {
+      const cookie = request.headers.get('cookie') || '';
+      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const kvRaw = await env.PITCHOS_CACHE.get('match:BJK:next').catch(() => null);
+      const cachedMatch = kvRaw ? JSON.parse(kvRaw) : null;
+      return new Response(renderAdminToolsPage(NEXT_MATCH, cachedMatch), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
     if (url.pathname === '/admin/roadmap') {
       const cookie = request.headers.get('cookie') || '';
       const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
@@ -2056,6 +2128,198 @@ Sadece JSON döndür:
       return new Response(JSON.stringify(slugs), { headers: h });
     }
 
+    if (url.pathname === '/admin/test-templates' && request.method === 'GET') {
+      return new Response(renderTestTemplatesPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
+    if (url.pathname === '/admin/test-templates/recent-fixtures' && request.method === 'GET') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      try {
+        const fixtures = await getLastFixtures(env, 8);
+        return Response.json({ fixtures: fixtures.filter(f => f.is_finished) }, { headers: h });
+      } catch(e) {
+        return Response.json({ error: e.message }, { status: 500, headers: h });
+      }
+    }
+
+    if (url.pathname === '/admin/test-templates/fixture-events' && request.method === 'GET') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const fid = parseInt(url.searchParams.get('fixture_id') || '0');
+      if (!fid) return Response.json({ error: 'fixture_id required' }, { status: 400, headers: h });
+      try {
+        const events = await fetchAllEvents(fid, env);
+        const grouped = {
+          goals:    events.filter(e => e.type === 'Goal' && e.detail !== 'Missed Penalty' && e.detail !== 'Own Goal'),
+          own_goals: events.filter(e => e.type === 'Goal' && e.detail === 'Own Goal'),
+          missed_pens: events.filter(e => e.type === 'Goal' && e.detail === 'Missed Penalty'),
+          red_cards: events.filter(e => e.type === 'Card' && (e.detail === 'Red Card' || e.detail === 'Yellow Red Card')),
+          var_events: events.filter(e => e.type === 'Var'),
+          all: events,
+        };
+        return Response.json({ events: grouped }, { headers: h });
+      } catch(e) {
+        return Response.json({ error: e.message }, { status: 500, headers: h });
+      }
+    }
+
+    if (url.pathname === '/admin/test-templates' && request.method === 'POST') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const { template, fixture_id, event_data } = await request.json();
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+
+      const fid = fixture_id || NEXT_MATCH.fixture_id;
+
+      // Use the actual selected fixture's data instead of NEXT_MATCH / next-from-API
+      let nextMatch = NEXT_MATCH;
+      try {
+        const apiFixture = await getFixture(fid, env);
+        if (apiFixture) {
+          const coords = await resolveVenueCoords(apiFixture.venue, apiFixture.venue_city);
+          nextMatch = {
+            ...NEXT_MATCH,
+            ...apiFixture,
+            match_day:      apiFixture.date,
+            opponent_short: apiFixture.opponent?.split(' ')[0] || apiFixture.opponent,
+            venue_lat:      coords?.lat ?? NEXT_MATCH.venue_lat,
+            venue_lon:      coords?.lon ?? NEXT_MATCH.venue_lon,
+            tv:             NEXT_MATCH.tv,
+          };
+        }
+      } catch(e) {}
+
+      let card = null;
+      try {
+        if (template === 'T01') {
+          const [h2h, weather, table] = await Promise.all([
+            nextMatch.opponent_id ? getH2H(nextMatch.opponent_id, env) : Promise.resolve([]),
+            getMatchWeather(nextMatch.venue_lat, nextMatch.venue_lon),
+            getStandings(env),
+          ]);
+          card = await generateMatchPreview(nextMatch, h2h, weather, buildStandingsContext(table), site, env);
+
+        } else if (template === 'T02') {
+          const h2h = nextMatch.opponent_id ? await getH2H(nextMatch.opponent_id, env) : [];
+          if (!h2h || h2h.length < 2) return Response.json({ error: `H2H verisi yetersiz (${h2h?.length ?? 0} maç)` }, { headers: h });
+          card = await generateH2HHistory(nextMatch, h2h, site, env);
+
+        } else if (template === 'T03') {
+          const [recent, table] = await Promise.all([getLastFixtures(env, 5), getStandings(env)]);
+          const bjkRow = table ? table.find(r => r.team?.id === 549) : null;
+          card = await generateFormGuide(nextMatch, recent, bjkRow, site, env);
+
+        } else if (template === 'T05') {
+          const injuries = await getInjuries(env, fid).catch(() => []);
+          card = await generateMatchDayCard(nextMatch, [], site, env, injuries);
+
+        } else if (template === 'T07') {
+          const injuries = await getInjuries(env, fid).catch(() => []);
+          card = await generateInjuryReport(nextMatch, injuries, [], site, env);
+
+        } else if (template === 'T08b') {
+          card = await generateMuhtemel11(nextMatch, [], site, env);
+
+        } else if (template === 'T08c') {
+          const [bjkLast, oppLast, injuries] = await Promise.all([
+            getBJKLastLineupData(env).catch(() => null),
+            nextMatch.opponent_id ? getOpponentLastLineup(nextMatch.opponent_id, env).catch(() => null) : Promise.resolve(null),
+            getInjuries(env, fid).catch(() => []),
+          ]);
+          card = await generateLineupCard(nextMatch, bjkLast, oppLast, injuries, [], site, env);
+
+        } else if (template === 'T09') {
+          const lineup = await getFixtureLineup(fid, env).catch(() => null);
+          if (!lineup) return Response.json({ error: 'Bu maç için kadro henüz açıklanmamış' }, { headers: h });
+          card = await generateConfirmedLineup(nextMatch, lineup, site, env);
+
+        } else if (template === 'T-REF') {
+          const referee = nextMatch.referee;
+          if (!referee) return Response.json({ error: 'Bu maç için hakem bilgisi yok' }, { headers: h });
+          const recentFixtures = await getLastFixtures(env, 10).catch(() => []);
+          const refMatches = recentFixtures.filter(f => f.referee === referee);
+          const refStats = refMatches.length > 0 ? {
+            bjk_games:  refMatches.length,
+            bjk_wins:   refMatches.filter(f => f.score_bjk > f.score_opp).length,
+            bjk_draws:  refMatches.filter(f => f.score_bjk === f.score_opp).length,
+            bjk_losses: refMatches.filter(f => f.score_bjk < f.score_opp).length,
+          } : null;
+          card = await generateRefereeProfile(nextMatch, referee, refStats, site, env);
+
+        } else if (template === 'T10') {
+          const allEvents = await fetchAllEvents(fid, env);
+          const goals = allEvents.filter(e => e.type === 'Goal' && e.detail !== 'Missed Penalty' && e.detail !== 'Own Goal');
+          const ev = event_data || goals[goals.length - 1] || { type: 'Goal', detail: 'Normal Goal', time: { elapsed: 35 }, player: { name: 'Test Oyuncu' }, team: { id: 549 } };
+          const mockMatch = { ...nextMatch, score_bjk: event_data?.score_bjk ?? 1, score_opp: event_data?.score_opp ?? 0 };
+          card = await generateGoalFlash(mockMatch, ev, site, env);
+
+        } else if (template === 'T11') {
+          const [players, events] = await Promise.all([
+            getFixturePlayers(fid, env).catch(() => []),
+            getFixtureEvents(fid, env).catch(() => []),
+          ]);
+          card = await generateResultFlash(nextMatch, players, site, env, events);
+
+        } else if (template === 'T12') {
+          const [players, stats, events] = await Promise.all([
+            getFixturePlayers(fid, env).catch(() => []),
+            getFixtureStats(fid, env).catch(() => null),
+            getFixtureEvents(fid, env).catch(() => []),
+          ]);
+          card = await generateMatchReport(nextMatch, players, stats, site, env, events);
+
+        } else if (template === 'T13') {
+          const players = await getFixturePlayers(fid, env).catch(() => []);
+          card = await generateManOfTheMatch(nextMatch, players, site, env);
+
+        } else if (template === 'T-XG') {
+          const stats = await getFixtureStats(fid, env).catch(() => null);
+          const stubStats = stats || { xg: '1.4', possession: '55%', shots_total: 18, shots_on_target: 8 };
+          card = await generateXGDelta(nextMatch, stubStats, site, env);
+
+        } else if (template === 'T-HT') {
+          const allEvents = await fetchAllEvents(fid, env);
+          const mockMatch = { ...nextMatch, score_bjk: event_data?.score_bjk ?? 1, score_opp: event_data?.score_opp ?? 0 };
+          card = await generateHalftimeReport(mockMatch, allEvents, site, env);
+
+        } else if (template === 'T-RED') {
+          const ev = event_data || { type: 'Card', detail: 'Red Card', time: { elapsed: 55 }, player: { name: 'Test Oyuncu' }, team: { id: 549 } };
+          const mockMatch = { ...nextMatch, score_bjk: ev.score_bjk ?? 1, score_opp: ev.score_opp ?? 0 };
+          card = await generateRedCardFlash(mockMatch, ev, site, env);
+
+        } else if (template === 'T-VAR') {
+          const ev = event_data || { type: 'Var', detail: 'Goal cancelled', time: { elapsed: 67 }, player: { name: 'Test Oyuncu' }, comments: 'Offside' };
+          const mockMatch = { ...nextMatch, score_bjk: ev.score_bjk ?? 1, score_opp: ev.score_opp ?? 1 };
+          card = await generateVARFlash(mockMatch, ev, site, env);
+
+        } else if (template === 'T-OG') {
+          const ev = event_data || { type: 'Goal', detail: 'Own Goal', time: { elapsed: 72 }, player: { name: 'Test Oyuncu' }, team: { id: 9999 } };
+          const mockMatch = { ...nextMatch, score_bjk: ev.score_bjk ?? 1, score_opp: ev.score_opp ?? 1 };
+          card = await generateGoalFlash(mockMatch, ev, site, env);
+
+        } else if (template === 'T-PEN') {
+          const ev = event_data || { type: 'Goal', detail: 'Missed Penalty', time: { elapsed: 80 }, player: { name: 'Test Oyuncu' }, team: { id: 549 } };
+          const mockMatch = { ...nextMatch, score_bjk: ev.score_bjk ?? 0, score_opp: ev.score_opp ?? 0 };
+          card = await generateMissedPenaltyFlash(mockMatch, ev, site, env);
+
+        } else {
+          return Response.json({ error: `Unknown template: ${template}` }, { headers: h });
+        }
+      } catch(e) {
+        return Response.json({ error: e.message }, { status: 500, headers: h });
+      }
+
+      if (!card) return Response.json({ error: 'Generator returned null (missing data or Claude failure)' }, { headers: h });
+      const articleForRender = {
+        title: card.title, full_body: card.full_body || '', summary: card.summary || '',
+        source: 'Kartalix', category: 'Match', published_at: card.published_at || new Date().toISOString(),
+        nvs: card.nvs_score || 85, url: '#', slug: card.slug, publish_mode: card.publish_mode,
+        is_kartalix_content: true, template_id: card.template_id,
+      };
+      const html = renderArticleHTML(articleForRender, env.API_FOOTBALL_KEY || '', null);
+      return Response.json({ ok: true, title: card.title, body: card.full_body, template_id: card.template_id, slug: card.slug, html }, { headers: h });
+    }
+
     if (url.pathname === '/admin/pipeline-failures') {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       if (request.method === 'GET') {
@@ -2065,6 +2329,127 @@ Sadece JSON döndür:
       if (request.method === 'DELETE') {
         await env.PITCHOS_CACHE.delete(FAILURES_KEY);
         return new Response(JSON.stringify({ ok: true }), { headers: h });
+      }
+    }
+
+    if (url.pathname === '/admin/seed-kv' && request.method === 'POST') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+      const GOOD_MODES = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
+      const dbRows = await supabase(env, 'GET',
+        `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,template_id,sport`);
+      if (!Array.isArray(dbRows) || dbRows.length === 0) {
+        return Response.json({ seeded: 0, message: 'No published articles with known modes in DB' }, { headers: h });
+      }
+      const kvArticles = dbRows.filter(r => r.slug && (r.full_body || r.summary)).map(r => toKVShape({
+        title:               r.title        || '',
+        summary:             r.summary      || '',
+        full_body:           r.full_body    || r.summary || '',
+        source_name:         r.source_name  || '',
+        source:              r.source_name  || '',
+        url:                 r.original_url || '',
+        original_url:        r.original_url || '',
+        category:            r.category     || 'Haber',
+        nvs:                 r.nvs_score    || 0,
+        golden_score:        r.golden_score || null,
+        published_at:        r.published_at,
+        is_fresh:            false,
+        is_kartalix_content: r.source_type === 'kartalix',
+        publish_mode:        r.publish_mode || 'rss_summary',
+        slug:                r.slug,
+        template_id:         r.template_id  || null,
+        sport:               r.sport        || 'football',
+      }));
+      await cacheToKV(env, site.short_code, kvArticles);
+      return Response.json({ seeded: kvArticles.length }, { headers: h });
+    }
+
+    if (url.pathname === '/admin/seed-voice' && request.method === 'POST') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const added = await seedVoiceRules(env);
+      return Response.json({ ok: true, added }, { headers: h });
+    }
+
+    if (url.pathname === '/admin/run-voice-patterns' && request.method === 'POST') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      try {
+        await runVoicePatternExtraction(env);
+        const raw = await env.PITCHOS_CACHE.get('editorial:voice_patterns').catch(() => null);
+        const patterns = raw ? JSON.parse(raw) : [];
+        return Response.json({ ok: true, total: patterns.length }, { headers: h });
+      } catch(e) {
+        return Response.json({ error: e.message }, { status: 500, headers: h });
+      }
+    }
+
+    if (url.pathname === '/admin/voice-patterns' && request.method === 'GET') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const raw = await env.PITCHOS_CACHE.get('editorial:voice_patterns').catch(() => null);
+      const patterns = raw ? JSON.parse(raw) : [];
+      return Response.json({ count: patterns.length, patterns }, { headers: h });
+    }
+
+    // GET: show cached + live next match; POST: force-refresh from API and update KV
+    if (url.pathname === '/admin/next-match') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      if (request.method === 'POST') {
+        try {
+          const fixture = await getNextFixture(env);
+          if (!fixture) return Response.json({ error: 'API returned no fixture' }, { status: 404, headers: h });
+          const coords = await resolveVenueCoords(fixture.venue, fixture.venue_city);
+          const nextMatch = {
+            home: fixture.home, team: 'Beşiktaş', team_short: 'BJK',
+            opponent: fixture.opponent, opponent_short: fixture.opponent,
+            opponent_id: fixture.opponent_id, league: fixture.league,
+            week: parseInt((fixture.round || '').match(/(\d+)/)?.[1] || '0') || NEXT_MATCH.week,
+            date: fixture.date, time: fixture.time,
+            venue: fixture.venue || NEXT_MATCH.venue, venue_city: fixture.venue_city || NEXT_MATCH.venue_city,
+            venue_lat: coords.lat, venue_lon: coords.lon,
+            tv: NEXT_MATCH.tv, match_day: fixture.date, cup: null,
+            fixture_id: fixture.fixture_id, opponent_id: fixture.opponent_id,
+            referee: fixture.referee || null,
+          };
+          await env.PITCHOS_CACHE.put('match:BJK:next', JSON.stringify(nextMatch), { expirationTtl: 7 * 24 * 3600 });
+          return Response.json({ ok: true, source: 'api', match: nextMatch }, { headers: h });
+        } catch(e) {
+          return Response.json({ error: e.message }, { status: 500, headers: h });
+        }
+      }
+      // GET
+      const kvRaw = await env.PITCHOS_CACHE.get('match:BJK:next').catch(() => null);
+      const kvMatch = kvRaw ? JSON.parse(kvRaw) : null;
+      return Response.json({ hardcoded: NEXT_MATCH, cached: kvMatch, using: kvMatch || NEXT_MATCH }, { headers: h });
+    }
+
+    // Archive pre-firewall/rss_summary articles — run once to clean DB
+    if (url.pathname === '/admin/archive-legacy' && request.method === 'POST') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      try {
+        // Count first
+        const preview = url.searchParams.get('preview') === '1';
+        const sites = await getActiveSites(env);
+        const site = sites?.[0];
+        if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+        const countRes = await supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&or=(publish_mode.is.null,publish_mode.eq.rss_summary,publish_mode.eq.pre_firewall_cleaned)&select=id&limit=1000`);
+        const ids = (countRes || []).map(r => r.id);
+        if (preview || !ids.length) {
+          return Response.json({ preview: true, count: ids.length, message: preview ? 'Add ?preview=0 to execute' : 'Nothing to archive' }, { headers: h });
+        }
+        // Archive in batches of 100
+        let archived = 0;
+        for (let i = 0; i < ids.length; i += 100) {
+          const batch = ids.slice(i, i + 100);
+          await supabase(env, 'PATCH',
+            `/rest/v1/content_items?id=in.(${batch.join(',')})`,
+            { status: 'archived' });
+          archived += batch.length;
+        }
+        return Response.json({ ok: true, archived }, { headers: h });
+      } catch(e) {
+        return Response.json({ error: e.message }, { status: 500, headers: h });
       }
     }
 
@@ -2132,6 +2517,8 @@ Sadece JSON döndür:
       ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env)]));
     } else if (cron === '0 3 * * 1') {
       ctx.waitUntil(redistillEditorialNotes(env));
+    } else if (cron === '0 2 * * 0') {
+      ctx.waitUntil(runVoicePatternExtraction(env));
     } else {
       ctx.waitUntil(runAllSites(env, ctx));
     }
@@ -2205,6 +2592,47 @@ async function runDailyArchival(env) {
   }
 }
 
+// ─── VOICE RULES SEED ────────────────────────────────────────
+// One-time bootstrap: writes Turkish sports voice rules into editorial:notes KV.
+// Called via POST /admin/seed-voice or automatically from redistill when KV is empty.
+// Each rule is idempotent — won't add duplicates if voice rules already exist.
+async function seedVoiceRules(env) {
+  const existing = await listEditorialNotes(env);
+  if (existing.some(n => n.text.includes('Kartallar') || n.text.includes('rival_pov'))) {
+    return 0; // already seeded
+  }
+
+  const VOICE_RULES = [
+    { scope: 'global', text: 'Beşiktaş için "Kartallar", "Siyah-Beyazlılar", "Kara Kartallar" ifadelerini kullan. Aynı haber içinde her zaman "Beşiktaş" tekrarlama — çeşitlilik sağla.' },
+    { scope: 'global', text: 'Haber tarafsız değil, tutkulu Beşiktaş taraftarının bakış açısından yazılmalı. Gurur, hayal kırıklığı, umut, kızgınlık duygularını doğal biçimde yansıt.' },
+    { scope: 'global', text: 'YASAK AI kalıpları: "It is worth noting", "Certainly", "Furthermore", "Kayda değer", "Öte yandan belirtmek gerekir ki", "Sonuç olarak", "Önemle vurgulamak gerekir". Bunları hiçbir zaman kullanma.' },
+    { scope: 'global', text: 'Başlıklar doğrudan ve çarpıcı olmalı. Pasif yapıdan kaçın: "3 puan alındı" değil, "Kartallar 3 puanı kaptı". Eylem fiilleri kullan.' },
+    { scope: 'global', text: 'Klişelerden kaçın: "kritik viraj", "zorlu maraton", "hayati önem taşıyan" gibi aşınmış spor gazeteciliği kalıplarını kullanma.' },
+    { scope: 'global', text: 'Rakip takımların perspektifinden yazma (rival_pov=true içerikler). Galatasaray, Fenerbahçe haberleri Beşiktaş açısından frame et veya hiç yazma.' },
+    { scope: 'global', text: 'Türkçe dilbilgisi: apostroflu ekleri doğru yaz — "Beşiktaş\'ın", "Kartallar\'ın", "İstanbul\'da". Yabancı oyuncu isimlerini Türkçe okunuşuna göre çekimle.' },
+    { scope: 'transfer', text: 'Transfer haberlerinde kaynak güvenilirliğini belirt: resmi açıklama için doğrudan, yakın kaynak için "güvenilir kaynaklara göre", dedikodu için "iddialar" veya "rivayetler".' },
+    { scope: 'transfer', text: 'Transfer spekülasyonunu gerçekmiş gibi sunma. "İddia edildiğine göre" veya "Transfer.Iddiaları" çerçevesi kullan.' },
+    { scope: 'T09', text: 'İlk 11 haberi duyuru formatında olmalı: önce kaleci, sonra defans, orta saha, forvet sıralamasıyla listele. Antrenörün sistemini kısaca yorumla.' },
+    { scope: 'T10', text: 'Gol haberi heyecanlı ve ani olmalı. "GOL!" veya "NET!" ile aç. İlk cümle: kimin attığı, kaçıncı dakikada, skoru ver.' },
+    { scope: 'T11', text: 'Maç sonu haberini skorla aç: "Beşiktaş X-Y [Rakip]". İkinci cümlede maçın öyküsü. Üçüncüde puan durumu veya anlam.' },
+    { scope: 'T12', text: 'Maç raporu objektif ama Beşiktaş odaklı. xG ve istatistikleri bağlam içinde yorumla — sadece sayıları sıralama.' },
+  ];
+
+  const now = new Date().toISOString();
+  const newNotes = VOICE_RULES.map(r => ({
+    id: crypto.randomUUID(),
+    scope: r.scope,
+    text: r.text,
+    active: true,
+    created_at: now,
+  }));
+
+  const all = [...newNotes, ...existing];
+  await env.PITCHOS_CACHE.put('editorial:notes', JSON.stringify(all));
+  console.log(`SEED-VOICE: added ${newNotes.length} voice rules`);
+  return newNotes.length;
+}
+
 // ─── WEEKLY EDITORIAL NOTES RE-DISTILL ───────────────────────
 // Runs every Monday 03:00. Reads all current notes, sends to Claude Sonnet
 // to merge overlaps and remove redundancies, then replaces the full set.
@@ -2212,7 +2640,8 @@ async function redistillEditorialNotes(env) {
   const notes = await listEditorialNotes(env);
   const refs  = await getReferenceArticles(env);
   if (notes.length < 3) {
-    console.log('REDISTILL: fewer than 3 notes, skipping');
+    console.log('REDISTILL: fewer than 3 notes — seeding voice rules first');
+    await seedVoiceRules(env);
     return;
   }
 
@@ -2265,16 +2694,99 @@ Sadece JSON döndür — temizlenmiş ve zenginleştirilmiş kural listesi:
   console.log(`REDISTILL: ${notes.length} notes → ${newNotes.length} after consolidation`);
 }
 
+// ─── VOICE PATTERN EXTRACTION (Slice 3.9 Phase 2) ────────────
+// Runs every Sunday 02:00. Picks top 10 recently published synthesis articles,
+// extracts style DNA via Haiku (rhythm, idioms, emotional vocab — not content),
+// stores in editorial:voice_patterns KV for injection into future generation prompts.
+async function runVoicePatternExtraction(env) {
+  console.log('VOICE-PATTERNS: starting weekly style extraction');
+
+  // Get top synthesis articles from the last 14 days
+  const since = new Date(Date.now() - 14 * 24 * 3600 * 1000).toISOString();
+  const sites = await getActiveSites(env);
+  const site  = sites?.[0];
+  if (!site) { console.log('VOICE-PATTERNS: no site, skipping'); return; }
+
+  const articles = await supabase(env, 'GET',
+    `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=in.(synthesis,kartalix)&status=eq.published&fetched_at=gte.${since}&nvs_score=gte.70&order=nvs_score.desc&limit=10&select=id,title,full_body,nvs_score`
+  ) || [];
+
+  if (articles.length < 3) {
+    console.log(`VOICE-PATTERNS: only ${articles.length} articles, skipping (need ≥3)`);
+    return;
+  }
+
+  // Load existing patterns to avoid re-processing the same article
+  const existingRaw = await env.PITCHOS_CACHE.get('editorial:voice_patterns').catch(() => null);
+  const existing = existingRaw ? JSON.parse(existingRaw) : [];
+
+  const newPatterns = [];
+  for (const article of articles.slice(0, 8)) {
+    const body = (article.full_body || '').slice(0, 2000);
+    if (body.length < 200) continue;
+
+    const prompt = `Aşağıdaki Türkçe spor haberi metnini analiz et. SADECE yazım üslubunu ve dil ritmini çıkar — içerik değil.
+
+METİN:
+${body}
+
+Şunu döndür (JSON):
+{
+  "style_observations": "3-4 cümle: bu metnin ritmi, cümle yapısı, duygusal tonu, idiom kullanımı hakkında",
+  "example_sentences": "metinden en karakteristik 2 cümle — yazım tarzını en iyi yansıtanlar (virgülle ayır)"
+}
+
+Sadece JSON döndür.`;
+
+    try {
+      const res = await callClaude(env, MODEL_FETCH, prompt, false, 400);
+      const text = extractText(res.content);
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) continue;
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (!parsed.example_sentences) continue;
+
+      newPatterns.push({
+        id: crypto.randomUUID(),
+        article_id: article.id,
+        source: article.title?.slice(0, 80) || 'synthesis',
+        style_observations: parsed.style_observations || '',
+        example_sentences: parsed.example_sentences,
+        weight: Math.min(2, Math.max(0.5, (article.nvs_score || 70) / 70)),
+        created_at: new Date().toISOString(),
+      });
+    } catch(e) {
+      console.error(`VOICE-PATTERNS: extraction failed for article ${article.id}:`, e.message);
+    }
+  }
+
+  if (newPatterns.length === 0) {
+    console.log('VOICE-PATTERNS: no new patterns extracted');
+    return;
+  }
+
+  // Merge with existing, cap at 30 patterns (drop oldest/lowest weight)
+  const merged = [...newPatterns, ...existing]
+    .sort((a, b) => (b.weight || 1) - (a.weight || 1))
+    .slice(0, 30);
+
+  await env.PITCHOS_CACHE.put('editorial:voice_patterns', JSON.stringify(merged), { expirationTtl: 90 * 24 * 3600 });
+  console.log(`VOICE-PATTERNS: ${newPatterns.length} new patterns extracted, ${merged.length} total in library`);
+}
+
 // ─── ORCHESTRATOR ────────────────────────────────────────────
-async function runAllSites(env, ctx) {
+async function runAllSites(env, ctx, opts = {}) {
   // Quiet period: 00:00–06:30 Istanbul (UTC+3) — no RSS runs overnight
-  const now = new Date();
-  const istMin = ((now.getUTCHours() + 3) % 24) * 60 + now.getUTCMinutes();
-  if (istMin < 390) { // 390 = 06:30 in minutes
-    const hh = String(Math.floor(istMin / 60)).padStart(2, '0');
-    const mm = String(istMin % 60).padStart(2, '0');
-    console.log(`QUIET PERIOD: ${hh}:${mm} Istanbul — skipping RSS run`);
-    return { processed: 0, skipped: 'quiet_period' };
+  // Bypassed when called manually via /run (forceRun: true)
+  if (!opts.forceRun) {
+    const now = new Date();
+    const istMin = ((now.getUTCHours() + 3) % 24) * 60 + now.getUTCMinutes();
+    if (istMin < 390) { // 390 = 06:30 in minutes
+      const hh = String(Math.floor(istMin / 60)).padStart(2, '0');
+      const mm = String(istMin % 60).padStart(2, '0');
+      console.log(`QUIET PERIOD: ${hh}:${mm} Istanbul — skipping RSS run`);
+      return { processed: 0, skipped: 'quiet_period' };
+    }
   }
 
   const { blocked: capBlocked, current: capCurrent, cap: capLimit } = await checkCostCap(env);
@@ -2511,8 +3023,9 @@ const toKVShape = a => ({
 async function matchWatcher(env) {
   // Strategy: try getLiveFixture first (covers match-in-progress where getNextFixture
   // returns the NEXT scheduled match, not tonight's). Fall back to getNextFixture for
-  // the pre-match window, then to NEXT_MATCH hardcoded config.
-  let nextMatch = NEXT_MATCH;
+  // the pre-match window, then to KV-cached next match, then to NEXT_MATCH hardcoded config.
+  const cachedNextRaw = await env.PITCHOS_CACHE.get('match:BJK:next').catch(() => null);
+  let nextMatch = cachedNextRaw ? JSON.parse(cachedNextRaw) : NEXT_MATCH;
   let knownLiveFixture = null; // set if already live — avoids double getLiveFixture call
 
   try {
@@ -2520,15 +3033,15 @@ async function matchWatcher(env) {
     if (live) {
       knownLiveFixture = live;
       nextMatch = {
-        ...NEXT_MATCH,
+        ...nextMatch,
         home:        live.home,
         opponent:    live.opponent,
         opponent_id: live.opponent_id,
         league:      live.league,
         date:        live.date,
         time:        live.time,
-        venue:       live.venue       || NEXT_MATCH.venue,
-        venue_city:  live.venue_city  || NEXT_MATCH.venue_city,
+        venue:       live.venue       || nextMatch.venue,
+        venue_city:  live.venue_city  || nextMatch.venue_city,
         match_day:   live.date,
         fixture_id:  live.fixture_id,
         referee:     live.referee     || null,
@@ -2538,20 +3051,20 @@ async function matchWatcher(env) {
       if (fixture) {
         // Only adopt the upcoming fixture if it's within the pre-match window (≤ 3h).
         // If it's further away (e.g. getNextFixture returned next week's match because
-        // tonight's match just kicked off), stick with NEXT_MATCH hardcoded fallback.
+        // tonight's match just kicked off), stick with KV/hardcoded fallback.
         const upcomingKickoff = new Date(`${fixture.date}T${fixture.time}:00+03:00`);
         const hrsAway = (upcomingKickoff - new Date()) / (1000 * 60 * 60);
         if (hrsAway <= 3) {
           nextMatch = {
-            ...NEXT_MATCH,
+            ...nextMatch,
             home:        fixture.home,
             opponent:    fixture.opponent,
             opponent_id: fixture.opponent_id,
             league:      fixture.league,
             date:        fixture.date,
             time:        fixture.time,
-            venue:       fixture.venue       || NEXT_MATCH.venue,
-            venue_city:  fixture.venue_city  || NEXT_MATCH.venue_city,
+            venue:       fixture.venue       || nextMatch.venue,
+            venue_city:  fixture.venue_city  || nextMatch.venue_city,
             match_day:   fixture.date,
             fixture_id:  fixture.fixture_id,
             referee:     fixture.referee     || null,
@@ -2564,7 +3077,67 @@ async function matchWatcher(env) {
   const matchDateTime   = new Date(`${nextMatch.date}T${nextMatch.time}:00+03:00`);
   const hoursToKickoff  = (matchDateTime - new Date()) / (1000 * 60 * 60);
 
+  // ── Post-match catch-up ───────────────────────────────────────
+  // getLiveFixture only returns matches currently in-progress. Once a match
+  // ends (FT), it drops off the live endpoint and the main watcher window
+  // exits immediately (hoursToKickoff < -2). We check KV for any tracked
+  // fixture that finished but hasn't had its post-match suite generated yet.
   if (hoursToKickoff > 3 || hoursToKickoff < -2) {
+    try {
+      const savedLiveRaw = await env.PITCHOS_CACHE.get('match:BJK:live');
+      const savedLive    = savedLiveRaw ? JSON.parse(savedLiveRaw) : null;
+      if (savedLive?.fixture_id && !savedLive.result_published) {
+        const finished = await getFixture(savedLive.fixture_id, env);
+        if (finished?.is_finished) {
+          console.log(`WATCHER post-match catch-up: fixture ${savedLive.fixture_id} is FT, running T11/T12/T13/T-XG`);
+          const { blocked } = await checkCostCap(env);
+          if (!blocked) {
+            const sites = await getActiveSites(env);
+            const site  = sites?.[0];
+            if (site) {
+              const matchObj = { ...NEXT_MATCH, ...finished, match_day: finished.date };
+              const [players, stats, events] = await Promise.all([
+                getFixturePlayers(savedLive.fixture_id, env).catch(() => []),
+                getFixtureStats(savedLive.fixture_id, env).catch(() => null),
+                getFixtureEvents(savedLive.fixture_id, env).catch(() => []),
+              ]);
+              const t11 = await generateResultFlash(matchObj, players, site, env, events).catch(() => null);
+              if (t11) {
+                const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+                const kv  = raw ? JSON.parse(raw) : [];
+                await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...t11, nvs: t11.nvs_score || 88, is_kartalix_content: true, is_template: true }), ...kv], 100));
+                console.log('WATCHER CATCH-UP KV WRITE T11: done');
+              }
+              const t13 = await generateManOfTheMatch(matchObj, players, site, env).catch(() => null);
+              if (t13) {
+                const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+                const kv  = raw ? JSON.parse(raw) : [];
+                await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...t13, nvs: t13.nvs_score || 80, is_kartalix_content: true, is_template: true }), ...kv], 100));
+                console.log('WATCHER CATCH-UP KV WRITE T13: done');
+              }
+              const t12 = await generateMatchReport(matchObj, players, stats, site, env, events).catch(() => null);
+              if (t12) {
+                const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+                const kv  = raw ? JSON.parse(raw) : [];
+                await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...t12, nvs: t12.nvs_score || 85, is_kartalix_content: true, is_template: true }), ...kv], 100));
+                console.log('WATCHER CATCH-UP KV WRITE T12: done');
+              }
+              if (stats?.xg != null && Math.abs((finished.score_bjk ?? 0) - parseFloat(stats.xg)) > 1.2) {
+                const txg = await generateXGDelta(matchObj, stats, site, env).catch(() => null);
+                if (txg) {
+                  const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+                  const kv  = raw ? JSON.parse(raw) : [];
+                  await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...txg, nvs: txg.nvs_score || 78, is_kartalix_content: true, is_template: true }), ...kv], 100));
+                  console.log('WATCHER CATCH-UP KV WRITE T-XG: done');
+                }
+              }
+              // Mark done so we don't re-run on next tick
+              await env.PITCHOS_CACHE.put('match:BJK:live', JSON.stringify({ ...savedLive, result_published: true }));
+            }
+          }
+        }
+      }
+    } catch(e) { console.error('WATCHER post-match catch-up failed:', e.message); }
     console.log(`WATCHER: outside window (${hoursToKickoff.toFixed(1)}h to kickoff), skip`);
     return;
   }
@@ -3065,6 +3638,29 @@ async function processSite(site, env, ctx) {
 
   if (preFiltered.length === 0) {
     await logFetch(env, site.id, 'partial', stats, 'No articles after pre-filter', funnelStats);
+    // KV may have expired — seed from DB so the site doesn't go dark
+    const kvCheck = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+    if (!kvCheck || JSON.parse(kvCheck).length === 0) {
+      try {
+        const GOOD_MODES_SEED = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
+        const dbRows = await supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES_SEED.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,template_id,sport`);
+        if (Array.isArray(dbRows) && dbRows.length > 0) {
+          const seeded = dbRows.filter(r => r.slug && (r.full_body || r.summary)).map(r => toKVShape({
+            title: r.title || '', summary: r.summary || '', full_body: r.full_body || r.summary || '',
+            source_name: r.source_name || '', source: r.source_name || '',
+            url: r.original_url || '', original_url: r.original_url || '',
+            category: r.category || 'Haber', nvs: r.nvs_score || 0,
+            golden_score: r.golden_score || null, published_at: r.published_at,
+            is_fresh: false, is_kartalix_content: r.source_type === 'kartalix',
+            publish_mode: r.publish_mode || 'rss_summary', slug: r.slug,
+            template_id: r.template_id || null, sport: r.sport || 'football',
+          }));
+          await cacheToKV(env, site.short_code, seeded);
+          console.log(`KV SEED on empty (no new articles): ${seeded.length} from DB`);
+        }
+      } catch(e) { console.error('KV seed on empty failed:', e.message); }
+    }
     return { ...stats, cached: 0 };
   }
 
@@ -3138,6 +3734,8 @@ async function processSite(site, env, ctx) {
         nextMatch.venue_lat = coords.lat;
         nextMatch.venue_lon = coords.lon;
         console.log(`NEXT MATCH (API): ${nextMatch.opponent} on ${nextMatch.date} ${nextMatch.time} @ ${nextMatch.venue} (${coords.lat},${coords.lon})`);
+        // Cache resolved next-match for matchWatcher fallback (survives API downtime)
+        await env.PITCHOS_CACHE.put('match:BJK:next', JSON.stringify(nextMatch), { expirationTtl: 7 * 24 * 3600 }).catch(() => {});
       }
     } catch(e) { console.error('getNextFixture failed, using fallback:', e.message); }
 
@@ -3574,8 +4172,15 @@ async function processSite(site, env, ctx) {
       console.log(`Write phase: ${allWritten.map(a => a.publish_mode).join(', ')}`);
 
       const publishThreshold = site.auto_publish_threshold || 30;
-      const toPublish = allWritten.filter(a => a.nvs >= publishThreshold && a.publish_mode !== 'hot_news_hold');
-      const toQueue   = allWritten.filter(a => a.nvs >= site.review_threshold && a.nvs < publishThreshold && a.publish_mode !== 'hot_news_hold');
+      // template_official = @Besiktas official tweets — always publish regardless of NVS score
+      const toPublish = allWritten.filter(a =>
+        (a.nvs >= publishThreshold || a.publish_mode === 'template_official') &&
+        a.publish_mode !== 'hot_news_hold');
+      const toQueue   = allWritten.filter(a =>
+        a.nvs >= site.review_threshold &&
+        a.nvs < publishThreshold &&
+        a.publish_mode !== 'hot_news_hold' &&
+        a.publish_mode !== 'template_official');
       stats.published = toPublish.length;
       stats.queued    = toQueue.length;
 
@@ -3598,7 +4203,35 @@ async function processSite(site, env, ctx) {
           .map(a => [a.url || a.original_url, a])
       );
       const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
-      const latestKV  = latestRaw ? JSON.parse(latestRaw) : [];  // may contain template cards
+      let latestKV = latestRaw ? JSON.parse(latestRaw) : [];
+      // KV cache miss — seed from DB so published articles aren't invisible after TTL expiry
+      if (!latestRaw) {
+        try {
+          const dbRows = await supabase(env, 'GET',
+            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&order=published_at.desc&limit=100&select=*`);
+          if (Array.isArray(dbRows) && dbRows.length > 0) {
+            latestKV = dbRows.map(r => toKVShape({
+              title:        r.title,
+              summary:      r.summary || '',
+              full_body:    r.full_body || r.summary || '',
+              source_name:  r.source_name || '',
+              source:       r.source_name || '',
+              url:          r.original_url || '',
+              original_url: r.original_url || '',
+              category:     r.category || 'Haber',
+              nvs:          r.nvs_score || 0,
+              golden_score: r.golden_score || null,
+              published_at: r.published_at,
+              is_fresh:     false,
+              is_kartalix_content: r.source_type === 'kartalix',
+              publish_mode: r.publish_mode || 'rss_summary',
+              slug:         r.slug,
+              template_id:  r.template_id || null,
+            }));
+            console.log(`KV SEED from DB: ${latestKV.length} published articles`);
+          }
+        } catch(e) { console.error('KV seed from DB failed:', e.message); }
+      }
       const newKVItems = confirmedArticles.map(a => {
         const syn = synthesisUrlMap.get(a.url || a.original_url);
         return toKVShape(syn ? { ...a, full_body: syn.full_body, publish_mode: 'rewrite' } : a);
@@ -3967,13 +4600,17 @@ async function serveArticlePage(slug, env, ctx) {
 
   // Fixture widget: resolve current fixture_id for match template articles
   let fixtureId = null;
+  let opponentId = null;
   if (article.is_kartalix_content && article.template_id) {
     const liveStateRaw = await env.PITCHOS_CACHE.get('match:BJK:live');
     const liveState = liveStateRaw ? JSON.parse(liveStateRaw) : null;
     fixtureId = liveState?.fixture_id || NEXT_MATCH.fixture_id || null;
+    if (article.template_id === 'T02') {
+      opponentId = liveState?.opponent_id || NEXT_MATCH.opponent_id || null;
+    }
   }
 
-  return new Response(renderArticleHTML(article, env.API_FOOTBALL_KEY || '', fixtureId), {
+  return new Response(renderArticleHTML(article, env.API_FOOTBALL_KEY || '', fixtureId, opponentId), {
     headers: {
       'Content-Type': 'text/html;charset=UTF-8',
       'Cache-Control': 'private, max-age=120',
@@ -4102,6 +4739,254 @@ footer a:hover{color:#E30A17;text-decoration:none}
 </html>`;
 }
 
+function renderTestTemplatesPage() {
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Şablon Test — Kartalix Admin</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;height:100vh;display:flex;flex-direction:column}
+.topbar{background:#1e293b;border-bottom:1px solid #334155;padding:.6rem 1.2rem;display:flex;align-items:center;gap:1rem;flex-shrink:0}
+.topbar a{color:#7dd3fc;font-size:.82rem;text-decoration:none}.topbar a:hover{text-decoration:underline}
+.topbar h1{font-size:1rem;color:#f8fafc;font-weight:600}
+.layout{display:flex;flex:1;overflow:hidden}
+.sidebar{width:340px;flex-shrink:0;background:#1e293b;border-right:1px solid #334155;display:flex;flex-direction:column;overflow:hidden}
+.sidebar-top{padding:.8rem;border-bottom:1px solid #334155;flex-shrink:0}
+.sidebar-top h2{font-size:.8rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem}
+.fixture-list{overflow-y:auto;flex:1}
+.fix-item{padding:.6rem .8rem;border-bottom:1px solid #1e293b;cursor:pointer;transition:background .15s}
+.fix-item:hover{background:#273348}
+.fix-item.active{background:#1d4ed8;border-left:3px solid #60a5fa}
+.fix-date{font-size:.7rem;color:#64748b}
+.fix-score{font-size:.85rem;font-weight:600;color:#f1f5f9;margin:.1rem 0}
+.fix-league{font-size:.7rem;color:#94a3b8}
+.fix-loading{padding:1rem;color:#64748b;font-size:.82rem;text-align:center}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.templates-area{padding:.8rem;overflow-y:auto;flex:1}
+.templates-area h2{font-size:.8rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.7rem}
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:.6rem}
+.tcard{background:#1e293b;border:1px solid #334155;border-radius:6px;padding:.75rem;cursor:pointer;transition:border-color .15s}
+.tcard:hover{border-color:#475569}
+.tcard.has-events{border-color:#065f46}
+.tcard.no-events{opacity:.5}
+.tc-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.4rem}
+.tc-label{font-size:.85rem;font-weight:600;color:#f1f5f9}
+.tc-badge{font-size:.65rem;background:#065f46;color:#6ee7b7;border-radius:3px;padding:1px 5px}
+.tc-badge.none{background:#374151;color:#9ca3af}
+.tc-desc{font-size:.72rem;color:#94a3b8;margin-bottom:.5rem}
+.tc-events{margin:.4rem 0}
+.ev-chip{display:inline-block;background:#1e3a5f;border:1px solid #1d4ed8;border-radius:3px;padding:2px 6px;font-size:.68rem;color:#93c5fd;margin:2px;cursor:pointer}
+.ev-chip:hover{background:#1d4ed8;color:#fff}
+.ev-chip.selected{background:#1d4ed8;color:#fff}
+.tc-btn{width:100%;background:#2563eb;color:#fff;border:none;border-radius:4px;padding:.35rem;cursor:pointer;font-size:.8rem;margin-top:.4rem}
+.tc-btn:hover{background:#1d4ed8}
+.tc-btn:disabled{background:#334155;color:#64748b;cursor:default}
+.preview-panel{width:520px;flex-shrink:0;background:#0f172a;border-left:1px solid #334155;display:flex;flex-direction:column;overflow:hidden}
+.preview-header{padding:.6rem .8rem;border-bottom:1px solid #334155;flex-shrink:0;display:flex;align-items:center;justify-content:space-between}
+.preview-header span{font-size:.8rem;color:#94a3b8}
+.preview-header .ph-title{font-size:.82rem;color:#f1f5f9;font-weight:500;max-width:300px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.preview-body{flex:1;overflow:hidden}
+.preview-body iframe{width:100%;height:100%;border:none}
+.preview-empty{display:flex;align-items:center;justify-content:center;height:100%;color:#475569;font-size:.85rem}
+.spinner{display:inline-block;width:13px;height:13px;border:2px solid #334155;border-top-color:#7dd3fc;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:.3rem}
+@keyframes spin{to{transform:rotate(360deg)}}
+.err{color:#f87171;font-size:.78rem;padding:.5rem}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <a href="/admin">← Admin</a>
+  <h1>Şablon Test</h1>
+  <span style="font-size:.75rem;color:#64748b" id="fix-label">Soldan bir maç seç</span>
+</div>
+<div class="layout">
+
+  <!-- Fixture selector -->
+  <div class="sidebar">
+    <div class="sidebar-top">
+      <h2>Son Maçlar</h2>
+    </div>
+    <div class="fixture-list" id="fix-list">
+      <div class="fix-loading">Yükleniyor…</div>
+    </div>
+  </div>
+
+  <!-- Template cards -->
+  <div class="main">
+    <div class="templates-area">
+      <h2>Şablonlar</h2>
+      <div class="tgrid" id="tgrid">
+        <div style="color:#475569;font-size:.82rem">Önce bir maç seç</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Preview -->
+  <div class="preview-panel">
+    <div class="preview-header">
+      <span class="ph-title" id="prev-title">Önizleme</span>
+    </div>
+    <div class="preview-body">
+      <div class="preview-empty" id="prev-empty">Şablon üret → önizleme burada görünür</div>
+      <iframe id="prev-frame" style="display:none"></iframe>
+    </div>
+  </div>
+
+</div>
+<script>
+let currentFixture = null;
+let currentEvents  = {};
+let selectedEvents = {}; // templateId -> event object
+
+const TEMPLATES = [
+  // ── Pre-match ────────────────────────────────────────────────
+  { id:'T01',   label:'T01 — Maç Önizlemesi',        desc:'H2H + hava durumu + puan durumu',     eventKey: null },
+  { id:'T02',   label:'T02 — H2H Tarihi',            desc:'Son 10 karşılaşma özeti',             eventKey: null },
+  { id:'T03',   label:'T03 — Form Rehberi',          desc:'Son 5 maç + güncel puan durumu',      eventKey: null },
+  { id:'T05',   label:'T05 — Maç Günü Kartı',        desc:'API: sakatlıklar + maç bilgisi',      eventKey: null },
+  { id:'T07',   label:'T07 — Sakatlık Raporu',       desc:'API sakatlık + kadro dışı listesi',   eventKey: null },
+  { id:'T08b',  label:'T08b — Muhtemel 11',          desc:'Önceki maç kadrosundan tahmin',       eventKey: null },
+  { id:'T08c',  label:'T08c — Kadro Tahmini Kartı',  desc:'Son kadro + rakip + sakatlık verisi', eventKey: null },
+  { id:'T09',   label:'T09 — Kesin Kadro',           desc:'Resmi kadro, mactan ~60dk once aciklanir', eventKey: null },
+  { id:'T-REF', label:'T-REF — Hakem Profili',       desc:'Son 10 BJK maçındaki hakem istatistikleri', eventKey: null },
+  // ── Live ─────────────────────────────────────────────────────
+  { id:'T-HT',  label:'T-HT — Devre Arası Özeti',   desc:'1. yarı tüm olayları kullanır',       eventKey: 'all' },
+  { id:'T10',   label:'T10 — Gol Flash',             desc:'BJK golü — olay seç',                 eventKey: 'goals' },
+  { id:'T-RED', label:'T-RED — Kırmızı Kart Flash',  desc:'Kırmızı kart olayı seç',             eventKey: 'red_cards' },
+  { id:'T-VAR', label:'T-VAR — VAR Karar Flash',     desc:'VAR olayı seç',                      eventKey: 'var_events' },
+  { id:'T-OG',  label:'T-OG — Kendi Kalesine',       desc:'Own goal olayı seç',                 eventKey: 'own_goals' },
+  { id:'T-PEN', label:'T-PEN — Kaçırılan Penaltı',   desc:'Kaçırılan penaltı olayı seç',        eventKey: 'missed_pens' },
+  // ── Post-match ───────────────────────────────────────────────
+  { id:'T11',   label:'T11 — Maç Sonu Flash',        desc:'FT: skor + lig durumu',               eventKey: 'all' },
+  { id:'T12',   label:'T12 — Maç Raporu',            desc:'xG + istatistikler + oyuncu notları', eventKey: 'all' },
+  { id:'T13',   label:'T13 — Maçın Adamı',           desc:'Oyuncu puanlarından en iyi seçim',    eventKey: null },
+  { id:'T-XG',  label:'T-XG — xG Analizi',           desc:'Gol–xG farkı > 1.2 ise tetiklenir',  eventKey: null },
+];
+
+function evLabel(ev) {
+  if (!ev) return '';
+  const min = ev.time?.extra ? ev.time.elapsed+'+'+ev.time.extra : (ev.time?.elapsed || '?');
+  const who = ev.player?.name || '';
+  const team = ev.team?.name || '';
+  return min+"' "+who+(team?" ("+team+")":"");
+}
+
+function renderTemplateCards() {
+  const grid = document.getElementById('tgrid');
+  grid.innerHTML = TEMPLATES.map(t => {
+    const evs     = t.eventKey ? (currentEvents[t.eventKey] || []) : null;
+    const hasReal = evs === null || evs.length > 0;
+    const chips = evs && evs.length > 0
+      ? evs.map((ev, i) => \`<span class="ev-chip" data-tid="\${t.id}" data-idx="\${i}" onclick="selectEvent('\${t.id}',\${i})">\${evLabel(ev)}</span>\`).join('')
+      : (evs !== null ? '<span style="font-size:.7rem;color:#94a3b8;font-style:italic">Mock olay ile test edilecek</span>' : '');
+    const badge = evs === null ? 'API' : evs.length > 0 ? evs.length+' olay' : 'mock';
+    return \`<div class="tcard has-events" id="tc-\${t.id}">
+      <div class="tc-head">
+        <span class="tc-label">\${t.label}</span>
+        <span class="tc-badge \${hasReal?'':'none'}">\${badge}</span>
+      </div>
+      <div class="tc-desc">\${t.desc}</div>
+      \${chips ? '<div class="tc-events">'+chips+'</div>' : ''}
+      <button class="tc-btn" id="btn-\${t.id}" onclick="runTemplate('\${t.id}')">▶ Üret</button>
+    </div>\`;
+  }).join('');
+}
+
+function selectEvent(tid, idx) {
+  const t = TEMPLATES.find(x => x.id === tid);
+  if (!t || !t.eventKey) return;
+  const evs = currentEvents[t.eventKey] || [];
+  selectedEvents[tid] = evs[idx];
+  document.querySelectorAll(\`[data-tid="\${tid}"] .ev-chip\`).forEach((c,i) => {
+    c.classList.toggle('selected', i === idx);
+  });
+}
+
+async function loadFixtures() {
+  const list = document.getElementById('fix-list');
+  let data;
+  try {
+    const r = await fetch('/admin/test-templates/recent-fixtures');
+    if (!r.ok) { list.innerHTML = '<div class="fix-loading err">HTTP '+r.status+'</div>'; return; }
+    data = await r.json();
+  } catch(e) {
+    list.innerHTML = '<div class="fix-loading err">Yüklenemedi: '+e.message+'</div>';
+    return;
+  }
+  if (data.error || !data.fixtures?.length) {
+    list.innerHTML = '<div class="fix-loading">'+(data.error || 'Maç bulunamadı (API boş döndü)')+'</div>';
+    return;
+  }
+  list.innerHTML = data.fixtures.map((f,i) => {
+    const result = f.score_bjk > f.score_opp ? 'G' : f.score_bjk === f.score_opp ? 'B' : 'M';
+    const col    = result==='G'?'#6ee7b7':result==='B'?'#fbbf24':'#f87171';
+    return \`<div class="fix-item" onclick="selectFixture(\${JSON.stringify(f).replace(/"/g,'&quot;')})">
+      <div class="fix-date">\${f.date} · \${f.league}</div>
+      <div class="fix-score">Beşiktaş \${f.score_bjk??'?'}-\${f.score_opp??'?'} \${f.opponent} <span style="color:\${col};font-size:.7rem">\${result}</span></div>
+      <div class="fix-league">Fixture #\${f.fixture_id}</div>
+    </div>\`;
+  }).join('');
+}
+
+async function selectFixture(f) {
+  currentFixture = f;
+  selectedEvents = {};
+  document.querySelectorAll('.fix-item').forEach((el,i) => el.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('fix-label').textContent = 'Beşiktaş '+f.score_bjk+'-'+f.score_opp+' '+f.opponent+' ('+f.date+')';
+  document.getElementById('tgrid').innerHTML = '<div style="color:#64748b;font-size:.82rem">Olaylar yükleniyor…</div>';
+  const r    = await fetch('/admin/test-templates/fixture-events?fixture_id='+f.fixture_id);
+  const data = await r.json();
+  currentEvents = data.events || {};
+  renderTemplateCards();
+  // Auto-select first event for each template
+  TEMPLATES.forEach(t => {
+    if (t.eventKey && currentEvents[t.eventKey]?.length > 0) selectEvent(t.id, 0);
+  });
+}
+
+async function runTemplate(id) {
+  const btn = document.getElementById('btn-'+id);
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Üretiliyor…';
+
+  const body = { template: id, fixture_id: currentFixture?.fixture_id };
+  const ev = selectedEvents[id];
+  if (ev) {
+    body.event_data = {
+      ...ev,
+      score_bjk: currentFixture?.score_bjk ?? 0,
+      score_opp: currentFixture?.score_opp ?? 0,
+    };
+  }
+
+  try {
+    const r = await fetch('/admin/test-templates', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const data = await r.json();
+    if (data.error) {
+      alert('Hata: '+data.error);
+    } else {
+      document.getElementById('prev-title').textContent = data.title || '(başlıksız)';
+      document.getElementById('prev-empty').style.display = 'none';
+      const frame = document.getElementById('prev-frame');
+      frame.style.display = 'block';
+      frame.srcdoc = data.html || '<p>İçerik yok</p>';
+    }
+  } catch(e) { alert('İstek hatası: '+e.message); }
+
+  btn.disabled = false;
+  btn.textContent = '▶ Üret';
+}
+
+loadFixtures();
+</script>
+</body>
+</html>`;
+}
+
 function renderAboutPage() {
   return renderStaticPage('Hakkımızda', `
 <h1>Hakkımızda</h1>
@@ -4176,7 +5061,7 @@ function renderPrivacyPage() {
 }
 
 // ─── ARTICLE PAGE HTML ────────────────────────────────────────
-function renderArticleHTML(a, apiKey = '', fixtureId = null) {
+function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null) {
   const slug      = a.slug || '';
   const title     = a.title || 'Haber';
   const desc      = (a.summary || a.full_body || '').replace(/<[^>]+>/g, ' ').slice(0, 200).trim();
@@ -4307,6 +5192,30 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
     </div>
     ${image ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
     <div class="article-body">${bodyHtml}</div>
+    ${opponentId && templateId === 'T02' ? `<div id="h2hWidget" style="margin:2rem 0">
+      <api-sports-widget data-type="h2h" data-team1="549" data-team2="${opponentId}" data-season="2025"></api-sports-widget>
+    </div>
+    <script>
+    (async function(){
+      try {
+        const cfg = await fetch('/widgets/config').then(r => r.json());
+        if (!cfg.apiKey) return;
+        await new Promise((res,rej) => {
+          const s = document.createElement('script');
+          s.type = 'module';
+          s.src = 'https://widgets.api-sports.io/3.1.0/widgets.js';
+          s.onload = res; s.onerror = rej;
+          document.head.appendChild(s);
+        });
+        const c = document.createElement('api-sports-widget');
+        c.setAttribute('data-type','config'); c.setAttribute('data-key',cfg.apiKey);
+        c.setAttribute('data-sport','football'); c.setAttribute('data-theme','dark');
+        c.setAttribute('data-lang','en');
+        c.setAttribute('data-custom-lang','https://app.kartalix.com/widgets/tr.json');
+        document.body.appendChild(c);
+      } catch(e){}
+    })();
+    </script>` : ''}
     ${fixtureId && templateId && ['T10','T11','T12','T-XG','T-HT','T-RED','T-VAR','T-PEN'].includes(templateId) ? `<div id="matchStatsBox" style="margin:1.5rem 0"></div>
     <script>
     (async function(){
@@ -4882,7 +5791,9 @@ function adminNav(active) {
     { href: '/admin',             label: 'Editör',     key: 'news'       },
     { href: '/admin/sources/ui',  label: 'Kaynaklar',  key: 'sources'    },
     { href: '/admin/financials',  label: 'Maliyet',    key: 'financials' },
-    { href: '/admin/report',      label: 'Rapor',      key: 'report'     },
+    { href: '/admin/report',          label: 'Rapor',        key: 'report'     },
+    { href: '/admin/test-templates',  label: 'Şablon Test',  key: 'test'       },
+    { href: '/admin/tools',       label: 'Araçlar',    key: 'tools'      },
     { href: '/admin/roadmap',     label: 'Yol Haritası', key: 'roadmap'  },
     { href: '/admin/releases',    label: 'Sürümler',   key: 'releases'   },
   ];
@@ -6187,6 +7098,48 @@ ${nav}
   <p class="subtitle">Sprint changelog — updated per deployment.</p>
 
   <div class="card">
+    <h3>Session 13 — Voice Phase 2 + Admin Tools + Next Match Cache</h3>
+    <div class="date">May 13, 2026</div>
+    <ul>
+      <li><span class="rtag feat">feat</span> Voice Phase 2: weekly style DNA extraction from top synthesis articles → editorial:voice_patterns KV</li>
+      <li><span class="rtag feat">feat</span> getEditorialNotes: injects 3 weighted-random voice pattern examples into all generation prompts</li>
+      <li><span class="rtag feat">feat</span> /admin/tools page: next match refresh, archive legacy, voice patterns, story synthesis buttons</li>
+      <li><span class="rtag feat">feat</span> Next match self-caching: backgroundWork writes API result to match:BJK:next KV; matchWatcher reads it</li>
+      <li><span class="rtag feat">feat</span> /admin/archive-legacy: preview + execute archival of pre-firewall/rss_summary articles</li>
+      <li><span class="rtag feat">feat</span> /admin/next-match GET/POST: view or force-refresh next fixture from API</li>
+      <li><span class="rtag feat">feat</span> Sunday 02:00 cron added for weekly voice pattern extraction</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Session 12 — tr.json + H2H Widget + Voice Phase 1 + Sprint D2</h3>
+    <div class="date">May 13, 2026</div>
+    <ul>
+      <li><span class="rtag feat">feat</span> /widgets/tr.json — Turkish translation file for api-sports widgets</li>
+      <li><span class="rtag feat">feat</span> H2H widget auto-injected on T02 articles (opponent_id from NEXT_MATCH)</li>
+      <li><span class="rtag feat">feat</span> T09 intro: Turkish vowel harmony — "bugün saat X'da Venue'da" format</li>
+      <li><span class="rtag feat">feat</span> seedVoiceRules: 13 editorial voice rules (idioms, anti-AI-tells, Turkish grammar)</li>
+      <li><span class="rtag feat">feat</span> Sprint D2: synthesizeStory — true multi-source synthesis when story has ≥3 contributions</li>
+      <li><span class="rtag feat">feat</span> /force-story-synthesis endpoint for manual testing</li>
+      <li><span class="rtag feat">feat</span> Fotospor + Google News Transfer RSS feeds added</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Sessions 9–11 — Facts Firewall, Truth Layer, DB Migrations</h3>
+    <div class="date">May 9, 2026</div>
+    <ul>
+      <li><span class="rtag feat">feat</span> Slice 1 Facts Firewall: facts + fact_lineage tables, extraction wired for all story types</li>
+      <li><span class="rtag feat">feat</span> Slice 1.5 Truth Layer Phase 1–3: grounding context, interpretation guard, verifyArticle + needs_review</li>
+      <li><span class="rtag feat">feat</span> Multi-tenant getLeagueContext + league_european_spots table</li>
+      <li><span class="rtag feat">feat</span> DB migrations 0003/0004/0005 run: expanded source_type check constraint</li>
+      <li><span class="rtag fix">fix</span> rss_summary KV leak: filter publish_mode before immediate KV write</li>
+      <li><span class="rtag feat">feat</span> Synthesis quality: extractKeyEntities Haiku pre-call + Sonnet upgrade for synthesis</li>
+      <li><span class="rtag feat">feat</span> AdSense snippet added to all public pages, ads.txt created</li>
+    </ul>
+  </div>
+
+  <div class="card">
     <h3>Sprints F — Source Intelligence Layer</h3>
     <div class="date">May 5, 2026</div>
     <ul>
@@ -6267,6 +7220,131 @@ ${nav}
     </ul>
   </div>
 </div>
+</body>
+</html>`;
+}
+
+function renderAdminToolsPage(hardcoded, cached) {
+  const nav = adminNav('tools');
+  const fmt = m => m ? `${m.opponent} — ${m.date} ${m.time} @ ${m.venue || '?'} (fixture #${m.fixture_id || '?'})` : 'none';
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kartalix — Admin Araçları</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d0d;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
+.page{max-width:720px;margin:0 auto;padding:2rem 1.5rem}
+.card{background:#111;border:1px solid #222;border-radius:6px;padding:1.25rem 1.5rem;margin-bottom:1.5rem}
+h2{font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin-bottom:1rem}
+.row{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.6rem}
+label{font-size:.78rem;color:#888;min-width:120px}
+.val{font-size:.85rem;color:#e8e6e0;font-family:monospace}
+.val.stale{color:#f0a500}
+.val.live{color:#3a9a3a}
+btn,.btn{display:inline-flex;align-items:center;gap:.4rem;padding:.5rem 1.2rem;border:none;border-radius:4px;font-size:.8rem;font-weight:600;cursor:pointer;background:#222;color:#e8e6e0;transition:background .2s}
+.btn:hover{background:#333}
+.btn.danger{background:#3a1a1a;color:#ff8888}
+.btn.danger:hover{background:#4a1a1a}
+.status{font-size:.78rem;padding:.5rem .75rem;border-radius:4px;background:#1a2a1a;color:#3a9a3a;display:none}
+.status.err{background:#2a1a1a;color:#ff8888}
+</style>
+</head>
+<body>
+${nav}
+<div class="page">
+
+  <div class="card">
+    <h2>Sonraki Maç Konfigürasyonu</h2>
+    <div class="row"><label>Kodda sabit</label><span class="val stale">${fmt(hardcoded)}</span></div>
+    <div class="row"><label>KV cache</label><span class="val ${cached ? 'live' : 'stale'}">${cached ? fmt(cached) : '— boş, henüz çekilmedi'}</span></div>
+    <div style="margin-top:1rem;display:flex;gap:.75rem;flex-wrap:wrap">
+      <button class="btn" onclick="refreshMatch()">API'den Güncelle</button>
+      <a href="/admin/next-match" target="_blank" class="btn" style="text-decoration:none">JSON Görüntüle</a>
+    </div>
+    <div id="match-status" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>Editöryal Ses Kuralları</h2>
+    <p style="font-size:.8rem;color:#888;margin-bottom:1rem">13 Türkçe ses kuralını KV'ye ekler (idempotent — var olanları tekrar eklemez). İlk kurulumda veya KV sıfırlandıktan sonra çalıştırın.</p>
+    <button class="btn" onclick="seedVoice()">Ses Kurallarını Ekle</button>
+    <div id="voice-status" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>Eski İçerikleri Arşivle</h2>
+    <p style="font-size:.8rem;color:#888;margin-bottom:1rem">publish_mode = null veya rss_summary veya pre_firewall_cleaned olan yayınlanmış makaleleri arşivler.</p>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+      <button class="btn" onclick="archivePreview()">Ön İzleme (Sayım)</button>
+      <button class="btn danger" onclick="archiveExecute()">Arşivle</button>
+    </div>
+    <div id="archive-status" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>Ses Tarzı Kütüphanesi (Voice Patterns)</h2>
+    <p style="font-size:.8rem;color:#888;margin-bottom:1rem">Son 14 günün en iyi sentez makalelerinden yazım tarzı örnekleri çıkarır. Her Pazar 02:00'de otomatik çalışır. Çıkarılan örnekler tüm Claude üretimlerine enjekte edilir.</p>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+      <button class="btn" onclick="runVoicePatterns()">Şimdi Çalıştır</button>
+      <a href="/admin/voice-patterns" target="_blank" class="btn" style="text-decoration:none">Kütüphaneyi Görüntüle</a>
+    </div>
+    <div id="vp-status" class="status"></div>
+  </div>
+
+  <div class="card">
+    <h2>Hikaye Sentezi Tetikle</h2>
+    <p style="font-size:.8rem;color:#888;margin-bottom:.75rem">Belirli bir hikaye ID'si için Sonnet sentezini zorla tetikler (dedup key'i temizler).</p>
+    <div class="row">
+      <input id="synth-id" type="text" placeholder="story_id" style="background:#1a1a1a;border:1px solid #333;border-radius:4px;padding:.4rem .75rem;color:#e8e6e0;font-size:.85rem;width:220px"/>
+      <button class="btn" onclick="runSynth()">Sentezle</button>
+    </div>
+    <div id="synth-status" class="status"></div>
+  </div>
+
+</div>
+<script>
+async function post(url, onSuccess, statusId) {
+  const el = document.getElementById(statusId);
+  el.textContent = 'Çalışıyor...'; el.className = 'status'; el.style.display = 'block';
+  try {
+    const r = await fetch(url, { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'HTTP ' + r.status);
+    el.textContent = onSuccess(d); el.className = 'status';
+  } catch(e) { el.textContent = 'Hata: ' + e.message; el.className = 'status err'; }
+}
+function refreshMatch() {
+  post('/admin/next-match', d => \`Güncellendi: \${d.match?.opponent} — \${d.match?.date} \${d.match?.time}\`, 'match-status');
+}
+function seedVoice() {
+  post('/admin/seed-voice', d => \`Eklendi: \${d.added} kural\`, 'voice-status');
+}
+function archivePreview() {
+  const el = document.getElementById('archive-status');
+  el.textContent = 'Kontrol ediliyor...'; el.className = 'status'; el.style.display = 'block';
+  fetch('/admin/archive-legacy?preview=1', { method: 'POST' })
+    .then(r => r.json())
+    .then(d => { el.textContent = \`\${d.count} makale arşivlenecek. Devam etmek için "Arşivle" düğmesine tıklayın.\`; el.className = 'status'; })
+    .catch(e => { el.textContent = 'Hata: ' + e.message; el.className = 'status err'; });
+}
+function archiveExecute() {
+  if (!confirm('Eski makaleler arşivlenecek. Emin misiniz?')) return;
+  post('/admin/archive-legacy?preview=0', d => \`Arşivlendi: \${d.archived} makale\`, 'archive-status');
+}
+function runVoicePatterns() {
+  post('/admin/run-voice-patterns', d => \`Tamamlandı. Kütüphanede \${d.total} örnek var.\`, 'vp-status');
+}
+function runSynth() {
+  const id = document.getElementById('synth-id').value.trim();
+  if (!id) { alert('story_id gerekli'); return; }
+  post('/force-story-synthesis?story_id=' + encodeURIComponent(id),
+    d => d.published ? \`Yayınlandı: \${d.title}\` : 'Sentezlendi (yayın yok)',
+    'synth-status');
+}
+<\/script>
 </body>
 </html>`;
 }

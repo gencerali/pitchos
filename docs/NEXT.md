@@ -8,10 +8,20 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: Choose one of:
-1. **Slice 3 expansion** — story type normalization (free-text types like "transfer_interest", "player_transfer" are leaking into classification; fold into controlled set). Or: story admin UI in report page to see open stories + contributions.
-2. **Monetisation** — wait for AdSense approval, then place ad units in article pages.
-3. **bjk.com.tr content** (backlog) — try ScrapingBee JS-rendered access when budget allows.
+**NEXT**: deploy is done. Feed quality hotfix is live. Next meaningful work:
+1. **Slice 4 — Telegram bot** — `@kartalix_bot` setup, three operational channels, inline keyboard buttons (see SLICES.md Slice 4)
+2. **Story type SQL cleanup** — `UPDATE stories SET story_type = 'other' WHERE story_type NOT IN ('transfer','injury','disciplinary','contract','match_result','squad','institutional','other')`
+3. **Voice Phase 2 first run** — wait until ≥5 synthesis articles exist in DB, then POST `/admin/run-voice-patterns` to seed `editorial:voice_patterns`
+
+**Feed quality hotfix** ✅ DONE (2026-05-13): Old articles + irrelevant news caused by two new feeds added in session 12. Fixed: proxy path now applies 72h date cutoff (was completely missing); undated articles fall back to URL date extraction then treat-as-now; Google News Transfer changed to `keywordFilter: true`; NTV Spor and TRT Haber (broad football feeds) also got `keywordFilter: true`. Old flood is one-time — URLs now in Supabase dedup.
+
+**Session 14** ✅ DONE (2026-05-13):
+- Next match self-caching: `match:BJK:next` KV — matchWatcher reads KV before falling back to hardcoded constant; backgroundWork writes to KV after every successful API fetch
+- `/admin/tools` page + "Araçlar" nav tab: next match refresh, archive legacy, voice patterns trigger, story synthesis
+- `/admin/archive-legacy`: preview count + batch execute (archives pre-firewall/rss_summary articles)
+- `/admin/next-match` GET/POST: view current fixture state or force-refresh from API
+- Voice Phase 2 (Slice 3.9): `runVoicePatternExtraction` (Sunday 02:00 cron), `editorial:voice_patterns` KV (30-pattern cap, NVS-weighted), style examples injected into all Claude generation prompts via `getEditorialNotes`
+- Releases page: sessions 9–13 changelogs added
 
 **Slice 2 close-out** ✅ DONE (2026-05-10): All golden fixtures verified against live production data via `/admin/golden-fixtures`. 130 stories in DB, 42 active, top story has 46 contributions. State machine transitions logged for 46 stories (emerging→developing→confirmed→active). `all_pass: true`.
 

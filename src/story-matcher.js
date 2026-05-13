@@ -349,6 +349,121 @@ Sadece Türkçe haber metnini yaz.`;
   return saved?.[0] || null;
 }
 
+// ─── SPRINT D2: TRUE MULTI-SOURCE SYNTHESIS ──────────────────
+// Fires when a story has ≥3 independent sources. Fetches full text
+// from up to 5 contributions, writes an original Kartalix article from
+// an angle that cannot be attributed to any single source.
+// Dedup: one synthesis per story per calendar day (KV key synth:{id}:{date}).
+export async function synthesizeStory(story, siteId, env) {
+  const today = new Date().toISOString().slice(0, 10);
+  const dedupKey = `synth:${story.id}:${today}`;
+  if (await env.PITCHOS_CACHE.get(dedupKey)) {
+    console.log(`SYNTH-D2: skipping ${story.id} — already synthesized today`);
+    return null;
+  }
+
+  // Fetch contributions with their source URLs
+  const contribs = await supabase(env, 'GET',
+    `/rest/v1/story_contributions?story_id=eq.${story.id}&content_item_id=not.is.null&order=created_at.asc&limit=5&select=content_item_id`
+  ) || [];
+  if (contribs.length < 3) {
+    console.log(`SYNTH-D2: skipping ${story.id} — only ${contribs.length} contributions`);
+    return null;
+  }
+
+  const itemIds = contribs.map(c => c.content_item_id).filter(Boolean);
+  const items = await supabase(env, 'GET',
+    `/rest/v1/content_items?id=in.(${itemIds.join(',')})&select=title,original_url,summary`
+  ) || [];
+
+  // Fetch full text for each source in parallel (cap 5s per source)
+  const sourceFetches = await Promise.all(
+    items.map(async (item) => {
+      if (!item.original_url || item.original_url === '#') return { title: item.title, text: item.summary || '' };
+      try {
+        const { content } = await fetchViaReadability(item.original_url);
+        return { title: item.title, text: (content || item.summary || '').slice(0, 3000) };
+      } catch { return { title: item.title, text: item.summary || '' }; }
+    })
+  );
+
+  const validSources = sourceFetches.filter(s => s.text && s.text.length > 100);
+  if (validSources.length < 2) {
+    console.log(`SYNTH-D2: skipping ${story.id} — not enough source text`);
+    return null;
+  }
+
+  const sourceBlocks = validSources.map((s, i) =>
+    `=== KAYNAK ${i + 1}: ${s.title} ===\n${s.text}`
+  ).join('\n\n');
+
+  const editorialNotes = await getEditorialNotes(env, ['news', story.story_type || '']);
+  const storyContext = [
+    story.story_type   ? `Konu tipi: ${story.story_type}` : null,
+    story.title        ? `Hikaye başlığı: ${story.title}` : null,
+  ].filter(Boolean).join('\n');
+
+  const prompt = `${editorialNotes}Sen Kartalix'in kıdemli spor editörüsün. Aşağıda aynı hikayeyi ele alan ${validSources.length} BAĞIMSIZ kaynak var. Her biri farklı bir bakış açısından yazılmış.
+
+GÖREV: Bu kaynakların HİÇBİRİNİN YAZDIĞI GİBİ YAZMAYAN, tamamen bağımsız bir Kartalix haberi yaz. Kaynaklar sana bağlam sağlar ama sen kendi Kartalix açından yaz.
+
+BAĞLAM:
+${storyContext}
+
+KAYNAKLAR:
+${sourceBlocks}
+
+YAZIM KURALLARI:
+- 350–500 kelime, güçlü Kartalix sesi
+- Lede: en önemli bilgiyi ilk cümlede ver, doğrudan ve çarpıcı
+- Kaynakların çerçevesinden bağımsız kendi Kartalix açını bul
+- Rakam ve tarih bilgilerini doğru kullan, yorumlarda özgün ol
+- "Kaynağa göre", "habere göre" gibi referans ifadeleri KULLANMA
+- Emoji yok, başlık yok — sadece haber gövdesi
+
+Sadece haber metnini yaz.`;
+
+  let body = '';
+  try {
+    const res = await callClaude(env, MODEL_GENERATE, prompt, false, 1800);
+    body = extractText(res.content).trim();
+    console.log(`SYNTH-D2: story ${story.id} → ${body.split(/\s+/).length} words from ${validSources.length} sources`);
+  } catch (e) {
+    console.error('SYNTH-D2 failed:', e.message);
+    return null;
+  }
+
+  if (!body || body.length < 200) return null;
+
+  const title   = story.title || items[0]?.title || 'Kartalix Analizi';
+  const summary = body.replace(/\n+/g, ' ').slice(0, 300);
+  const slug    = generateSlug(`${title}-analiz`, new Date().toISOString());
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:        siteId,
+    source_type:    'kartalix',
+    source_name:    'Kartalix',
+    original_url:   '',
+    title,
+    summary,
+    full_body:      body,
+    category:       story.story_type === 'transfer' ? 'Transfer' : story.story_type === 'injury' ? 'Sakatlık' : 'Haber',
+    content_type:   'kartalix_generated',
+    sport:          'football',
+    nvs_score:      82,
+    publish_mode:   'synthesis',
+    status:         'published',
+    story_id:       story.id,
+    slug,
+    published_at:   new Date().toISOString(),
+    reviewed_at:    new Date().toISOString(),
+  }, { Prefer: 'return=representation' });
+
+  await env.PITCHOS_CACHE.put(dedupKey, '1', { expirationTtl: 86400 });
+  console.log(`SYNTH-D2: published "${title.slice(0, 60)}" from story ${story.id}`);
+  return saved?.[0] || null;
+}
+
 // ─── MAIN ENTRY POINT ─────────────────────────────────────────
 // Called once per ingested article after facts are extracted.
 // openStories is pre-fetched once per processSite run and passed in to avoid
@@ -401,6 +516,10 @@ export async function matchOrCreateStory(article, facts, siteId, env, openStorie
   const updated = await applyContribution(matched, decision, article, env);
   if (updated.state === 'confirmed' && matched.state !== 'confirmed') {
     await generateStoryArticle(updated, facts, article, siteId, env);
+  }
+  // Sprint D2: fire multi-source synthesis when an active story gets its 3rd+ contribution
+  if (['confirmed', 'active'].includes(updated.state) && (updated.contribution_count || 0) >= 3) {
+    synthesizeStory(updated, siteId, env).catch(e => console.error('SYNTH-D2 async failed:', e.message));
   }
   return { story: updated, decision, isNew: false, usage };
 }
