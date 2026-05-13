@@ -7113,292 +7113,311 @@ function renderAdminReleasesPage() {
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Kartalix — Releases</title>
+<title>Kartalix — Roadmap &amp; Releases</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0d0d0d;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.6}
-.content{max-width:860px;margin:0 auto;padding:2rem 1.5rem}
-h1{font-size:22px;font-weight:800;margin-bottom:6px;color:#fff}
-h2{font-size:13px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.08em;margin:2rem 0 .75rem}
+.content{max-width:900px;margin:0 auto;padding:2rem 1.5rem}
+h1{font-size:22px;font-weight:800;margin-bottom:4px;color:#fff}
 .subtitle{color:#555;font-size:12px;letter-spacing:.06em;margin-bottom:2rem}
-.card{background:#111;border:1px solid #222;padding:22px;margin-bottom:14px}
-.card h3{font-size:15px;font-weight:700;margin-bottom:4px;color:#fff}
-.date{color:#555;font-size:12px;margin-bottom:14px;letter-spacing:.04em}
-.card ul{padding-left:18px}
-.card li{color:#ccc;font-size:13px;margin-bottom:5px;line-height:1.5}
-.rtag{display:inline-block;font-size:.6rem;font-weight:700;padding:1px 6px;margin-right:5px;vertical-align:middle;letter-spacing:.08em}
+.section-title{font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.1em;margin:2.5rem 0 1rem;padding-bottom:6px;border-bottom:1px solid #1a1a1a}
+.rlist{display:flex;flex-direction:column;gap:2px;margin-bottom:.5rem}
+.rrow{display:grid;grid-template-columns:90px 1fr auto;align-items:start;gap:1rem;padding:14px 16px;background:#111;border:1px solid #1e1e1e;cursor:pointer;transition:background .15s}
+.rrow:hover{background:#161616}
+.rrow.active{background:#141420;border-color:#2a2a4a}
+.vtag{font-size:.7rem;font-weight:800;letter-spacing:.06em;padding:3px 8px;border-radius:3px;white-space:nowrap;display:inline-block}
+.vtag.shipped{background:#0a2a0a;color:#3a9a3a;border:1px solid #1a4a1a}
+.vtag.current{background:#1a1a0a;color:#c8f135;border:1px solid #3a3a0a}
+.vtag.next{background:#1a1a2a;color:#7a7aff;border:1px solid #2a2a4a}
+.vtag.planned{background:#1a1a1a;color:#555;border:1px solid #2a2a2a}
+.vtag.blocked{background:#2a0a0a;color:#ff4444;border:1px solid #4a1a1a}
+.rrow-title{font-size:13px;font-weight:600;color:#ddd}
+.rrow-sub{font-size:11px;color:#666;margin-top:2px}
+.rrow-date{font-size:11px;color:#444;white-space:nowrap}
+.freeze-badge{display:inline-block;font-size:.6rem;font-weight:700;padding:1px 5px;background:#12101a;color:#8877ff;border:1px solid #2a2040;border-radius:2px;margin-left:6px;vertical-align:middle}
+.detail{display:none;padding:18px 16px;background:#0d0d14;border:1px solid #1e1e2e;border-top:none;margin-bottom:12px}
+.detail.open{display:block}
+.detail table{width:100%;border-collapse:collapse;margin-bottom:14px}
+.detail td{padding:5px 8px;font-size:12px;border-bottom:1px solid #1a1a1a;vertical-align:top}
+.detail td:first-child{color:#666;width:160px;white-space:nowrap}
+.detail td:last-child{color:#ccc}
+.detail h4{font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;margin-top:14px}
+.detail ul{padding-left:18px}
+.detail li{font-size:12px;color:#bbb;margin-bottom:4px;line-height:1.5}
+.rtag{display:inline-block;font-size:.58rem;font-weight:700;padding:1px 5px;margin-right:5px;vertical-align:middle;letter-spacing:.07em}
 .feat{background:#1d4ed818;color:#4488ff;border:1px solid #1d4ed850}
 .fix{background:#c8f13518;color:#c8f135;border:1px solid #c8f13550}
 .perf{background:#ffaa0018;color:#ffaa00;border:1px solid #ffaa0050}
-.road{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
-@media(max-width:600px){.road{grid-template-columns:1fr}}
-.road-col{background:#111;border:1px solid #222;padding:18px}
-.road-col h4{font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px}
-.road-col ul{padding-left:16px}
-.road-col li{font-size:12px;color:#ccc;margin-bottom:6px;line-height:1.5}
-.road-col li span{color:#555;font-size:11px}
-.done-dot{color:#3a9a3a;margin-right:4px}
-.plan-dot{color:#ffaa00;margin-right:4px}
-.block-dot{color:#ff4444;margin-right:4px}
-.backlog-card{background:#0f0f14;border:1px solid #1e1e2e;padding:18px;margin-bottom:10px}
-.backlog-card h4{font-size:13px;font-weight:700;color:#7a7aff;margin-bottom:4px}
-.backlog-card p{font-size:12px;color:#777;line-height:1.5}
-.backlog-card .tags{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}
-.btag{font-size:.6rem;font-weight:700;padding:1px 7px;border-radius:2px;letter-spacing:.06em;border:1px solid #2a2a3a;color:#9999ff;background:#12121e}
+.criteria{background:#0f0f18;border:1px solid #2a2a3a;padding:12px 16px;margin-top:12px}
+.criteria h5{font-size:11px;font-weight:700;color:#8877ff;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.criteria li{font-size:12px;color:#aaa;margin-bottom:3px}
+code{background:#1a1a1a;padding:1px 5px;border-radius:3px;font-size:11px;color:#c8f135;font-family:monospace}
+.backup-box{background:#0a0a12;border:1px solid #1a1a2a;padding:12px 16px;margin-top:12px;font-size:12px;color:#666;line-height:1.8}
+.backup-box strong{color:#8877ff}
 </style>
 </head>
 <body>
 ${nav}
 <div class="content">
-  <h1>Release Notes &amp; Roadmap</h1>
-  <p class="subtitle">Kartalix / PitchOS — AI-native Beşiktaş news platform. Sprint changelog + product roadmap.</p>
+  <h1>Roadmap &amp; Releases</h1>
+  <p class="subtitle">Kartalix / PitchOS &nbsp;·&nbsp; AI-native Beşiktaş news platform &nbsp;·&nbsp; Click any release to expand. Source of truth: <code>docs/ROADMAP.md</code></p>
 
-  <h2>Roadmap Overview</h2>
-  <div class="road">
-    <div class="road-col">
-      <h4>✓ Shipped</h4>
+  <div class="section-title">Planned &amp; In Flight</div>
+  <div class="rlist">
+
+    <div class="rrow" onclick="toggle('r10')">
+      <span class="vtag planned">v1.0</span>
+      <div><div class="rrow-title">Public Launch <span class="freeze-badge">FROZEN RELEASE</span></div><div class="rrow-sub">Security hardened · Cost guard · Telegram ops · 40+ articles/day · Lawyer re-confirmed</div></div>
+      <div class="rrow-date">Target: Jul 2026</div>
+    </div>
+    <div id="r10" class="detail">
+      <div class="criteria">
+        <h5>Freeze criteria — all must pass before tagging v1.0.0</h5>
+        <ul>
+          <li>Homepage &lt;2s on mobile (4G throttled)</li>
+          <li>40+ articles visible for 3 consecutive days without manual intervention</li>
+          <li>Widgets load on kartalix.com, app.kartalix.com, www.kartalix.com</li>
+          <li>Kaydet tested: beklemede → yayında appears on homepage within 5 min</li>
+          <li>Admin login: 5 wrong attempts → lockout (Slice 4.2)</li>
+          <li>/admin/cost shows current month spend within cap (Slice 3.7)</li>
+          <li>Rewrite articles: ≥3/day for 3 consecutive days</li>
+          <li>Lawyer re-confirm compliance after Sprint H ships</li>
+        </ul>
+      </div>
+      <h4>Requires (in order)</h4>
       <ul>
-        <li><span class="done-dot">●</span> v0 — Tracking files, legal compliance (IT3, hot-news delay, attribution)</li>
-        <li><span class="done-dot">●</span> Sprint 1–3 — Live pipeline, scoring, NVS, KV cache, 50-slot feed</li>
-        <li><span class="done-dot">●</span> Sprint C — YouTube embed, 5 channels, match video templates</li>
-        <li><span class="done-dot">●</span> Sprint D — Single-source rewrite (synthesizeArticle + proxy + RSS fallback)</li>
-        <li><span class="done-dot">●</span> Sprint D2 — Multi-source rewrite (synthesizeStory, ≥3 contributions)</li>
-        <li><span class="done-dot">●</span> Sprint E — Source expansion, hourly cron, feed quality hotfix</li>
-        <li><span class="done-dot">●</span> Sprint F — Source intelligence layer (independence gate, YT pipeline, source_configs DB)</li>
-        <li><span class="done-dot">●</span> Sprint G — Sentiment judge (rival_pov −25 NVS cap)</li>
-        <li><span class="done-dot">●</span> Slice 1 — Facts Firewall (facts + fact_lineage tables)</li>
-        <li><span class="done-dot">●</span> Slice 1.5 — Truth Layer (grounding, verifyArticle, needs_review)</li>
-        <li><span class="done-dot">●</span> Slice 2 — Story-Centric Foundation (stories/contributions state machine)</li>
-        <li><span class="done-dot">●</span> Slice 3 — API-Football Pro, 12 match templates, match watcher</li>
-        <li><span class="done-dot">●</span> Sprint A — Event flash templates (red card, VAR, OG, penalty, HT)</li>
-        <li><span class="done-dot">●</span> Sprint B — Widgets (standings + fixtures on home; H2H on match articles)</li>
-        <li><span class="done-dot">●</span> Slice 3.9 — Voice Agent (13 rules, weekly DNA extraction, voice_patterns KV)</li>
-        <li><span class="done-dot">●</span> Sessions 14–15 — CORS wildcard, widget fixes, rewrite RSS fallback, Kaydet status, badge cleanup</li>
+        <li>v0.9 Sprint H — news pool always has 40+ articles</li>
+        <li>Slice 3.7 — cost guard (hard cap before public traffic)</li>
+        <li>Slice 4.2 — security hardening (JWT auth, rate limiting, CSP)</li>
+        <li>Slice 4 partial — Telegram ops channel (visibility in production)</li>
+      </ul>
+      <div class="backup-box">
+        <strong>Freeze procedure</strong><br>
+        1. <code>git tag v1.0.0 &amp;&amp; git push origin v1.0.0</code><br>
+        2. Note Cloudflare Version ID from <code>npx wrangler deploy</code> output<br>
+        3. <code>npx wrangler kv bulk get --binding=PITCHOS_CACHE &gt; backups/kv-v1.0.0.json</code><br>
+        4. Supabase Dashboard → Settings → Backups → Download<br>
+        <strong>Rollback:</strong> <code>npx wrangler rollback [version-id]</code>
+      </div>
+    </div>
+
+    <div class="rrow" onclick="toggle('r09')">
+      <span class="vtag next">v0.9</span>
+      <div><div class="rrow-title">News Pool &amp; Publish Queue — Sprint H</div><div class="rrow-sub">Persistent rewrite queue · Ranked 200-slot pool · Topic pages · Quick-publish</div></div>
+      <div class="rrow-date">Next up</div>
+    </div>
+    <div id="r09" class="detail">
+      <h4>Scope</h4>
+      <ul>
+        <li><strong>H1</strong> Persistent rewrite queue — <code>rewrite:queue</code> KV; NVS≥60 articles queued not dropped; retried each run; 48h TTL; per-run cap removed</li>
+        <li><strong>H2</strong> Pool grows to 200 slots; <code>rank_score = nvs × e^(-age_hours/36)</code>; homepage top 20; "Daha fazla" loads next 20; admin pin support</li>
+        <li><strong>H3</strong> Quick-publish button in admin news list — POST <code>/admin/content-publish?slug=X</code>; bulk promote: select N → publish all</li>
+        <li><strong>H4</strong> Topic pages — <code>/konu/transfer</code>, <code>/konu/mac</code>, <code>/konu/sakat</code>; homepage nav tabs; sitemap extended</li>
+        <li><strong>H5</strong> Multi-source rewrite wired into backgroundWork — stories with ≥3 contributions in 6h trigger synthesizeStory (cap 2/run)</li>
+      </ul>
+      <div class="criteria">
+        <h5>Done when</h5>
+        <ul>
+          <li>Homepage shows ≥40 articles on a quiet news day</li>
+          <li>Post-match run produces ≥8 rewrite articles</li>
+          <li>Admin quick-publish tested</li>
+          <li>Topic pages load with correct filtered articles</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="section-title">Shipped</div>
+  <div class="rlist">
+
+    <div class="rrow" onclick="toggle('r08')">
+      <span class="vtag current">v0.8</span>
+      <div><div class="rrow-title">Operational Fixes <span class="freeze-badge">b8dd716 · CF: 0fbe6b4e</span></div><div class="rrow-sub">Widget CORS wildcard · Rewrite RSS fallback · Kaydet status · Badge cleanup</div></div>
+      <div class="rrow-date">May 13, 2026</div>
+    </div>
+    <div id="r08" class="detail">
+      <table>
+        <tr><td>Git commit</td><td><code>b8dd716</code> on main</td></tr>
+        <tr><td>CF Worker version</td><td><code>0fbe6b4e-8ac5-4ef1-94ba-abddc2e66e62</code></td></tr>
+      </table>
+      <ul>
+        <li><span class="rtag fix">fix</span> Widget CORS → <code>*</code> wildcard + <code>Cache-Control: no-store</code> on all 5 endpoints — fixes app./www. subdomains</li>
+        <li><span class="rtag fix">fix</span> Wrangler cron Sunday: <code>0 2 * * 0</code> → <code>0 2 * * 7</code></li>
+        <li><span class="rtag fix">fix</span> Duplicate <code>opponent_id</code> key removed from /next-match builder</li>
+        <li><span class="rtag feat">feat</span> Rewrite RSS fallback — proxy timeout → use RSS summary ≥100 chars as source</li>
+        <li><span class="rtag perf">perf</span> Rewrite cap raised 4 → 6 per cron run</li>
+        <li><span class="rtag fix">fix</span> Kaydet reads eStatus, sends status to backend; backend PATCH + KV update</li>
+        <li><span class="rtag feat">feat</span> Badge labels consolidated: YZ, YZ+, Ş:xxx, Video, Manuel, Kaynak, RSS</li>
+        <li><span class="rtag feat">feat</span> Sprint H spec + ROADMAP.md added to repo</li>
       </ul>
     </div>
-    <div class="road-col">
-      <h4>→ In Plan</h4>
+
+    <div class="rrow" onclick="toggle('r07')">
+      <span class="vtag shipped">v0.7</span>
+      <div><div class="rrow-title">Truth &amp; Voice</div><div class="rrow-sub">Facts Firewall · Truth Layer · Story Foundation · Voice Agent Ph.2 · Admin Tools</div></div>
+      <div class="rrow-date">May 13, 2026</div>
+    </div>
+    <div id="r07" class="detail">
       <ul>
-        <li><span class="plan-dot">●</span> Sprint H — Persistent rewrite queue, 60-article pool, topic pages, multi-source wiring</li>
-        <li><span class="plan-dot">●</span> Slice 4 — Telegram bot (@kartalix_bot, 3 channels, HITL Gate C)</li>
-        <li><span class="plan-dot">●</span> Slice 4.2 — Security hardening (JWT auth, rate limiting, CSP)</li>
-        <li><span class="plan-dot">●</span> Slice 4.5 — Squad Intelligence (squad_members DB, dynamic keywords)</li>
-        <li><span class="plan-dot">●</span> Slice 5 — Visual Asset Agent (image pipeline, IT6)</li>
-        <li><span class="plan-dot">●</span> Slice 5.5 — Distribute Agent (multi-channel fan-out, push notifications)</li>
-        <li><span class="plan-dot">●</span> Slice 6 — Editorial QA + Author Flow</li>
-        <li><span class="plan-dot">●</span> Slice 3.7 — Cost Guard (monthly KV cap, kill switch)</li>
-        <li><span class="plan-dot">●</span> Slice 7 — Governance Layer (CLO + CFO agents)</li>
-        <li><span class="plan-dot">●</span> Slice 8 — Self-Learning Loops (engagement → scoring feedback)</li>
-        <li><span class="block-dot">●</span> Twitter/X — blocked ($100/mo API)</li>
-        <li><span class="block-dot">●</span> bjk.com.tr — blocked (CAPTCHA)</li>
+        <li><span class="rtag feat">feat</span> Slice 1: Facts Firewall — facts + fact_lineage tables; source text destruction</li>
+        <li><span class="rtag feat">feat</span> Slice 1.5: Truth Layer Ph.1–3 — grounding context, verifyArticle, needs_review ⚠️ badge</li>
+        <li><span class="rtag feat">feat</span> Slice 2: Story Foundation — 130 stories, state machine, 46 with transitions; all_pass: true</li>
+        <li><span class="rtag feat">feat</span> Slice 3.9 Voice Ph.2: 13 Turkish rules; weekly DNA cron; voice_patterns KV; style injection</li>
+        <li><span class="rtag feat">feat</span> /admin/tools; next match self-caching KV; /admin/archive-legacy</li>
+        <li><span class="rtag feat">feat</span> Sprint D2 multi-source synthesis; H2H widget on T02; tr.json; feed quality hotfix</li>
+        <li><span class="rtag feat">feat</span> AdSense + ads.txt; DB migrations 0003–0005</li>
       </ul>
     </div>
+
+    <div class="rrow" onclick="toggle('r06')">
+      <span class="vtag shipped">v0.6</span>
+      <div><div class="rrow-title">Source Intelligence</div><div class="rrow-sub">Sprint E feeds · Sprint F source configs · Sprint G sentiment judge</div></div>
+      <div class="rrow-date">May 5, 2026</div>
+    </div>
+    <div id="r06" class="detail">
+      <ul>
+        <li><span class="rtag feat">feat</span> Sprint E: Fotospor, Transfermarkt, Google News Transfer; hourly cron; keywordFilter fixes</li>
+        <li><span class="rtag feat">feat</span> F1: Source independence gate — press-only chains cap at developing</li>
+        <li><span class="rtag feat">feat</span> F2: YouTube into unified pipeline; F3: source_configs DB + /admin/sources/ui</li>
+        <li><span class="rtag feat">feat</span> Sprint G: rival_pov −25 NVS cap in scoreArticles; Financials page</li>
+      </ul>
+    </div>
+
+    <div class="rrow" onclick="toggle('r05')">
+      <span class="vtag shipped">v0.5</span>
+      <div><div class="rrow-title">Content Rewrite</div><div class="rrow-sub">Sprint C YouTube · Sprint D single-source · Sprint D2 multi-source synthesis</div></div>
+      <div class="rrow-date">May 2, 2026</div>
+    </div>
+    <div id="r05" class="detail">
+      <ul>
+        <li><span class="rtag feat">feat</span> Sprint C: 5 YT channels; match video templates T-VID-HLT/GOL/BP/INT/REF</li>
+        <li><span class="rtag feat">feat</span> Sprint D: synthesizeArticle — single-source rewrite via Render proxy; publish_mode: rewrite</li>
+        <li><span class="rtag feat">feat</span> Sprint D2: synthesizeStory — true multi-source (≥3 contributions), independent angle</li>
+        <li><span class="rtag feat">feat</span> extractKeyEntities Haiku pre-call; raw RSS removed from KV frontend</li>
+      </ul>
+    </div>
+
+    <div class="rrow" onclick="toggle('r04')">
+      <span class="vtag shipped">v0.4</span>
+      <div><div class="rrow-title">Match Intelligence</div><div class="rrow-sub">12 match templates · Sprint A event flashes · Sprint B widgets</div></div>
+      <div class="rrow-date">May 1, 2026</div>
+    </div>
+    <div id="r04" class="detail">
+      <ul>
+        <li><span class="rtag feat">feat</span> 12 match templates: T01–T13, T-XG, T-REF; match watcher */5 cron</li>
+        <li><span class="rtag feat">feat</span> Sprint A: T-RED, T-VAR, T-OG, T-PEN, T-HT; seen_event_ids dedup</li>
+        <li><span class="rtag feat">feat</span> Sprint B: standings + fixtures + team widgets on homepage; fixture widget on match articles</li>
+        <li><span class="rtag feat">feat</span> API-Football Pro confirmed; API key as Workers secret; Open-Meteo weather in T01</li>
+      </ul>
+    </div>
+
+    <div class="rrow" onclick="toggle('r03')">
+      <span class="vtag shipped">v0.3</span>
+      <div><div class="rrow-title">Pipeline Reliability</div><div class="rrow-sub">KV ceiling · Supabase dedup · 7-band NVS · age penalty</div></div>
+      <div class="rrow-date">April 17, 2026</div>
+    </div>
+    <div id="r03" class="detail">
+      <ul>
+        <li><span class="rtag fix">fix</span> KV ceiling 8 → 50; permanent Supabase URL dedup (~€17/mo saved)</li>
+        <li><span class="rtag feat">feat</span> 7-band NVS, age penalty (−15@24h, −30@48h), post-scoring story dedup</li>
+        <li><span class="rtag feat">feat</span> Match templates T05/T08b/T09 as Haiku-generated Turkish prose</li>
+      </ul>
+    </div>
+
+    <div class="rrow" onclick="toggle('r02')">
+      <span class="vtag shipped">v0.2</span>
+      <div><div class="rrow-title">Content Quality</div><div class="rrow-sub">12 RSS sources · NVS scoring · hero carousel · Render proxy</div></div>
+      <div class="rrow-date">April 6, 2026</div>
+    </div>
+
+    <div class="rrow" onclick="toggle('r01')">
+      <span class="vtag shipped">v0.1</span>
+      <div><div class="rrow-title">Live Pipeline</div><div class="rrow-sub">Cloudflare Worker · Claude API · KV cache · cron · Supabase</div></div>
+      <div class="rrow-date">March 2026</div>
+    </div>
+
   </div>
 
-  <h2>Session Changelog</h2>
+  <div class="section-title">Post-Launch Backlog (v1.1+)</div>
+  <div class="rlist">
 
-  <div class="card">
-    <h3>Sessions 14–15 — Widget CORS, Rewrite RSS Fallback, Kaydet Status, Badge Cleanup</h3>
-    <div class="date">May 13, 2026</div>
-    <ul>
-      <li><span class="rtag fix">fix</span> Widget CORS changed to wildcard <code>*</code> + <code>Cache-Control: no-store</code> on all 5 widget endpoints — prevents CDN caching collision across kartalix.com / app. / www. subdomains</li>
-      <li><span class="rtag fix">fix</span> Wrangler cron: Sunday day-of-week changed 0 → 7 (Cloudflare rejects 0)</li>
-      <li><span class="rtag fix">fix</span> Duplicate <code>opponent_id</code> key removed from admin /next-match builder object</li>
-      <li><span class="rtag feat">feat</span> Rewrite RSS fallback: if proxy times out, uses RSS summary (≥100 chars) as source text for Claude rewrite — prevents articles staying as rss_summary when Render free-tier sleeps</li>
-      <li><span class="rtag perf">perf</span> Rewrite cap raised 4 → 6 per cron run; Sprint H proposes persistent queue</li>
-      <li><span class="rtag fix">fix</span> Kaydet (Save) now reads eStatus dropdown and sends <code>status</code> to backend — articles can be set to beklemede or yayında directly from admin content editor</li>
-      <li><span class="rtag fix">fix</span> Backend /admin/content-save: applies status field in PATCH + updates KV feed (prepend if promoted to published, filter out if set to pending)</li>
-      <li><span class="rtag feat">feat</span> Badge label cleanup: badgeLabel() + badgeClass() consolidated — YZ (rewrite/synthesis), YZ+ (original_synthesis/synthesis_generated), Ş:xxx (template subtypes), Video, Manuel, Kaynak, RSS</li>
-      <li><span class="rtag feat">feat</span> Sprint H added to SLICES.md: H1 Persistent Rewrite Queue, H2 Pool Size 60, H3 Manual Publish, H4 Topic Pages, H5 Multi-Source Rewrite Upgrade</li>
-    </ul>
+    <div class="rrow" onclick="toggle('b11')">
+      <span class="vtag planned">v1.1</span>
+      <div><div class="rrow-title">Squad Intelligence — Slice 4.5</div><div class="rrow-sub">squad_members DB · dynamic keyword config · auto-rebuild on squad change</div></div>
+      <div class="rrow-date">~1–2 wks</div>
+    </div>
+    <div id="b11" class="detail">
+      <ul>
+        <li>squad_members table: name, name_variations JSONB, role, status, position, nationality</li>
+        <li>buildKeywordConfig(siteId): Haiku auto-generates keyword list with transliterations weekly</li>
+        <li>Transfer window mode: target/rumored players added to keywords May–Aug, Jan–Feb</li>
+        <li>Admin UI at /admin/squad — add/edit/remove players, regenerate keywords button</li>
+      </ul>
+    </div>
+
+    <div class="rrow" onclick="toggle('b12')">
+      <span class="vtag planned">v1.2</span>
+      <div><div class="rrow-title">Distribute Agent — Slice 5.5</div><div class="rrow-sub">Push notifications · distribution_log · channel fan-out by NVS tier</div></div>
+      <div class="rrow-date">~1–2 wks</div>
+    </div>
+    <div id="b12" class="detail">
+      <ul>
+        <li>distribute(article, site, env) replaces direct KV write — fans out by NVS tier</li>
+        <li>Push notifications (NVS≥80): Web Push API, service worker on fan site</li>
+        <li>push_subscriptions Supabase table; /subscribe-push endpoint</li>
+        <li>distribution_log table: article_id, channel, status, sent_at</li>
+        <li>Twitter/X: stub only — activate when ad revenue covers $100/mo</li>
+      </ul>
+    </div>
+
+    <div class="rrow" onclick="toggle('b13')">
+      <span class="vtag planned">v1.3</span>
+      <div><div class="rrow-title">Visual Asset Agent — Slice 5</div><div class="rrow-sub">Image pipeline · IT6 templates · CDN upload</div></div>
+      <div class="rrow-date">~2–3 wks</div>
+    </div>
+
+    <div class="rrow" onclick="toggle('b14')">
+      <span class="vtag planned">v1.4</span>
+      <div><div class="rrow-title">Editorial QA + Authors — Slice 6</div><div class="rrow-sub">Guest submissions · Telegram author channel · two-stage approval</div></div>
+      <div class="rrow-date">~2–3 wks</div>
+    </div>
+
+    <div class="rrow" onclick="toggle('b15')">
+      <span class="vtag planned">v1.5</span>
+      <div><div class="rrow-title">Governance — Slice 7</div><div class="rrow-sub">CLO legal rule engine · CFO full cost attribution · weekly reports</div></div>
+      <div class="rrow-date">~2 wks</div>
+    </div>
+
+    <div class="rrow" onclick="toggle('b16')">
+      <span class="vtag planned">v1.6</span>
+      <div><div class="rrow-title">Self-Learning — Slice 8</div><div class="rrow-sub">Engagement signals → scoring · source performance table · journalist accuracy</div></div>
+      <div class="rrow-date">~3 wks</div>
+    </div>
+
+    <div class="rrow">
+      <span class="vtag blocked">blocked</span>
+      <div><div class="rrow-title">Twitter/X auto-post</div><div class="rrow-sub">X API Basic $100/mo — unblocks when ad revenue covers it</div></div>
+      <div class="rrow-date">—</div>
+    </div>
+
+    <div class="rrow">
+      <span class="vtag blocked">blocked</span>
+      <div><div class="rrow-title">bjk.com.tr content</div><div class="rrow-sub">CAPTCHA-protected — unblocks with ScrapingBee ($49/mo) or residential proxy</div></div>
+      <div class="rrow-date">—</div>
+    </div>
+
   </div>
-
-  <div class="card">
-    <h3>Session 13 — Voice Phase 2 + Admin Tools + Next Match Cache</h3>
-    <div class="date">May 13, 2026</div>
-    <ul>
-      <li><span class="rtag feat">feat</span> Voice Phase 2: weekly style DNA extraction from top synthesis articles → editorial:voice_patterns KV</li>
-      <li><span class="rtag feat">feat</span> getEditorialNotes: injects 3 weighted-random voice pattern examples into all generation prompts</li>
-      <li><span class="rtag feat">feat</span> /admin/tools page: next match refresh, archive legacy, voice patterns, story synthesis buttons</li>
-      <li><span class="rtag feat">feat</span> Next match self-caching: backgroundWork writes API result to match:BJK:next KV; matchWatcher reads it</li>
-      <li><span class="rtag feat">feat</span> /admin/archive-legacy: preview + execute archival of pre-firewall/rss_summary articles</li>
-      <li><span class="rtag feat">feat</span> /admin/next-match GET/POST: view or force-refresh next fixture from API</li>
-      <li><span class="rtag feat">feat</span> Sunday 02:00 cron added for weekly voice pattern extraction</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Session 12 — tr.json + H2H Widget + Voice Phase 1 + Sprint D2</h3>
-    <div class="date">May 13, 2026</div>
-    <ul>
-      <li><span class="rtag feat">feat</span> /widgets/tr.json — Turkish translation file for api-sports widgets</li>
-      <li><span class="rtag feat">feat</span> H2H widget auto-injected on T02 articles (opponent_id from NEXT_MATCH)</li>
-      <li><span class="rtag feat">feat</span> T09 intro: Turkish vowel harmony — "bugün saat X'da Venue'da" format</li>
-      <li><span class="rtag feat">feat</span> seedVoiceRules: 13 editorial voice rules (idioms, anti-AI-tells, Turkish grammar)</li>
-      <li><span class="rtag feat">feat</span> Sprint D2: synthesizeStory — true multi-source synthesis when story has ≥3 contributions</li>
-      <li><span class="rtag feat">feat</span> /force-story-synthesis endpoint for manual testing</li>
-      <li><span class="rtag feat">feat</span> Fotospor + Google News Transfer RSS feeds added</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Sessions 9–11 — Facts Firewall, Truth Layer, DB Migrations</h3>
-    <div class="date">May 9, 2026</div>
-    <ul>
-      <li><span class="rtag feat">feat</span> Slice 1 Facts Firewall: facts + fact_lineage tables, extraction wired for all story types</li>
-      <li><span class="rtag feat">feat</span> Slice 1.5 Truth Layer Phase 1–3: grounding context, interpretation guard, verifyArticle + needs_review</li>
-      <li><span class="rtag feat">feat</span> Multi-tenant getLeagueContext + league_european_spots table</li>
-      <li><span class="rtag feat">feat</span> DB migrations 0003/0004/0005 run: expanded source_type check constraint</li>
-      <li><span class="rtag fix">fix</span> rss_summary KV leak: filter publish_mode before immediate KV write</li>
-      <li><span class="rtag feat">feat</span> Synthesis quality: extractKeyEntities Haiku pre-call + Sonnet upgrade for synthesis</li>
-      <li><span class="rtag feat">feat</span> AdSense snippet added to all public pages, ads.txt created</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Sprint F — Source Intelligence Layer</h3>
-    <div class="date">May 5, 2026</div>
-    <ul>
-      <li><span class="rtag feat">feat</span> F1: Source independence gate — press-only cite chains blocked from "confirmed"</li>
-      <li><span class="rtag feat">feat</span> F2: YouTube into unified pipeline — story matching + NVS hint scoring</li>
-      <li><span class="rtag feat">feat</span> F3: source_configs Supabase table — sources editable without deploy</li>
-      <li><span class="rtag feat">feat</span> Sources admin UI — add, test, delete, activate/deactivate sources</li>
-      <li><span class="rtag feat">feat</span> Daily source auto-test cron + status dots in UI</li>
-      <li><span class="rtag feat">feat</span> Financials page — monthly cost/revenue chart + manual cost entries</li>
-      <li><span class="rtag feat">feat</span> Admin nav unified across all pages + Report/Roadmap/Releases tabs</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Sprint E — Source Expansion</h3>
-    <div class="date">May 4, 2026</div>
-    <ul>
-      <li><span class="rtag feat">feat</span> Scorer updated: national team + multi-sport BJK scoring bands</li>
-      <li><span class="rtag feat">feat</span> Synthesis prompt: national team / other-sport context injection</li>
-      <li><span class="rtag feat">feat</span> RSS cron moved to hourly (was 2-hourly)</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Sprint D — Original News Synthesis</h3>
-    <div class="date">May 2, 2026</div>
-    <ul>
-      <li><span class="rtag feat">feat</span> generateOriginalNews: multi-source, 300–400 word Kartalix voice synthesis</li>
-      <li><span class="rtag feat">feat</span> Synthesis dedup: synth:{hash}:{date} KV key prevents re-synthesis same day</li>
-      <li><span class="rtag feat">feat</span> Raw RSS/P4 articles removed from KV frontend — only templates + synthesis</li>
-      <li><span class="rtag fix">fix</span> Multi-source context via titleSimilarity(>0.25) for richer Claude input</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Sprint C — YouTube Embed</h3>
-    <div class="date">May 2, 2026</div>
-    <ul>
-      <li><span class="rtag feat">feat</span> 5 YouTube channels live (Beşiktaş JK, beIN Sports TR, A Spor, Rabona, TRT)</li>
-      <li><span class="rtag feat">feat</span> Match-specific video templates: T-VID-HLT, T-VID-GOL, T-VID-BP, T-VID-INT, T-VID-REF</li>
-      <li><span class="rtag feat">feat</span> classifyMatchVideo: routes to match templates; falls back to generic T-VID</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Sprint 3 — Pipeline Reliability + Content Quality</h3>
-    <div class="date">April 17, 2026 &nbsp;·&nbsp; 12 commits</div>
-    <ul>
-      <li><span class="rtag fix">fix</span> KV ceiling raised 8 → 50 articles — no more silent article drops</li>
-      <li><span class="rtag perf">perf</span> Permanent URL dedup against Supabase — eliminated re-scoring cost (~€17/mo saved)</li>
-      <li><span class="rtag fix">fix</span> pubDate: original RSS published_at stored in KV + Supabase</li>
-      <li><span class="rtag feat">feat</span> Scoring: 7-band NVS, age penalty (−15 @ 24h, −30 @ 48h), story-aware dedup</li>
-      <li><span class="rtag feat">feat</span> Post-scoring story dedup — one article per story cluster (highest NVS wins)</li>
-      <li><span class="rtag feat">feat</span> Match templates T05/T08b/T09 rewritten as Haiku-generated Turkish news prose</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Sprint 2 — Content Quality</h3>
-    <div class="date">April 6, 2026 &nbsp;·&nbsp; 18 commits</div>
-    <ul>
-      <li><span class="rtag feat">feat</span> 12 RSS sources with BJK keyword filter</li>
-      <li><span class="rtag feat">feat</span> Render.com proxy for blocked feeds (Fotomaç, A Spor)</li>
-      <li><span class="rtag feat">feat</span> Golden Score + NVS scoring (Haiku, batch 10)</li>
-      <li><span class="rtag feat">feat</span> Hero carousel + article grid + modal</li>
-      <li><span class="rtag feat">feat</span> Transfer Radar + Fan Pulse from real article data</li>
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Sprint 1 — Live Pipeline</h3>
-    <div class="date">March 2026</div>
-    <ul>
-      <li><span class="rtag feat">feat</span> Cloudflare Worker fetch agent live</li>
-      <li><span class="rtag feat">feat</span> Claude API connected (Haiku scoring)</li>
-      <li><span class="rtag feat">feat</span> KV cache → fan site reads live news</li>
-      <li><span class="rtag feat">feat</span> Cron trigger, Supabase logging, NVS scoring</li>
-    </ul>
-  </div>
-
-  <h2>Backlog</h2>
-
-  <div class="backlog-card">
-    <h4>Sprint H — Rewrite Queue &amp; Content Pool</h4>
-    <p>H1: Persistent rewrite queue (KV-backed, survives cap). H2: Pool target 60 articles with NVS ranking. H3: Manual publish button from admin. H4: Topic pages (/transfer, /maclar, /takim). H5: Multi-source rewrite upgrade (synthesize from 2–3 articles).</p>
-    <div class="tags"><span class="btag">next up</span><span class="btag">content quality</span><span class="btag">no lawyer dependency</span></div>
-  </div>
-
-  <div class="backlog-card">
-    <h4>Slice 4 — Telegram Bot</h4>
-    <p>@kartalix_bot with 3 channels (breaking, match day, transfer). HITL Gate C: bot asks editor before publishing sensitive articles. Push notifications on goal/red card events.</p>
-    <div class="tags"><span class="btag">distribution</span><span class="btag">HITL</span></div>
-  </div>
-
-  <div class="backlog-card">
-    <h4>Slice 4.2 — Security Hardening</h4>
-    <p>JWT auth on admin endpoints (currently security-by-obscurity). Rate limiting on /run, /force-*. CSP headers. Secrets rotation policy.</p>
-    <div class="tags"><span class="btag">security</span><span class="btag">pre-launch</span></div>
-  </div>
-
-  <div class="backlog-card">
-    <h4>Slice 4.5 — Squad Intelligence</h4>
-    <p>squad_members Supabase table for all active BJK players + coaches. Dynamic keyword config seeded from squad. Enables better NVS scoring for squad news vs. general club news.</p>
-    <div class="tags"><span class="btag">data</span><span class="btag">scoring</span></div>
-  </div>
-
-  <div class="backlog-card">
-    <h4>Slice 5 — Visual Asset Agent</h4>
-    <p>Image pipeline: fetch + resize + CDN upload for article hero images. IT6 template with visual. Automated image sourcing from club's official accounts.</p>
-    <div class="tags"><span class="btag">media</span><span class="btag">UX</span></div>
-  </div>
-
-  <div class="backlog-card">
-    <h4>Slice 5.5 — Distribute Agent</h4>
-    <p>Multi-channel fan-out: publish to Telegram, Twitter/X (when API affordable), RSS, push notifications simultaneously. Scheduling queue for optimal send times.</p>
-    <div class="tags"><span class="btag">distribution</span></div>
-  </div>
-
-  <div class="backlog-card">
-    <h4>Slice 6 — Editorial QA + Author Flow</h4>
-    <p>Human editor review queue for AI-generated articles before publish. Author attribution. Editorial calendar. A/B headline testing.</p>
-    <div class="tags"><span class="btag">editorial</span><span class="btag">quality</span></div>
-  </div>
-
-  <div class="backlog-card">
-    <h4>Slice 3.7 — Cost Guard</h4>
-    <p>Monthly KV cap tracker. Kill switch: auto-disable Claude calls when monthly budget exceeded. Cost alert to admin when 80% consumed.</p>
-    <div class="tags"><span class="btag">ops</span><span class="btag">cost control</span></div>
-  </div>
-
-  <div class="backlog-card">
-    <h4>Slice 7 — Governance Layer</h4>
-    <p>CLO agent (legal compliance review on sensitive articles). CFO agent (revenue optimization, ad placement). Audit trail for all AI decisions.</p>
-    <div class="tags"><span class="btag">compliance</span><span class="btag">v2</span></div>
-  </div>
-
-  <div class="backlog-card">
-    <h4>Slice 8 — Self-Learning Loops</h4>
-    <p>Engagement signals (clicks, time-on-page) fed back into NVS scoring model. A/B test synthesis styles. Source reliability scoring updated from reader engagement.</p>
-    <div class="tags"><span class="btag">ML</span><span class="btag">v2</span></div>
-  </div>
-
 </div>
+<script>
+function toggle(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const isOpen = el.classList.contains('open');
+  document.querySelectorAll('.detail.open').forEach(d => { d.classList.remove('open'); d.previousElementSibling.classList.remove('active'); });
+  if (!isOpen) { el.classList.add('open'); el.previousElementSibling.classList.add('active'); }
+}
+</script>
 </body>
 </html>`;
 }
