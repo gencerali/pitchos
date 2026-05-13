@@ -2408,7 +2408,7 @@ Sadece JSON döndür:
             venue: fixture.venue || NEXT_MATCH.venue, venue_city: fixture.venue_city || NEXT_MATCH.venue_city,
             venue_lat: coords.lat, venue_lon: coords.lon,
             tv: NEXT_MATCH.tv, match_day: fixture.date, cup: null,
-            fixture_id: fixture.fixture_id, opponent_id: fixture.opponent_id,
+            fixture_id: fixture.fixture_id,
             referee: fixture.referee || null,
           };
           await env.PITCHOS_CACHE.put('match:BJK:next', JSON.stringify(nextMatch), { expirationTtl: 7 * 24 * 3600 });
