@@ -157,12 +157,12 @@ export default {
     if (url.pathname === '/widgets/config') {
       return Response.json(
         { apiKey: env.API_FOOTBALL_KEY || '', league: 203, season: 2025, team: 549 },
-        { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': corsOrigin(request), 'Cache-Control': 'private, max-age=3600' } }
+        { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' } }
       );
     }
 
     if (url.pathname === '/widgets/bjk-fixtures') {
-      const CORS = { 'Access-Control-Allow-Origin': corsOrigin(request) };
+      const CORS = { 'Access-Control-Allow-Origin': '*' };
       const cacheKey = 'widget:bjk-fixtures';
       const cached = await env.PITCHOS_CACHE.get(cacheKey);
       if (cached) return new Response(cached, { headers: { 'Content-Type': 'application/json', ...CORS } });
@@ -200,7 +200,7 @@ export default {
     }
 
     if (url.pathname === '/widgets/bjk-match-stats') {
-      const CORS = { 'Access-Control-Allow-Origin': corsOrigin(request) };
+      const CORS = { 'Access-Control-Allow-Origin': '*' };
       const fixtureId = url.searchParams.get('fixture');
       if (!fixtureId) return new Response('{}', { headers: { 'Content-Type': 'application/json', ...CORS } });
       const cacheKey = `widget:match-stats:${fixtureId}`;
@@ -254,7 +254,7 @@ export default {
     }
 
     if (url.pathname === '/widgets/current-match-stats') {
-      const CORS = { 'Access-Control-Allow-Origin': corsOrigin(request) };
+      const CORS = { 'Access-Control-Allow-Origin': '*' };
       const liveRaw = await env.PITCHOS_CACHE.get('match:BJK:live');
       const liveState = liveRaw ? JSON.parse(liveRaw) : null;
       const fixtureId = liveState?.fixture_id || NEXT_MATCH.fixture_id;
@@ -272,7 +272,7 @@ export default {
     // Caches api-sports widget calls in KV to protect daily quota.
     // Widget config sets data-url-football to this proxy instead of direct API.
     if (url.pathname.startsWith('/widgets/api/')) {
-      const corsHeaders = { 'Access-Control-Allow-Origin': corsOrigin(request) };
+      const corsHeaders = { 'Access-Control-Allow-Origin': '*' };
       if (request.method === 'OPTIONS') {
         return new Response(null, { headers: { ...corsHeaders, 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Max-Age': '86400' } });
       }
