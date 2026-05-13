@@ -7119,6 +7119,7 @@ function renderAdminReleasesPage() {
 body{background:#0d0d0d;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.6}
 .content{max-width:860px;margin:0 auto;padding:2rem 1.5rem}
 h1{font-size:22px;font-weight:800;margin-bottom:6px;color:#fff}
+h2{font-size:13px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.08em;margin:2rem 0 .75rem}
 .subtitle{color:#555;font-size:12px;letter-spacing:.06em;margin-bottom:2rem}
 .card{background:#111;border:1px solid #222;padding:22px;margin-bottom:14px}
 .card h3{font-size:15px;font-weight:700;margin-bottom:4px;color:#fff}
@@ -7129,13 +7130,88 @@ h1{font-size:22px;font-weight:800;margin-bottom:6px;color:#fff}
 .feat{background:#1d4ed818;color:#4488ff;border:1px solid #1d4ed850}
 .fix{background:#c8f13518;color:#c8f135;border:1px solid #c8f13550}
 .perf{background:#ffaa0018;color:#ffaa00;border:1px solid #ffaa0050}
+.road{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+@media(max-width:600px){.road{grid-template-columns:1fr}}
+.road-col{background:#111;border:1px solid #222;padding:18px}
+.road-col h4{font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:12px}
+.road-col ul{padding-left:16px}
+.road-col li{font-size:12px;color:#ccc;margin-bottom:6px;line-height:1.5}
+.road-col li span{color:#555;font-size:11px}
+.done-dot{color:#3a9a3a;margin-right:4px}
+.plan-dot{color:#ffaa00;margin-right:4px}
+.block-dot{color:#ff4444;margin-right:4px}
+.backlog-card{background:#0f0f14;border:1px solid #1e1e2e;padding:18px;margin-bottom:10px}
+.backlog-card h4{font-size:13px;font-weight:700;color:#7a7aff;margin-bottom:4px}
+.backlog-card p{font-size:12px;color:#777;line-height:1.5}
+.backlog-card .tags{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px}
+.btag{font-size:.6rem;font-weight:700;padding:1px 7px;border-radius:2px;letter-spacing:.06em;border:1px solid #2a2a3a;color:#9999ff;background:#12121e}
 </style>
 </head>
 <body>
 ${nav}
 <div class="content">
-  <h1>Release Notes</h1>
-  <p class="subtitle">Sprint changelog — updated per deployment.</p>
+  <h1>Release Notes &amp; Roadmap</h1>
+  <p class="subtitle">Kartalix / PitchOS — AI-native Beşiktaş news platform. Sprint changelog + product roadmap.</p>
+
+  <h2>Roadmap Overview</h2>
+  <div class="road">
+    <div class="road-col">
+      <h4>✓ Shipped</h4>
+      <ul>
+        <li><span class="done-dot">●</span> v0 — Tracking files, legal compliance (IT3, hot-news delay, attribution)</li>
+        <li><span class="done-dot">●</span> Sprint 1–3 — Live pipeline, scoring, NVS, KV cache, 50-slot feed</li>
+        <li><span class="done-dot">●</span> Sprint C — YouTube embed, 5 channels, match video templates</li>
+        <li><span class="done-dot">●</span> Sprint D — Single-source rewrite (synthesizeArticle + proxy + RSS fallback)</li>
+        <li><span class="done-dot">●</span> Sprint D2 — Multi-source rewrite (synthesizeStory, ≥3 contributions)</li>
+        <li><span class="done-dot">●</span> Sprint E — Source expansion, hourly cron, feed quality hotfix</li>
+        <li><span class="done-dot">●</span> Sprint F — Source intelligence layer (independence gate, YT pipeline, source_configs DB)</li>
+        <li><span class="done-dot">●</span> Sprint G — Sentiment judge (rival_pov −25 NVS cap)</li>
+        <li><span class="done-dot">●</span> Slice 1 — Facts Firewall (facts + fact_lineage tables)</li>
+        <li><span class="done-dot">●</span> Slice 1.5 — Truth Layer (grounding, verifyArticle, needs_review)</li>
+        <li><span class="done-dot">●</span> Slice 2 — Story-Centric Foundation (stories/contributions state machine)</li>
+        <li><span class="done-dot">●</span> Slice 3 — API-Football Pro, 12 match templates, match watcher</li>
+        <li><span class="done-dot">●</span> Sprint A — Event flash templates (red card, VAR, OG, penalty, HT)</li>
+        <li><span class="done-dot">●</span> Sprint B — Widgets (standings + fixtures on home; H2H on match articles)</li>
+        <li><span class="done-dot">●</span> Slice 3.9 — Voice Agent (13 rules, weekly DNA extraction, voice_patterns KV)</li>
+        <li><span class="done-dot">●</span> Sessions 14–15 — CORS wildcard, widget fixes, rewrite RSS fallback, Kaydet status, badge cleanup</li>
+      </ul>
+    </div>
+    <div class="road-col">
+      <h4>→ In Plan</h4>
+      <ul>
+        <li><span class="plan-dot">●</span> Sprint H — Persistent rewrite queue, 60-article pool, topic pages, multi-source wiring</li>
+        <li><span class="plan-dot">●</span> Slice 4 — Telegram bot (@kartalix_bot, 3 channels, HITL Gate C)</li>
+        <li><span class="plan-dot">●</span> Slice 4.2 — Security hardening (JWT auth, rate limiting, CSP)</li>
+        <li><span class="plan-dot">●</span> Slice 4.5 — Squad Intelligence (squad_members DB, dynamic keywords)</li>
+        <li><span class="plan-dot">●</span> Slice 5 — Visual Asset Agent (image pipeline, IT6)</li>
+        <li><span class="plan-dot">●</span> Slice 5.5 — Distribute Agent (multi-channel fan-out, push notifications)</li>
+        <li><span class="plan-dot">●</span> Slice 6 — Editorial QA + Author Flow</li>
+        <li><span class="plan-dot">●</span> Slice 3.7 — Cost Guard (monthly KV cap, kill switch)</li>
+        <li><span class="plan-dot">●</span> Slice 7 — Governance Layer (CLO + CFO agents)</li>
+        <li><span class="plan-dot">●</span> Slice 8 — Self-Learning Loops (engagement → scoring feedback)</li>
+        <li><span class="block-dot">●</span> Twitter/X — blocked ($100/mo API)</li>
+        <li><span class="block-dot">●</span> bjk.com.tr — blocked (CAPTCHA)</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Session Changelog</h2>
+
+  <div class="card">
+    <h3>Sessions 14–15 — Widget CORS, Rewrite RSS Fallback, Kaydet Status, Badge Cleanup</h3>
+    <div class="date">May 13, 2026</div>
+    <ul>
+      <li><span class="rtag fix">fix</span> Widget CORS changed to wildcard <code>*</code> + <code>Cache-Control: no-store</code> on all 5 widget endpoints — prevents CDN caching collision across kartalix.com / app. / www. subdomains</li>
+      <li><span class="rtag fix">fix</span> Wrangler cron: Sunday day-of-week changed 0 → 7 (Cloudflare rejects 0)</li>
+      <li><span class="rtag fix">fix</span> Duplicate <code>opponent_id</code> key removed from admin /next-match builder object</li>
+      <li><span class="rtag feat">feat</span> Rewrite RSS fallback: if proxy times out, uses RSS summary (≥100 chars) as source text for Claude rewrite — prevents articles staying as rss_summary when Render free-tier sleeps</li>
+      <li><span class="rtag perf">perf</span> Rewrite cap raised 4 → 6 per cron run; Sprint H proposes persistent queue</li>
+      <li><span class="rtag fix">fix</span> Kaydet (Save) now reads eStatus dropdown and sends <code>status</code> to backend — articles can be set to beklemede or yayında directly from admin content editor</li>
+      <li><span class="rtag fix">fix</span> Backend /admin/content-save: applies status field in PATCH + updates KV feed (prepend if promoted to published, filter out if set to pending)</li>
+      <li><span class="rtag feat">feat</span> Badge label cleanup: badgeLabel() + badgeClass() consolidated — YZ (rewrite/synthesis), YZ+ (original_synthesis/synthesis_generated), Ş:xxx (template subtypes), Video, Manuel, Kaynak, RSS</li>
+      <li><span class="rtag feat">feat</span> Sprint H added to SLICES.md: H1 Persistent Rewrite Queue, H2 Pool Size 60, H3 Manual Publish, H4 Topic Pages, H5 Multi-Source Rewrite Upgrade</li>
+    </ul>
+  </div>
 
   <div class="card">
     <h3>Session 13 — Voice Phase 2 + Admin Tools + Next Match Cache</h3>
@@ -7180,7 +7256,7 @@ ${nav}
   </div>
 
   <div class="card">
-    <h3>Sprints F — Source Intelligence Layer</h3>
+    <h3>Sprint F — Source Intelligence Layer</h3>
     <div class="date">May 5, 2026</div>
     <ul>
       <li><span class="rtag feat">feat</span> F1: Source independence gate — press-only cite chains blocked from "confirmed"</li>
@@ -7259,6 +7335,69 @@ ${nav}
       <li><span class="rtag feat">feat</span> Cron trigger, Supabase logging, NVS scoring</li>
     </ul>
   </div>
+
+  <h2>Backlog</h2>
+
+  <div class="backlog-card">
+    <h4>Sprint H — Rewrite Queue &amp; Content Pool</h4>
+    <p>H1: Persistent rewrite queue (KV-backed, survives cap). H2: Pool target 60 articles with NVS ranking. H3: Manual publish button from admin. H4: Topic pages (/transfer, /maclar, /takim). H5: Multi-source rewrite upgrade (synthesize from 2–3 articles).</p>
+    <div class="tags"><span class="btag">next up</span><span class="btag">content quality</span><span class="btag">no lawyer dependency</span></div>
+  </div>
+
+  <div class="backlog-card">
+    <h4>Slice 4 — Telegram Bot</h4>
+    <p>@kartalix_bot with 3 channels (breaking, match day, transfer). HITL Gate C: bot asks editor before publishing sensitive articles. Push notifications on goal/red card events.</p>
+    <div class="tags"><span class="btag">distribution</span><span class="btag">HITL</span></div>
+  </div>
+
+  <div class="backlog-card">
+    <h4>Slice 4.2 — Security Hardening</h4>
+    <p>JWT auth on admin endpoints (currently security-by-obscurity). Rate limiting on /run, /force-*. CSP headers. Secrets rotation policy.</p>
+    <div class="tags"><span class="btag">security</span><span class="btag">pre-launch</span></div>
+  </div>
+
+  <div class="backlog-card">
+    <h4>Slice 4.5 — Squad Intelligence</h4>
+    <p>squad_members Supabase table for all active BJK players + coaches. Dynamic keyword config seeded from squad. Enables better NVS scoring for squad news vs. general club news.</p>
+    <div class="tags"><span class="btag">data</span><span class="btag">scoring</span></div>
+  </div>
+
+  <div class="backlog-card">
+    <h4>Slice 5 — Visual Asset Agent</h4>
+    <p>Image pipeline: fetch + resize + CDN upload for article hero images. IT6 template with visual. Automated image sourcing from club's official accounts.</p>
+    <div class="tags"><span class="btag">media</span><span class="btag">UX</span></div>
+  </div>
+
+  <div class="backlog-card">
+    <h4>Slice 5.5 — Distribute Agent</h4>
+    <p>Multi-channel fan-out: publish to Telegram, Twitter/X (when API affordable), RSS, push notifications simultaneously. Scheduling queue for optimal send times.</p>
+    <div class="tags"><span class="btag">distribution</span></div>
+  </div>
+
+  <div class="backlog-card">
+    <h4>Slice 6 — Editorial QA + Author Flow</h4>
+    <p>Human editor review queue for AI-generated articles before publish. Author attribution. Editorial calendar. A/B headline testing.</p>
+    <div class="tags"><span class="btag">editorial</span><span class="btag">quality</span></div>
+  </div>
+
+  <div class="backlog-card">
+    <h4>Slice 3.7 — Cost Guard</h4>
+    <p>Monthly KV cap tracker. Kill switch: auto-disable Claude calls when monthly budget exceeded. Cost alert to admin when 80% consumed.</p>
+    <div class="tags"><span class="btag">ops</span><span class="btag">cost control</span></div>
+  </div>
+
+  <div class="backlog-card">
+    <h4>Slice 7 — Governance Layer</h4>
+    <p>CLO agent (legal compliance review on sensitive articles). CFO agent (revenue optimization, ad placement). Audit trail for all AI decisions.</p>
+    <div class="tags"><span class="btag">compliance</span><span class="btag">v2</span></div>
+  </div>
+
+  <div class="backlog-card">
+    <h4>Slice 8 — Self-Learning Loops</h4>
+    <p>Engagement signals (clicks, time-on-page) fed back into NVS scoring model. A/B test synthesis styles. Source reliability scoring updated from reader engagement.</p>
+    <div class="tags"><span class="btag">ML</span><span class="btag">v2</span></div>
+  </div>
+
 </div>
 </body>
 </html>`;

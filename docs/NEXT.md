@@ -8,14 +8,25 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: deploy is done. Feed quality hotfix is live. Next meaningful work:
-1. **Slice 4 — Telegram bot** — `@kartalix_bot` setup, three operational channels, inline keyboard buttons (see SLICES.md Slice 4)
-2. **Story type SQL cleanup** — `UPDATE stories SET story_type = 'other' WHERE story_type NOT IN ('transfer','injury','disciplinary','contract','match_result','squad','institutional','other')`
-3. **Voice Phase 2 first run** — wait until ≥5 synthesis articles exist in DB, then POST `/admin/run-voice-patterns` to seed `editorial:voice_patterns`
+**NEXT**: Sprint H — Persistent Rewrite Queue is the highest-value unblocked work.
+1. **Sprint H1** — Add `rewrite:queue` KV key: when `synthesizeArticle` returns `{body: null}` (cap hit or proxy failure), push article slug + source URL into queue instead of discarding. Next cron run drains the queue before processing new articles. See SLICES.md Sprint H.
+2. **Sprint H2** — Raise `articles:BJK` KV feed ceiling from 100 → 60 curated slots with NVS-ranked ordering (drop bottom articles when above 60).
+3. **Slice 4 — Telegram bot** — can start in parallel: `@kartalix_bot` setup, three channels, HITL Gate C (see SLICES.md Slice 4).
 
 **Feed quality hotfix** ✅ DONE (2026-05-13): Old articles + irrelevant news caused by two new feeds added in session 12. Fixed: proxy path now applies 72h date cutoff (was completely missing); undated articles fall back to URL date extraction then treat-as-now; Google News Transfer changed to `keywordFilter: true`; NTV Spor and TRT Haber (broad football feeds) also got `keywordFilter: true`. Old flood is one-time — URLs now in Supabase dedup.
 
-**Session 14** ✅ DONE (2026-05-13):
+**Sessions 14–15** ✅ DONE (2026-05-13):
+- Widget CORS: all 5 widget endpoints changed to `'*'` wildcard + `Cache-Control: no-store` — fixes subdomains (app. / www.) and prevents CDN caching collision
+- Wrangler cron Sunday: `0 2 * * 0` → `0 2 * * 7` (Cloudflare rejects 0 as day-of-week)
+- Duplicate `opponent_id` key removed from admin /next-match object literal
+- Rewrite RSS fallback in `synthesizeArticle`: if proxy returns empty, falls back to RSS summary (≥100 chars) as source text — prevents Render.com cold-start from silently skipping rewrites
+- Rewrite cap raised 4 → 6 per cron run
+- Kaydet (Save) now reads `eStatus` dropdown and sends `status` to backend; backend applies status in PATCH + updates KV feed accordingly (prepend if promoted to published, filter out if set to pending)
+- Badge labels consolidated: `badgeLabel()` / `badgeClass()` — YZ, YZ+, Ş:xxx, Video, Manuel, Kaynak, RSS
+- Sprint H added to SLICES.md: H1 Persistent Rewrite Queue, H2 Pool 60, H3 Manual Publish, H4 Topic Pages, H5 Multi-Source Rewrite
+- Admin /releases page updated: full roadmap overview (done vs in-plan), sessions 14–15 changelog, full backlog section
+
+**Session 14 (prev log)** ✅ DONE (2026-05-13):
 - Next match self-caching: `match:BJK:next` KV — matchWatcher reads KV before falling back to hardcoded constant; backgroundWork writes to KV after every successful API fetch
 - `/admin/tools` page + "Araçlar" nav tab: next match refresh, archive legacy, voice patterns trigger, story synthesis
 - `/admin/archive-legacy`: preview count + batch execute (archives pre-firewall/rss_summary articles)
