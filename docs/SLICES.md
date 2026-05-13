@@ -720,21 +720,21 @@ NVS < 40  → web only
 
 ## Sprint H — News Pool & Publish Queue
 
-**Why this matters**: The current pipeline has a hard synthesis cap (6/run) and a single 100-slot KV list. During high-volume news days (post-derby, transfer window), high-NVS articles get skipped and fall off the radar. The site never has more than ~20 fresh articles visible at once. This sprint replaces the cap with a persistent synthesis queue and grows the visible pool to 50–60 articles.
+**Why this matters**: The current pipeline has a hard rewrite cap (6/run) and a single 100-slot KV list. During high-volume news days (post-derby, transfer window), high-NVS articles get skipped and fall off the radar. The site never has more than ~20 fresh articles visible at once. This sprint replaces the cap with a persistent rewrite queue and grows the visible pool to 50–60 articles.
 
 **Status**: `not-started`
 **Estimated**: 2–3 sessions
 
 ---
 
-### H1 — Persistent Synthesis Queue (~3h)
+### H1 — Persistent Rewrite Queue (~3h)
 
 **Problem**: `results.filter(r => r.publish_mode === 'rewrite').length < 6` is a per-run in-memory cap. Articles that miss the cap aren't saved to Supabase dedup, so they _may_ get retried next run — but only if still in the RSS feed. Articles from smaller feeds that expire within 2h are silently lost.
 
-**Solution**: `synthesis:queue` KV key — a JSON array of `{ url, title, nvs, source, published_at, rss_summary }` entries. Each hourly run:
+**Solution**: `rewrite:queue` KV key — a JSON array of `{ url, title, nvs, source, published_at, rss_summary }` entries. Each hourly run:
 1. Any NVS≥60 article that would get `rss_summary` mode is appended to the queue (deduped by URL)
 2. Worker processes the top N from the queue (sorted by NVS desc) — N sized to fit worker CPU budget (~8–10)
-3. Successfully synthesized articles are removed from the queue; failures are retried next run
+3. Successfully rewritten articles are removed from the queue; failures are retried next run
 4. Queue entries expire after 48h automatically (KV TTL)
 
 Cap removed from `writeArticles`. Queue bounded at 200 entries max.
@@ -780,18 +780,18 @@ Cap removed from `writeArticles`. Queue bounded at 200 entries max.
 
 ---
 
-### H5 — Multi-Source Synthesis Upgrade (~2h)
+### H5 — Multi-Source Rewrite Upgrade (~2h)
 
-**Problem**: Standard `synthesizeArticle` reads 1 source. For major news (derby reaction, big transfer), multiple sources are writing on the same story at the same time — averaging their perspectives produces a richer article than any single source.
+**Problem**: Standard `synthesizeArticle` reads 1 source. For major news (derby reaction, big transfer), multiple sources are writing on the same story at the same time — combining their perspectives produces a richer Kartalix original than any single source.
 
 **Solution**:
 - After story matching runs, if a story has ≥3 confirmed contributions within 6h of each other: trigger `synthesizeStory` (already implemented in Sprint D2, but only callable via `/force-story-synthesis`)
-- Wire `synthesizeStory` into backgroundWork: after story matching loop, collect stories that became `developing` or `confirmed` this run, fire synthesis for each (cap 2/run)
-- Result: a Kartalix original that synthesizes 3–5 independent sources — demonstrably non-derivative, better editorial quality
+- Wire `synthesizeStory` into backgroundWork: after story matching loop, collect stories that became `developing` or `confirmed` this run, fire for each (cap 2/run)
+- Result: a Kartalix original (`publish_mode: 'rewrite'`) written across 3–5 independent sources — demonstrably non-derivative, better editorial quality
 
 ---
 
-**Done when**: homepage consistently shows 40+ articles; post-derby day produces ≥15 synthesis articles without manual intervention; pending articles can be one-click published from admin list.
+**Done when**: homepage consistently shows 40+ articles; post-derby day produces ≥15 rewrite articles without manual intervention; pending articles can be one-click published from admin list.
 
 ---
 

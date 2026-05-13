@@ -5546,22 +5546,33 @@ function schedSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(() 
 
 function badgeClass(m) {
   if (!m) return 'badge-rss';
-  if (m === 'rewrite' || m === 'synthesis') return 'badge-synth';
-  if (m === 'original_synthesis') return 'badge-synth';
+  if (m === 'rewrite' || m === 'synthesis' || m === 'original_synthesis' || m === 'synthesis_generated') return 'badge-synth';
   if (m.startsWith('template')) return 'badge-tmpl';
   if (m.startsWith('youtube') || m === 'video_embed') return 'badge-yt';
   if (m === 'manual') return 'badge-manual';
+  if (m === 'copy_source') return 'badge-rss';
   return 'badge-rss';
 }
+const TEMPLATE_LABELS = {
+  matchday: 'Maç', postmatch: 'Maç Sonu', official: 'Resmi', transfer: 'Transfer',
+  injury: 'Sakatlık', lineup: 'Kadro', h2h: 'H2H', form_guide: 'Form',
+  preview: 'Önizleme', referee: 'Hakem', xg_delta: 'xG', goal_flash: 'Gol',
+  result_flash: 'Sonuç', halftime: 'Devre', red_card: 'Kırmızı', var_flash: 'VAR',
+  penalty: 'Penaltı', man_of_match: 'Adam', match_report: 'Rapor',
+};
 function badgeLabel(m) {
   if (!m) return 'RSS';
-  if (m === 'rewrite') return 'YZ YAZ';
-  if (m === 'synthesis') return 'YZ YAZ'; // legacy
-  if (m === 'original_synthesis') return 'SENTEZLEŞTİR';
-  if (m.startsWith('template')) return m.replace('template_','').replace('template','ŞABLON').toUpperCase();
-  if (m.startsWith('youtube') || m === 'video_embed') return 'YT';
-  if (m === 'manual') return 'MANUEL';
-  return m.toUpperCase().slice(0,8);
+  if (m === 'rewrite' || m === 'synthesis') return 'YZ';
+  if (m === 'original_synthesis' || m === 'synthesis_generated') return 'YZ+';
+  if (m.startsWith('template_')) {
+    const key = m.replace('template_', '');
+    return 'Ş:' + (TEMPLATE_LABELS[key] || key.slice(0,6));
+  }
+  if (m.startsWith('youtube') || m === 'video_embed') return 'Video';
+  if (m === 'manual') return 'Manuel';
+  if (m === 'copy_source') return 'Kaynak';
+  if (m === 'rss_summary') return 'RSS';
+  return m.slice(0, 8);
 }
 function fmtDate(s) {
   if (!s) return '';
