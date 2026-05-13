@@ -15,7 +15,7 @@ MONTHLY_CLAUDE_CAP = "8"
 subrequests = 1000
 
 [triggers]
-crons = ["*/5 * * * *", "0 */1 * * *", "0 4 * * *", "0 3 * * 1", "0 2 * * 0"]
+crons = ["*/5 * * * *", "0 */1 * * *", "0 4 * * *", "0 3 * * 1", "0 2 * * 7"]
 
 [[routes]]
 pattern = "kartalix.com/haber/*"
