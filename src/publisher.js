@@ -331,11 +331,17 @@ export async function synthesizeArticle(article, env, site = null) {
     }
   }
 
-  // No source text = proxy failed or URL missing. Rewriting only the RSS summary
-  // produces no editorial value — skip and let it stay as rss_summary (not published).
+  // Proxy failed — fall back to RSS summary if it's substantial enough to synthesize from.
+  // Many Turkish sports feeds include 100-200 words in the RSS excerpt.
   if (!sourceText) {
-    console.log('synthesizeArticle: skipping — no source content for', srcUrl);
-    return { body: null };
+    const raw = (article.summary || article.description || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (raw.length >= 100) {
+      sourceText = raw.slice(0, 2000);
+      console.log(`synthesizeArticle: RSS fallback (${raw.length}ch) for`, srcUrl);
+    } else {
+      console.log('synthesizeArticle: skipping — no source content for', srcUrl);
+      return { body: null };
+    }
   }
   const [editorialCtx, groundingCtx, keyEntities] = await Promise.all([
     getEditorialNotes(env, ['general', 'style']),
