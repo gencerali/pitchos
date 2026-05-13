@@ -2039,7 +2039,7 @@ Sadece JSON döndür:
       const sites = await getActiveSites(env);
       const site  = sites?.[0];
       if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
-      const { slug, title, summary, full_body, category, image_url, is_new, kv_only } = await request.json();
+      const { slug, title, summary, full_body, category, image_url, status, is_new, kv_only } = await request.json();
       if (!title?.trim()) return Response.json({ error: 'title required' }, { status: 400, headers: h });
 
       if (is_new || kv_only) {
@@ -2077,18 +2077,40 @@ Sadece JSON döndür:
         return Response.json({ ok: true, slug: newSlug, is_new: !kv_only }, { headers: h });
       }
 
+      const newStatus = status === 'pending' ? 'pending' : 'published';
       await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}`, {
         title: title.trim(), summary: summary || '',
         full_body: full_body || '', category: category || 'Haber',
         image_url: image_url || '', source_name: 'Kartalix', source_type: 'kartalix',
-        needs_review: false, reviewed_at: new Date().toISOString(),
+        status: newStatus, needs_review: false, reviewed_at: new Date().toISOString(),
       });
-      // Update KV in-place so article page reflects changes immediately
+      // Update KV in-place. If promoted to published, article joins the feed; if set to pending, remove it.
       const kv = await env.PITCHOS_CACHE.get('articles:BJK');
       if (kv) {
-        const arts = JSON.parse(kv).map(a => a.slug === slug
-          ? { ...a, title: title.trim(), summary: summary || '', full_body: full_body || '', category: category || 'Haber', image_url: image_url || '' }
-          : a);
+        let arts = JSON.parse(kv);
+        const existing = arts.find(a => a.slug === slug);
+        if (newStatus === 'published') {
+          if (existing) {
+            arts = arts.map(a => a.slug === slug
+              ? { ...a, title: title.trim(), summary: summary || '', full_body: full_body || '', category: category || 'Haber', image_url: image_url || '' }
+              : a);
+          } else {
+            // Article was pending (not in KV) — promote it into the feed
+            const row = await supabase(env, 'GET', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&select=*&limit=1`);
+            const r = row?.[0];
+            if (r) {
+              arts.unshift({ title: r.title, summary: r.summary || '', full_body: r.full_body || r.summary || '',
+                source: r.source_name || 'Kartalix', source_name: r.source_name || 'Kartalix',
+                category: r.category || 'Haber', published_at: r.published_at || new Date().toISOString(),
+                nvs: r.nvs_score || 0, slug: r.slug, image_url: r.image_url || '',
+                publish_mode: r.publish_mode || 'manual', is_kartalix_content: r.source_type === 'kartalix' });
+              arts = arts.slice(0, 100);
+            }
+          }
+        } else {
+          // Demoted to pending — remove from public feed
+          arts = arts.filter(a => a.slug !== slug);
+        }
         await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
       }
       return Response.json({ ok: true, slug }, { headers: h });
@@ -5688,12 +5710,13 @@ async function saveArticle() {
   const full_body = document.getElementById('eBody').value;
   const category = document.getElementById('eCat').value;
   const image_url = document.getElementById('eImg').value.trim();
+  const status   = document.getElementById('eStatus')?.value || 'published';
   const st = document.getElementById('saveStatus');
   if (!title) { st.textContent = 'Başlık zorunlu.'; st.style.color='#E30A17'; return; }
   st.textContent = 'Kaydediliyor…'; st.style.color = '#666';
   const res = await fetch('/admin/content-save', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ slug: currentSlug, title, summary, full_body, category, image_url, is_new: !currentSlug, kv_only: currentIsKVOnly })
+    body: JSON.stringify({ slug: currentSlug, title, summary, full_body, category, image_url, status, is_new: !currentSlug, kv_only: currentIsKVOnly })
   });
   const data = await res.json();
   if (data.ok) {

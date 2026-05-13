@@ -718,6 +718,83 @@ NVS < 40  → web only
 
 ---
 
+## Sprint H — News Pool & Publish Queue
+
+**Why this matters**: The current pipeline has a hard synthesis cap (6/run) and a single 100-slot KV list. During high-volume news days (post-derby, transfer window), high-NVS articles get skipped and fall off the radar. The site never has more than ~20 fresh articles visible at once. This sprint replaces the cap with a persistent synthesis queue and grows the visible pool to 50–60 articles.
+
+**Status**: `not-started`
+**Estimated**: 2–3 sessions
+
+---
+
+### H1 — Persistent Synthesis Queue (~3h)
+
+**Problem**: `results.filter(r => r.publish_mode === 'rewrite').length < 6` is a per-run in-memory cap. Articles that miss the cap aren't saved to Supabase dedup, so they _may_ get retried next run — but only if still in the RSS feed. Articles from smaller feeds that expire within 2h are silently lost.
+
+**Solution**: `synthesis:queue` KV key — a JSON array of `{ url, title, nvs, source, published_at, rss_summary }` entries. Each hourly run:
+1. Any NVS≥60 article that would get `rss_summary` mode is appended to the queue (deduped by URL)
+2. Worker processes the top N from the queue (sorted by NVS desc) — N sized to fit worker CPU budget (~8–10)
+3. Successfully synthesized articles are removed from the queue; failures are retried next run
+4. Queue entries expire after 48h automatically (KV TTL)
+
+Cap removed from `writeArticles`. Queue bounded at 200 entries max.
+
+---
+
+### H2 — Pool Size: 20 → 60 articles (~2h)
+
+**Problem**: `mergeAndDedupe([...newKVItems, ...latestKV], 100)` caps the KV pool at 100 items but the homepage only shows ~20. Articles 21–100 are never seen. The pool doesn't distinguish "featured" from "available."
+
+**Solution**:
+- Grow `articles:BJK` pool to 200 slots (KV stores JSON; 200 short articles ~= 150KB, well within KV 25MB limit)
+- Introduce a `rank_score = nvs × freshness_decay` where `freshness_decay = e^(-age_hours / 36)` — NVS 75 article is still top-ranked at 12h; by 48h it's dropped to 30% weight
+- Homepage renders top 20 by rank_score; "Daha fazla" button loads next 20 from the same pool
+- Admin can pin articles (`is_pinned: true`) which forces `rank_score = 999` regardless of age
+
+---
+
+### H3 — Manual Publish: Beklemede → Yayında (~1h) ✅ PARTIAL (2026-05-13)
+
+**Problem**: Admin editors see pending articles but have no one-click path to promote them. "Kaydet" button was wired to content fields only — status dropdown was disconnected.
+
+**Done (2026-05-13)**:
+- `saveArticle()` now reads `eStatus` dropdown and sends `status` field to `/admin/content-save`
+- Backend PATCH includes `status` field
+- KV promoted immediately on publish: pending article fetched from Supabase and prepended to `articles:BJK` feed
+
+**Remaining**:
+- [ ] Quick-publish button directly in the admin news list (one click, no edit form needed) — POST `/admin/content-publish?slug=X`
+- [ ] Bulk promote: select N pending articles → publish all
+
+---
+
+### H4 — Topic / Category Pages (~2h)
+
+**Problem**: All articles live at `/` in a single chronological feed. A user interested only in transfer news has no way to filter. SEO suffers — no structured topic URLs.
+
+**Solution**:
+- `/konu/transfer`, `/konu/sakat`, `/konu/mac-sonuclari`, `/konu/kurumsal` — worker serves filtered KV pool per category
+- Navigation tabs on homepage (Tümü | Transfer | Maç | Sakat | Diğer)
+- No new DB schema needed — `category` field already on every article; filtering is client-side from the KV pool
+- `sitemap.xml` extended to include category pages
+
+---
+
+### H5 — Multi-Source Synthesis Upgrade (~2h)
+
+**Problem**: Standard `synthesizeArticle` reads 1 source. For major news (derby reaction, big transfer), multiple sources are writing on the same story at the same time — averaging their perspectives produces a richer article than any single source.
+
+**Solution**:
+- After story matching runs, if a story has ≥3 confirmed contributions within 6h of each other: trigger `synthesizeStory` (already implemented in Sprint D2, but only callable via `/force-story-synthesis`)
+- Wire `synthesizeStory` into backgroundWork: after story matching loop, collect stories that became `developing` or `confirmed` this run, fire synthesis for each (cap 2/run)
+- Result: a Kartalix original that synthesizes 3–5 independent sources — demonstrably non-derivative, better editorial quality
+
+---
+
+**Done when**: homepage consistently shows 40+ articles; post-derby day produces ≥15 synthesis articles without manual intervention; pending articles can be one-click published from admin list.
+
+---
+
 ## v2 BACKLOG — DO NOT TOUCH UNTIL v1 SHIPS
 
 **This is the "no" list.** When new ideas arrive during v1, they go here, not into v1 scope.
