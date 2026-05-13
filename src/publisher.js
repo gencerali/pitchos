@@ -131,11 +131,12 @@ export function decidePublishMode(article) {
   const pubDate = (article.published_at || '').slice(0, 10);
   const isToday = pubDate === today;
 
-  if (trust === 'official')                            return 'template_official';
-  if (cat === 'match' && type === 'fact' && isToday)  return 'template_matchday';
-  if (cat === 'match' && type === 'fact' && !isToday) return 'template_postmatch';
-  if (cat === 'injury')                               return 'template_injury';
-  if (cat === 'transfer' && nvs >= 70)                return 'template_transfer';
+  if (trust === 'official')                return 'template_official';
+  // template_matchday / template_postmatch removed: match watcher generates T05 independently.
+  // category:'match' RSS articles were incorrectly routed here, producing MAÇ GÜNÜ stubs
+  // with the original article title but empty match data.
+  if (cat === 'injury')                   return 'template_injury';
+  if (cat === 'transfer' && nvs >= 70)    return 'template_transfer';
   // copy_source restricted to non-P4 sources only
   if (nvs >= 55 && article.url && article.url !== '#' && !article.is_p4) return 'copy_source';
   return 'rss_summary';
@@ -409,12 +410,6 @@ export async function writeArticles(articles, site, env) {
       published.summary      = cleanRSS(article.summary || article.description || '');
       published.full_body    = published.summary;
       // keep publish_mode = 'template_official'
-
-    } else if (mode === 'template_matchday') {
-      const written = await writeMatchDay(article, env);
-      if (written) published = written;
-      else published.summary = cleanRSS(article.summary || article.description || '');
-      await new Promise(r => setTimeout(r, 300));
 
     } else if (mode === 'template_transfer') {
       try {
