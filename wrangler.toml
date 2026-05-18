@@ -38,10 +38,6 @@ pattern = "kartalix.com/admin/*"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "kartalix.com/article/*"
-zone_name = "kartalix.com"
-
-[[routes]]
 pattern = "kartalix.com/react"
 zone_name = "kartalix.com"
 

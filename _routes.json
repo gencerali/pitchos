@@ -8,7 +8,6 @@
     "/cache",
     "/admin",
     "/admin/*",
-    "/article/*",
     "/iletisim",
     "/iletisim/",
     "/hakkimizda",
@@ -27,7 +26,6 @@
     "/ads.txt",
     "/google694daea6b93b01ce.html",
     "/privacy.html",
-    "/landing/*",
     "/cdn-cgi/*",
     "/_*"
   ]
