@@ -58,11 +58,15 @@ pattern = "kartalix.com/widgets/*"
 zone_name = "kartalix.com"
 
 [[routes]]
+pattern = "kartalix.com/konu/*"
+zone_name = "kartalix.com"
+
+[[routes]]
 pattern = "kartalix.com/hakkimizda"
 zone_name = "kartalix.com"
 
 [[routes]]
-pattern = "kartalix.com/impressum"
+pattern = "kartalix.com/hakkimizda/"
 zone_name = "kartalix.com"
 
 [[routes]]
@@ -70,11 +74,35 @@ pattern = "kartalix.com/iletisim"
 zone_name = "kartalix.com"
 
 [[routes]]
+pattern = "kartalix.com/iletisim/"
+zone_name = "kartalix.com"
+
+[[routes]]
 pattern = "kartalix.com/gizlilik"
 zone_name = "kartalix.com"
 
 [[routes]]
+pattern = "kartalix.com/gizlilik/"
+zone_name = "kartalix.com"
+
+[[routes]]
 pattern = "kartalix.com/kaynak-atif"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/kaynak-atif/"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/editoryal-politika"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/editoryal-politika/"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/watcher"
 zone_name = "kartalix.com"
 
 [[routes]]
@@ -83,4 +111,24 @@ zone_name = "kartalix.com"
 
 [[routes]]
 pattern = "kartalix.com/force-cache"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/force-*"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/run-*"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/rebuild-cache"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/clear-cache"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/update-cache"
 zone_name = "kartalix.com"

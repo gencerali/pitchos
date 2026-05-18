@@ -758,7 +758,6 @@
     gtag('js', new Date());
     gtag('config', 'G-3QK6G366J3');
   </script>
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5282305686231853" crossorigin="anonymous"></script>
 </head>
 <body>
 
@@ -1602,6 +1601,13 @@
     renderCarousel(footballArticles.slice(0, 8));
     renderHeroSplit(footballArticles.slice(0, 4));
     renderGrid(footballArticles.slice(4), 0);
+    if (footballArticles.length >= 8 && document.querySelector('#newsGrid .card')) {
+      const _as = document.createElement('script');
+      _as.async = true;
+      _as.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5282305686231853';
+      _as.crossOrigin = 'anonymous';
+      document.head.appendChild(_as);
+    }
     renderTicker(footballArticles);
     renderRadarLive(articles);
     renderPulseLive(articles);

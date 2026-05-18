@@ -12,11 +12,22 @@
 import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
+
+// ─── CRON INTERVAL HELPER ────────────────────────────────────
+function cronToIntervalMs(cron) {
+  if (!cron) return 60 * 60 * 1000;
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return 60 * 60 * 1000;
+  const [min, hour] = parts;
+  if (/^\*\/(\d+)$/.test(min) && hour === '*') return parseInt(min.slice(2)) * 60 * 1000;
+  if (min === '0' && /^\*\/(\d+)$/.test(hour)) return parseInt(hour.slice(2)) * 60 * 60 * 1000;
+  return 60 * 60 * 1000;
+}
 
 // ─── PIPELINE FAILURE LOG ────────────────────────────────────
 const FAILURES_KEY = 'pipeline:failures';
@@ -48,6 +59,63 @@ const ALLOWED_ORIGINS = new Set(['https://kartalix.com', 'https://app.kartalix.c
 function corsOrigin(request) {
   const o = request.headers.get('Origin') || '';
   return ALLOWED_ORIGINS.has(o) ? o : 'https://kartalix.com';
+}
+
+async function checkAdminAuth(request, env) {
+  const cookie = request.headers.get('cookie') || '';
+  const tokenPart = cookie.split(';').map(c => c.trim()).find(c => c.startsWith('kx-session='));
+  if (!tokenPart) return false;
+  const token = tokenPart.slice('kx-session='.length);
+  if (!token) return false;
+  const valid = await env.PITCHOS_CACHE.get(`admin:session:${token}`).catch(() => null);
+  return valid !== null;
+}
+
+// Returns a 401 Response if the session token is invalid, null if authenticated.
+async function requireOps(request, env) {
+  if (await checkAdminAuth(request, env)) return null;
+  return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+    status: 401,
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+  });
+}
+
+// ─── H5 SYNTHESIS GATE ───────────────────────────────────────
+// Module-level so it's accessible from both processSite and force-h5 endpoint.
+async function checkH5SynthGate(storyId, env, sourceConfigMap = null) {
+  const since6h = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
+  // Count total contributions from story_contributions table
+  const contribs = await supabase(env, 'GET',
+    `/rest/v1/story_contributions?story_id=eq.${storyId}&order=added_at.desc&limit=100&select=added_at`
+  ) || [];
+  if (contribs.length < 3) return { eligible: false, reason: `${contribs.length} contributions (need ≥3)` };
+  const recentCount = contribs.filter(c => c.added_at && c.added_at >= since6h).length;
+  if (recentCount < 2) return { eligible: false, reason: `${recentCount} contributions in last 6h (need ≥2)` };
+  // Check NVS + source family diversity from linked content_items (if available)
+  const items = await supabase(env, 'GET',
+    `/rest/v1/content_items?story_id=eq.${storyId}&select=nvs_score,source_name&limit=20`
+  ) || [];
+  let maxNvs = 0;
+  let uniqueFamilies = new Set();
+  // Exclude our own synthesized articles — Kartalix output is not an independent source
+  const externalItems = items.filter(i => i.source_name !== 'Kartalix');
+  if (externalItems.length >= 2) {
+    maxNvs = externalItems.reduce((m, i) => Math.max(m, i.nvs_score || 0), 0);
+    if (maxNvs < 60) return { eligible: false, reason: `max NVS ${maxNvs} below 60` };
+    // Map source_name → source_family if available; fall back to source_name (each unmapped source counts as its own family)
+    const toFamily = name => (sourceConfigMap && name && sourceConfigMap[name]) || name;
+    uniqueFamilies = new Set(externalItems.map(i => toFamily(i.source_name)).filter(Boolean));
+    if (uniqueFamilies.size < 2) return { eligible: false, reason: `only ${uniqueFamilies.size} distinct source family — need ≥2 independent families` };
+  }
+  // No linked items yet — story state reached confirmed/active naturally (already quality-gated by state machine)
+  const today = new Date().toISOString().slice(0, 10);
+  const alreadySynth = await env.PITCHOS_CACHE.get(`synth:${storyId}:${today}`);
+  if (alreadySynth) return { eligible: false, reason: 'already synthesized today' };
+  return {
+    eligible: true,
+    reason: `${contribs.length} contribs (${recentCount} recent), max_nvs=${maxNvs}, families=${uniqueFamilies.size}`,
+    stats: { contribs: contribs.length, recentCount, maxNvs, families: [...uniqueFamilies] },
+  };
 }
 
 // ─── MAIN ENTRY POINT ────────────────────────────────────────
@@ -124,6 +192,7 @@ export default {
     }
 
     if (url.pathname === '/force-cache') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       try {
         const sites = await getActiveSites(env);
         if (!sites || sites.length === 0) return Response.json({ error: 'No active sites' }, { status: 500 });
@@ -151,8 +220,29 @@ export default {
       }
     }
     if (url.pathname === '/run') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      // Pre-flight: check if there are active sites and cap status before spawning background work
+      const [sites, capStatus] = await Promise.all([
+        getActiveSites(env).catch(e => ({ error: e.message })),
+        checkCostCap(env).catch(() => ({ blocked: false, current: 0, cap: 8 })),
+      ]);
+      const sitesArr = Array.isArray(sites) ? sites : [];
+      const preflight = {
+        sites_found: sitesArr.length,
+        site_codes: sitesArr.map(s => s.short_code),
+        cost_blocked: capStatus.blocked,
+        cost_current: capStatus.current,
+        cost_cap: capStatus.cap,
+        sites_error: !Array.isArray(sites) ? sites?.error : undefined,
+      };
+      if (sitesArr.length === 0) {
+        return Response.json({ status: 'blocked', reason: 'no_active_sites', preflight });
+      }
+      if (capStatus.blocked) {
+        return Response.json({ status: 'blocked', reason: 'cost_cap', preflight });
+      }
       ctx.waitUntil(runAllSites(env, ctx, { forceRun: true }));
-      return Response.json({ status: 'started', message: 'Running in background — check /cache in ~60s' });
+      return Response.json({ status: 'started', preflight, message: 'Running in background — check /cache in ~60s' });
     }
     if (url.pathname === '/widgets/config') {
       return Response.json(
@@ -319,7 +409,82 @@ export default {
       await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(articles), { expirationTtl: 7200 });
       return Response.json({ updated: articles.length });
     }
+    if (url.pathname === '/admin/find-duplicates') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      try {
+        const sites = await getActiveSites(env);
+        const site  = sites?.[0];
+        if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+        const rows = await supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&select=id,title,slug,nvs_score,publish_mode,published_at,original_url&order=title.asc&limit=2000`);
+        if (!Array.isArray(rows)) return Response.json({ error: 'supabase error' }, { status: 500, headers: h });
+        const byTitle = {};
+        for (const r of rows) {
+          const key = (r.title || '').trim().toLowerCase();
+          if (!key) continue;
+          if (!byTitle[key]) byTitle[key] = [];
+          byTitle[key].push(r);
+        }
+        const dupes = Object.values(byTitle)
+          .filter(g => g.length > 1)
+          .sort((a, b) => b.length - a.length)
+          .map(g => ({ title: g[0].title, count: g.length, rows: g.map(r => ({ id: r.id, slug: r.slug, nvs: r.nvs_score, mode: r.publish_mode, published_at: r.published_at, url: r.original_url })) }));
+        return Response.json({ total_dupes: dupes.length, total_extra_rows: dupes.reduce((s, d) => s + d.count - 1, 0), dupes: dupes.slice(0, 50) }, { headers: h });
+      } catch(e) { return Response.json({ error: e.message }, { status: 500, headers: h }); }
+    }
+
+    if (url.pathname === '/admin/cleanup-orphans' && request.method === 'POST') {
+      // Deletes slug-null copy_source rows (orphaned, no article page) and same-slug lower-NVS dupes.
+      // POST /admin/cleanup-orphans?dry=true  → count only, no deletes
+      // POST /admin/cleanup-orphans           → actually delete
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const dry = url.searchParams.get('dry') === 'true';
+      try {
+        const sites = await getActiveSites(env);
+        const site  = sites?.[0];
+        if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+
+        // 1. Find all slug-null copy_source rows
+        const nullSlugRows = await supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=eq.copy_source&slug=is.null&select=id&limit=500`);
+        const nullSlugIds = (Array.isArray(nullSlugRows) ? nullSlugRows : []).map(r => r.id).filter(Boolean);
+
+        // 2. Find same-slug duplicates across ALL statuses: keep highest NVS, delete the rest
+        const allRows = await supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${site.id}&select=id,slug,nvs_score,status&slug=not.is.null&limit=5000`);
+        const bySlug = {};
+        for (const r of (Array.isArray(allRows) ? allRows : [])) {
+          if (!r.slug) continue;
+          if (!bySlug[r.slug]) bySlug[r.slug] = [];
+          bySlug[r.slug].push(r);
+        }
+        const dupeSlugIds = [];
+        for (const rows of Object.values(bySlug)) {
+          if (rows.length < 2) continue;
+          // Prefer published > pending > others; within same status prefer higher NVS
+          const statusRank = s => s === 'published' ? 2 : s === 'pending' ? 1 : 0;
+          rows.sort((a, b) => statusRank(b.status) - statusRank(a.status) || (b.nvs_score || 0) - (a.nvs_score || 0));
+          dupeSlugIds.push(...rows.slice(1).map(r => r.id));
+        }
+
+        const allToDelete = [...new Set([...nullSlugIds, ...dupeSlugIds])];
+        if (dry) {
+          return Response.json({ dry: true, null_slug_count: nullSlugIds.length, dupe_slug_count: dupeSlugIds.length, total: allToDelete.length }, { headers: h });
+        }
+
+        let deleted = 0;
+        // Delete in batches of 100 (PostgREST IN clause limit)
+        for (let i = 0; i < allToDelete.length; i += 100) {
+          const batch = allToDelete.slice(i, i + 100);
+          await supabase(env, 'DELETE', `/rest/v1/content_items?id=in.(${batch.join(',')})`, null);
+          deleted += batch.length;
+        }
+        return Response.json({ deleted, null_slug_deleted: nullSlugIds.length, dupe_slug_deleted: dupeSlugIds.length }, { headers: h });
+      } catch(e) { return Response.json({ error: e.message }, { status: 500, headers: h }); }
+    }
+
     if (url.pathname === '/clear-cache') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       await Promise.all([
         env.PITCHOS_CACHE.delete('articles:BJK'),
         env.PITCHOS_CACHE.delete('seen:BJK'),
@@ -327,6 +492,7 @@ export default {
       return Response.json({ cleared: ['articles:BJK', 'seen:BJK'] });
     }
     if (url.pathname === '/rebuild-cache') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       // Restores KV display cache after a wipe.
       // Strategy 1: pull from Supabase content_items (any status).
       // Strategy 2: if Supabase is empty, fetch RSS feeds directly, skip url-dedup.
@@ -337,33 +503,31 @@ export default {
 
         // Strategy 1 — Supabase
         const rows = await supabase(env, 'GET',
-          `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=neq.rss_summary&order=published_at.desc&limit=100&select=title,summary,full_body,source_name,original_url,category,nvs_score,golden_score,published_at,sport,publish_mode,image_url,slug,content_type`
+          `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=neq.rss_summary&order=published_at.desc&limit=100&select=title,summary,full_body,source_name,source_type,original_url,category,nvs_score,golden_score,published_at,fetched_at,created_at,sport,publish_mode,image_url,slug,template_id`
         );
 
         if (rows && rows.length > 0) {
-          const articles = rows.map(a => ({
-            title:               a.title        || '',
-            summary:             a.summary      || '',
-            full_body:           a.full_body    || a.summary || '',
-            source:              a.source_name  || 'Kartalix',
-            source_name:         a.source_name  || 'Kartalix',
-            source_emoji:        '',
-            source_url:          a.original_url || '',
-            url:                 a.original_url || '',
-            category:            a.category     || 'Haber',
-            nvs:                 a.nvs_score    || 0,
-            golden_score:        a.golden_score || null,
-            published_at:        a.published_at || new Date().toISOString(),
-            is_fresh:            true,
-            is_kartalix_content: a.content_type === 'kartalix_generated',
-            is_p4:               false,
-            sport:               a.sport        || 'football',
-            publish_mode:        a.publish_mode || 'rss_summary',
-            image_url:           '',
-            template_id:         null,
-            slug:                a.slug || generateSlug(a.title, a.published_at),
+          const articles = rows.filter(r => r.slug).map(r => toKVShape({
+            title:               r.title        || '',
+            summary:             r.summary      || '',
+            full_body:           r.full_body    || r.summary || '',
+            source_name:         r.source_name  || 'Kartalix',
+            source:              r.source_name  || 'Kartalix',
+            url:                 r.original_url || '',
+            original_url:        r.original_url || '',
+            category:            r.category     || 'Haber',
+            nvs:                 r.nvs_score    || 0,
+            golden_score:        r.golden_score || null,
+            published_at:        r.published_at || r.fetched_at || r.created_at,
+            fetched_at:          r.fetched_at   || r.created_at,
+            is_fresh:            false,
+            is_kartalix_content: r.source_type === 'kartalix',
+            sport:               r.sport        || 'football',
+            publish_mode:        r.publish_mode || 'rss_summary',
+            slug:                r.slug,
+            template_id:         r.template_id  || null,
           }));
-          await env.PITCHOS_CACHE.put(`articles:${site.short_code}`, JSON.stringify(articles), { expirationTtl: 7200 });
+          await cacheToKV(env, site.short_code, articles);
           return Response.json({ rebuilt: articles.length, source: 'supabase', site: site.short_code });
         }
 
@@ -709,6 +873,7 @@ export default {
       return Response.json({ error: 'unknown template id' }, { headers: { 'Access-Control-Allow-Origin': '*' } });
     }
     if (url.pathname === '/force-t02') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
@@ -748,6 +913,7 @@ export default {
       }
     }
     if (url.pathname === '/force-t01') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       // Synchronous T01 generation — bypasses cron/backgroundWork, runs directly in request scope.
       // Uses the same logic as backgroundWork but waits for the result and returns it.
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
@@ -795,6 +961,7 @@ export default {
       }
     }
     if (url.pathname === '/force-t10') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       // Simulate a BJK goal flash. Pass ?scorer=Name&minute=67&assist=Name&own=true&penalty=true
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
@@ -840,6 +1007,7 @@ export default {
       }
     }
     if (url.pathname === '/force-yt') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       // Debug: check what YouTube videos would qualify right now.
       // ?channel_id=UC... — limit to one channel (omit for all 5)
       // ?publish=1 — actually generate embeds and push to KV/Supabase
@@ -881,7 +1049,7 @@ export default {
                   const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const current = raw ? JSON.parse(raw) : [];
                   const kvCard  = toKVShape({ ...card, nvs: card.nvs_score || 72, is_kartalix_content: true, is_template: true });
-                  await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 100));
+                  await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 300));
                   published++;
                 }
               } catch (e) { console.error(`force-yt embed failed [${video.video_id}]:`, e.message); }
@@ -906,6 +1074,7 @@ export default {
       }
     }
     if (url.pathname === '/force-t11') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       // Simulate a full-time result flash. Pass ?bjk=2&opp=1 to override score,
       // or omit to fetch actual score from API.
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
@@ -960,6 +1129,7 @@ export default {
       }
     }
     if (url.pathname === '/force-t13') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       // Simulate a post-match T13. Pass ?bjk=2&opp=1 for score context.
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
@@ -1005,6 +1175,7 @@ export default {
       }
     }
     if (url.pathname === '/force-t07') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
@@ -1045,6 +1216,7 @@ export default {
       }
     }
     if (url.pathname === '/force-t03') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
@@ -1087,6 +1259,7 @@ export default {
       }
     }
     if (url.pathname === '/force-t08c') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
@@ -1108,7 +1281,7 @@ export default {
         const cachedRaw = await env.PITCHOS_CACHE.get('articles:' + (site.short_code || 'BJK'));
         const cached = cachedRaw ? JSON.parse(cachedRaw) : [];
         const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 75, is_kartalix_content: true, is_template: true });
-        await cacheToKV(env, site.short_code || 'BJK', mergeAndDedupe([kvCard, ...cached.filter(a => a.template_id !== 'T08c')], 100));
+        await cacheToKV(env, site.short_code || 'BJK', mergeAndDedupe([kvCard, ...cached.filter(a => a.template_id !== 'T08c')], 300));
         return Response.json({
           success: true, title: card.title, slug: card.slug,
           url: `https://kartalix.com/haber/${card.slug}`,
@@ -1126,6 +1299,7 @@ export default {
       }
     }
     if (url.pathname === '/force-t12') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
@@ -1172,6 +1346,7 @@ export default {
       }
     }
     if (url.pathname === '/force-t09') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
@@ -1206,6 +1381,7 @@ export default {
       }
     }
     if (url.pathname === '/force-story-synthesis') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const storyId = url.searchParams.get('story_id');
       if (!storyId) return Response.json({ error: 'story_id required' }, { headers, status: 400 });
@@ -1220,14 +1396,79 @@ export default {
         // Clear dedup key so force always runs
         const today = new Date().toISOString().slice(0, 10);
         await env.PITCHOS_CACHE.delete(`synth:${storyId}:${today}`);
-        const result = await synthesizeStory(story, site.id, env);
-        return Response.json({ ok: true, published: !!result, title: result?.title || null }, { headers });
+        const result = await synthesizeStory(story, site.id, env, site.short_code);
+        // Also show h5 gate state for diagnosis
+        const gate = await checkH5SynthGate(storyId, env);
+        return Response.json({ ok: true, published: !!result, title: result?.title || null, story_state: story.state, gate }, { headers });
+      } catch (e) {
+        return Response.json({ error: e.message }, { headers, status: 500 });
+      }
+    }
+
+    // ── /force-h5 — test H5 synthesis gate without waiting for cron ────
+    // ?fire=1 to actually fire synthesis; omit to dry-run only.
+    // ?story_id=X to check a single story; omit to scan all confirmed/active.
+    if (url.pathname === '/force-h5') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const fire = url.searchParams.get('fire') === '1';
+      const targetId = url.searchParams.get('story_id') || null;
+      try {
+        const sites = await getActiveSites(env);
+        const site = sites?.[0];
+        if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
+
+        const allSites = url.searchParams.get('all') === '1';
+        const stateFilter = targetId
+          ? `id=eq.${targetId}`
+          : allSites
+            ? `state=in.(confirmed,active,developing)`
+            : `site_id=eq.${site.id}&state=in.(confirmed,active,developing)`;
+        const stories = await supabase(env, 'GET',
+          `/rest/v1/stories?${stateFilter}&order=last_contribution_at.desc&limit=20&select=id,title,state,confidence,last_contribution_at`
+        ) || [];
+
+        const scRows = await supabase(env, 'GET', `/rest/v1/source_configs?select=name,source_family&is_active=eq.true`) || [];
+        const scMap = Object.fromEntries(scRows.filter(r => r.source_family).map(r => [r.name, r.source_family]));
+        const results = [];
+        let fired = 0;
+        for (const story of stories) {
+          const gate = await checkH5SynthGate(story.id, env, scMap);
+          const entry = {
+            story_id: story.id,
+            title: story.title?.slice(0, 60),
+            state: story.state,
+            confidence: story.confidence,
+            last_contribution_at: story.last_contribution_at,
+            eligible: gate.eligible,
+            reason: gate.reason,
+            stats: gate.stats || null,
+            fired: false,
+          };
+          if (gate.eligible && fire && fired < 2) {
+            await env.PITCHOS_CACHE.delete(`synth:${story.id}:${new Date().toISOString().slice(0, 10)}`);
+            const result = await synthesizeStory(story, site.id, env, site.short_code);
+            entry.fired = true;
+            entry.published_title = result?.title || null;
+            fired++;
+          }
+          results.push(entry);
+        }
+        return Response.json({
+          ok: true,
+          fire_mode: fire,
+          stories_checked: stories.length,
+          eligible_count: results.filter(r => r.eligible).length,
+          fired_count: fired,
+          results,
+        }, { headers });
       } catch (e) {
         return Response.json({ error: e.message }, { headers, status: 500 });
       }
     }
 
     if (url.pathname === '/force-txgdelta') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
@@ -1268,6 +1509,7 @@ export default {
       }
     }
     if (url.pathname === '/force-tref') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
@@ -1307,7 +1549,62 @@ export default {
         return Response.json({ error: e.message }, { headers, status: 500 });
       }
     }
+    if (url.pathname === '/admin/rewrite-article' && request.method === 'POST') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      try {
+        const body = await request.json().catch(() => ({}));
+        const slug = body.slug || url.searchParams.get('slug');
+        if (!slug) return Response.json({ error: 'slug required' }, { headers, status: 400 });
+        const SITE = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
+        const rows = await supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${SITE}&slug=eq.${encodeURIComponent(slug)}&select=id,title,summary,original_url,nvs_score,publish_mode&limit=1`
+        );
+        if (!rows?.length) return Response.json({ error: 'article not found', slug }, { headers, status: 404 });
+        const article = rows[0];
+        const sites = await getActiveSites(env);
+        const site  = sites?.[0];
+        const result = await synthesizeArticle({
+          title: article.title, summary: article.summary || '',
+          url: article.original_url || '', original_url: article.original_url || '',
+          nvs: article.nvs_score,
+        }, env, site);
+        if (!result?.body || result.body.length < 150)
+          return Response.json({ error: 'synthesis empty', title: article.title }, { headers, status: 500 });
+        await supabase(env, 'PATCH', `/rest/v1/content_items?id=eq.${article.id}`, {
+          full_body: result.body, publish_mode: 'rewrite', needs_review: result.needs_review || false,
+        });
+        // Rebuild KV so the corrected body is live immediately
+        const GOOD_MODES = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
+        const dbRows = await supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${SITE}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport`
+        );
+        if (Array.isArray(dbRows) && dbRows.length > 0 && site) {
+          const kvArticles = dbRows.filter(r => r.slug && (r.full_body || r.summary)).map(r => toKVShape({
+            title: r.title || '', summary: r.summary || '', full_body: r.full_body || r.summary || '',
+            source_name: r.source_name || '', source: r.source_name || '',
+            url: r.original_url || '', original_url: r.original_url || '',
+            category: r.category || 'Haber', nvs: r.nvs_score || 0,
+            golden_score: r.golden_score || null,
+            published_at: r.published_at || r.fetched_at || r.created_at,
+            fetched_at: r.fetched_at || r.created_at, is_fresh: false,
+            is_kartalix_content: r.source_type === 'kartalix',
+            publish_mode: r.publish_mode || 'rss_summary',
+            template_id: r.template_id || null, sport: r.sport || 'football', slug: r.slug,
+          }));
+          await cacheToKV(env, site.short_code, kvArticles);
+        }
+        return Response.json({
+          ok: true, slug, title: article.title, words: result.body.split(/\s+/).length,
+          needs_review: result.needs_review, preview: result.body.slice(0, 400),
+        }, { headers });
+      } catch(e) {
+        return Response.json({ error: e.message }, { headers, status: 500 });
+      }
+    }
+
     if (url.pathname === '/force-synthesis') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const publish = url.searchParams.get('publish') === '1';
@@ -1368,6 +1665,37 @@ export default {
         return Response.json({ error: e.message }, { headers, status: 500 });
       }
     }
+    if (url.pathname === '/force-tht') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      try {
+        const sites = await getActiveSites(env);
+        const site  = sites?.[0];
+        if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
+        const liveKV    = await env.PITCHOS_CACHE.get('match:BJK:live').then(r => r ? JSON.parse(r) : null).catch(() => null);
+        const fid = url.searchParams.get('fixture_id')
+          ? parseInt(url.searchParams.get('fixture_id'))
+          : liveKV?.fixture_id || (await getNextFixture(env).catch(() => null))?.fixture_id || NEXT_MATCH.fixture_id;
+        const apiFixture = await getFixture(fid, env).catch(() => null);
+        const scoreBjk = parseInt(url.searchParams.get('bjk') ?? apiFixture?.score_bjk ?? 0);
+        const scoreOpp = parseInt(url.searchParams.get('opp') ?? apiFixture?.score_opp ?? 0);
+        const matchObj = apiFixture
+          ? { ...NEXT_MATCH, ...apiFixture, match_day: apiFixture.date, score_bjk: scoreBjk, score_opp: scoreOpp }
+          : { ...NEXT_MATCH, score_bjk: scoreBjk, score_opp: scoreOpp };
+        const allEvents = await fetchAllEvents(fid, env);
+        const card = await generateHalftimeReport(matchObj, allEvents, site, env);
+        if (!card) return Response.json({ error: 'generateHalftimeReport returned null' }, { headers, status: 500 });
+        const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+        const latest = raw ? JSON.parse(raw) : [];
+        await cacheToKV(env, site.short_code, mergeAndDedupe([
+          toKVShape({ ...card, nvs: card.nvs_score || 85, is_kartalix_content: true, is_template: true, fixture_id: fid }),
+          ...latest,
+        ], 300));
+        return Response.json({ ok: true, title: card.title, fixture_id: fid, score: `${scoreBjk}-${scoreOpp}`, words: (card.full_body || '').split(/\s+/).length }, { headers });
+      } catch(e) {
+        return Response.json({ error: e.message }, { headers, status: 500 });
+      }
+    }
     if (url.pathname === '/watcher') {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
@@ -1416,7 +1744,7 @@ export default {
     // ── COST MONITOR ─────────────────────────────────────────
     if (url.pathname === '/admin/cost') {
       const cookie = request.headers.get('cookie') || '';
-      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       const now = new Date();
       const monthKey = now.toISOString().slice(0, 7);
@@ -1441,7 +1769,7 @@ export default {
     // ── FINANCIALS PAGE ───────────────────────────────────────
     if (url.pathname === '/admin/financials') {
       const cookie = request.headers.get('cookie') || '';
-      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 
       const FIXED_ITEMS = [
@@ -1757,7 +2085,7 @@ Sadece JSON döndür:
       if (request.method === 'PATCH') {
         const { id, ...fields } = await request.json().catch(() => ({}));
         if (!id) return Response.json({ error: 'id required' }, { headers, status: 400 });
-        const allowed = ['name','is_active','trust_tier','treatment','nvs_hint','bjk_filter','all_qualify','notes'];
+        const allowed = ['name','is_active','trust_tier','source_family','treatment','nvs_hint','bjk_filter','all_qualify','notes'];
         const patch   = Object.fromEntries(Object.entries(fields).filter(([k]) => allowed.includes(k)));
         patch.updated_at = new Date().toISOString();
         await supabase(env, 'PATCH', `/rest/v1/source_configs?id=eq.${id}`, patch);
@@ -1879,21 +2207,21 @@ Sadece JSON döndür:
     // ── SOURCES ADMIN PAGE ────────────────────────────────────
     if (url.pathname === '/admin/sources/ui') {
       const cookie = request.headers.get('cookie') || '';
-      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       return new Response(renderSourcesPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/report') {
       const cookie = request.headers.get('cookie') || '';
-      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage('/admin/report'), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       return new Response(renderAdminReportPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/report-data') {
       const cookie = request.headers.get('cookie') || '';
-      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response('Unauthorized', { status: 401 });
       const from = url.searchParams.get('from') || null;
       const to   = url.searchParams.get('to')   || null;
@@ -1901,9 +2229,431 @@ Sadece JSON döndür:
       return new Response(JSON.stringify(report), { headers: { 'Content-Type': 'application/json' } });
     }
 
+    if (url.pathname === '/admin/pipeline-log') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const from = url.searchParams.get('from');
+      const to   = url.searchParams.get('to');
+      const SITE = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
+      const filt = (from ? `&run_at=gte.${encodeURIComponent(from)}` : '') + (to ? `&run_at=lte.${encodeURIComponent(to)}` : '');
+      const ciTimeFilt = from ? `&reviewed_at=gte.${encodeURIComponent(from)}` : '';
+
+      const [rows, recentItems] = await Promise.all([
+        supabase(env, 'GET',
+          `/rest/v1/pipeline_log?site_id=eq.${SITE}&order=run_at.desc,created_at.desc&limit=1000${filt}&select=source_name,title,url,stage,nvs_score,publish_mode,run_at`
+        ),
+        supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${SITE}${ciTimeFilt}&order=reviewed_at.desc&select=original_url,slug,status,story_id&limit=500`
+        ),
+      ]);
+
+      // Build URL → content_item lookup
+      const ciMap = {};
+      for (const ci of (recentItems || [])) {
+        if (ci.original_url) ciMap[ci.original_url] = ci;
+      }
+
+      // Fetch story titles for all referenced story_ids
+      const storyIds = [...new Set((recentItems || []).map(ci => ci.story_id).filter(Boolean))];
+      const storyMap = {};
+      if (storyIds.length > 0) {
+        const stories = await supabase(env, 'GET',
+          `/rest/v1/stories?id=in.(${storyIds.slice(0, 60).join(',')})&select=id,title&limit=60`
+        );
+        for (const s of (stories || [])) storyMap[s.id] = s.title;
+      }
+
+      // Enrich pipeline_log rows with content_item data where available
+      const enriched = (rows || []).map(r => {
+        const ci = r.url ? ciMap[r.url] : null;
+        if (!ci) return r;
+        return {
+          ...r,
+          slug:           ci.slug,
+          content_status: ci.status,
+          story_id:       ci.story_id || null,
+          story_title:    ci.story_id ? (storyMap[ci.story_id] || null) : null,
+        };
+      });
+
+      return Response.json(enriched);
+    }
+
+    if (url.pathname === '/admin/kpi-strip') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const SITE = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
+      const now = Date.now();
+      const enc = s => encodeURIComponent(s);
+      const todayUTC = new Date(now).toISOString().slice(0, 10);
+      const todayStart = todayUTC + 'T00:00:00.000Z';
+      const fourteenDaysAgo = new Date(now - 14 * 86400000).toISOString();
+      const sixHoursAgo = new Date(now - 6 * 3600000).toISOString();
+      const days14 = [];
+      for (let i = 13; i >= 0; i--) days14.push(new Date(now - i * 86400000).toISOString().slice(0, 10));
+
+      const allResults = await Promise.all([
+        env.PITCHOS_CACHE.get('articles:BJK').catch(() => null),
+        env.PITCHOS_CACHE.get(`churn:BJK:${todayUTC}`).catch(() => null),
+        supabase(env, 'GET', `/rest/v1/fetch_logs?site_id=eq.${SITE}&order=created_at.desc&limit=1&select=created_at,error_message`).catch(() => null),
+        supabase(env, 'GET', `/rest/v1/fetch_logs?site_id=eq.${SITE}&created_at=gte.${enc(todayStart)}&select=items_fetched,estimated_cost_eur`).catch(() => null),
+        supabase(env, 'GET', `/rest/v1/fetch_logs?site_id=eq.${SITE}&created_at=gte.${enc(fourteenDaysAgo)}&select=created_at,estimated_cost_eur`).catch(() => null),
+        supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${SITE}&status=eq.published&published_at=gte.${enc(todayStart)}&select=id&limit=500`).catch(() => null),
+        supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${SITE}&status=eq.published&published_at=gte.${enc(fourteenDaysAgo)}&select=published_at,nvs_score&limit=3000`).catch(() => null),
+        supabase(env, 'GET', `/rest/v1/pipeline_log?site_id=eq.${SITE}&run_at=gte.${enc(todayStart)}&select=stage,source_name&limit=5000`).catch(() => null),
+        supabase(env, 'GET', `/rest/v1/story_contributions?added_at=gte.${enc(sixHoursAgo)}&select=story_id,added_at&limit=500`).catch(() => null),
+        supabase(env, 'GET', `/rest/v1/stories?site_id=eq.${SITE}&last_contribution_at=gte.${enc(sixHoursAgo)}&select=id,title&limit=50`).catch(() => null),
+        ...days14.map(d => env.PITCHOS_CACHE.get(`pool_snapshot:BJK:${d}`).catch(() => null)),
+      ]);
+
+      const [kvRaw, churnRaw, lastCronRows, todayFetchRows, trend14dFetchRows,
+             todayPubRows, trend14dPubRows, todayFunnelRows, contribsRows, storiesRows,
+             ...pool14dRaws] = allResults;
+
+      // ── Pool composition
+      const poolArr = kvRaw ? (JSON.parse(kvRaw) || []) : [];
+      const poolSize = Array.isArray(poolArr) ? poolArr.length : 0;
+      let videoCount = 0, yzCount = 0, yzPlusCount = 0;
+      for (const a of poolArr) {
+        const mode = a.publish_mode || '';
+        if (mode === 'youtube_embed') videoCount++;
+        else if (mode === 'synthesis_generated' || mode === 'original_synthesis') yzPlusCount++;
+        else if (mode === 'rewrite' || mode === 'copy_source' || mode === 'rss_summary') yzCount++;
+      }
+
+      // ── Hot story (highest contribution count in last 6h, need ≥3)
+      const storyTitleMap = {};
+      for (const s of (storiesRows || [])) storyTitleMap[s.id] = s.title;
+      const storyContribCounts = {}, storyContribLast = {};
+      for (const c of (contribsRows || [])) {
+        storyContribCounts[c.story_id] = (storyContribCounts[c.story_id] || 0) + 1;
+        if (!storyContribLast[c.story_id] || c.added_at > storyContribLast[c.story_id])
+          storyContribLast[c.story_id] = c.added_at;
+      }
+      let hotStoryId = null, hotCount = 0;
+      for (const [id, cnt] of Object.entries(storyContribCounts)) {
+        if (cnt >= 3 && cnt > hotCount) { hotCount = cnt; hotStoryId = id; }
+      }
+      let hot_story = null;
+      if (hotStoryId && storyTitleMap[hotStoryId]) {
+        const minsAgo = Math.round((now - new Date(storyContribLast[hotStoryId]).getTime()) / 60000);
+        hot_story = { title: storyTitleMap[hotStoryId], contribution_count: hotCount, minutes_since_last: minsAgo };
+      }
+
+      // ── Last cron run
+      const lastCron = (lastCronRows || [])[0];
+      let last_cron = null;
+      if (lastCron) {
+        const cronMs = new Date(lastCron.created_at).getTime();
+        const minsAgo = Math.round((now - cronMs) / 60000);
+        let status = 'success';
+        if (lastCron.error_message) {
+          try { const em = JSON.parse(lastCron.error_message); if (em.error || em.failed) status = 'error'; } catch(e) { /* non-JSON = error details */ }
+        }
+        last_cron = { timestamp: lastCron.created_at, minutes_ago: minsAgo, status };
+      }
+
+      // ── Today published + 14d baseline
+      const todayPubCount = (todayPubRows || []).length;
+      const pub14dMap = {};
+      for (const r of (trend14dPubRows || [])) {
+        const day = (r.published_at || '').slice(0, 10);
+        if (day && day < todayUTC) pub14dMap[day] = (pub14dMap[day] || 0) + 1;
+      }
+      const pub14dVals = Object.values(pub14dMap);
+      const pubBaseline = pub14dVals.length > 0 ? Math.round(pub14dVals.reduce((s, v) => s + v, 0) / pub14dVals.length) : 0;
+      const pubDeltaPct = pubBaseline > 0 ? Math.round(((todayPubCount - pubBaseline) / pubBaseline) * 100) : 0;
+
+      // ── Funnel (pipeline_log stages)
+      let qualified = 0, rejected_pl = 0, unscored = 0;
+      for (const r of (todayFunnelRows || [])) {
+        const stage = r.stage || '';
+        if (stage === 'published') { qualified++; }
+        else if (stage === 'scored_low') { qualified++; rejected_pl++; }
+        else { unscored++; }
+      }
+
+      // ── Pool churn
+      const churn = churnRaw ? JSON.parse(churnRaw) : { added: 0, removed_total: 0, removed_aged_out: 0, removed_ttl: 0, removed_overflow: 0 };
+
+      // ── Today fetched + active sources (sources from pipeline_log, count from fetch_logs)
+      const fetchedCount = (todayFetchRows || []).reduce((s, r) => s + (r.items_fetched || 0), 0);
+      const activeSources = new Set((todayFunnelRows || []).map(r => r.source_name).filter(Boolean)).size;
+
+      // ── Cost today + 14d baseline (estimated_cost_eur is actually USD — see utils.js)
+      const todayCostUsd = (todayFetchRows || []).reduce((s, r) => s + (r.estimated_cost_eur || 0), 0);
+      const cost14dMap = {};
+      for (const r of (trend14dFetchRows || [])) {
+        const day = (r.created_at || '').slice(0, 10);
+        if (day && day < todayUTC) cost14dMap[day] = (cost14dMap[day] || 0) + (r.estimated_cost_eur || 0);
+      }
+      const cost14dVals = Object.values(cost14dMap);
+      const costBaseline = cost14dVals.length > 0 ? cost14dVals.reduce((s, v) => s + v, 0) / cost14dVals.length : 0;
+
+      // ── 14d trend arrays
+      const pool14d = pool14dRaws.map(v => v !== null ? parseInt(v, 10) : null);
+      const nvsByDay = {};
+      for (const r of (trend14dPubRows || [])) {
+        const day = (r.published_at || '').slice(0, 10);
+        if (day && r.nvs_score !== null && r.nvs_score !== undefined) {
+          if (!nvsByDay[day]) nvsByDay[day] = [];
+          nvsByDay[day].push(Number(r.nvs_score));
+        }
+      }
+      const nvs14d = days14.map(d => {
+        const vals = nvsByDay[d];
+        if (!vals || vals.length === 0) return null;
+        const sorted = [...vals].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      });
+      const costByDay = {};
+      for (const r of (trend14dFetchRows || [])) {
+        const day = (r.created_at || '').slice(0, 10);
+        if (day) costByDay[day] = (costByDay[day] || 0) + (r.estimated_cost_eur || 0);
+      }
+      costByDay[todayUTC] = todayCostUsd;
+      const cost14d = days14.map(d => costByDay[d] !== undefined ? Math.round(costByDay[d] * 1000) / 1000 : null);
+
+      return Response.json({
+        as_of: new Date(now).toISOString(),
+        days: days14,
+        live_state: {
+          pool_size: poolSize,
+          pool_composition: { video: videoCount, yz: yzCount, yz_plus: yzPlusCount },
+          hot_story,
+          last_cron,
+        },
+        today: {
+          published: { count: todayPubCount, baseline: pubBaseline, delta_pct: pubDeltaPct },
+          funnel: { qualified, unscored, rejected: rejected_pl },
+          live_churn: churn,
+          fetched: { count: fetchedCount, active_sources: activeSources },
+          cost: { today_usd: Math.round(todayCostUsd * 1000) / 1000, baseline_usd: Math.round(costBaseline * 1000) / 1000 },
+        },
+        trend_14d: { pool_size: pool14d, median_nvs_published: nvs14d, cost_daily_usd: cost14d },
+      }, { headers: { 'Cache-Control': 'no-store', 'Content-Type': 'application/json' } });
+    }
+
+    if (url.pathname === '/admin/alarms/clear' && request.method === 'POST') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const body = await request.json().catch(() => ({}));
+      const id = body.id;
+      if (!id) return Response.json({ error: 'id required' }, { status: 400 });
+      const stateRaw = await env.PITCHOS_CACHE.get('alarms:state').catch(() => null);
+      const state = stateRaw ? JSON.parse(stateRaw) : {};
+      if (!state.alarm_acked) state.alarm_acked = {};
+      state.alarm_acked[id] = Date.now();
+      await env.PITCHOS_CACHE.put('alarms:state', JSON.stringify(state), { expirationTtl: 86400 * 7 });
+      return Response.json({ ok: true, id });
+    }
+
+    if (url.pathname === '/admin/alarms') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const SITE = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
+      const now = Date.now();
+      const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const fourHoursAgo = new Date(now - 4 * 60 * 60 * 1000).toISOString();
+
+      const [stateRaw, recentPublished, recentLog] = await Promise.all([
+        env.PITCHOS_CACHE.get('alarms:state').catch(() => null),
+        supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${SITE}&status=eq.published&published_at=gte.${encodeURIComponent(fourHoursAgo)}&select=id&limit=5`
+        ).catch(() => null),
+        supabase(env, 'GET',
+          `/rest/v1/pipeline_log?site_id=eq.${SITE}&run_at=gte.${encodeURIComponent(sevenDaysAgo)}&select=source_name,run_at&order=run_at.desc&limit=5000`
+        ).catch(() => null),
+      ]);
+
+      const state = stateRaw ? JSON.parse(stateRaw) : {};
+      if (!state.alarm_first_seen) state.alarm_first_seen = {};
+      if (!state.alarm_acked) state.alarm_acked = {};
+
+      // Helper: check if alarm is active (fires AND not acked after first_seen)
+      const isActive = (id) => {
+        const fs = state.alarm_first_seen[id];
+        if (!fs) return false;
+        const acked = state.alarm_acked[id] || 0;
+        return acked < fs;
+      };
+      // Helper: register alarm as firing (set first_seen if not set), return true if active
+      const markFiring = (id) => {
+        if (!state.alarm_first_seen[id]) state.alarm_first_seen[id] = now;
+        return isActive(id);
+      };
+      // Helper: alarm condition cleared — reset tracking so it can re-fire next time
+      const markCleared = (id) => {
+        delete state.alarm_first_seen[id];
+        delete state.alarm_acked[id];
+      };
+
+      const alarms = [];
+      let stateDirty = false;
+
+      // 1. Pool-size floor
+      if ((state.pool_floor_consecutive || 0) >= 2) {
+        if (markFiring('pool_floor')) {
+          alarms.push({
+            id: 'pool_floor', category: 'major',
+            title: 'Pool-size floor',
+            msg: `Article pool has ${state.pool_floor_last} articles (< 20) for ${state.pool_floor_consecutive} consecutive cron runs`,
+            first_seen: state.alarm_first_seen.pool_floor,
+          });
+        }
+        stateDirty = true;
+      }
+
+      // 2. Zero-published-in-window (UTC+3 7am–11pm = UTC 04:00–20:00)
+      const utcHour = new Date().getUTCHours();
+      const isNormalHours = utcHour >= 4 && utcHour < 20;
+      if (isNormalHours && Array.isArray(recentPublished) && recentPublished.length === 0) {
+        if (markFiring('zero_published')) {
+          alarms.push({
+            id: 'zero_published', category: 'major',
+            title: 'Zero published in 4h',
+            msg: 'No articles published in the last 4 hours during normal operating hours (07:00–23:00 local)',
+            first_seen: state.alarm_first_seen.zero_published,
+          });
+        }
+        stateDirty = true;
+      } else if (state.alarm_first_seen.zero_published) {
+        markCleared('zero_published');
+        stateDirty = true;
+      }
+
+      // 3. Live pool collapse
+      if ((state.live_pool_consecutive || 0) >= 2) {
+        if (markFiring('live_pool_collapse')) {
+          alarms.push({
+            id: 'live_pool_collapse', category: 'critical',
+            title: 'Live pool collapse',
+            msg: `Only ${state.live_pool_last} articles published in last 24h (< 8) for ${state.live_pool_consecutive} consecutive runs`,
+            first_seen: state.alarm_first_seen.live_pool_collapse,
+          });
+        }
+        stateDirty = true;
+      }
+
+      // 4. Self-heartbeat fail (>15 min; skip if never run yet)
+      if (state.heartbeat_last && (now - state.heartbeat_last) > 15 * 60 * 1000) {
+        const minsAgo = Math.round((now - state.heartbeat_last) / 60000);
+        if (markFiring('heartbeat_fail')) {
+          alarms.push({
+            id: 'heartbeat_fail', category: 'critical',
+            title: 'Self-heartbeat fail',
+            msg: `Alarm checker last ran ${minsAgo} min ago (expected every 5 min)`,
+            first_seen: state.alarm_first_seen.heartbeat_fail,
+          });
+        }
+        stateDirty = true;
+      } else if (state.alarm_first_seen.heartbeat_fail) {
+        markCleared('heartbeat_fail');
+        stateDirty = true;
+      }
+
+      // 5. Source disappeared (0 pipeline entries for 3+ consecutive days)
+      if (Array.isArray(recentLog) && recentLog.length > 0) {
+        const threeDaysAgo = now - 3 * 24 * 60 * 60 * 1000;
+        const srcLatest = {};
+        for (const row of recentLog) {
+          if (!row.source_name) continue;
+          const ts = new Date(row.run_at).getTime();
+          if (!srcLatest[row.source_name] || ts > srcLatest[row.source_name]) srcLatest[row.source_name] = ts;
+        }
+        const gone = Object.entries(srcLatest)
+          .filter(([, ts]) => ts < threeDaysAgo)
+          .map(([name, ts]) => ({ name, daysAgo: Math.round((now - ts) / 86400000) }))
+          .sort((a, b) => b.daysAgo - a.daysAgo);
+        if (gone.length > 0) {
+          if (markFiring('source_disappeared')) {
+            alarms.push({
+              id: 'source_disappeared', category: 'major',
+              title: `Source disappeared (${gone.length})`,
+              msg: gone.slice(0, 5).map(s => `${s.name} (${s.daysAgo}d)`).join(', ') + (gone.length > 5 ? ` +${gone.length - 5} more` : ''),
+              first_seen: state.alarm_first_seen.source_disappeared,
+            });
+          }
+          stateDirty = true;
+        } else if (state.alarm_first_seen.source_disappeared) {
+          markCleared('source_disappeared');
+          stateDirty = true;
+        }
+      }
+
+      if (stateDirty) {
+        env.PITCHOS_CACHE.put('alarms:state', JSON.stringify(state), { expirationTtl: 86400 * 7 }).catch(() => {});
+      }
+
+      return Response.json({ alarms, checked_at: now, heartbeat_last: state.heartbeat_last || null },
+        { headers: { 'Content-Type': 'application/json' } });
+    }
+
+    if (url.pathname === '/admin/analytics-data') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const SITE = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
+      const from = url.searchParams.get('from') || new Date(Date.now() - 7*24*3600000).toISOString();
+      const to   = url.searchParams.get('to')   || new Date().toISOString();
+      const enc  = s => encodeURIComponent(s);
+      const [runs, pubItems, storiesRaw, plRows] = await Promise.all([
+        supabase(env, 'GET', `/rest/v1/fetch_logs?site_id=eq.${SITE}&created_at=gte.${enc(from)}&created_at=lte.${enc(to)}&order=created_at.asc&limit=500&select=created_at,items_fetched,items_published,estimated_cost_eur,error_message`),
+        supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${SITE}&reviewed_at=gte.${enc(from)}&reviewed_at=lte.${enc(to)}&select=reviewed_at,publish_mode,nvs_score,status&limit=3000&order=reviewed_at.asc`),
+        supabase(env, 'GET', `/rest/v1/stories?site_id=eq.${SITE}&created_at=gte.${enc(from)}&created_at=lte.${enc(to)}&select=created_at,state&order=created_at.asc&limit=1000`),
+        supabase(env, 'GET', `/rest/v1/pipeline_log?site_id=eq.${SITE}&created_at=gte.${enc(from)}&created_at=lte.${enc(to)}&select=nvs_score,stage,source_name&limit=8000`),
+      ]);
+      const modeGroup = m => {
+        if (!m) return 'other';
+        if (m === 'youtube_embed') return 'video';
+        if (m === 'synthesis_generated' || m === 'original_synthesis') return 'yz_plus';
+        if (m === 'rewrite' || m === 'copy_source') return 'yz';
+        if (m && m.startsWith('template_')) return 'template';
+        return 'other';
+      };
+      const runs_ts = (runs || []).map(r => {
+        let raw = r.items_fetched || 0, kw = 0;
+        try { const d = JSON.parse(r.error_message || '{}'); raw = d.raw_fetched || raw; kw = d.after_keyword || 0; } catch(e) {}
+        return { ts: r.created_at, raw, kw, published: r.items_published || 0, cost: r.estimated_cost_eur || 0 };
+      });
+      const pubByDayMap = {};
+      (pubItems || []).filter(a => a.status === 'published').forEach(a => {
+        const day = (a.reviewed_at || '').slice(0, 10);
+        if (!day) return;
+        if (!pubByDayMap[day]) pubByDayMap[day] = { day, video: 0, yz: 0, yz_plus: 0, template: 0, other: 0 };
+        pubByDayMap[day][modeGroup(a.publish_mode)]++;
+      });
+      const pub_by_day = Object.values(pubByDayMap).sort((a, b) => a.day.localeCompare(b.day));
+      const storyByDayMap = {};
+      (storiesRaw || []).forEach(s => {
+        const day = (s.created_at || '').slice(0, 10);
+        if (!day) return;
+        if (!storyByDayMap[day]) storyByDayMap[day] = { day, opened: 0, closed: 0 };
+        storyByDayMap[day].opened++;
+        if (s.state === 'archived' || s.state === 'closed') storyByDayMap[day].closed++;
+      });
+      const story_by_day = Object.values(storyByDayMap).sort((a, b) => a.day.localeCompare(b.day));
+      const pubHist = new Array(10).fill(0), rejHist = new Array(10).fill(0);
+      (plRows || []).forEach(r => {
+        if (r.nvs_score == null) return;
+        const bucket = Math.min(9, Math.floor(r.nvs_score / 10));
+        if (r.stage === 'published') pubHist[bucket]++;
+        else if (r.stage === 'scored_low') rejHist[bucket]++;
+      });
+      const nvs_hist = pubHist.map((p, i) => ({ range: (i*10) + '-' + (i*10+9), published: p, rejected: rejHist[i] }));
+      const srcQMap = {};
+      (plRows || []).forEach(r => {
+        const s = r.source_name || 'Unknown';
+        if (!srcQMap[s]) srcQMap[s] = { source_name: s, total: 0, published: 0, nvs_sum: 0, nvs_n: 0 };
+        srcQMap[s].total++;
+        if (r.stage === 'published') { srcQMap[s].published++; if (r.nvs_score != null) { srcQMap[s].nvs_sum += r.nvs_score; srcQMap[s].nvs_n++; } }
+      });
+      const source_quality = Object.values(srcQMap).map(s => ({
+        source_name: s.source_name, total: s.total, published: s.published,
+        avg_nvs: s.nvs_n > 0 ? Math.round(s.nvs_sum / s.nvs_n) : 0,
+        pub_rate: s.total > 0 ? Math.round(s.published / s.total * 100) : 0,
+      })).sort((a, b) => b.total - a.total).slice(0, 20);
+      return Response.json({ runs_ts, pub_by_day, story_by_day, nvs_hist, source_quality });
+    }
+
     if (url.pathname === '/admin/tools') {
       const cookie = request.headers.get('cookie') || '';
-      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       const kvRaw = await env.PITCHOS_CACHE.get('match:BJK:next').catch(() => null);
       const cachedMatch = kvRaw ? JSON.parse(kvRaw) : null;
@@ -1912,40 +2662,59 @@ Sadece JSON döndür:
 
     if (url.pathname === '/admin/roadmap') {
       const cookie = request.headers.get('cookie') || '';
-      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       return new Response(renderAdminRoadmapPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/releases') {
       const cookie = request.headers.get('cookie') || '';
-      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       return new Response(renderAdminReleasesPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
+    if (url.pathname === '/admin/qa') {
+      const cookie = request.headers.get('cookie') || '';
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const raw = await env.PITCHOS_CACHE.get('qa:results').catch(() => null);
+      const saved = raw ? JSON.parse(raw) : {};
+      return new Response(renderAdminQAPage(saved), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
+    if (url.pathname === '/admin/qa/save' && request.method === 'POST') {
+      const cookie = request.headers.get('cookie') || '';
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const body = await request.json().catch(() => null);
+      if (!body) return Response.json({ error: 'bad body' }, { status: 400 });
+      await env.PITCHOS_CACHE.put('qa:results', JSON.stringify(body), { expirationTtl: 60 * 60 * 24 * 90 });
+      return Response.json({ ok: true });
+    }
+
     if (url.pathname === '/admin/login' && request.method === 'POST') {
       const { pin } = await request.json().catch(() => ({}));
-      const adminPin = env.ADMIN_PIN || 'kartalix2026';
-      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
-      if (!pin || pin !== adminPin) return Response.json({ error: 'Hatalı PIN' }, { status: 401, headers });
-      return Response.json({ ok: true }, {
-        headers: { ...headers, 'Set-Cookie': 'kx-editor=1; Path=/; Max-Age=604800; SameSite=Lax' },
-      });
+      if (!env.ADMIN_PIN) return Response.json({ error: 'Server misconfigured — ADMIN_PIN secret not set' }, { status: 500 });
+      const storedPin = (env.ADMIN_PIN || '').trim();
+      if (!pin || pin !== storedPin) return Response.json({ error: 'Hatalı PIN' }, { status: 401 });
+      const token = crypto.randomUUID();
+      await env.PITCHOS_CACHE.put(`admin:session:${token}`, '1', { expirationTtl: 604800 });
+      const resHeaders = new Headers({ 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      resHeaders.append('Set-Cookie', `kx-session=${token}; Path=/; Max-Age=604800; HttpOnly; Secure; SameSite=Lax`);
+      resHeaders.append('Set-Cookie', `kx-ui=1; Path=/; Max-Age=604800; SameSite=Lax`);
+      return new Response(JSON.stringify({ ok: true }), { headers: resHeaders });
     }
     if (url.pathname === '/admin') {
       const cookie = request.headers.get('cookie') || '';
-      const authed = cookie.split(';').some(c => c.trim() === 'kx-editor=1');
+      const authed = await checkAdminAuth(request, env);
       if (!authed) {
         return new Response(renderPinPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       }
       const cached = await env.PITCHOS_CACHE.get('articles:BJK');
       const articles = cached ? JSON.parse(cached) : [];
       return new Response(renderAdminPage(articles), {
-        headers: {
-          'Content-Type': 'text/html;charset=UTF-8',
-          'Set-Cookie': 'kx-editor=1; Path=/; Max-Age=604800; SameSite=Lax',
-        },
+        headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
     }
 
@@ -1978,6 +2747,31 @@ Sadece JSON döndür:
         .map(([source, articles]) => ({ source, count: articles.length, articles }));
       return Response.json({ hours, total: rows.length, by_source: summary }, { headers: h });
     }
+    if (url.pathname === '/admin/content-counts') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site = sites?.[0];
+      if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
+      const countFor = async (filter) => {
+        const res = await fetch(`${env.SUPABASE_URL}/rest/v1/content_items?${filter}&select=id&limit=1`, {
+          headers: { 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`, 'Prefer': 'count=exact' }
+        });
+        const m = res.headers.get('Content-Range')?.match(/\/(\d+)$/);
+        return m ? parseInt(m[1]) : 0;
+      };
+      const base = `site_id=eq.${site.id}`;
+      const [published, pending, archived, deleted] = await Promise.all([
+        countFor(`${base}&status=eq.published`),
+        countFor(`${base}&status=eq.pending`),
+        countFor(`${base}&status=eq.archived`),
+        countFor(`${base}&status=eq.deleted`),
+      ]);
+      const kv = await env.PITCHOS_CACHE.get('articles:BJK');
+      const live = kv ? JSON.parse(kv).length : 0;
+      const yayinda = Math.max(0, published - live);
+      return Response.json({ live, yayinda, pending, archived, deleted }, { headers: h });
+    }
+
     if (url.pathname === '/admin/content-data') {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const sites = await getActiveSites(env);
@@ -1986,19 +2780,36 @@ Sadece JSON döndür:
       const page  = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
       const limit = 20;
       const offset = (page - 1) * limit;
-      const q     = (url.searchParams.get('q') || '').trim();
-      const mode  = url.searchParams.get('mode') || '';
-      const nr    = url.searchParams.get('needs_review') === '1';
-      const live   = url.searchParams.get('live') === '1';
-      const status = url.searchParams.get('status') || '';
+      const q       = (url.searchParams.get('q') || '').trim();
+      const mode    = url.searchParams.get('mode') || '';
+      const nr      = url.searchParams.get('needs_review') === '1';
+      const live    = url.searchParams.get('live') === '1';
+      const yayinda = url.searchParams.get('yayinda') === '1';
+      const status  = url.searchParams.get('status') || '';
+      const nvs     = url.searchParams.get('nvs') || '';
+      const timelineRaw = await env.PITCHOS_CACHE.get(`kv:timeline:${site.short_code || 'BJK'}`);
+      const timeline = timelineRaw ? JSON.parse(timelineRaw) : {};
+      const applyTimeline = (articles) => articles.map(a => {
+        const t = a.slug ? timeline[a.slug] : null;
+        if (!t) return a;
+        return { ...a, homepage_published_at: t.published_at || null, homepage_removed_at: t.removed_at || null };
+      });
       let filter  = `site_id=eq.${site.id}&order=fetched_at.desc&limit=${limit}&offset=${offset}`;
-      if (mode === 'synthesis') filter += '&publish_mode=in.(rewrite,synthesis)'; // 'synthesis' kept for legacy DB rows
-      else if (mode === 'template') filter += '&publish_mode=like.template%';
-      else if (mode === 'youtube')  filter += '&publish_mode=like.youtube%';
-      else if (mode === 'manual')   filter += '&publish_mode=eq.manual';
+      if (mode === 'yz')          filter += '&publish_mode=in.(rewrite,synthesis)';
+      else if (mode === 'yz_plus')filter += '&publish_mode=in.(original_synthesis,synthesis_generated)';
+      else if (mode === 'template')filter += '&publish_mode=like.template%';
+      else if (mode === 'video')  filter += '&or=(publish_mode.like.youtube*,publish_mode.eq.video_embed)';
+      else if (mode === 'manual') filter += '&publish_mode=eq.manual';
+      else if (mode === 'copy_source') filter += '&publish_mode=eq.copy_source';
+      else if (mode === 'rss_summary') filter += '&publish_mode=eq.rss_summary';
+      else if (mode === 'synthesis') filter += '&publish_mode=in.(rewrite,synthesis)'; // legacy
+      else if (mode === 'youtube')   filter += '&publish_mode=like.youtube%';          // legacy
       if (nr) filter += '&needs_review=eq.true';
       if (q)  filter += `&title=ilike.*${encodeURIComponent(q)}*`;
-      if (['published','pending','archived'].includes(status)) filter += `&status=eq.${status}`;
+      if (['published','pending','archived','deleted'].includes(status)) filter += `&status=eq.${status}`;
+      if (nvs === 'hi')  filter += '&nvs_score=gte.75';
+      else if (nvs === 'mid') filter += '&nvs_score=gte.60&nvs_score=lt.75';
+      else if (nvs === 'lo')  filter += '&nvs_score=lt.60';
 
       if (live) {
         // KV-first: merge all KV articles with Supabase data. KV-only articles get _kv_only:true.
@@ -2010,7 +2821,7 @@ Sadece JSON döndür:
           `/rest/v1/content_items?site_id=eq.${site.id}&slug=in.(${kvSlugs.join(',')})&select=id,slug,title,summary,full_body,category,publish_mode,nvs_score,needs_review,fetched_at,image_url,source_name,status,template_id`
         );
         const dbBySlug = new Map((dbRows || []).map(r => [r.slug, r]));
-        const merged = kvArticles
+        let merged = kvArticles
           .filter(a => a.slug)
           .map(a => dbBySlug.get(a.slug) || {
             id: null, slug: a.slug, title: a.title || '',
@@ -2024,14 +2835,48 @@ Sadece JSON döndür:
             status: 'published', template_id: a.template_id || null,
             _kv_only: true,
           });
-        const paged = merged.slice(offset, offset + limit);
+        if (q) { const ql = q.toLowerCase(); merged = merged.filter(a => (a.title||'').toLowerCase().includes(ql)); }
+        if (mode === 'yz')           merged = merged.filter(a => ['rewrite','synthesis'].includes(a.publish_mode));
+        else if (mode === 'yz_plus') merged = merged.filter(a => ['original_synthesis','synthesis_generated'].includes(a.publish_mode));
+        else if (mode === 'template') merged = merged.filter(a => (a.publish_mode||'').startsWith('template'));
+        else if (mode === 'video')   merged = merged.filter(a => (a.publish_mode||'').startsWith('youtube') || a.publish_mode === 'video_embed');
+        else if (mode === 'manual')  merged = merged.filter(a => a.publish_mode === 'manual');
+        else if (mode === 'copy_source') merged = merged.filter(a => a.publish_mode === 'copy_source');
+        else if (mode === 'rss_summary') merged = merged.filter(a => a.publish_mode === 'rss_summary');
+        if (nvs === 'hi')        merged = merged.filter(a => (a.nvs_score||0) >= 75);
+        else if (nvs === 'mid')  merged = merged.filter(a => { const n = a.nvs_score||0; return n >= 60 && n < 75; });
+        else if (nvs === 'lo')   merged = merged.filter(a => (a.nvs_score||0) < 60);
+        const paged = applyTimeline(merged.slice(offset, offset + limit));
         return Response.json({ articles: paged, page, has_more: merged.length > offset + limit }, { headers: h });
+      }
+
+      if (yayinda) {
+        // Published in Supabase but NOT in KV (accessible by URL, not on homepage)
+        const kvRaw = await env.PITCHOS_CACHE.get('articles:BJK');
+        const kvSlugs = kvRaw ? JSON.parse(kvRaw).map(a => a.slug).filter(Boolean) : [];
+        const notIn = kvSlugs.length > 0 ? `&slug=not.in.(${kvSlugs.join(',')})` : '';
+        let yFilter = `site_id=eq.${site.id}&status=eq.published&order=fetched_at.desc&limit=${limit}&offset=${offset}${notIn}`;
+        if (mode === 'yz')           yFilter += '&publish_mode=in.(rewrite,synthesis)';
+        else if (mode === 'yz_plus') yFilter += '&publish_mode=in.(original_synthesis,synthesis_generated)';
+        else if (mode === 'template') yFilter += '&publish_mode=like.template%';
+        else if (mode === 'video')   yFilter += '&or=(publish_mode.like.youtube*,publish_mode.eq.video_embed)';
+        else if (mode === 'manual')  yFilter += '&publish_mode=eq.manual';
+        else if (mode === 'copy_source') yFilter += '&publish_mode=eq.copy_source';
+        else if (mode === 'rss_summary') yFilter += '&publish_mode=eq.rss_summary';
+        if (nvs === 'hi')       yFilter += '&nvs_score=gte.75';
+        else if (nvs === 'mid') yFilter += '&nvs_score=gte.60&nvs_score=lt.75';
+        else if (nvs === 'lo')  yFilter += '&nvs_score=lt.60';
+        if (q) yFilter += `&title=ilike.*${encodeURIComponent(q)}*`;
+        const rows = await supabase(env, 'GET',
+          `/rest/v1/content_items?${yFilter}&select=id,slug,title,summary,full_body,category,publish_mode,nvs_score,needs_review,fetched_at,image_url,source_name,status,template_id`
+        );
+        return Response.json({ articles: applyTimeline(rows || []), page, has_more: (rows || []).length === limit }, { headers: h });
       }
 
       const rows = await supabase(env, 'GET',
         `/rest/v1/content_items?${filter}&select=id,slug,title,summary,full_body,category,publish_mode,nvs_score,needs_review,fetched_at,image_url,source_name,status,template_id`
       );
-      return Response.json({ articles: rows || [], page, has_more: (rows || []).length === limit }, { headers: h });
+      return Response.json({ articles: applyTimeline(rows || []), page, has_more: (rows || []).length === limit }, { headers: h });
     }
 
     if (url.pathname === '/admin/content-save' && request.method === 'POST') {
@@ -2112,6 +2957,36 @@ Sadece JSON döndür:
           arts = arts.filter(a => a.slug !== slug);
         }
         await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+      }
+      return Response.json({ ok: true, slug }, { headers: h });
+    }
+
+    if (url.pathname === '/admin/content-publish' && request.method === 'POST') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const cookie = request.headers.get('cookie') || '';
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauthorized' }, { status: 401, headers: h });
+      const { slug } = await request.json();
+      if (!slug) return Response.json({ error: 'slug required' }, { status: 400, headers: h });
+      await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}`, {
+        status: 'published', needs_review: false, reviewed_at: new Date().toISOString(),
+        published_at: new Date().toISOString(),
+      });
+      const kv = await env.PITCHOS_CACHE.get('articles:BJK');
+      if (kv) {
+        let arts = JSON.parse(kv);
+        if (!arts.find(a => a.slug === slug)) {
+          const row = await supabase(env, 'GET', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&select=*&limit=1`);
+          const r = row?.[0];
+          if (r) {
+            arts.unshift({ title: r.title, summary: r.summary || '', full_body: r.full_body || r.summary || '',
+              source: r.source_name || 'Kartalix', source_name: r.source_name || 'Kartalix',
+              category: r.category || 'Haber', published_at: new Date().toISOString(),
+              nvs: r.nvs_score || 0, slug: r.slug, image_url: r.image_url || '',
+              publish_mode: r.publish_mode || 'manual', is_kartalix_content: r.source_type === 'kartalix' });
+            await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+          }
+        }
       }
       return Response.json({ ok: true, slug }, { headers: h });
     }
@@ -2360,6 +3235,14 @@ Sadece JSON döndür:
       }
     }
 
+    if (url.pathname === '/admin/rewrite-queue') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const siteCode = url.searchParams.get('site') || 'BJK';
+      const raw = await env.PITCHOS_CACHE.get(`rewrite:queue:${siteCode}`);
+      const queue = raw ? JSON.parse(raw) : [];
+      return Response.json({ site: siteCode, count: queue.length, queue: queue.slice(0, 50) }, { headers: h });
+    }
+
     if (url.pathname === '/admin/seed-kv' && request.method === 'POST') {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const sites = await getActiveSites(env);
@@ -2367,7 +3250,7 @@ Sadece JSON döndür:
       if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
       const GOOD_MODES = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
       const dbRows = await supabase(env, 'GET',
-        `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,template_id,sport`);
+        `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport`);
       if (!Array.isArray(dbRows) || dbRows.length === 0) {
         return Response.json({ seeded: 0, message: 'No published articles with known modes in DB' }, { headers: h });
       }
@@ -2382,7 +3265,8 @@ Sadece JSON döndür:
         category:            r.category     || 'Haber',
         nvs:                 r.nvs_score    || 0,
         golden_score:        r.golden_score || null,
-        published_at:        r.published_at,
+        published_at:        r.published_at || r.fetched_at || r.created_at,
+        fetched_at:          r.fetched_at   || r.created_at,
         is_fresh:            false,
         is_kartalix_content: r.source_type === 'kartalix',
         publish_mode:        r.publish_mode || 'rss_summary',
@@ -2517,17 +3401,24 @@ Sadece JSON döndür:
     if (url.pathname === '/sitemap.xml') {
       return serveSitemap(env);
     }
-    if (url.pathname === '/hakkimizda') {
+    if (url.pathname === '/hakkimizda' || url.pathname === '/hakkimizda/') {
       return new Response(renderAboutPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
     }
-    if (url.pathname === '/iletisim') {
+    if (url.pathname === '/iletisim' || url.pathname === '/iletisim/') {
       return new Response(renderContactPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
     }
-    if (url.pathname === '/gizlilik') {
+    if (url.pathname === '/gizlilik' || url.pathname === '/gizlilik/') {
       return new Response(renderPrivacyPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
     }
-    if (url.pathname === '/kaynak-atif') {
+    if (url.pathname === '/kaynak-atif' || url.pathname === '/kaynak-atif/') {
       return new Response(renderAttributionPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
+    }
+    if (url.pathname === '/editoryal-politika' || url.pathname === '/editoryal-politika/') {
+      return new Response(renderEditorialPolicyPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
+    }
+    if (url.pathname.startsWith('/konu/')) {
+      const topicSlug = url.pathname.replace('/konu/', '').replace(/\/$/, '').toLowerCase();
+      return new Response(renderTopicPage(topicSlug), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
     }
     if (url.pathname.startsWith('/haber/')) {
       const slug = url.pathname.replace('/haber/', '').replace(/\/$/, '');
@@ -2540,7 +3431,16 @@ Sadece JSON döndür:
   async scheduled(event, env, ctx) {
     const cron = event.cron;
     if (cron === '*/5 * * * *') {
-      ctx.waitUntil(matchWatcher(env));
+      // During a live match, also run the article pipeline every 5 min (30-min lookback).
+      // URL dedup in getSeenUrls ensures already-processed articles are skipped.
+      const liveRaw = await env.PITCHOS_CACHE.get('match:BJK:live').catch(() => null);
+      const liveState = liveRaw ? JSON.parse(liveRaw) : null;
+      const isMatchLive = liveState?.fixture_id && !liveState.result_published;
+      const work = [matchWatcher(env), runAlarmChecks(env)];
+      if (isMatchLive) {
+        work.push(runAllSites(env, ctx, { cronExpr: '*/5 * * * *', lookbackMs: 30 * 60 * 1000 }));
+      }
+      ctx.waitUntil(Promise.all(work));
     } else if (cron === '0 4 * * *') {
       ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env)]));
     } else if (cron === '0 3 * * 1') {
@@ -2548,10 +3448,75 @@ Sadece JSON döndür:
     } else if (cron === '0 2 * * 0') {
       ctx.waitUntil(runVoicePatternExtraction(env));
     } else {
-      ctx.waitUntil(runAllSites(env, ctx));
+      ctx.waitUntil(runAllSites(env, ctx, { cronExpr: event.cron }));
     }
   },
 };
+
+// ─── ALARM CHECKS ─────────────────────────────────────────────
+async function runAlarmChecks(env) {
+  const SITE = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
+  const now = Date.now();
+  try {
+    const stateRaw = await env.PITCHOS_CACHE.get('alarms:state').catch(() => null);
+    const state = stateRaw ? JSON.parse(stateRaw) : {};
+    if (!state.alarm_first_seen) state.alarm_first_seen = {};
+    if (!state.alarm_acked) state.alarm_acked = {};
+
+    // 1. Pool-size floor (articles:BJK)
+    const kvRaw = await env.PITCHOS_CACHE.get('articles:BJK').catch(() => null);
+    const poolArr = kvRaw ? JSON.parse(kvRaw) : [];
+    const poolSize = Array.isArray(poolArr) ? poolArr.length : 0;
+    if (poolSize < 20) {
+      state.pool_floor_consecutive = (state.pool_floor_consecutive || 0) + 1;
+      if (state.pool_floor_consecutive >= 2 && !state.alarm_first_seen.pool_floor)
+        state.alarm_first_seen.pool_floor = now;
+    } else {
+      if (state.pool_floor_consecutive >= 2) {
+        delete state.alarm_first_seen.pool_floor;
+        delete state.alarm_acked.pool_floor;
+      }
+      state.pool_floor_consecutive = 0;
+    }
+    state.pool_floor_last = poolSize;
+
+    // Daily pool snapshot for KPI strip 14d trend (write once per day)
+    const todayDate = new Date(now).toISOString().slice(0, 10);
+    const snapshotKey = `pool_snapshot:BJK:${todayDate}`;
+    const existingSnap = await env.PITCHOS_CACHE.get(snapshotKey).catch(() => null);
+    if (!existingSnap) {
+      await env.PITCHOS_CACHE.put(snapshotKey, String(poolSize), { expirationTtl: 86400 * 16 }).catch(() => {});
+    }
+
+    // 2. Live pool collapse (published in last 24h)
+    const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+    const liveRows = await supabase(env, 'GET',
+      `/rest/v1/content_items?site_id=eq.${SITE}&status=eq.published&published_at=gte.${encodeURIComponent(oneDayAgo)}&select=id&limit=20`
+    ).catch(() => null);
+    if (Array.isArray(liveRows)) {
+      const liveSize = liveRows.length;
+      if (liveSize < 8) {
+        state.live_pool_consecutive = (state.live_pool_consecutive || 0) + 1;
+        if (state.live_pool_consecutive >= 2 && !state.alarm_first_seen.live_pool_collapse)
+          state.alarm_first_seen.live_pool_collapse = now;
+      } else {
+        if (state.live_pool_consecutive >= 2) {
+          delete state.alarm_first_seen.live_pool_collapse;
+          delete state.alarm_acked.live_pool_collapse;
+        }
+        state.live_pool_consecutive = 0;
+      }
+      state.live_pool_last = liveSize;
+    }
+
+    // 3. Self-heartbeat timestamp
+    state.heartbeat_last = now;
+
+    await env.PITCHOS_CACHE.put('alarms:state', JSON.stringify(state), { expirationTtl: 86400 * 7 });
+  } catch (e) {
+    console.log('runAlarmChecks error:', e.message);
+  }
+}
 
 // ─── SOURCE TEST ─────────────────────────────────────────────
 async function testSourceConfig(src, env) {
@@ -2823,6 +3788,15 @@ async function runAllSites(env, ctx, opts = {}) {
     return { processed: 0, skipped: 'cost_cap' };
   }
 
+  // Minimum 8h to cover quiet-period gap (00:00–06:30 IST = up to 7.5h no runs).
+  // Live-match runs pass opts.lookbackMs directly to skip the 8h floor.
+  const lookbackMs = opts.lookbackMs != null
+    ? opts.lookbackMs
+    : opts.cronExpr
+      ? Math.max(3 * cronToIntervalMs(opts.cronExpr), 8 * 60 * 60 * 1000)
+      : 24 * 60 * 60 * 1000;
+  console.log(`LOOKBACK: ${Math.round(lookbackMs / 3600000 * 10) / 10}h (cron: ${opts.cronExpr || 'manual'}${opts.lookbackMs != null ? ' live-mode' : ''})`);
+
   const sites = await getActiveSites(env);
   console.log('Sites found:', JSON.stringify(sites));
   if (!sites || sites.length === 0) {
@@ -2831,13 +3805,26 @@ async function runAllSites(env, ctx, opts = {}) {
   const results = [];
   for (const site of sites) {
     try {
-      const result = await processSite(site, env, ctx);
+      const result = await processSite(site, env, ctx, lookbackMs);
       results.push({ site: site.short_code, ...result });
     } catch (err) {
       console.error(`Failed site ${site.short_code}:`, err);
       results.push({ site: site.short_code, error: err.message });
       await logFetch(env, site.id, 'failed', {}, err.message);
     }
+
+    // Drain rewrite queue — runs after main pipeline on each hourly tick
+    try {
+      const drained = await drainRewriteQueue(site, env);
+      if (drained?.length) {
+        const { saved } = await saveArticles(env, site.id, drained, 'published');
+        if (saved.length) {
+          const existing = await getCachedArticles(env, site.short_code);
+          await cacheToKV(env, site.short_code, [...saved.map(a => toKVShape({ ...a, nvs: a.nvs_score || a.nvs || 0, is_kartalix_content: true })), ...existing]);
+          console.log(`REWRITE DRAIN: saved ${saved.length} articles to DB+KV for ${site.short_code}`);
+        }
+      }
+    } catch(e) { console.error(`Drain failed for ${site?.short_code}:`, e.message); }
   }
   return { processed: results.length, results };
 }
@@ -2975,20 +3962,15 @@ async function getMatchWeather(lat, lon) {
 }
 
 // ─── GOAL EVENTS (for T10 scorer name) ───────────────────────
+// Uses fetchAllEvents + code filter instead of ?type=Goal query param,
+// which the API silently ignores/returns empty for live matches.
 async function fetchGoalEvents(fixtureId, env) {
-  if (!env.API_FOOTBALL_KEY || !fixtureId) return [];
-  try {
-    const res = await fetch(
-      `https://v3.football.api-sports.io/fixtures/events?fixture=${fixtureId}&team=549&type=Goal`,
-      { headers: { 'x-apisports-key': env.API_FOOTBALL_KEY }, signal: AbortSignal.timeout(6000) }
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.response || [];
-  } catch(e) {
-    console.error('fetchGoalEvents failed:', e.message);
-    return [];
-  }
+  const all = await fetchAllEvents(fixtureId, env);
+  return all.filter(e =>
+    e.type === 'Goal' &&
+    e.detail !== 'Missed Penalty' &&
+    e.team?.id === 549
+  );
 }
 
 // ─── ALL EVENTS (for Sprint A: T-HT, T-RED, T-VAR, T-OG, T-PEN) ──────────
@@ -3033,6 +4015,7 @@ const toKVShape = a => ({
   url:                 a.url          || a.original_url || '',
   category:            a.category     || 'Haber',
   nvs:                 a.nvs          || a.nvs_score   || 0,
+  trust_score:         a.trust_score  || tierToTrustScore(a.trust_tier || a.trust),
   golden_score:        a.golden_score || null,
   published_at:        a.published_at || a.fetched_at  || new Date().toISOString(),
   is_fresh:            a.is_fresh     ?? true,
@@ -3042,6 +4025,7 @@ const toKVShape = a => ({
   publish_mode:        a.publish_mode || 'rss_summary',
   image_url:           '',
   template_id:         a.template_id  || null,
+  fixture_id:          a.fixture_id   || null,
   slug:                a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
 });
 
@@ -3129,25 +4113,26 @@ async function matchWatcher(env) {
                 getFixtureStats(savedLive.fixture_id, env).catch(() => null),
                 getFixtureEvents(savedLive.fixture_id, env).catch(() => []),
               ]);
+              const _fid = savedLive.fixture_id;
               const t11 = await generateResultFlash(matchObj, players, site, env, events).catch(() => null);
               if (t11) {
                 const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                 const kv  = raw ? JSON.parse(raw) : [];
-                await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...t11, nvs: t11.nvs_score || 88, is_kartalix_content: true, is_template: true }), ...kv], 100));
+                await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...t11, nvs: t11.nvs_score || 88, is_kartalix_content: true, is_template: true, fixture_id: _fid }), ...kv], 300));
                 console.log('WATCHER CATCH-UP KV WRITE T11: done');
               }
               const t13 = await generateManOfTheMatch(matchObj, players, site, env).catch(() => null);
               if (t13) {
                 const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                 const kv  = raw ? JSON.parse(raw) : [];
-                await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...t13, nvs: t13.nvs_score || 80, is_kartalix_content: true, is_template: true }), ...kv], 100));
+                await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...t13, nvs: t13.nvs_score || 80, is_kartalix_content: true, is_template: true, fixture_id: _fid }), ...kv], 300));
                 console.log('WATCHER CATCH-UP KV WRITE T13: done');
               }
               const t12 = await generateMatchReport(matchObj, players, stats, site, env, events).catch(() => null);
               if (t12) {
                 const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                 const kv  = raw ? JSON.parse(raw) : [];
-                await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...t12, nvs: t12.nvs_score || 85, is_kartalix_content: true, is_template: true }), ...kv], 100));
+                await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...t12, nvs: t12.nvs_score || 85, is_kartalix_content: true, is_template: true, fixture_id: _fid }), ...kv], 300));
                 console.log('WATCHER CATCH-UP KV WRITE T12: done');
               }
               if (stats?.xg != null && Math.abs((finished.score_bjk ?? 0) - parseFloat(stats.xg)) > 1.2) {
@@ -3155,7 +4140,7 @@ async function matchWatcher(env) {
                 if (txg) {
                   const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const kv  = raw ? JSON.parse(raw) : [];
-                  await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...txg, nvs: txg.nvs_score || 78, is_kartalix_content: true, is_template: true }), ...kv], 100));
+                  await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...txg, nvs: txg.nvs_score || 78, is_kartalix_content: true, is_template: true, fixture_id: _fid }), ...kv], 300));
                   console.log('WATCHER CATCH-UP KV WRITE T-XG: done');
                 }
               }
@@ -3197,7 +4182,7 @@ async function matchWatcher(env) {
             const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = raw ? JSON.parse(raw) : [];
             const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 88, is_kartalix_content: true, is_template: true });
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
             console.log('WATCHER KV WRITE T09: done');
           }
         } else {
@@ -3228,7 +4213,7 @@ async function matchWatcher(env) {
           const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
           const latest = raw ? JSON.parse(raw) : [];
           const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 65, is_kartalix_content: true, is_template: true });
-          await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+          await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
           console.log('WATCHER KV WRITE T-REF: done');
         }
       }
@@ -3257,9 +4242,16 @@ async function matchWatcher(env) {
 
       if (liveFixture) {
         const liveStateRaw = await env.PITCHOS_CACHE.get('match:BJK:live');
-        const liveState    = liveStateRaw
-          ? JSON.parse(liveStateRaw)
+        const savedState   = liveStateRaw ? JSON.parse(liveStateRaw) : null;
+        // New match — reset all per-match flags so old ht_published/seen_event_ids don't bleed over
+        const liveState    = (savedState && savedState.fixture_id === liveFixture.fixture_id)
+          ? savedState
           : { score_bjk: 0, score_opp: 0, result_published: false };
+
+        // Guard: if the match is still live, result cannot have been published yet.
+        // Prevents a mid-match false positive (e.g. wrong status poll) from permanently
+        // blocking the post-match T11/T12/T13 suite.
+        if (!liveFixture.is_finished) liveState.result_published = false;
 
         // T10 — BJK goal detected
         if ((liveFixture.score_bjk ?? 0) > (liveState.score_bjk ?? 0)) {
@@ -3274,8 +4266,18 @@ async function matchWatcher(env) {
               liveState._hold_score = true;
               liveState.goal_wait_ticks = waitTicks;
             } else {
-              console.log('WATCHER T10: events still empty after 3 ticks — skipping goal flash to avoid bad article');
+              // Events API never caught up — generate score-only flash so users at least see the goal
+              console.log('WATCHER T10: events empty after 3 ticks — generating score-only flash');
               liveState.goal_wait_ticks = 0;
+              const scoreFlashEvent = { type: 'Goal', detail: 'Normal Goal', time: { elapsed: null }, player: { name: null }, team: { id: 549 } };
+              const matchObj = { ...nextMatch, score_bjk: liveFixture.score_bjk, score_opp: liveFixture.score_opp };
+              const card = await generateGoalFlash(matchObj, scoreFlashEvent, site, env).catch(() => null);
+              if (card) {
+                const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+                const latest = raw ? JSON.parse(raw) : [];
+                await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: card.nvs_score || 90, is_kartalix_content: true, is_template: true }), ...latest], 300));
+                console.log('WATCHER KV WRITE T10 (score-only): done');
+              }
             }
           } else {
             liveState.goal_wait_ticks = 0;
@@ -3286,7 +4288,7 @@ async function matchWatcher(env) {
               const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
               const latest = raw ? JSON.parse(raw) : [];
               const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 90, is_kartalix_content: true, is_template: true });
-              await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+              await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
               console.log('WATCHER KV WRITE T10: done');
             }
           }
@@ -3309,7 +4311,7 @@ async function matchWatcher(env) {
                   liveState.ht_published = true;
                   const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = raw ? JSON.parse(raw) : [];
-                  await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...htCard, nvs: 85, is_kartalix_content: true, is_template: true }), ...latest], 100));
+                  await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...htCard, nvs: 85, is_kartalix_content: true, is_template: true, fixture_id: liveFixture.fixture_id }), ...latest], 300));
                   console.log('WATCHER KV WRITE T-HT: done');
                 }
               } catch(e) { console.error('WATCHER T-HT failed:', e.message); }
@@ -3328,7 +4330,7 @@ async function matchWatcher(env) {
                   if (card) {
                     const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                     const latest = raw ? JSON.parse(raw) : [];
-                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 88, is_kartalix_content: true, is_template: true }), ...latest], 100));
+                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 88, is_kartalix_content: true, is_template: true, fixture_id: liveFixture.fixture_id }), ...latest], 300));
                     console.log(`WATCHER KV WRITE T-RED: ${ev.player?.name}`);
                   }
                 }
@@ -3338,7 +4340,7 @@ async function matchWatcher(env) {
                   if (card) {
                     const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                     const latest = raw ? JSON.parse(raw) : [];
-                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 85, is_kartalix_content: true, is_template: true }), ...latest], 100));
+                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 85, is_kartalix_content: true, is_template: true, fixture_id: liveFixture.fixture_id }), ...latest], 300));
                     console.log(`WATCHER KV WRITE T-VAR: ${ev.detail}`);
                   }
                 }
@@ -3348,7 +4350,7 @@ async function matchWatcher(env) {
                   if (card) {
                     const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                     const latest = raw ? JSON.parse(raw) : [];
-                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 85, is_kartalix_content: true, is_template: true }), ...latest], 100));
+                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 85, is_kartalix_content: true, is_template: true, fixture_id: liveFixture.fixture_id }), ...latest], 300));
                     console.log(`WATCHER KV WRITE T-OG: ${ev.player?.name}`);
                   }
                 }
@@ -3358,7 +4360,7 @@ async function matchWatcher(env) {
                   if (card) {
                     const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                     const latest = raw ? JSON.parse(raw) : [];
-                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 82, is_kartalix_content: true, is_template: true }), ...latest], 100));
+                    await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 82, is_kartalix_content: true, is_template: true, fixture_id: liveFixture.fixture_id }), ...latest], 300));
                     console.log(`WATCHER KV WRITE T-PEN: ${ev.player?.name}`);
                   }
                 }
@@ -3384,8 +4386,8 @@ async function matchWatcher(env) {
             liveState.result_published = true;
             const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = raw ? JSON.parse(raw) : [];
-            const kvCard = toKVShape({ ...t11card, nvs: t11card.nvs_score || 88, is_kartalix_content: true, is_template: true });
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+            const kvCard = toKVShape({ ...t11card, nvs: t11card.nvs_score || 88, is_kartalix_content: true, is_template: true, fixture_id: liveFixture.fixture_id });
+            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
             console.log('WATCHER KV WRITE T11: done');
           }
 
@@ -3394,8 +4396,8 @@ async function matchWatcher(env) {
             if (t13card) {
               const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
               const latest = raw ? JSON.parse(raw) : [];
-              const kvCard = toKVShape({ ...t13card, nvs: t13card.nvs_score || 80, is_kartalix_content: true, is_template: true });
-              await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+              const kvCard = toKVShape({ ...t13card, nvs: t13card.nvs_score || 80, is_kartalix_content: true, is_template: true, fixture_id: liveFixture.fixture_id });
+              await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
               console.log('WATCHER KV WRITE T13: done');
             }
           } catch(e) { console.error('WATCHER T13 failed:', e.message); }
@@ -3405,8 +4407,8 @@ async function matchWatcher(env) {
             if (t12card) {
               const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
               const latest = raw ? JSON.parse(raw) : [];
-              const kvCard = toKVShape({ ...t12card, nvs: t12card.nvs_score || 85, is_kartalix_content: true, is_template: true });
-              await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+              const kvCard = toKVShape({ ...t12card, nvs: t12card.nvs_score || 85, is_kartalix_content: true, is_template: true, fixture_id: liveFixture.fixture_id });
+              await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
               console.log('WATCHER KV WRITE T12: done');
             }
           } catch(e) { console.error('WATCHER T12 failed:', e.message); }
@@ -3420,8 +4422,8 @@ async function matchWatcher(env) {
                 if (xgCard) {
                   const raw    = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = raw ? JSON.parse(raw) : [];
-                  const kvCard = toKVShape({ ...xgCard, nvs: xgCard.nvs_score || 78, is_kartalix_content: true, is_template: true });
-                  await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+                  const kvCard = toKVShape({ ...xgCard, nvs: xgCard.nvs_score || 78, is_kartalix_content: true, is_template: true, fixture_id: liveFixture.fixture_id });
+                  await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
                   console.log('WATCHER KV WRITE T-XG: done');
                 }
               }
@@ -3507,7 +4509,7 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null)
         const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
         const current = raw ? JSON.parse(raw) : [];
         const kvCard  = toKVShape({ ...card, nvs: card.nvs_score || 72, is_kartalix_content: true, is_template: true });
-        await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 100));
+        await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 300));
         seenUrls.add(`https://www.youtube.com/watch?v=${video.video_id}`);
         published++;
 
@@ -3518,7 +4520,7 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null)
             const videoArticle = videoToArticle(video);
             const facts = await extractFactsForStory(videoArticle, env);
             if (!SKIP_STORY_TYPES.has(facts.story_type)) {
-              const { story, isNew } = await matchOrCreateStory(videoArticle, facts, site.id, env, openStories);
+              const { story, isNew } = await matchOrCreateStory(videoArticle, facts, site.id, env, openStories, site.short_code);
               if (isNew) openStories = [...openStories, story];
               console.log(`YT story match [${video.title?.slice(0, 40)}]: ${isNew ? 'NEW' : 'MATCHED'} → ${story.id} (${story.state})`);
             }
@@ -3554,7 +4556,7 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null)
               const videoArticle = videoToArticle(video);
               const facts = await extractFactsForStory(videoArticle, env);
               if (!SKIP_STORY_TYPES.has(facts.story_type)) {
-                const { story, isNew } = await matchOrCreateStory(videoArticle, facts, site.id, env, openStories);
+                const { story, isNew } = await matchOrCreateStory(videoArticle, facts, site.id, env, openStories, site.short_code);
                 if (isNew) openStories = [...openStories, story];
                 console.log(`YT story match [Rabona/${video.title?.slice(0, 30)}]: ${isNew ? 'NEW' : 'MATCHED'} → ${story.id} (${story.state})`);
               }
@@ -3570,7 +4572,7 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null)
             const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const current = raw ? JSON.parse(raw) : [];
             const kvCard  = toKVShape({ ...card, nvs: card.nvs || 74, is_kartalix_content: true });
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 100));
+            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 300));
             await env.PITCHOS_CACHE.put(dayKey, '1', { expirationTtl: 86400 });
             published++;
             console.log(`RABONA DIGEST published: ${usedVideos.length} video(s)`);
@@ -3591,7 +4593,7 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null)
 }
 
 // ─── PROCESS ONE SITE ────────────────────────────────────────
-async function processSite(site, env, ctx) {
+async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
   const startTime = Date.now();
   const stats = {
     raw_fetched: 0, after_date: 0, after_keyword: 0, after_hash: 0, after_title: 0,
@@ -3616,7 +4618,7 @@ async function processSite(site, env, ctx) {
   // fetchBJKOfficial disabled — bjk.com.tr blocks all datacenter IPs (direct, pitchos-proxy, allorigins).
   // Official BJK content will arrive via @Besiktas Twitter in Slice 4.
   const [{ articles: rssArticles, bySource }, { articles: webArticles, usage: fetchUsage }, { articles: beINArticles, usage: beINUsage }, { articles: twitterArticles, usage: twitterUsage }] = await Promise.all([
-    fetchRSSArticles(site, dynamicRSSFeeds),
+    fetchRSSArticles(site, dynamicRSSFeeds, lookbackMs),
     fetchArticles(site, env),
     fetchBeIN(site, env),
     fetchTwitterSources(site, env),
@@ -3630,14 +4632,19 @@ async function processSite(site, env, ctx) {
   const seenHashes = await getSeenHashes(env, site.short_code);
   const allFetched = [...rssArticles, ...webArticles, ...beINArticles, ...twitterArticles];
 
-  const { articles: afterPreFilter, counts: filterCounts } = preFilter(allFetched, seenHashes);
+  const { articles: afterPreFilter, counts: filterCounts, rejected: preFilterRejected } = preFilter(allFetched, seenHashes, lookbackMs);
 
   // ── URL DEDUP against Supabase (permanent, prevents re-scoring) ──
   const seenUrls = await getSeenUrls(env, site.id);
+  const urlSeenItems = [];
   const preFiltered = afterPreFilter.filter(a => {
     const url = a.url || a.original_url || '';
     if (!url || url === '#') return true;
-    return !seenUrls.has(url);
+    if (seenUrls.has(url)) {
+      urlSeenItems.push({ url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'url_seen' });
+      return false;
+    }
+    return true;
   });
 
   const funnelStats = {
@@ -3672,14 +4679,16 @@ async function processSite(site, env, ctx) {
       try {
         const GOOD_MODES_SEED = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
         const dbRows = await supabase(env, 'GET',
-          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES_SEED.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,template_id,sport`);
+          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES_SEED.join(',')})&order=published_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport`);
         if (Array.isArray(dbRows) && dbRows.length > 0) {
           const seeded = dbRows.filter(r => r.slug && (r.full_body || r.summary)).map(r => toKVShape({
             title: r.title || '', summary: r.summary || '', full_body: r.full_body || r.summary || '',
             source_name: r.source_name || '', source: r.source_name || '',
             url: r.original_url || '', original_url: r.original_url || '',
             category: r.category || 'Haber', nvs: r.nvs_score || 0,
-            golden_score: r.golden_score || null, published_at: r.published_at,
+            golden_score: r.golden_score || null,
+            published_at: r.published_at || r.fetched_at || r.created_at,
+            fetched_at:   r.fetched_at   || r.created_at,
             is_fresh: false, is_kartalix_content: r.source_type === 'kartalix',
             publish_mode: r.publish_mode || 'rss_summary', slug: r.slug,
             template_id: r.template_id || null, sport: r.sport || 'football',
@@ -3688,6 +4697,13 @@ async function processSite(site, env, ctx) {
           console.log(`KV SEED on empty (no new articles): ${seeded.length} from DB`);
         }
       } catch(e) { console.error('KV seed on empty failed:', e.message); }
+    } else {
+      // Re-rank existing KV so stale articles decay even on quiet cron runs
+      try {
+        const existing = JSON.parse(kvCheck);
+        await cacheToKV(env, site.short_code, existing);
+        console.log(`KV RE-RANK (no new articles): ${existing.length} articles re-ranked`);
+      } catch(e) { console.error('KV re-rank on quiet run failed:', e.message); }
     }
     return { ...stats, cached: 0 };
   }
@@ -3793,7 +4809,7 @@ async function processSite(site, env, ctx) {
         const card = await generateMatchDayCard(nextMatch, preFiltered, site, env, injuries);
         if (card) {
           await linkToMatchStory(card);
-          const withT = mergeAndDedupe([toKVShape(card), ...immediateKV], 100);
+          const withT = [toKVShape(card), ...immediateKV];
           await cacheToKV(env, site.short_code, withT);
           console.log('KV WRITE WITH TEMPLATE 05: done');
         }
@@ -3812,7 +4828,7 @@ async function processSite(site, env, ctx) {
           await linkToMatchStory(card);
           const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
           const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-          await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 100));
+          await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 300));
           console.log('KV WRITE WITH TEMPLATE 08b: done');
         }
       }
@@ -3829,7 +4845,7 @@ async function processSite(site, env, ctx) {
             await linkToMatchStory(card);
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
-            await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 100));
+            await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape(card), ...latest], 300));
             console.log('KV WRITE WITH TEMPLATE 09: done');
           }
         } else {
@@ -3855,7 +4871,7 @@ async function processSite(site, env, ctx) {
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
             const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 72, is_kartalix_content: true, is_template: true });
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
             console.log('KV WRITE WITH T02: done');
           }
         }
@@ -3880,7 +4896,7 @@ async function processSite(site, env, ctx) {
             await linkToMatchStory(card);
             await env.PITCHOS_CACHE.put(t07Key, '1', { expirationTtl: 86400 });
             const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 75, is_kartalix_content: true, is_template: true });
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...rssArticles], 100));
+            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...rssArticles], 300));
             console.log('KV WRITE WITH T07: done');
           }
         }
@@ -3914,7 +4930,7 @@ async function processSite(site, env, ctx) {
               const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
               const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
               const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 65, is_kartalix_content: true, is_template: true });
-              await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+              await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
               console.log('KV WRITE WITH T-REF: done');
             }
           } else {
@@ -3945,7 +4961,7 @@ async function processSite(site, env, ctx) {
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
             const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 70, is_kartalix_content: true, is_template: true });
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
             console.log('KV WRITE WITH T03: done');
           }
         }
@@ -3990,7 +5006,7 @@ async function processSite(site, env, ctx) {
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
             const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 75, is_kartalix_content: true, is_template: true });
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
             console.log('KV WRITE WITH T08c: done');
           }
         }
@@ -4059,7 +5075,7 @@ async function processSite(site, env, ctx) {
             const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
             const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 82, is_kartalix_content: true, is_template: true });
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
             console.log('KV WRITE WITH TEMPLATE T01: done');
           }
         }
@@ -4098,7 +5114,7 @@ async function processSite(site, env, ctx) {
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
                   const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 90, is_kartalix_content: true, is_template: true });
-                  await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+                  await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
                   console.log('KV WRITE WITH TEMPLATE T10: done');
                 }
               }
@@ -4119,7 +5135,7 @@ async function processSite(site, env, ctx) {
                 const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                 const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
                 const kvCard = toKVShape({ ...card, nvs: card.nvs_score || 88, is_kartalix_content: true, is_template: true });
-                await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+                await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
                 console.log('KV WRITE WITH TEMPLATE T11: done');
               }
 
@@ -4132,7 +5148,7 @@ async function processSite(site, env, ctx) {
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
                   const kvCard = toKVShape({ ...motmCard, nvs: motmCard.nvs_score || 80, is_kartalix_content: true, is_template: true });
-                  await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+                  await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
                   console.log('KV WRITE WITH TEMPLATE T13: done');
                 }
               } catch(e) { console.error('T13 failed:', e.message); }
@@ -4146,7 +5162,7 @@ async function processSite(site, env, ctx) {
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                   const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
                   const kvCard = toKVShape({ ...reportCard, nvs: reportCard.nvs_score || 85, is_kartalix_content: true, is_template: true });
-                  await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+                  await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
                   console.log('KV WRITE WITH TEMPLATE T12: done');
                 }
               } catch(e) { console.error('T12 failed:', e.message); }
@@ -4163,7 +5179,7 @@ async function processSite(site, env, ctx) {
                       const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                       const latest = latestRaw ? JSON.parse(latestRaw) : immediateKV;
                       const kvCard = toKVShape({ ...xgCard, nvs: xgCard.nvs_score || 78, is_kartalix_content: true, is_template: true });
-                      await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 100));
+                      await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...latest], 300));
                       console.log('KV WRITE WITH TEMPLATE T-XG: done');
                     }
                   } else {
@@ -4194,26 +5210,29 @@ async function processSite(site, env, ctx) {
     // ── DB-FIRST SAVE + KV WRITE ─────────────────────────────────
     // Articles reach KV only after Supabase confirms the write. Any failure
     // is recorded in KV so the admin panel can surface it immediately.
+    let scoredLowItems    = [];
+    let publishedLogItems = [];
     try {
       const top100forWrite = top100.slice(0, 100);
       const allWritten = await writeArticles(top100forWrite, site, env);
       console.log(`Write phase: ${allWritten.map(a => a.publish_mode).join(', ')}`);
+
+      scoredLowItems = allWritten
+        .filter(a => a.publish_mode === 'rss_summary')
+        .map(a => ({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs, _stage: 'scored_low' }));
 
       const publishThreshold = site.auto_publish_threshold || 30;
       // template_official = @Besiktas official tweets — always publish regardless of NVS score
       const toPublish = allWritten.filter(a =>
         (a.nvs >= publishThreshold || a.publish_mode === 'template_official') &&
         a.publish_mode !== 'hot_news_hold');
-      const toQueue   = allWritten.filter(a =>
-        a.nvs >= site.review_threshold &&
-        a.nvs < publishThreshold &&
-        a.publish_mode !== 'hot_news_hold' &&
-        a.publish_mode !== 'template_official');
-      stats.published = toPublish.length;
-      stats.queued    = toQueue.length;
+      stats.queued    = 0;
 
       const pubResult   = toPublish.length > 0 ? await saveArticles(env, site.id, toPublish, 'published') : { saved: [], failed: [] };
-      const queueResult = toQueue.length   > 0 ? await saveArticles(env, site.id, toQueue,   'pending')   : { saved: [], failed: [] };
+      stats.published = pubResult.saved.length;
+      publishedLogItems = pubResult.saved
+        .map(a => ({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs, publish_mode: a.publish_mode, _stage: 'published' }));
+      const queueResult = { saved: [], failed: [] };
 
       // Surface any DB write failures to the admin panel immediately
       const allFailed = [...pubResult.failed, ...queueResult.failed];
@@ -4232,11 +5251,14 @@ async function processSite(site, env, ctx) {
       );
       const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
       let latestKV = latestRaw ? JSON.parse(latestRaw) : [];
-      // KV cache miss — seed from DB so published articles aren't invisible after TTL expiry
-      if (!latestRaw) {
+      // KV cache miss OR near-empty (drought recovery) — seed from DB.
+      // Restricted to last 30 days with non-null published_at to prevent old/orphaned DB records
+      // (especially copy_source articles with null slugs) from reappearing as fresh content.
+      if (!latestRaw || latestKV.length < 10) {
         try {
+          const seedCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
           const dbRows = await supabase(env, 'GET',
-            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&order=published_at.desc&limit=100&select=*`);
+            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&published_at=not.is.null&published_at=gte.${seedCutoff}&order=published_at.desc&limit=300&select=*`);
           if (Array.isArray(dbRows) && dbRows.length > 0) {
             latestKV = dbRows.map(r => toKVShape({
               title:        r.title,
@@ -4256,7 +5278,7 @@ async function processSite(site, env, ctx) {
               slug:         r.slug,
               template_id:  r.template_id || null,
             }));
-            console.log(`KV SEED from DB: ${latestKV.length} published articles`);
+            console.log(`KV SEED from DB: ${latestKV.length} published articles (last 30d)`);
           }
         } catch(e) { console.error('KV seed from DB failed:', e.message); }
       }
@@ -4264,9 +5286,8 @@ async function processSite(site, env, ctx) {
         const syn = synthesisUrlMap.get(a.url || a.original_url);
         return toKVShape(syn ? { ...a, full_body: syn.full_body, publish_mode: 'rewrite' } : a);
       });
-      const finalKV = mergeAndDedupe([...newKVItems, ...latestKV], 100);
-      await cacheToKV(env, site.short_code, finalKV);
-      console.log(`KV WRITE (DB-confirmed): ${newKVItems.length} new + ${latestKV.length} existing → ${finalKV.length} total`);
+      const finalKVCount = await cacheToKV(env, site.short_code, [...newKVItems, ...latestKV]);
+      console.log(`KV WRITE (DB-confirmed): ${newKVItems.length} new + ${latestKV.length} existing → ${finalKVCount} ranked`);
       if (allFailed.length > 0) {
         console.error(`DB WRITE FAILURES (${allFailed.length}): ${allFailed.map(a => '"' + (a.title||'').slice(0,50) + '"').join(', ')}`);
       }
@@ -4275,18 +5296,52 @@ async function processSite(site, env, ctx) {
       // Capped at 5 per run — each article requires 2 Claude calls (extractFacts + judge).
       // Cron runs every 30 min so all articles get processed across multiple ticks.
       // Fetch open stories once, reuse to avoid N×Supabase reads.
-      const articlesWithFacts = allWritten.filter(a => a._facts).slice(0, 5);
+      // Thread DB IDs from confirmedArticles back into allWritten so addContribution stores them.
+      const idBySlug = Object.fromEntries(confirmedArticles.filter(a => a.id && a.slug).map(a => [a.slug, a.id]));
+      const articlesWithFacts = allWritten.filter(a => a._facts).slice(0, 5)
+        .map(a => (a.id || !a.slug || !idBySlug[a.slug]) ? a : { ...a, id: idBySlug[a.slug] });
+      const storiesThisRun = new Map(); // story_id → story (touched this run)
       if (articlesWithFacts.length > 0) {
         console.log(`Story matching: ${articlesWithFacts.length} articles with extracted facts`);
         let openStories = await getOpenStories(site.id, env);
         for (const article of articlesWithFacts) {
           try {
-            const { story, isNew } = await matchOrCreateStory(article, article._facts, site.id, env, openStories);
-            console.log(`Story match [${article.title?.slice(0, 40)}]: ${isNew ? 'NEW' : 'MATCHED'} → ${story.id} (conf:${story.confidence} state:${story.state})`);
+            const { story, isNew } = await matchOrCreateStory(article, article._facts, site.id, env, openStories, site.short_code);
+            console.log(`Story match [${article.title?.slice(0, 40)}]: ${isNew ? 'NEW' : 'MATCHED'} → ${story.id} (conf:${story.confidence} state:${story.state}) id=${article.id||'null'}`);
+            // Also patch content_item.story_id so H5 gate and synthesizeStory can find it
+            if (article.id) {
+              supabase(env, 'PATCH', `/rest/v1/content_items?id=eq.${article.id}`, { story_id: story.id })
+                .catch(e => console.error('content_item story_id patch failed:', e.message));
+            }
+            storiesThisRun.set(story.id, story);
             if (isNew) openStories = [...openStories, story];
           } catch (e) {
             console.error('Story match failed:', e.message, '| article:', article.title?.slice(0, 40));
           }
+        }
+      }
+
+      // ── H5 MULTI-SOURCE SYNTHESIS ────────────────────────────
+      // Fires synthesizeStory for confirmed/active stories that passed the quality gate.
+      // Cap 2/run to stay within Claude budget.
+      const h5Candidates = [...storiesThisRun.values()]
+        .filter(s => ['confirmed', 'active', 'developing'].includes(s.state));
+      if (h5Candidates.length > 0) {
+        const scRows = await supabase(env, 'GET', `/rest/v1/source_configs?select=name,source_family&is_active=eq.true`) || [];
+        const scMap = Object.fromEntries(scRows.filter(r => r.source_family).map(r => [r.name, r.source_family]));
+        let h5Count = 0;
+        for (const story of h5Candidates) {
+          if (h5Count >= 2) break;
+          try {
+            const gate = await checkH5SynthGate(story.id, env, scMap);
+            if (gate.eligible) {
+              console.log(`H5 SYNTH: firing for story ${story.id} "${story.title?.slice(0,40)}" — ${gate.reason}`);
+              synthesizeStory(story, site.id, env, site.short_code).catch(e => console.error('H5 synth failed:', e.message));
+              h5Count++;
+            } else {
+              console.log(`H5 SYNTH: skip story ${story.id} — ${gate.reason}`);
+            }
+          } catch(e) { console.error('H5 gate check failed:', e.message); }
         }
       }
     } catch(e) {
@@ -4296,6 +5351,34 @@ async function processSite(site, env, ctx) {
 
     await logFetch(env, site.id, 'success', stats, null, funnelStats);
     if (stats.costEur > 0) await addCost(env, stats.costEur);
+
+    // ── PIPELINE LOG — per-article disposition ─────────────────
+    try {
+      const runAt = new Date().toISOString();
+      const cutoff7d = new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString();
+      // Cleanup old rows
+      await supabase(env, 'DELETE', `/rest/v1/pipeline_log?site_id=eq.${site.id}&created_at=lt.${cutoff7d}`).catch(() => {});
+      // Collect all events
+      const allEvents = [
+        ...(preFilterRejected || []),
+        ...(urlSeenItems      || []),
+        ...(scoredLowItems    || []),
+        ...(publishedLogItems || []),
+      ];
+      if (allEvents.length > 0) {
+        const rows = allEvents.slice(0, 600).map(a => ({
+          site_id:      site.id,
+          run_at:       runAt,
+          source_name:  (a.source_name || '').slice(0, 100),
+          title:        (a.title       || '').slice(0, 250),
+          url:          (a.url         || '').slice(0, 500),
+          stage:        a._stage,
+          nvs_score:    a.nvs_score || null,
+          publish_mode: a.publish_mode || null,
+        }));
+        await supabase(env, 'POST', `/rest/v1/pipeline_log`, rows).catch(e => console.error('pipeline_log write failed:', e.message));
+      }
+    } catch(e) { console.error('pipeline_log block failed:', e.message); }
 
     // ── YOUTUBE INTAKE ─────────────────────────────────────────
     await processYouTubeVideos(site, env, seenUrls, dynamicYTChannels).catch(e => console.error('YT intake failed:', e.message));
@@ -4319,7 +5402,7 @@ async function buildReport(env, from, to) {
     supabase(env, 'GET', `/rest/v1/fetch_logs?site_id=eq.${SITE}&order=created_at.desc&limit=100${lF}&select=created_at,status,items_fetched,items_published,items_queued,items_rejected,items_scored,estimated_cost_eur,duration_ms,claude_calls,error_message`),
     supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${SITE}&order=fetched_at.desc&limit=500${iF}&select=id,title,source_name,category,content_type,nvs_score,status,fetched_at,reviewed_at,original_url,nvs_notes,needs_review,publish_mode`),
     env.PITCHOS_CACHE.get('articles:BJK'),
-    supabase(env, 'GET', `/rest/v1/source_configs?site_id=eq.${SITE}&select=name,source_type,trust_tier,is_active`),
+    supabase(env, 'GET', `/rest/v1/source_configs?site_id=eq.${SITE}&select=name,source_type,trust_tier,is_active,source_family`),
     supabase(env, 'GET', `/rest/v1/stories?site_id=eq.${SITE}&select=id,story_type,state,created_at&order=created_at.desc&limit=200`),
   ]);
 
@@ -4331,7 +5414,7 @@ async function buildReport(env, from, to) {
 
   // ─── source type distribution ─────────────────────────────
   const srcMap = {};
-  (sourceConfigs || []).forEach(sc => { srcMap[sc.name] = { type: sc.source_type, tier: sc.trust_tier }; });
+  (sourceConfigs || []).forEach(sc => { srcMap[sc.name] = { type: sc.source_type, tier: sc.trust_tier, family: sc.source_family }; });
   const byTypeM = {}, byTierM = {};
   items.forEach(a => {
     const cfg = srcMap[a.source_name];
@@ -4359,14 +5442,56 @@ async function buildReport(env, from, to) {
   const bySource = {};
   items.forEach(a => {
     const s = a.source_name || 'Unknown';
-    if (!bySource[s]) bySource[s] = { source_name:s, contributed:0, published:0, rejected:0, nvs_total:0, last_article_at:null };
+    if (!bySource[s]) bySource[s] = { source_name:s, contributed:0, published:0, queued:0, rejected:0, nvs_total:0, last_article_at:null };
     bySource[s].contributed++;
     if (a.status === 'published') bySource[s].published++;
+    if (a.status === 'pending')   bySource[s].queued++;
     if (a.status === 'rejected')  bySource[s].rejected++;
     bySource[s].nvs_total += (a.nvs_score || 0);
     if (!bySource[s].last_article_at || a.fetched_at > bySource[s].last_article_at) bySource[s].last_article_at = a.fetched_at;
   });
-  const by_source = Object.values(bySource).map(s => ({ ...s, avg_nvs: s.contributed>0?Math.round(s.nvs_total/s.contributed):0 })).sort((a,b) => b.contributed-a.contributed);
+  // ─── per-source fetch stats from fetch_logs.error_message.by_source ─────
+  const srcFetchStats = {};
+  (runs || []).forEach(run => {
+    if (!run.error_message) return;
+    try {
+      const d = JSON.parse(run.error_message);
+      if (d.by_source && typeof d.by_source === 'object') {
+        Object.entries(d.by_source).forEach(([src, s]) => {
+          if (!srcFetchStats[src]) srcFetchStats[src] = { raw: 0, kw: 0 };
+          srcFetchStats[src].raw += s.raw || 0;
+          srcFetchStats[src].kw  += s.after_keyword || 0;
+        });
+      }
+    } catch(e) {}
+  });
+
+  // Merge: start from srcFetchStats so sources with 0 content_items are still visible
+  const mergedSources = {};
+  Object.entries(srcFetchStats).forEach(([src, fs]) => {
+    mergedSources[src] = {
+      source_name: src, raw_fetched: fs.raw || 0, kw_passed: fs.kw || 0,
+      contributed: 0, published: 0, queued: 0, rejected: 0, nvs_total: 0, last_article_at: null,
+    };
+  });
+  Object.values(bySource).forEach(s => {
+    if (!mergedSources[s.source_name]) mergedSources[s.source_name] = {
+      source_name: s.source_name, raw_fetched: 0, kw_passed: 0,
+      contributed: 0, published: 0, queued: 0, rejected: 0, nvs_total: 0, last_article_at: null,
+    };
+    const m = mergedSources[s.source_name];
+    m.contributed    = s.contributed;
+    m.published      = s.published;
+    m.queued         = s.queued;
+    m.rejected       = s.rejected;
+    m.nvs_total      = s.nvs_total;
+    m.last_article_at = s.last_article_at;
+  });
+  const by_source = Object.values(mergedSources).map(s => ({
+    ...s,
+    avg_nvs: s.contributed > 0 ? Math.round(s.nvs_total / s.contributed) : 0,
+    lost:    Math.max(0, (s.kw_passed || 0) - (s.contributed || 0)),
+  })).sort((a,b) => (b.raw_fetched || 0) - (a.raw_fetched || 0));
 
   const byCat = {};
   items.forEach(a => {
@@ -4400,7 +5525,7 @@ async function buildReport(env, from, to) {
   });
 
   // ─── aggregate funnel across all runs in range ────────────
-  let agg = { raw:0, fetched:0, date:0, kw:0, hash:0, title:0, pub:0, q:0, rej:0, cost:0, calls:0 };
+  let agg = { raw:0, fetched:0, date:0, kw:0, hash:0, title:0, url_dedup:0, pub:0, q:0, rej:0, cost:0, calls:0 };
   let hasDetailedFunnel = false;
   (runs || []).forEach(run => {
     agg.fetched += run.items_fetched   || 0;
@@ -4414,11 +5539,12 @@ async function buildReport(env, from, to) {
         const d = JSON.parse(run.error_message);
         if (d.raw_fetched) {
           hasDetailedFunnel = true;
-          agg.raw   += d.raw_fetched   || 0;
-          agg.date  += d.after_date    || 0;
-          agg.kw    += d.after_keyword || 0;
-          agg.hash  += d.after_hash    || 0;
-          agg.title += d.after_title   || 0;
+          agg.raw      += d.raw_fetched    || 0;
+          agg.date     += d.after_date     || 0;
+          agg.kw       += d.after_keyword  || 0;
+          agg.hash     += d.after_hash     || 0;
+          agg.title    += d.after_title    || 0;
+          agg.url_dedup+= d.after_url_dedup|| 0;
         }
       } catch(e) {}
     }
@@ -4431,7 +5557,8 @@ async function buildReport(env, from, to) {
       after_date_filter:    hasDetailedFunnel ? agg.date  : agg.raw,
       after_keyword_filter: hasDetailedFunnel ? agg.kw    : agg.raw,
       after_hash_dedup:     hasDetailedFunnel ? agg.hash  : agg.raw,
-      after_title_dedup:    hasDetailedFunnel ? agg.title : agg.raw,
+      after_title_dedup:    hasDetailedFunnel ? agg.title    : agg.raw,
+      after_url_dedup:      hasDetailedFunnel ? agg.url_dedup : agg.raw,
       auto_published:       agg.pub,
       queued_for_review:    agg.q,
       rejected:             agg.rej,
@@ -4613,6 +5740,7 @@ async function serveArticlePage(slug, env, ctx) {
       nvs: r.nvs_score || 0, url: r.original_url || '#', slug,
       is_kartalix_content: r.content_type === 'kartalix_generated',
       template_id: r.template_id || null,
+      publish_mode: r.publish_mode || '',
     };
   } else if (kvArticle && ctx) {
     // KV-only: article is live but has no DB record — backfill in background
@@ -4626,15 +5754,17 @@ async function serveArticlePage(slug, env, ctx) {
     });
   }
 
-  // Fixture widget: resolve current fixture_id for match template articles
+  // Fixture widget: resolve fixture_id for match template articles.
+  // Priority: fixture_id stored on the KV article (set at generation time) > live state > NEXT_MATCH fallback.
+  // The KV-stored fixture_id is authoritative — it represents the match the article was actually generated for.
   let fixtureId = null;
   let opponentId = null;
   if (article.is_kartalix_content && article.template_id) {
     const liveStateRaw = await env.PITCHOS_CACHE.get('match:BJK:live');
     const liveState = liveStateRaw ? JSON.parse(liveStateRaw) : null;
-    fixtureId = liveState?.fixture_id || NEXT_MATCH.fixture_id || null;
+    fixtureId = kvArticle?.fixture_id || liveState?.fixture_id || null;
     if (article.template_id === 'T02') {
-      opponentId = liveState?.opponent_id || NEXT_MATCH.opponent_id || null;
+      opponentId = kvArticle?.opponent_id || liveState?.opponent_id || NEXT_MATCH.opponent_id || null;
     }
   }
 
@@ -4686,8 +5816,9 @@ ${items}
 async function serveSitemap(env) {
   const cached = await env.PITCHOS_CACHE.get('articles:BJK');
   const articles = cached ? JSON.parse(cached) : [];
+  const SITEMAP_NOINDEX_TEMPLATES = ['T10', 'T11', 'T-RED', 'T-VAR', 'T-OG', 'T-PEN', 'T-HT'];
   const articleUrls = articles
-    .filter(a => a.slug)
+    .filter(a => a.slug && !SITEMAP_NOINDEX_TEMPLATES.includes(a.template_id || '') && a.publish_mode !== 'rss_summary')
     .map(a => `  <url>
     <loc>${BASE_URL}/haber/${escXml(a.slug)}</loc>
     <lastmod>${(a.published_at || new Date().toISOString()).slice(0, 10)}</lastmod>
@@ -4703,8 +5834,9 @@ async function serveSitemap(env) {
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
   <url><loc>${BASE_URL}/</loc><changefreq>hourly</changefreq><priority>1.0</priority></url>
-  <url><loc>${BASE_URL}/hakkimizda</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
+  <url><loc>${BASE_URL}/hakkimizda</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
   <url><loc>${BASE_URL}/iletisim</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
+  <url><loc>${BASE_URL}/editoryal-politika</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
   <url><loc>${BASE_URL}/gizlilik</loc><changefreq>yearly</changefreq><priority>0.2</priority></url>
 ${articleUrls}
 </urlset>`;
@@ -4717,6 +5849,16 @@ ${articleUrls}
   });
 }
 
+// ─── AD GATING ───────────────────────────────────────────────
+const ADSENSE_SCRIPT = `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5282305686231853" crossorigin="anonymous"></script>`;
+
+function shouldShowAds({ templateId, publishMode, bodyLength }) {
+  const NO_ADS_TEMPLATES = ['T10','T11','T-RED','T-VAR','T-OG','T-PEN','T-HT'];
+  if (templateId && NO_ADS_TEMPLATES.includes(templateId)) return false;
+  if (publishMode === 'rss_summary') return false;
+  return (bodyLength || 0) >= 1200;
+}
+
 // ─── STATIC PAGE SHELL ───────────────────────────────────────
 function renderStaticPage(title, bodyHtml) {
   return `<!DOCTYPE html>
@@ -4727,42 +5869,25 @@ function renderStaticPage(title, bodyHtml) {
 <title>${escHtml(title)} | Kartalix</title>
 <link rel="canonical" href="${BASE_URL}"/>
 <link rel="alternate" type="application/rss+xml" title="Kartalix RSS" href="${BASE_URL}/rss"/>
+${siteSharedFonts()}
 <style>
+${siteSharedCSS()}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:16px;line-height:1.7}
 a{color:#E30A17;text-decoration:none}a:hover{text-decoration:underline}
-header{background:#111;border-bottom:1px solid #222;padding:0 1.5rem;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
-.logo{font-size:1.25rem;font-weight:900;letter-spacing:-0.03em;color:#fff}
-.logo span{color:#E30A17}
-.back-link{font-size:0.75rem;color:#888;letter-spacing:0.06em}
-.back-link:hover{color:#E30A17;text-decoration:none}
 main{max-width:720px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 h1{font-size:1.65rem;font-weight:800;color:#fff;margin-bottom:1.5rem;line-height:1.25}
 h2{font-size:1.1rem;font-weight:700;color:#fff;margin:2rem 0 0.6rem}
 p{color:#c8c6c0;margin-bottom:1.2rem}
 ul{padding-left:1.5rem;margin-bottom:1.2rem}
 li{color:#c8c6c0;margin-bottom:0.4rem}
-footer{border-top:1px solid #222;padding:2rem 1.5rem;text-align:center;font-size:0.75rem;color:#555}
-footer a{color:#666;margin:0 0.75rem}
-footer a:hover{color:#E30A17;text-decoration:none}
 @media(max-width:600px){main{padding:1.5rem 1rem 3rem}h1{font-size:1.3rem}}
 </style>
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5282305686231853" crossorigin="anonymous"></script>
 </head>
 <body>
-<header>
-  <a href="/" class="logo">Kartal<span>ix</span></a>
-  <a href="/" class="back-link">← Ana Sayfa</a>
-</header>
+${siteHeader()}
 <main>${bodyHtml}</main>
-<footer>
-  <a href="/hakkimizda">Hakkımızda</a>
-  <a href="/iletisim">İletişim</a>
-  <a href="/gizlilik">Gizlilik Politikası</a>
-  <a href="/kaynak-atif">Kaynak Atıf</a>
-  <a href="/impressum">Impressum</a>
-  <a href="/rss">RSS</a>
-</footer>
+${siteFooter()}
 </body>
 </html>`;
 }
@@ -5015,25 +6140,110 @@ loadFixtures();
 </html>`;
 }
 
+const TOPIC_META = {
+  transfer: { label: 'Transfer', title: 'Transfer Haberleri', desc: 'Beşiktaş transfer haberleri — resmi açıklamalar, dedikodular ve analizler.', filter: 'category', cats: ['transfer'] },
+  mac:      { label: 'Maç',      title: 'Maç Haberleri',      desc: 'Beşiktaş maç haberleri, şablon analizleri ve skor raporları.',               filter: 'template', cats: [] },
+  videolar: { label: 'Videolar', title: 'Videolar',            desc: 'Beşiktaş ile ilgili seçilmiş YouTube videoları.',                            filter: 'video',    cats: [] },
+};
+
+function renderTopicPage(topicSlug) {
+  const meta = TOPIC_META[topicSlug];
+  if (!meta) {
+    return `<!DOCTYPE html><html lang="tr"><head><meta charset="UTF-8"><title>Kartalix</title></head><body><p>Konu bulunamadı. <a href="/">Ana sayfa</a></p></body></html>`;
+  }
+  const catFilter = JSON.stringify(meta.cats || []);
+  const filterMode = meta.filter || 'category';
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${meta.title} | Kartalix</title>
+  <meta name="description" content="${meta.desc}" />
+  <meta name="robots" content="index, follow" />
+  ${siteSharedFonts()}
+  <style>
+    ${siteSharedCSS()}
+    :root{--accent:#E30A17;--bg:#1a1a1a;--surface:#fff;--text:#111;--text-on-dark:#fff;--muted:#6b7280;--border:#e5e7eb}
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+    body{background:var(--bg);color:var(--text-on-dark);font-family:'Inter',sans-serif;min-height:100vh}
+    .page-header{padding:2rem;border-bottom:1px solid #222}
+    .page-title{font-family:'Barlow Condensed',sans-serif;font-size:2.2rem;font-weight:800;letter-spacing:.03em}
+    .page-desc{color:#999;font-size:.85rem;margin-top:.4rem}
+    .article-grid{padding:1.5rem 2rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1.25rem}
+    .art-card{background:#0f0f0f;border:1px solid #222;border-radius:6px;padding:1rem;cursor:pointer;transition:border-color .15s;text-decoration:none;display:block}
+    .art-card:hover{border-color:var(--accent)}
+    .art-card-title{font-size:.9rem;font-weight:600;line-height:1.4;color:#e5e5e5;margin-bottom:.5rem}
+    .art-card-meta{display:flex;gap:.5rem;align-items:center;font-size:.7rem;color:#555;flex-wrap:wrap}
+    .art-card-source{color:#E30A17;font-weight:600}
+    .art-card-summary{font-size:.78rem;color:#777;margin-top:.5rem;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+    .empty{padding:3rem 2rem;color:#555;text-align:center;font-size:.9rem}
+    @media(max-width:640px){.article-grid{grid-template-columns:1fr}.page-header,.article-grid{padding:1rem}}
+  </style>
+</head>
+<body>
+${siteHeader(`/konu/${topicSlug}`)}
+<div class="page-header">
+  <div class="page-title">${meta.title}</div>
+  <div class="page-desc">${meta.desc}</div>
+</div>
+<div id="grid" class="article-grid"><p style="color:#555;padding:1rem">Yükleniyor…</p></div>
+<script>
+const FILTER_MODE = '${filterMode}';
+const CATS = ${catFilter};
+async function init() {
+  const grid = document.getElementById('grid');
+  try {
+    const res = await fetch('/cache');
+    if (!res.ok) throw new Error('cache ' + res.status);
+    const all = await res.json();
+    const articles = all.filter(a => {
+      if (FILTER_MODE === 'video') {
+        const pm = (a.publish_mode || '').toLowerCase();
+        return pm.startsWith('youtube') || pm === 'video_embed';
+      }
+      if (FILTER_MODE === 'template') {
+        return !!a.template_id;
+      }
+      const cat = (a.category || '').toLowerCase();
+      return CATS.some(c => cat.includes(c));
+    });
+    if (!articles.length) { grid.innerHTML = '<div class="empty">Bu kategoride haber bulunamadı.</div>'; return; }
+    grid.innerHTML = articles.map(a => {
+      const href = a.slug ? '/haber/' + a.slug : '#';
+      const date = a.published_at ? new Date(a.published_at).toLocaleDateString('tr-TR',{day:'2-digit',month:'short'}) : '';
+      const src  = a.is_kartalix_content || a.source_name === 'Kartalix' ? 'Kartalix' : (a.source_name || a.source || '');
+      return '<a class="art-card" href="' + href + '"><div class="art-card-title">' + esc(a.title||'') + '</div><div class="art-card-meta"><span class="art-card-source">' + esc(src) + '</span><span>' + date + '</span></div>' + (a.summary ? '<div class="art-card-summary">' + esc(a.summary) + '</div>' : '') + '</a>';
+    }).join('');
+  } catch(e) { grid.innerHTML = '<div class="empty">Haberler yüklenemedi: ' + e.message + '</div>'; }
+}
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+init();
+</script>
+${siteFooter()}
+</body>
+</html>`;
+}
+
 function renderAboutPage() {
   return renderStaticPage('Hakkımızda', `
 <h1>Hakkımızda</h1>
-<p>Kartalix, Beşiktaş JK taraftarları için bağımsız bir haber ve analiz platformudur. Kulüp haberciliğini olgulara dayalı, özgün gazetecilik anlayışıyla ele alıyoruz.</p>
-<h2>Ne Yapıyoruz?</h2>
-<p>Süper Lig maç analizleri, transfer takibi, sakatlık raporları ve kulüp haberciliğini veri odaklı bir perspektifle sunuyoruz. Yayımladığımız tüm içerik Kartalix editörleri tarafından üretilmektedir; herhangi bir kaynaktan birebir alıntı yapılmamaktadır.</p>
+<p>Merhaba, ben Ali Gencer. Kartalix'i 2025 yılında kurdum — çünkü güvenilir, bağımsız bir Beşiktaş haber kaynağının eksikliğini hissediyordum.</p>
+<p>Küçüklüğümden beri siyah-beyazlıyım. Yıllar içinde Türk spor basınını takip ettikçe bir sorunla yüzleştim: önemli haberler click-bait başlıkların arkasına gizleniyor, transfer iddiaları doğrulanmadan gerçekmiş gibi sunuluyor, temel istatistikler çoğu zaman yanlış aktarılıyor. Taraftara gerçekten yararlı olacak bir platform yaratmak istedim.</p>
+<h2>Nasıl Çalışıyoruz?</h2>
+<p>Kartalix'te haberler onlarca Türk spor kaynağından ve resmi veri sağlayıcılarından derleniyor. Her içerik otomatik bir haber değeri puanlamasından geçiyor. Yüksek değerli içerikler için yapay zeka araçlarıyla taslak oluşturuluyor — ancak her makale yayımlanmadan önce editörlerimiz tarafından kontrol ediliyor ve kaynakları doğrulanıyor.</p>
+<p>YZ araçlarını kullandığımızı saklayacak bir sebebimiz yok; aksine bu araçlar sayesinde daha fazla haberi daha hızlı takip edebiliyoruz. Ama sorumluluk bize ait: bir hata yaptığımızda biz düzeltiyoruz.</p>
 <h2>Bağımsızlık</h2>
-<p>Kartalix, Beşiktaş JK ile resmi bir bağlantısı bulunmayan bağımsız bir yayın organıdır. Sponsorlu içerik veya kulüp yönlendirmesiyle değil, taraftar bakış açısıyla yazıyoruz.</p>
-<h2>Editoryal Yaklaşım</h2>
-<p>Haberlerimizde doğrulanmış verilere (istatistikler, resmi açıklamalar, API kaynaklı skor ve sıralama bilgileri) dayanıyoruz. Spekülatif içerikleri net biçimde belirtiyoruz.</p>
+<p>Kartalix, Beşiktaş JK ile resmi bir bağlantısı bulunmayan tamamen bağımsız bir yayın organıdır. Kulüp, sponsor veya herhangi bir yatırımcı tarafından yönlendirilmiyoruz. Editoryal kararlarımız yalnızca okuyuculara karşı sorumluluk anlayışıyla alınır.</p>
 <h2>İletişim</h2>
-<p>Görüş, öneri ve düzeltme talepleriniz için: <a href="/iletisim">iletişim sayfamızı</a> ziyaret edin.</p>
+<p>Haber düzeltmeleri, öneriler ve geri bildiriminiz için: <a href="/iletisim">iletişim sayfamız</a>.</p>
 `);
 }
 
 function renderContactPage() {
   return renderStaticPage('İletişim', `
 <h1>İletişim</h1>
-<p>Kartalix ile iletişime geçmek için aşağıdaki e-posta adresini kullanabilirsiniz.</p>
+<p>Kartalix kurucusu Ali Gencer ile iletişime geçmek için aşağıdaki e-posta adresini kullanabilirsiniz.</p>
 <h2>E-posta</h2>
 <p><a href="mailto:iletisim@kartalix.com">iletisim@kartalix.com</a></p>
 <h2>Ne Zaman Yanıt Alırsınız?</h2>
@@ -5045,7 +6255,6 @@ function renderContactPage() {
   <li>Reklam ve iş birliği teklifleri</li>
   <li>Teknik sorunlar</li>
 </ul>
-<p>Kartalix, Beşiktaş JK ile resmi bir bağlantısı bulunmayan bağımsız bir yayın organıdır.</p>
 `);
 }
 
@@ -5064,8 +6273,28 @@ function renderAttributionPage() {
 `);
 }
 
+function renderEditorialPolicyPage() {
+  return renderStaticPage('Editoryal Politika', `
+<h1>Editoryal Politika</h1>
+<h2>Kaynak Seçimi</h2>
+<p>Kartalix, Türk spor basınından seçilmiş onlarca RSS kaynağı, resmi kulüp açıklamaları ve API-Football gibi lisanslı istatistik sağlayıcılarından içerik toplamaktadır. Kaynaklar, güvenilirlik geçmişine göre derecelendirilir; düşük güvenilirliğe sahip kaynaklar içerik puanlamasında dezavantajlı konumda başlar.</p>
+<h2>Yapay Zekanın Rolü</h2>
+<p>Yüksek haber değeri taşıyan içerikler için yapay zeka modelleri (Claude, Anthropic) kullanılarak taslak oluşturulmaktadır. YZ modelleri metin yazımında yardımcı olur; neyin yayımlanacağı, neyin reddedileceği ve hangi haberin öne çıkarılacağı gibi gazetecilik kararları editörlere aittir.</p>
+<h2>İnsan Denetimi</h2>
+<p>Otomatik üretilen içerikler yayımlanmadan önce editör incelemesine tabi tutulabilir. Doğrulama gerektiren içerikler inceleme kuyruğuna alınır. Hatalarımızın sorumluluğunu üstleniyoruz ve düzeltmeleri kamuoyuyla paylaşıyoruz.</p>
+<h2>Kaynak Atıf</h2>
+<p>Tek kaynaktan yapılan haberlerde orijinal kaynak ve bağlantısı makalenin alt kısmında gösterilir. Çok kaynaklı sentez içeriklerde katkıda bulunan kaynaklar listelenir. İstatistik verileri için API-Football ve resmi kulüp kaynakları kullanılır.</p>
+<h2>Spekülatif İçerik</h2>
+<p>Transfer iddiaları, olası 11'ler ve resmi olarak doğrulanmamış haberler açıkça etiketlenir. "İddia ediliyor", "görüşmeler sürüyor" gibi ifadeler bilginin henüz kesinleşmediğini gösterir.</p>
+<h2>Düzeltme Politikası</h2>
+<p>Yayımlanmış bir haberde hata tespit edildiğinde makale güncellenir ve değişiklik belirtilir. Düzeltme taleplerinizi <a href="/iletisim">iletişim sayfamız</a> aracılığıyla iletebilirsiniz; doğrulanan düzeltmeler en kısa sürede yayımlanır.</p>
+<h2>Editoryal İletişim</h2>
+<p>İçeriklerimize ilişkin sorularınız için: <a href="mailto:iletisim@kartalix.com">iletisim@kartalix.com</a> — Ali Gencer, Kurucu Editör.</p>
+`);
+}
+
 function renderPrivacyPage() {
-  const date = '9 Mayıs 2025';
+  const date = '16 Mayıs 2026';
   return renderStaticPage('Gizlilik Politikası', `
 <h1>Gizlilik Politikası</h1>
 <p>Son güncelleme: ${date}</p>
@@ -5088,6 +6317,68 @@ function renderPrivacyPage() {
 `);
 }
 
+// ─── SHARED SITE CHROME ──────────────────────────────────────
+function siteSharedFonts() {
+  return `<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet"/>`;
+}
+
+function siteSharedCSS() {
+  return `
+header{background:#0d0d0d;border-bottom:2px solid #E30A17;height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;position:sticky;top:0;z-index:100}
+.logo-link{text-decoration:none;display:flex;align-items:center}
+.header-right{display:flex;align-items:center;gap:1rem}
+.live-pill{display:flex;align-items:center;gap:.4rem;font-family:'Barlow Condensed',sans-serif;font-size:.65rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#E30A17;border:1px solid #E30A17;padding:.3rem .7rem;border-radius:2px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:#E30A17;animation:blink 1.4s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.site-cat-nav{background:#111;border-bottom:1px solid #1e1e1e;display:flex;align-items:center;overflow-x:auto;scrollbar-width:none;padding:0 1rem}
+.site-cat-nav::-webkit-scrollbar{display:none}
+.site-cat-nav a{font-family:'Barlow Condensed',sans-serif;font-size:.78rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;text-decoration:none;color:#777;padding:.6rem .9rem;border-bottom:2px solid transparent;white-space:nowrap;transition:color .15s,border-color .15s}
+.site-cat-nav a:hover{color:#ddd}
+.site-cat-nav a.active{color:#fff;border-bottom-color:#E30A17}
+.site-footer{border-top:1px solid #222;padding:1.5rem;text-align:center;font-size:.72rem;color:#555;background:#0d0d0d;margin-top:3rem}
+.site-footer a{color:#666;margin:0 .6rem;text-decoration:none}
+.site-footer a:hover{color:#E30A17}`;
+}
+
+const SITE_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" height="38">
+  <rect x="0" y="2" width="8" height="40" fill="#ffffff"/>
+  <polygon points="8,22 36,2 29,2 8,16" fill="#ffffff"/>
+  <polygon points="8,22 38,42 46,42 8,25" fill="#E30A17"/>
+  <rect x="0" y="20" width="8" height="5" fill="#E30A17"/>
+  <text x="54" y="28" font-family="'Barlow Condensed',Impact,'Arial Narrow',sans-serif" font-size="24" font-weight="900" letter-spacing="3" fill="#ffffff">KARTALIX</text>
+  <text x="55" y="40" font-family="Arial,Helvetica,sans-serif" font-size="7" letter-spacing="2" fill="#666666">BEŞİKTAŞ HABERLERİ</text>
+</svg>`;
+
+function siteHeader(activePath = '/') {
+  const tabs = [
+    { href: '/',              label: 'Tümü' },
+    { href: '/konu/transfer', label: 'Transfer' },
+    { href: '/konu/mac',      label: 'Maç' },
+    { href: '/konu/videolar', label: 'Videolar' },
+  ];
+  const navLinks = tabs.map(({ href, label }) => {
+    const active = activePath === href || (href !== '/' && activePath.startsWith(href));
+    return `<a href="${href}"${active ? ' class="active"' : ''}>${label}</a>`;
+  }).join('');
+  return `<header>
+  <a href="/" class="logo-link">${SITE_LOGO_SVG}</a>
+  <div class="header-right"><div class="live-pill"><div class="live-dot"></div>Canlı</div></div>
+</header>
+<nav class="site-cat-nav">${navLinks}</nav>`;
+}
+
+function siteFooter() {
+  return `<footer class="site-footer">
+  <a href="/hakkimizda">Hakkımızda</a>
+  <a href="/iletisim">İletişim</a>
+  <a href="/editoryal-politika">Editoryal Politika</a>
+  <a href="/gizlilik">Gizlilik</a>
+  <a href="/kaynak-atif">Kaynak Atıf</a>
+  <a href="/rss">RSS</a>
+</footer>`;
+}
+
 // ─── ARTICLE PAGE HTML ────────────────────────────────────────
 function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null) {
   const slug      = a.slug || '';
@@ -5107,8 +6398,49 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null) 
   const isoDate   = pubDate.toISOString();
   const srcUrl      = a.url && a.url.startsWith('http') ? a.url : null;
   const templateId  = a.template_id || null;
+  // Event-flash templates are short time-sensitive cards, not indexable articles.
+  // rss_summary articles are source excerpts — also noindex.
+  const NOINDEX_TEMPLATES = ['T10', 'T11', 'T-RED', 'T-VAR', 'T-OG', 'T-PEN', 'T-HT'];
+  const isNoIndex = (templateId && NOINDEX_TEMPLATES.includes(templateId)) || a.publish_mode === 'rss_summary';
   // Derive default admin note scope from article type
   const feedbackScope = templateId || (a.publish_mode?.includes('transfer') ? 'transfer' : a.publish_mode?.includes('match') ? 'match' : 'news');
+
+  // Content-type badge (P1.2)
+  const BADGE_MAP = {
+    'T01':['Maç Önü','badge-match'], 'T02':['Maç Günü','badge-match'],
+    'T03':['Maç Raporu','badge-match'], 'T08':['Olası 11','badge-match'],
+    'T08b':['Olası 11','badge-match'], 'T09':['İlk 11','badge-match'],
+    'T10':['Gol','badge-live'], 'T11':['Sonuç','badge-live'],
+    'T12':['Maç Sonu','badge-match'], 'T13':['Analiz','badge-analysis'],
+    'T-XG':['xG Analizi','badge-analysis'], 'T-REF':['Referans','badge-analysis'],
+    'T-RED':['Kırmızı Kart','badge-live'], 'T-VAR':['VAR','badge-live'],
+    'T-OG':['Kendi Kalesine','badge-live'], 'T-PEN':['Penaltı','badge-live'],
+    'T-HT':['Devre Arası','badge-live'],
+  };
+  const [badgeLabel, badgeClass] = (() => {
+    if (templateId) {
+      if (templateId.startsWith('T-VID')) return ['Video', 'badge-video'];
+      return BADGE_MAP[templateId] || [category, ''];
+    }
+    if (a.publish_mode === 'original_synthesis') return ['Analiz', 'badge-analysis'];
+    const cat = (category || '').toLowerCase();
+    if (cat.includes('transfer')) return ['Transfer', 'badge-transfer'];
+    return [category || 'Haber', ''];
+  })();
+
+  // Source attribution (P1.3)
+  const attrHtml = (() => {
+    if (!isKartalix && srcUrl) {
+      return `<div class="source-attr">Kaynak: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(source)}</strong> →</a></div>`;
+    }
+    if (a.publish_mode === 'rewrite' && srcUrl) {
+      return `<div class="source-attr">Kaynak temel alınarak Kartalix editörleri tarafından üretildi: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(rawSource || 'Kaynak')}</strong> →</a></div>`;
+    }
+    if (a.publish_mode === 'original_synthesis') {
+      return `<div class="source-attr">Birden fazla kaynaktan derlenerek Kartalix editörleri tarafından üretildi.</div>`;
+    }
+    return '';
+  })();
 
   const bodyText  = a.full_body || a.summary || '';
   const bodyHtml  = bodyText.includes('<') ? bodyText :
@@ -5127,7 +6459,7 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null) 
     dateModified: isoDate,
     image: image || undefined,
     publisher: { '@type': 'Organization', name: 'Kartalix', url: BASE_URL },
-    author: { '@type': 'Organization', name: source || 'Kartalix' },
+    author: { '@type': 'Person', name: 'Ali Genç' },
     inLanguage: 'tr',
     about: { '@type': 'SportsTeam', name: 'Beşiktaş JK' },
   });
@@ -5150,21 +6482,24 @@ ${image ? `<meta property="og:image" content="${escHtml(image)}"/>` : ''}
 <meta name="twitter:description" content="${escHtml(desc)}"/>
 ${image ? `<meta name="twitter:image" content="${escHtml(image)}"/>` : ''}
 <link rel="canonical" href="${escHtml(pageUrl)}"/>
+<meta name="robots" content="${isNoIndex ? 'noindex,nofollow' : 'index,follow'}"/>
 <meta name="ai-generated" content="true"/>
 <link rel="alternate" type="application/rss+xml" title="Kartalix RSS" href="${BASE_URL}/rss"/>
 <script type="application/ld+json">${jsonLd}</script>
+${siteSharedFonts()}
 <style>
+${siteSharedCSS()}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:16px;line-height:1.7}
 a{color:#E30A17;text-decoration:none}
 a:hover{text-decoration:underline}
-header{background:#111;border-bottom:1px solid #222;padding:0 1.5rem;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:10}
-.logo{font-size:1.25rem;font-weight:900;letter-spacing:-0.03em;color:#fff}
-.logo span{color:#E30A17}
-.back-link{font-size:0.75rem;color:#888;letter-spacing:0.06em}
-.back-link:hover{color:#E30A17;text-decoration:none}
 main{max-width:720px;margin:0 auto;padding:2rem 1.5rem 4rem}
 .cat-tag{display:inline-block;background:#E30A17;color:#fff;font-size:0.6rem;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;padding:3px 10px;border-radius:2px;margin-bottom:1rem}
+.cat-tag.badge-live{background:#f59e0b;color:#000}
+.cat-tag.badge-match{background:#1d4ed8}
+.cat-tag.badge-analysis{background:#0d9488}
+.cat-tag.badge-transfer{background:#d97706;color:#000}
+.cat-tag.badge-video{background:#374151}
 h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1rem}
 .article-meta{font-size:0.75rem;color:#888;letter-spacing:0.04em;margin-bottom:1.5rem;display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center}
 .nvs-pill{background:#1a1a1a;border:1px solid #333;padding:2px 8px;border-radius:10px;font-size:0.65rem}
@@ -5191,8 +6526,6 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
 .btn-wa{background:#25D366;color:#fff}
 .btn-tw{background:#1DA1F2;color:#fff}
 .btn-copy{background:#333;color:#fff}
-.home-link{display:inline-block;margin-top:2rem;font-size:0.8rem;color:#888;letter-spacing:0.06em}
-.home-link:hover{color:#E30A17;text-decoration:none}
 .reaction-bar{display:flex;gap:1rem;align-items:center;margin-top:2rem;padding:1rem 1.25rem;background:#222;border:1px solid #333;border-radius:6px}
 .rxn-btn{display:flex;align-items:center;gap:.5rem;background:#2a2a2a;border:1px solid #444;color:#ccc;padding:.5rem 1.1rem;border-radius:20px;cursor:pointer;font-size:.9rem;transition:all .15s;user-select:none}
 .rxn-btn:hover{border-color:#666;color:#fff;background:#333}
@@ -5201,19 +6534,16 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
 .rxn-count{font-size:.82rem;font-weight:700;min-width:1ch}
 @media(max-width:600px){main{padding:1.5rem 1rem 3rem}h1{font-size:1.35rem}}
 </style>
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5282305686231853" crossorigin="anonymous"></script>
+${shouldShowAds({ templateId, publishMode: a.publish_mode, bodyLength: (a.full_body || '').length }) ? ADSENSE_SCRIPT : ''}
 </head>
 <body>
-<header>
-  <a href="/" class="logo">Kartal<span>ix</span></a>
-  <a href="/" class="back-link">← Ana Sayfa</a>
-</header>
+${siteHeader('/haber/')}
 <main>
   <article>
-    <div class="cat-tag">${escHtml(category)}</div>
+    <div class="cat-tag ${badgeClass}">${escHtml(badgeLabel)}</div>
     <h1>${escHtml(title)}</h1>
     <div class="article-meta">
-      ${isKartalix ? '<span style="color:#555;font-size:0.72rem">Kartalix</span>' : `<span>📰 ${escHtml(source)}</span>`}
+      ${isKartalix ? '<span style="color:#888;font-size:0.72rem;font-weight:600">Kartalix Editöryel · Ali Genç</span>' : `<span>📰 ${escHtml(source)}</span>`}
       <time datetime="${isoDate}">${dateStr}</time>
       ${nvs >= 40 ? `<span class="nvs-pill">NVS ${nvs}</span>` : ''}
       <span style="color:#555;font-size:0.68rem">YZ destekli</span>
@@ -5286,7 +6616,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
       } catch(e){}
     })();
     </script>` : ''}
-    ${!isKartalix && srcUrl ? `<div class="source-attr">Kaynak: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(source)}</strong> →</a></div>` : ''}
+    ${attrHtml}
   </article>
   <div class="reaction-bar">
     <button id="btnLike" class="rxn-btn" onclick="react('like')">👍 <span id="likeCount" class="rxn-count">0</span></button>
@@ -5302,7 +6632,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
   </div>
   <a href="/" class="home-link">← Kartalix — Tüm Haberler</a>
 
-  <!-- Editor-only feedback panel: visible only when kx-editor cookie is set (via /admin visit) -->
+  <!-- Editor-only feedback panel: visible only when kx-ui cookie is set (set by /admin/login) -->
   <div id="fbPanel" style="display:none;margin-top:1.5rem;background:#111;border:1px solid #1a3a1a;border-radius:6px;padding:1.25rem">
     <p style="font-size:.7rem;color:#3a6a3a;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.5rem">Editör Notu — Sadece Siz Görürsünüz</p>
     <p style="font-size:.72rem;color:#555;margin-bottom:.75rem">Ton, eksik bilgi, yapı, üslup — aklınıza ne geliyorsa yazın. Diğer okuyucular bu alanı göremez.</p>
@@ -5326,8 +6656,8 @@ function copyLink(btn){
   });
 }
 
-// Show editor controls only when kx-editor cookie is present (set by /admin)
-if (document.cookie.split(';').some(c => c.trim() === 'kx-editor=1')) {
+// Show editor controls only when kx-ui cookie is present (set by /admin/login)
+if (document.cookie.split(';').some(c => c.trim() === 'kx-ui=1')) {
   document.getElementById('editorBtn').style.display = 'block';
 }
 
@@ -5383,14 +6713,7 @@ async function submitFb(){
 
 loadReactions();
 </script>
-<footer style="border-top:1px solid #222;padding:1.5rem;text-align:center;font-size:0.75rem;color:#555;margin-top:2rem">
-  <a href="/hakkimizda" style="color:#666;margin:0 0.75rem;text-decoration:none">Hakkımızda</a>
-  <a href="/iletisim" style="color:#666;margin:0 0.75rem;text-decoration:none">İletişim</a>
-  <a href="/gizlilik" style="color:#666;margin:0 0.75rem;text-decoration:none">Gizlilik Politikası</a>
-  <a href="/kaynak-atif" style="color:#666;margin:0 0.75rem;text-decoration:none">Kaynak Atıf</a>
-  <a href="/impressum" style="color:#666;margin:0 0.75rem;text-decoration:none">Impressum</a>
-  <a href="/rss" style="color:#666;margin:0 0.75rem;text-decoration:none">RSS</a>
-</footer>
+${siteFooter()}
 </body>
 </html>`;
 }
@@ -5441,6 +6764,8 @@ select{height:30px;color:#aaa}
 .sp-arch{background:#2a2a2a;color:#555}
 .sp-kv{background:#2a1a3a;color:#a78bfa}
 .art-date{font-size:.63rem;color:#444;margin-left:auto}
+.btn-quick-pub{font-size:.6rem;font-weight:700;padding:1px 8px;border-radius:3px;border:1px solid #92400e;background:#78350f;color:#fbbf24;cursor:pointer;white-space:nowrap;margin-left:auto}
+.btn-quick-pub:hover{background:#92400e;color:#fff}
 .editor-inner{flex:1;display:flex;flex-direction:column;padding:1.25rem 1.5rem;overflow-y:auto;gap:.85rem}
 .editor-empty{flex:1;display:flex;align-items:center;justify-content:center;color:#333;font-size:.9rem}
 .field label{display:block;font-size:.65rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem}
@@ -5450,27 +6775,52 @@ select{height:30px;color:#aaa}
 .editor-actions{display:flex;gap:.6rem;align-items:center;padding:.85rem 1.5rem;border-top:1px solid #222;flex-shrink:0;background:#111}
 .save-status{font-size:.72rem;color:#555;margin-left:.5rem}
 .pagination{padding:.5rem .85rem;border-top:1px solid #1e1e1e;display:flex;gap:.5rem;flex-shrink:0}
+.dash-strip{display:flex;gap:.4rem;padding:.5rem .85rem;border-bottom:1px solid #222;background:#0d0d0d;flex-shrink:0}
+.dash-stat{flex:1;display:flex;flex-direction:column;align-items:center;gap:.12rem;background:#111;border:1px solid #1e1e1e;border-radius:5px;padding:.3rem .2rem;cursor:pointer;transition:border-color .12s;min-width:0}
+.dash-stat:hover{border-color:#333}.dash-stat.ds-active{border-color:#E30A17}
+.ds-count{font-size:.9rem;font-weight:700;color:#ddd;line-height:1}
+.ds-label{font-size:.5rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#555;white-space:nowrap}
+.ds-live .ds-count{color:#4ade80}.ds-yayinda .ds-count{color:#60a5fa}.ds-pend .ds-count{color:#fbbf24}.ds-arch .ds-count{color:#666}.ds-del .ds-count{color:#c0392b}
+.hp-times{font-size:.59rem;color:#4a7aaa;margin-top:.2rem;line-height:1.3}
+.hp-times-pub{color:#4a9a6a}.hp-times-evicted{color:#7a5a3a}
 </style>
 </head>
 <body>
 ADMINNAV_PLACEHOLDER
 <div class="cms">
   <div class="list-panel">
+    <div class="dash-strip" id="dashStrip">
+      <div class="dash-stat ds-live" id="ds-live" onclick="setFilter('live')" title="Anasayfada görünen haberler"><span class="ds-count" id="dc-live">—</span><span class="ds-label">Canlı</span></div>
+      <div class="dash-stat ds-yayinda" id="ds-yayinda" onclick="setFilter('yayinda')" title="Link aktif ama anasayfada yok"><span class="ds-count" id="dc-yayinda">—</span><span class="ds-label">Yayında</span></div>
+      <div class="dash-stat ds-pend" id="ds-pend" onclick="setFilter('pending')" title="Onay bekliyor"><span class="ds-count" id="dc-pend">—</span><span class="ds-label">Beklemede</span></div>
+      <div class="dash-stat ds-arch" id="ds-arch" onclick="setFilter('archived')" title="Arşivlendi"><span class="ds-count" id="dc-arch">—</span><span class="ds-label">Arşiv</span></div>
+      <div class="dash-stat ds-del" id="ds-del" onclick="setFilter('deleted')" title="Silindi"><span class="ds-count" id="dc-del">—</span><span class="ds-label">Silindi</span></div>
+    </div>
     <div class="toolbar">
       <input type="search" id="q" placeholder="Başlık ara…" oninput="schedSearch()">
       <select id="modeFilter" onchange="load(1)">
-        <option value="">Tümü</option>
-        <option value="synthesis">YZ Yaz</option>
+        <option value="">Tür</option>
+        <option value="yz">YZ</option>
+        <option value="yz_plus">YZ+</option>
         <option value="template">Şablon</option>
-        <option value="youtube">YouTube</option>
+        <option value="video">Video</option>
         <option value="manual">Manuel</option>
+        <option value="copy_source">Kaynak</option>
+        <option value="rss_summary">RSS</option>
+      </select>
+      <select id="nvsFilter" onchange="load(1)">
+        <option value="">NVS</option>
+        <option value="hi">75+</option>
+        <option value="mid">60–74</option>
+        <option value="lo">&lt;60</option>
       </select>
       <select id="statusFilter" onchange="load(1)">
         <option value="">Tüm Durumlar</option>
         <option value="live">Canlı</option>
-        <option value="published">Yayında</option>
+        <option value="yayinda">Yayında</option>
         <option value="pending">Beklemede</option>
         <option value="archived">Arşiv</option>
+        <option value="deleted">Silindi</option>
       </select>
     </div>
     <div class="toolbar" style="padding:.4rem .85rem">
@@ -5543,6 +6893,33 @@ const articleCache = {};
 let liveSlugSet = new Set();
 
 function schedSearch() { clearTimeout(searchTimer); searchTimer = setTimeout(() => load(1), 350); }
+
+function setFilter(val) {
+  const prev = document.getElementById('statusFilter').value;
+  const next = (prev === val) ? '' : val;
+  document.getElementById('statusFilter').value = next;
+  syncPills(next);
+  load(1);
+}
+
+function syncPills(val) {
+  document.querySelectorAll('.dash-stat').forEach(el => el.classList.remove('ds-active'));
+  const map = { live: 'ds-live', yayinda: 'ds-yayinda', pending: 'ds-pend', archived: 'ds-arch', deleted: 'ds-del' };
+  if (val && map[val]) document.getElementById(map[val])?.classList.add('ds-active');
+}
+
+async function loadCounts() {
+  try {
+    const r = await fetch('/admin/content-counts');
+    if (!r.ok) return;
+    const d = await r.json();
+    document.getElementById('dc-live').textContent   = d.live    ?? '—';
+    document.getElementById('dc-yayinda').textContent = d.yayinda ?? '—';
+    document.getElementById('dc-pend').textContent   = d.pending  ?? '—';
+    document.getElementById('dc-arch').textContent   = d.archived ?? '—';
+    document.getElementById('dc-del').textContent    = d.deleted  ?? '—';
+  } catch(e) {}
+}
 
 function badgeClass(m) {
   if (!m) return 'badge-rss';
@@ -5622,21 +6999,33 @@ async function load(page) {
   checkPipelineFailures();
   const q  = document.getElementById('q').value.trim();
   const m  = document.getElementById('modeFilter').value;
+  const nv = document.getElementById('nvsFilter').value;
   const nr = document.getElementById('nrFilter').checked ? '1' : '';
   const sf = document.getElementById('statusFilter').value;
+  syncPills(sf);
   const params = new URLSearchParams({ page: currentPage, q, mode: m, needs_review: nr });
+  if (nv) params.set('nvs', nv);
   if (sf === 'live') params.set('live', '1');
+  else if (sf === 'yayinda') params.set('yayinda', '1');
   else if (sf) params.set('status', sf);
   const res = await fetch('/admin/content-data?' + params);
   const data = await res.json();
-  const articles = data.articles || [];
+  let articles = data.articles || [];
+  if (sf === 'yayinda') articles = articles.filter(a => !liveSlugSet.has(a.slug));
   const has_more = data.has_more || false;
   const list = document.getElementById('artList');
   if (data.error) { list.innerHTML = '<p style="padding:1rem;color:#c0392b">Hata: ' + esc(data.error) + '</p>'; return; }
   if (!articles.length) { list.innerHTML = '<p style="padding:1rem;color:#444">Haber bulunamadı.</p>'; }
   else {
     articles.forEach(a => { articleCache[a.slug] = a; });
-    list.innerHTML = articles.map(a => \`
+    list.innerHTML = articles.map(a => {
+      let hpHtml = '';
+      if (a.homepage_published_at && a.homepage_removed_at) {
+        hpHtml = \`<div class="hp-times hp-times-evicted">🏠 \${fmtDate(a.homepage_published_at)} → \${fmtDate(a.homepage_removed_at)}</div>\`;
+      } else if (a.homepage_published_at) {
+        hpHtml = \`<div class="hp-times hp-times-pub">🏠 \${fmtDate(a.homepage_published_at)} · hâlâ yayında</div>\`;
+      }
+      return \`
       <div class="art-row\${currentSlug===a.slug?' active':''}" data-slug="\${esc(a.slug)}" onclick="openBySlug(this.dataset.slug)">
         <div class="art-title">\${esc(a.title||'(başlıksız)')}</div>
         <div class="art-meta">
@@ -5644,9 +7033,12 @@ async function load(page) {
           \${statusPill(a)}
           \${a.nvs_score ? '<span class="nvs">NVS '+a.nvs_score+'</span>' : ''}
           \${a.needs_review ? '<span class="nr-flag">⚠️</span>' : ''}
+          \${a.status === 'pending' && a.slug ? '<button class="btn-quick-pub" data-slug="'+esc(a.slug)+'" onclick="quickPublish(event,this.dataset.slug)">Yayınla ↑</button>' : ''}
           <span class="art-date">\${fmtDate(a.fetched_at)}</span>
         </div>
-      </div>\`).join('');
+        \${hpHtml}
+      </div>\`;
+    }).join('');
   }
   const pg = document.getElementById('pagination');
   pg.innerHTML = \`
@@ -5657,6 +7049,18 @@ async function load(page) {
 }
 
 function openBySlug(slug) { openArticle(articleCache[slug]); }
+
+async function quickPublish(e, slug) {
+  e.stopPropagation();
+  const btn = e.target;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    const res = await fetch('/admin/content-publish', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ slug }) });
+    const data = await res.json();
+    if (data.ok) { btn.textContent = '✓'; btn.style.background='#14532d'; btn.style.color='#4ade80'; setTimeout(() => load(currentPage), 800); }
+    else { btn.textContent = 'Hata'; btn.disabled = false; }
+  } catch { btn.textContent = 'Hata'; btn.disabled = false; }
+}
 
 function openArticle(a) {
   currentSlug = a.slug;
@@ -5740,6 +7144,7 @@ async function saveArticle() {
       document.getElementById('previewBtn').style.display = 'inline-block';
     }
     load(currentPage);
+    loadCounts();
   } else {
     st.textContent = data.error || 'Hata oluştu.'; st.style.color = '#E30A17';
   }
@@ -5758,6 +7163,7 @@ async function deleteArticle() {
     document.getElementById('editorForm').style.display  = 'none';
     document.getElementById('editorEmpty').style.display = 'flex';
     load(currentPage);
+    loadCounts();
   }
 }
 
@@ -5774,6 +7180,7 @@ async function archiveArticle() {
     document.getElementById('editorForm').style.display  = 'none';
     document.getElementById('editorEmpty').style.display = 'flex';
     load(currentPage);
+    loadCounts();
   }
 }
 
@@ -5820,6 +7227,7 @@ async function delArticleFb(id) {
 }
 
 load(1);
+loadCounts();
 </script>
 </body>
 </html>`.replace('ADMINNAV_PLACEHOLDER', adminNav('content'));
@@ -5836,6 +7244,7 @@ function adminNav(active) {
     { href: '/admin/tools',       label: 'Araçlar',    key: 'tools'      },
     { href: '/admin/roadmap',     label: 'Yol Haritası', key: 'roadmap'  },
     { href: '/admin/releases',    label: 'Sürümler',   key: 'releases'   },
+    { href: '/admin/qa',          label: 'QA',          key: 'qa'         },
   ];
   const navLinks = links.map(l => {
     const isActive = active === l.key;
@@ -6319,7 +7728,7 @@ ${adminNav('sources')}
   <table>
     <thead>
       <tr>
-        <th>On</th><th>Name / URL</th><th>Type</th><th>Trust</th><th>Treatment</th>
+        <th>On</th><th>Name / URL</th><th>Type</th><th>Trust</th><th>Family</th><th>Treatment</th>
         <th>NVS</th><th>Notes</th><th style="text-align:right">Actions</th>
       </tr>
     </thead>
@@ -6327,7 +7736,7 @@ ${adminNav('sources')}
   </table>
 </main>
 <script>
-const TIERS      = ['official','broadcast','press','journalist','digital','aggregator'];
+const TIERS      = ['T1','T2','T3','T4'];
 const TREATMENTS = ['publish','embed','synthesize','embed_and_synthesize','signal_only'];
 
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -6356,6 +7765,7 @@ async function load() {
       </td>
       <td><span class="badge \${r.source_type==='rss'?'badge-rss':'badge-yt'}">\${r.source_type}</span></td>
       <td><select onchange="markDirty('\${r.id}')">\${TIERS.map(t=>\`<option \${t===r.trust_tier?'selected':''}>\${t}</option>\`).join('')}</select></td>
+      <td><input type="text" value="\${esc(r.source_family||'')}" placeholder="e.g. turkuvaz" style="width:90px" onchange="markDirty('\${r.id}')"/></td>
       <td><select onchange="markDirty('\${r.id}')">\${TREATMENTS.map(t=>\`<option \${t===r.treatment?'selected':''}>\${t}</option>\`).join('')}</select></td>
       <td><input type="number" style="width:52px" value="\${r.nvs_hint??''}" placeholder="auto" onchange="markDirty('\${r.id}')"/></td>
       <td><input type="text" value="\${esc(r.notes||'')}" placeholder="notes" onchange="markDirty('\${r.id}')"/></td>
@@ -6380,12 +7790,14 @@ async function save(id) {
   const active  = inputs[0];
   const name    = inputs[1];
   const tier    = inputs[2];
-  const treat   = inputs[3];
-  const nvs     = inputs[4];
-  const notes   = inputs[5];
+  const family  = inputs[3];
+  const treat   = inputs[4];
+  const nvs     = inputs[5];
+  const notes   = inputs[6];
   await fetch('/admin/sources', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
     id, is_active: active.checked, name: name.value,
-    trust_tier: tier.value, treatment: treat.value,
+    trust_tier: tier.value, source_family: family.value || null,
+    treatment: treat.value,
     nvs_hint: nvs.value ? parseInt(nvs.value) : null,
     notes: notes.value,
   })});
@@ -6560,96 +7972,189 @@ function renderAdminReportPage() {
 <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5}
-.toolbar{background:#111;border-bottom:1px solid #222;padding:.6rem 1.5rem;display:flex;align-items:center;gap:1rem;position:sticky;top:48px;z-index:9}
-.toolbar input{flex:1;max-width:380px;background:#1a1a1a;border:1px solid #333;color:#e8e6e0;padding:.45rem .75rem;font-size:.82rem;font-family:inherit;outline:none}
-.toolbar input:focus{border-color:#555}
-.toolbar-right{display:flex;align-items:center;gap:1rem;margin-left:auto;font-size:.72rem;color:#555}
-.refresh-btn{background:transparent;border:1px solid #333;color:#aaa;padding:.3rem .85rem;cursor:pointer;font-size:.72rem;font-family:inherit}
-.refresh-btn:hover{border-color:#666;color:#fff}
+body{background:#f0f2f5;color:#1e293b;font-family:'Segoe UI',system-ui,sans-serif;font-size:15px;line-height:1.6}
+.toolbar{background:#fff;border-bottom:1px solid #e2e8f0;padding:.6rem 1.5rem;display:flex;align-items:center;gap:1rem;position:sticky;top:48px;z-index:9;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.toolbar input{flex:1;max-width:380px;background:#f8fafc;border:1px solid #e2e8f0;color:#1e293b;padding:.45rem .75rem;font-size:.88rem;font-family:inherit;outline:none;border-radius:4px}
+.toolbar input:focus{border-color:#94a3b8}
+.toolbar-right{display:flex;align-items:center;gap:1rem;margin-left:auto;font-size:.75rem;color:#94a3b8}
+.refresh-btn{background:#fff;border:1px solid #e2e8f0;color:#64748b;padding:.3rem .85rem;cursor:pointer;font-size:.75rem;font-family:inherit;border-radius:4px}
+.refresh-btn:hover{border-color:#94a3b8;color:#1e293b}
 .refresh-btn:disabled{opacity:.4;cursor:not-allowed}
-.range-bar{background:#111;border-bottom:1px solid #222;padding:.45rem 1.5rem;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;position:sticky;top:88px;z-index:8}
-.range-btn{background:transparent;border:1px solid #2a2a2a;color:#666;padding:.28rem .6rem;cursor:pointer;font-size:.7rem;font-family:inherit;line-height:1}
-.range-btn:hover{border-color:#555;color:#ddd}
-.range-btn.active{background:#1a2a1a;border-color:#3a5a3a;color:#5a9a5a}
-.range-sep{color:#2a2a2a;margin:0 .2rem;font-size:.8rem}
-.range-input{background:#1a1a1a;border:1px solid #2a2a2a;color:#aaa;padding:.26rem .5rem;font-size:.68rem;font-family:inherit;width:148px}
-.range-apply{background:transparent;border:1px solid #2a2a2a;color:#777;padding:.26rem .55rem;cursor:pointer;font-size:.68rem;font-family:inherit}
-.range-apply:hover{border-color:#555;color:#fff}
-.range-label{margin-left:auto;font-size:.65rem;color:#555}
+.range-bar{background:#f8fafc;border-bottom:1px solid #e2e8f0;padding:.45rem 1.5rem;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;position:sticky;top:88px;z-index:8}
+.range-btn{background:#fff;border:1px solid #e2e8f0;color:#64748b;padding:.3rem .7rem;cursor:pointer;font-size:.75rem;font-family:inherit;line-height:1;border-radius:4px}
+.range-btn:hover{border-color:#94a3b8;color:#1e293b}
+.range-btn.active{background:#f0fdf4;border-color:#16a34a;color:#15803d;font-weight:600}
+.range-sep{color:#cbd5e1;margin:0 .2rem;font-size:.8rem}
+.range-input{background:#fff;border:1px solid #e2e8f0;color:#475569;padding:.28rem .5rem;font-size:.75rem;font-family:inherit;width:152px;border-radius:4px}
+.range-apply{background:#fff;border:1px solid #e2e8f0;color:#64748b;padding:.28rem .6rem;cursor:pointer;font-size:.75rem;font-family:inherit;border-radius:4px}
+.range-apply:hover{border-color:#94a3b8;color:#1e293b}
+.range-label{margin-left:auto;font-size:.7rem;color:#94a3b8}
 main{max-width:1200px;margin:1.5rem auto;padding:0 1.5rem}
-#sankey-wrap{background:#111;border:1px solid #222;margin-bottom:1.25rem;padding:.85rem 1.1rem}
-.sankey-title{font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:#555;margin-bottom:.6rem;font-weight:400}
-.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#222;border:1px solid #222;margin-bottom:1.25rem}
-.grid4 .cell,.grid2 .cell{background:#111;padding:1.1rem 1.25rem}
+#sankey-wrap{background:#fff;border:1px solid #e2e8f0;margin-bottom:1.25rem;padding:.85rem 1.1rem;border-radius:6px}
+.sankey-title{font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;margin-bottom:.6rem;font-weight:400}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:#e2e8f0;border:1px solid #e2e8f0;margin-bottom:1.25rem;border-radius:6px;overflow:hidden}
+.grid4 .cell,.grid2 .cell{background:#fff;padding:1.25rem 1.4rem}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem}
-.stat-lbl{font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:#666;margin-bottom:.4rem}
-.stat-val{font-size:1.9rem;font-weight:900;line-height:1;color:#fff}
-.stat-val.g{color:#5a9a5a}.stat-val.b{color:#4488ff}.stat-val.a{color:#d4a000}
-.stat-sub{font-size:.65rem;color:#555;margin-top:.3rem}
-.section{background:#111;border:1px solid #222;margin-bottom:1rem}
-.sec-head{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1.1rem;cursor:pointer;user-select:none}
-.sec-head:hover{background:#141414}
-.sec-title{font-size:.82rem;font-weight:700;display:flex;align-items:center;gap:.6rem}
-.badge{font-size:.62rem;background:#1a1a1a;border:1px solid #333;color:#888;padding:1px 7px}
-.badge.g{background:#1a2a1a;border-color:#3a5a3a;color:#5a9a5a}
-.badge.r{background:#2a1a1a;border-color:#5a3a3a;color:#9a5a5a}
-.badge.a{background:#2a2010;border-color:#5a4020;color:#d4a000}
-.chev{font-size:.65rem;color:#444;transition:transform .15s}
+.stat-lbl{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;margin-bottom:.4rem}
+.stat-val{font-size:2rem;font-weight:900;line-height:1;color:#1e293b}
+.stat-val.g{color:#16a34a}.stat-val.b{color:#2563eb}.stat-val.a{color:#d97706}
+.stat-sub{font-size:.7rem;color:#94a3b8;margin-top:.3rem}
+.section{background:#fff;border:1px solid #e2e8f0;margin-bottom:1rem;border-radius:6px;overflow:hidden}
+.sec-head{display:flex;align-items:center;justify-content:space-between;padding:.8rem 1.1rem;cursor:pointer;user-select:none}
+.sec-head:hover{background:#f8fafc}
+.sec-title{font-size:.88rem;font-weight:700;display:flex;align-items:center;gap:.6rem;color:#1e293b}
+.badge{font-size:.65rem;background:#f1f5f9;border:1px solid #e2e8f0;color:#64748b;padding:2px 8px;border-radius:10px}
+.badge.g{background:#f0fdf4;border-color:#bbf7d0;color:#16a34a}
+.badge.r{background:#fef2f2;border-color:#fecaca;color:#dc2626}
+.badge.a{background:#fffbeb;border-color:#fde68a;color:#d97706}
+.chev{font-size:.65rem;color:#94a3b8;transition:transform .15s}
 .section.open .chev{transform:rotate(180deg)}
 .sec-body{display:none}
 .section.open .sec-body{display:block}
-.funnel-row{display:flex;align-items:center;padding:.6rem 1.1rem;border-bottom:1px solid #1a1a1a;gap:.75rem;cursor:pointer}
-.funnel-row:hover{background:#141414}
+.funnel-row{display:flex;align-items:center;padding:.65rem 1.1rem;border-bottom:1px solid #f1f5f9;gap:.75rem;cursor:pointer}
+.funnel-row:hover{background:#f8fafc}
 .funnel-row:last-child{border-bottom:none}
-.f-lbl{width:160px;flex-shrink:0;font-size:.72rem;color:#ccc}
-.f-bar-w{flex:1;height:5px;background:#1a1a1a}
-.f-bar{height:100%}.f-bar.removed,.f-bar.rejected{background:#7a3a3a}.f-bar.queued{background:#7a6a30}.f-bar{background:#3a6a3a}
-.f-num{width:36px;text-align:right;font-size:.78rem;font-weight:600;flex-shrink:0}
-.f-delta{width:90px;text-align:right;font-size:.62rem;color:#555;flex-shrink:0}
-.f-expand{width:50px;text-align:right;font-size:.6rem;color:#5a9a5a;flex-shrink:0}
+.f-lbl{width:175px;flex-shrink:0;font-size:.8rem;color:#475569}
+.f-bar-w{flex:1;height:6px;background:#f1f5f9;border-radius:3px}
+.f-bar{height:100%;border-radius:3px}.f-bar.removed,.f-bar.rejected{background:#fca5a5}.f-bar.queued{background:#fde68a}.f-bar{background:#86efac}
+.f-num{width:40px;text-align:right;font-size:.85rem;font-weight:700;flex-shrink:0}
+.f-delta{width:110px;text-align:right;font-size:.68rem;color:#94a3b8;flex-shrink:0}
+.f-expand{width:50px;text-align:right;font-size:.65rem;color:#16a34a;flex-shrink:0}
 .art-list{padding:.6rem 1.1rem}
-.art-card{border:1px solid #1e1e1e;padding:.7rem .85rem;margin-bottom:.4rem;font-size:.78rem}
+.art-card{border:1px solid #e2e8f0;background:#fafafa;padding:.75rem .9rem;margin-bottom:.5rem;font-size:.82rem;border-radius:5px}
 .art-card.hidden{display:none}
 .art-meta{display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem;flex-wrap:wrap}
-.tag{font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;padding:1px 5px}
-.tag.src{background:#1a1a1a;border:1px solid #2a2a2a;color:#777}
-.tag.cat{background:#0a1a2a;border:1px solid #1a2a3a;color:#5a8aaa}
-.nvs{font-size:.62rem;padding:1px 5px;font-weight:700}
-.nvs.hi{background:#1a2a1a;color:#5a9a5a}.nvs.md{background:#2a2010;color:#d4a000}.nvs.lo{background:#2a1a1a;color:#9a5a5a}
-.art-title{font-size:.82rem;font-weight:600;margin-bottom:.3rem;line-height:1.35}
-.art-note{font-size:.67rem;color:#666;font-style:italic;margin-bottom:.3rem}
+.tag{font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:3px}
+.tag.src{background:#f1f5f9;border:1px solid #e2e8f0;color:#64748b}
+.tag.cat{background:#eff6ff;border:1px solid #bfdbfe;color:#2563eb}
+.nvs{font-size:.65rem;padding:2px 6px;font-weight:700;border-radius:3px}
+.nvs.hi{background:#f0fdf4;color:#15803d}.nvs.md{background:#fffbeb;color:#b45309}.nvs.lo{background:#fef2f2;color:#dc2626}
+.art-title{font-size:.88rem;font-weight:600;margin-bottom:.3rem;line-height:1.4;color:#1e293b}
+.art-note{font-size:.72rem;color:#94a3b8;font-style:italic;margin-bottom:.3rem}
 .art-ts{display:flex;gap:1.2rem;flex-wrap:wrap}
-.ts{font-size:.6rem;color:#555}
-.ts strong{color:#888;font-weight:400}
+.ts{font-size:.65rem;color:#94a3b8}
+.ts strong{color:#64748b;font-weight:500}
 .src-table,.runs-table{width:100%;border-collapse:collapse}
-.src-table th,.runs-table th{font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:#555;text-align:left;padding:.55rem 1.1rem;border-bottom:1px solid #1e1e1e;font-weight:400}
-.src-table td,.runs-table td{padding:.6rem 1.1rem;border-bottom:1px solid #1a1a1a;font-size:.78rem}
+.src-table th,.runs-table th{font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;text-align:left;padding:.6rem 1.1rem;border-bottom:1px solid #e2e8f0;font-weight:600}
+.src-table td,.runs-table td{padding:.65rem 1.1rem;border-bottom:1px solid #f1f5f9;font-size:.82rem}
 .src-table tr:last-child td,.runs-table tr:last-child td{border-bottom:none}
 .src-table tr,.runs-table tr{cursor:pointer}
-.src-table tr:hover td,.runs-table tr:hover td{background:#141414}
-.mini-bar-w{width:60px;height:3px;background:#1a1a1a;display:inline-block;vertical-align:middle;margin-right:.4rem}
-.mini-bar{height:100%;background:#3a6a3a}
-.cat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#222}
-.cat-cell{background:#111;padding:.85rem 1.1rem;cursor:pointer}
-.cat-cell:hover{background:#141414}
-.cat-name{font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;color:#555;margin-bottom:.3rem}
-.cat-num{font-size:1.5rem;font-weight:900;color:#5a9a5a;line-height:1}
-.cat-sub{font-size:.6rem;color:#555;margin-top:.2rem}
-.dist-row{display:flex;align-items:center;gap:.6rem;padding:.45rem 1.1rem;border-bottom:1px solid #1a1a1a}
+.src-table tr:hover td,.runs-table tr:hover td{background:#f8fafc}
+.mini-bar-w{width:60px;height:4px;background:#f1f5f9;display:inline-block;vertical-align:middle;margin-right:.4rem;border-radius:2px}
+.mini-bar{height:100%;background:#16a34a;border-radius:2px}
+.cat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#e2e8f0}
+.cat-cell{background:#fff;padding:.9rem 1.1rem;cursor:pointer}
+.cat-cell:hover{background:#f8fafc}
+.cat-name{font-size:.65rem;letter-spacing:.08em;text-transform:uppercase;color:#94a3b8;margin-bottom:.3rem}
+.cat-num{font-size:1.6rem;font-weight:900;color:#16a34a;line-height:1}
+.cat-sub{font-size:.65rem;color:#94a3b8;margin-top:.2rem}
+.dist-row{display:flex;align-items:center;gap:.6rem;padding:.5rem 1.1rem;border-bottom:1px solid #f1f5f9}
 .dist-row:last-child{border-bottom:none}
-.dist-lbl{width:55px;font-size:.62rem;color:#666;flex-shrink:0}
-.dist-bw{flex:1;height:4px;background:#1a1a1a}
-.dist-b{height:100%}
-.dist-n{width:28px;text-align:right;font-size:.72rem;font-weight:600;flex-shrink:0}
-.ok{color:#5a9a5a;font-weight:700}.fail{color:#9a5a5a;font-weight:700}.partial{color:#d4a000;font-weight:700}
-.load-more{text-align:center;padding:.6rem;border-top:1px solid #1e1e1e}
-.load-more button{background:transparent;border:1px solid #2a2a2a;color:#666;padding:.35rem .85rem;cursor:pointer;font-size:.65rem;font-family:inherit}
-.load-more button:hover{border-color:#555;color:#aaa}
-.loading-state{text-align:center;padding:4rem 2rem;color:#555}
-.spinner{width:18px;height:18px;border:2px solid #222;border-top-color:#5a9a5a;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto .75rem}
+.dist-lbl{width:55px;font-size:.65rem;color:#64748b;flex-shrink:0}
+.dist-bw{flex:1;height:5px;background:#f1f5f9;border-radius:3px}
+.dist-b{height:100%;border-radius:3px}
+.dist-n{width:28px;text-align:right;font-size:.78rem;font-weight:700;flex-shrink:0}
+.ok{color:#16a34a;font-weight:700}.fail{color:#dc2626;font-weight:700}.partial{color:#d97706;font-weight:700}
+.load-more{text-align:center;padding:.6rem;border-top:1px solid #f1f5f9}
+.load-more button{background:#fff;border:1px solid #e2e8f0;color:#64748b;padding:.35rem .85rem;cursor:pointer;font-size:.7rem;font-family:inherit;border-radius:4px}
+.load-more button:hover{border-color:#94a3b8;color:#475569}
+.loading-state{text-align:center;padding:4rem 2rem;color:#94a3b8}
+.spinner{width:20px;height:20px;border:2px solid #e2e8f0;border-top-color:#16a34a;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto .75rem}
 @keyframes spin{to{transform:rotate(360deg)}}
+.pl-badge{display:inline-block;font-size:.65rem;font-weight:700;padding:2px 8px;border-radius:3px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.pl-published{background:#dcfce7;color:#15803d}
+.pl-scored_low{background:#fef9c3;color:#854d0e}
+.pl-url_seen{background:#f1f5f9;color:#64748b}
+.pl-off_topic{background:#fee2e2;color:#991b1b}
+.pl-date_old{background:#fce7f3;color:#9d174d}
+.pl-too_short{background:#ffedd5;color:#9a3412}
+.pl-hash_dedup{background:#ede9fe;color:#6d28d9}
+.pl-title_dedup{background:#e0e7ff;color:#4338ca}
+.pl-cap_drop{background:#f1f5f9;color:#475569}
+.pl-table{width:100%;border-collapse:collapse}
+.pl-table th{font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;text-align:left;padding:.55rem 1rem;border-bottom:1px solid #e2e8f0;font-weight:600;background:#fff;position:sticky;top:0;z-index:1}
+.pl-table td{padding:.5rem 1rem;border-bottom:1px solid #f1f5f9;font-size:.8rem;vertical-align:middle}
+.pl-table tr:hover td{background:#f8fafc}
+.pl-title-cell{max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl-title-cell a{color:#1e293b;text-decoration:none}
+.pl-title-cell a:hover{color:#2563eb;text-decoration:underline}
+.pl-wrap{max-height:520px;overflow-y:auto}
+.pl-story-hdr{display:flex;align-items:center;gap:.5rem;padding:.5rem 1rem;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:.82rem;font-weight:700;color:#1e293b;cursor:pointer}
+.pl-story-hdr:hover{background:#f1f5f9}
+.pl-story-count{font-size:.68rem;color:#94a3b8;font-weight:400}
+.pl-st-live{display:inline-block;font-size:.6rem;font-weight:700;padding:1px 6px;border-radius:3px;background:#dcfce7;color:#15803d;vertical-align:middle;margin-left:.35rem}
+.pl-st-pub{display:inline-block;font-size:.6rem;font-weight:700;padding:1px 6px;border-radius:3px;background:#eff6ff;color:#2563eb;vertical-align:middle;margin-left:.35rem}
+.pl-st-arch{display:inline-block;font-size:.6rem;font-weight:700;padding:1px 6px;border-radius:3px;background:#f1f5f9;color:#64748b;vertical-align:middle;margin-left:.35rem}
+.pl-filter-bar{display:flex;gap:.4rem;padding:.5rem 1rem;border-bottom:1px solid #f1f5f9;flex-wrap:wrap;align-items:center}
+.pl-filter-btn{background:#fff;border:1px solid #e2e8f0;color:#64748b;padding:.2rem .55rem;cursor:pointer;font-size:.68rem;font-family:inherit;border-radius:3px}
+.pl-filter-btn.active{background:#f0fdf4;border-color:#16a34a;color:#15803d;font-weight:600}
+.pl-filter-btn:hover{border-color:#94a3b8}
 @media(max-width:900px){.grid4{grid-template-columns:repeat(2,1fr)}.grid2{grid-template-columns:1fr}.cat-grid{grid-template-columns:repeat(2,1fr)}}
+.an-toggle-bar{display:flex;flex-wrap:wrap;gap:.5rem;padding:.65rem 1.1rem;border-bottom:1px solid #f1f5f9;background:#fafafa}
+.an-toggle{display:flex;align-items:center;gap:.35rem;font-size:.78rem;color:#475569;cursor:pointer;padding:.2rem .5rem;border:1px solid #e2e8f0;border-radius:4px;background:#fff;user-select:none}
+.an-toggle:hover{border-color:#94a3b8}
+.an-toggle input{accent-color:#16a34a;cursor:pointer}
+.an-chart-panel{padding:.85rem 1.1rem;border-bottom:1px solid #f1f5f9}
+.an-chart-panel:last-child{border-bottom:none}
+.an-chart-title{font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:#64748b;font-weight:700;margin-bottom:.6rem;display:flex;align-items:center;gap:.75rem}
+.an-legend{display:flex;gap:.75rem;text-transform:none;letter-spacing:0;font-weight:400;font-size:.72rem;color:#475569;flex-wrap:wrap}
+.an-leg-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.25rem;vertical-align:middle}
+.an-leg-sq{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:.25rem;vertical-align:middle}
+.an-src-checks{display:flex;flex-wrap:wrap;gap:.35rem;padding:.4rem 0 .65rem}
+.an-src-lbl{display:flex;align-items:center;gap:.3rem;font-size:.72rem;color:#475569;cursor:pointer;padding:.15rem .45rem;border:1px solid #e2e8f0;border-radius:3px;background:#fff}
+.an-src-lbl:hover{border-color:#94a3b8}
+.an-src-lbl input{accent-color:#16a34a;cursor:pointer}
+.an-chart-ctrl-row{padding:.4rem 0 .5rem;display:flex;flex-direction:column;gap:.35rem}
+.an-series-row{display:flex;flex-wrap:wrap;gap:.3rem}
+.an-range-row{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;padding-top:.2rem;border-top:1px solid #f1f5f9;margin-top:.1rem}
+.an-range-lbl{font-size:.68rem;color:#94a3b8;white-space:nowrap}
+.an-range-mode-btn{background:#fff;border:1px solid #e2e8f0;color:#64748b;padding:.18rem .55rem;cursor:pointer;font-size:.68rem;font-family:inherit;border-radius:3px}
+.an-range-mode-btn:hover{border-color:#94a3b8}
+.an-range-mode-btn.active{background:#f0fdf4;border-color:#16a34a;color:#15803d;font-weight:600}
+.alarm-panel{background:#fff;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:1rem}
+.alarm-panel-head{padding:.6rem 1.1rem;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;font-weight:600;border-bottom:1px solid #f1f5f9}
+.alarm-item{display:flex;align-items:flex-start;gap:.6rem;padding:.55rem 1.1rem;border-bottom:1px solid #f1f5f9}
+.alarm-item:last-child{border-bottom:none}
+.alarm-item.critical{border-left:3px solid #dc2626;background:#fff5f5}
+.alarm-item.major{border-left:3px solid #d97706;background:#fffbeb}
+.alarm-cat{font-size:.58rem;font-weight:800;letter-spacing:.09em;text-transform:uppercase;padding:2px 6px;border-radius:3px;flex-shrink:0;margin-top:.15rem;white-space:nowrap}
+.alarm-cat.critical{background:#fee2e2;color:#dc2626}
+.alarm-cat.major{background:#fef3c7;color:#d97706}
+.alarm-body{flex:1;min-width:0}
+.alarm-row1{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.1rem;flex-wrap:wrap}
+.alarm-title{font-size:.82rem;font-weight:700}
+.alarm-item.critical .alarm-title{color:#dc2626}
+.alarm-item.major .alarm-title{color:#d97706}
+.alarm-ts{font-size:.68rem;color:#94a3b8;white-space:nowrap}
+.alarm-msg{font-size:.75rem;color:#64748b}
+.alarm-clear{margin-left:auto;flex-shrink:0;background:#fff;border:1px solid #e2e8f0;color:#64748b;font-size:.68rem;padding:.18rem .55rem;cursor:pointer;border-radius:3px;font-family:inherit;align-self:center}
+.alarm-clear:hover{border-color:#94a3b8;color:#475569}
+.kpi-strip{background:#fff;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:1rem;position:sticky;top:128px;z-index:7}
+.kpi-strip-row{display:flex;border-bottom:1px solid #f1f5f9}
+.kpi-strip-row:last-child{border-bottom:none}
+.kpi-cell{flex:1;padding:.6rem 1rem;border-right:1px solid #f1f5f9;min-width:0;overflow:hidden}
+.kpi-cell:last-child{border-right:none}
+.kpi-lbl{font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;font-weight:600;margin-bottom:.15rem}
+.kpi-big{font-size:1.35rem;font-weight:800;line-height:1.1;color:#1e293b}
+.kpi-big.kpi-green{color:#16a34a}
+.kpi-big.kpi-yellow{color:#d97706}
+.kpi-big.kpi-red{color:#dc2626}
+.kpi-sub{font-size:.68rem;color:#64748b;margin-top:.1rem;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi-title-text{font-size:.8rem;font-weight:600;color:#1e293b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kpi-delta-red{color:#dc2626;font-weight:600}
+.kpi-spark-wrap{flex:1;padding:.5rem 1rem;border-right:1px solid #f1f5f9;min-width:0}
+.kpi-spark-wrap:last-child{border-right:none}
+.kpi-spark-lbl{font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;font-weight:600;margin-bottom:.2rem}
+.kpi-meta{font-size:.6rem;color:#cbd5e1;padding:.2rem 1rem;text-align:right;background:#fafafa}
+.kpi-loading{padding:1.2rem;color:#94a3b8;font-size:.78rem;text-align:center}
+@media(max-width:768px){
+  .kpi-strip-row{flex-direction:column}
+  .kpi-cell{border-right:none;border-bottom:1px solid #f1f5f9}
+  .kpi-cell:last-child{border-bottom:none}
+  .kpi-spark-wrap{border-right:none;border-bottom:1px solid #f1f5f9}
+  .kpi-spark-wrap:last-child{border-bottom:none}
+  .kpi-strip{position:static}
+}
 </style>
 </head>
 <body>
@@ -6676,6 +8181,80 @@ ${nav}
 </div>
 <main>
   <div id="sankey-wrap" style="display:none"><div class="sankey-title">Pipeline Flow</div><div id="sankey-chart" style="height:200px"></div></div>
+  <div id="kpi-strip" class="kpi-strip"><div class="kpi-loading">Loading KPI strip...</div></div>
+  <div id="alarm-panel" style="display:none"></div>
+  <div class="section open" id="sec-pipelog">
+    <div class="sec-head" onclick="toggleSec('sec-pipelog')">
+      <div class="sec-title">🔎 Article Pipeline Log <span class="badge" id="pl-badge-count">—</span></div>
+      <div class="chev">▼</div>
+    </div>
+    <div class="sec-body">
+      <div class="pl-filter-bar" id="pl-filter-bar">
+        <span style="font-size:.72rem;color:#94a3b8;margin-right:.25rem">Stage:</span>
+        <button class="pl-filter-btn active" data-stage="" onclick="setPlFilter(this)">All</button>
+        <button class="pl-filter-btn" data-stage="published" onclick="setPlFilter(this)">Published</button>
+        <button class="pl-filter-btn" data-stage="scored_low" onclick="setPlFilter(this)">Below threshold</button>
+        <button class="pl-filter-btn" data-stage="url_seen" onclick="setPlFilter(this)">Already seen</button>
+        <button class="pl-filter-btn" data-stage="off_topic" onclick="setPlFilter(this)">Off-topic</button>
+        <button class="pl-filter-btn" data-stage="date_old" onclick="setPlFilter(this)">Too old</button>
+        <button class="pl-filter-btn" data-stage="too_short" onclick="setPlFilter(this)">Too short</button>
+        <button class="pl-filter-btn" data-stage="title_dedup" onclick="setPlFilter(this)">Near-dupe</button>
+        <button class="pl-filter-btn" data-stage="hash_dedup" onclick="setPlFilter(this)">Hash dup</button>
+        <span style="color:#e2e8f0;margin:0 .25rem">|</span>
+        <button class="pl-filter-btn" id="pl-group-btn" onclick="togglePlGroup()">Group by story</button>
+      </div>
+      <div class="pl-wrap" id="pl-wrap">
+        <div class="loading-state" style="padding:2rem"><div class="spinner"></div><div>Loading article log...</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="section open" id="sec-analytics">
+    <div class="sec-head" onclick="toggleSec('sec-analytics')">
+      <div class="sec-title">📈 Analytics</div>
+      <div class="chev">▼</div>
+    </div>
+    <div class="sec-body">
+      <div class="an-toggle-bar">
+        <label class="an-toggle"><input type="checkbox" checked onchange="toggleChart('ch-funnel-trend',this.checked)"> Funnel Trend</label>
+        <label class="an-toggle"><input type="checkbox" checked onchange="toggleChart('ch-source-quality',this.checked)"> Source Quality</label>
+        <label class="an-toggle"><input type="checkbox" checked onchange="toggleChart('ch-pub-breakdown',this.checked)"> Published Breakdown</label>
+        <label class="an-toggle"><input type="checkbox" checked onchange="toggleChart('ch-story',this.checked)"> Story Activity</label>
+        <label class="an-toggle"><input type="checkbox" checked onchange="toggleChart('ch-nvs',this.checked)"> NVS Distribution</label>
+        <label class="an-toggle"><input type="checkbox" checked onchange="toggleChart('ch-cost',this.checked)"> Cost per Run</label>
+      </div>
+      <div id="an-loading" class="loading-state" style="display:none;padding:1.5rem"><div class="spinner"></div><div>Loading analytics...</div></div>
+      <div id="ch-funnel-trend" class="an-chart-panel">
+        <div class="an-chart-title">Funnel Trend</div>
+        <div class="an-chart-ctrl-row" id="ch-funnel-trend-ctrl"></div>
+        <div id="ch-funnel-trend-svg"></div>
+      </div>
+      <div id="ch-source-quality" class="an-chart-panel">
+        <div class="an-chart-title">Source Quality <span class="an-legend"><span><span class="an-leg-sq" style="background:#f1f5f9"></span>Through pipeline</span><span><span class="an-leg-sq" style="background:#86efac"></span>Published</span></span></div>
+        <div class="an-chart-ctrl-row" id="ch-source-quality-ctrl"></div>
+        <div id="ch-src-quality-svg"></div>
+      </div>
+      <div id="ch-pub-breakdown" class="an-chart-panel">
+        <div class="an-chart-title">Published Breakdown per Day</div>
+        <div class="an-chart-ctrl-row" id="ch-pub-breakdown-ctrl"></div>
+        <div id="ch-pub-breakdown-svg"></div>
+      </div>
+      <div id="ch-story" class="an-chart-panel">
+        <div class="an-chart-title">Story Activity per Day</div>
+        <div class="an-chart-ctrl-row" id="ch-story-ctrl"></div>
+        <div id="ch-story-svg"></div>
+      </div>
+      <div id="ch-nvs" class="an-chart-panel">
+        <div class="an-chart-title">NVS Distribution (scored articles)</div>
+        <div class="an-chart-ctrl-row" id="ch-nvs-ctrl"></div>
+        <div id="ch-nvs-svg"></div>
+      </div>
+      <div id="ch-cost" class="an-chart-panel">
+        <div class="an-chart-title">Cost per Run</div>
+        <div class="an-chart-ctrl-row" id="ch-cost-ctrl"></div>
+        <div id="ch-cost-svg"></div>
+      </div>
+    </div>
+  </div>
   <div id="content" class="loading-state"><div class="spinner"></div><div>Loading report...</div></div>
 </main>
 </body>
@@ -6683,7 +8262,11 @@ ${nav}
 
   // Script block is concatenated separately so client-side template literals don't conflict
   const script = '<script>\n' + reportDashboardJs() + '\n<\/script>';
-  return shell.replace('</body>', script + '\n</body>');
+  const kpiScript = '<script>\n' + kpiStripJs() + '\n<\/script>';
+  const analyticsScript = '<script>\n' + analyticsJs() + '\n<\/script>';
+  // Use function form of replace to prevent $' / $& special patterns in script content from being misinterpreted
+  const allScripts = script + '\n' + kpiScript + '\n' + analyticsScript + '\n</body>';
+  return shell.replace('</body>', () => allScripts);
 }
 
 function reportDashboardJs() {
@@ -6711,14 +8294,14 @@ function reportDashboardJs() {
     '  h+=\'<div class="f-delta">\'+delta+"</div>";',
     '  h+=\'<div class="f-expand">\'+( has?"&#9660; show":"")+"</div></div>";',
     '  if(has){',
-    '    h+=\'<div id="funnel-\'+id+\'" style="display:none;border-bottom:1px solid #1a1a1a">\';',
+    '    h+=\'<div id="funnel-\'+id+\'" style="display:none;border-bottom:1px solid #f1f5f9">\';',
     '    h+=\'<div class="art-list">\'+articleCards(articles,20)+"</div></div>";',
     '  }',
     '  return h;',
     '}',
     '',
     'function articleCards(items,limit){',
-    '  if(!items||!items.length)return\'<div style="padding:.75rem;color:#555;font-size:.72rem">No articles</div>\';',
+    '  if(!items||!items.length)return\'<div style="padding:.75rem;color:#94a3b8;font-size:.78rem">No articles</div>\';',
     '  var vis=items.slice(0,limit),rem=items.length-limit,h="";',
     '  vis.forEach(function(a,i){',
     '    var dsearch=esc((a.title||"")+" "+(a.source_name||"")+" "+(a.category||"")+" "+(a.nvs_notes||"")).toLowerCase();',
@@ -6734,7 +8317,7 @@ function reportDashboardJs() {
     '    h+=\'<div class="art-ts">\';',
     '    if(a.fetched_at)h+=\'<div class="ts">Fetched <strong>\'+fmtDate(a.fetched_at)+"</strong></div>";',
     '    if(a.reviewed_at)h+=\'<div class="ts">Published <strong>\'+fmtDate(a.reviewed_at)+"</strong></div>";',
-    '    if(a.original_url&&a.original_url!="#")h+=\'<a href="\'+esc(a.original_url)+\'" target="_blank" rel="noopener" style="font-size:.6rem;color:#5a9a5a;text-decoration:none">&nearr; Source</a>\';',
+    '    if(a.original_url&&a.original_url!="#")h+=\'<a href="\'+esc(a.original_url)+\'" target="_blank" rel="noopener" style="font-size:.68rem;color:#2563eb;text-decoration:none">&nearr; Source</a>\';',
     '    h+="</div></div>";',
     '  });',
     '  if(rem>0){',
@@ -6759,6 +8342,7 @@ function reportDashboardJs() {
     '}',
     '',
     'function toggleSrc(id){var el=document.getElementById(id);if(el)el.style.display=el.style.display==="none"?"table-row":"none";}',
+    'function plToggleNext(el){var n=el.nextElementSibling;if(n)n.style.display=n.style.display==="none"?"":"none";}',
     'function toggleCat(id){var el=document.getElementById(id);if(el)el.style.display=el.style.display==="none"?"block":"none";}',
     'function toggleFA(id){var el=document.getElementById(id);if(el)el.style.display=el.style.display==="none"?"block":"none";}',
     'function toggleSec(id){document.getElementById(id).classList.toggle("open");}',
@@ -6784,6 +8368,8 @@ function reportDashboardJs() {
     '  document.getElementById("range-from").value="";',
     '  document.getElementById("range-to").value="";',
     '  loadReport();',
+    '  loadPipelineLog();',
+    '  if(typeof loadAnalytics==="function")loadAnalytics();',
     '}',
     '',
     'function applyCustomRange(){',
@@ -6795,6 +8381,8 @@ function reportDashboardJs() {
     '  document.querySelectorAll(".range-btn").forEach(function(b){b.classList.remove("active");});',
     '  document.getElementById("range-label").textContent="Custom";',
     '  loadReport();',
+    '  loadPipelineLog();',
+    '  if(typeof loadAnalytics==="function")loadAnalytics();',
     '}',
     '',
     'google.charts.load("current",{packages:["sankey"]});',
@@ -6834,7 +8422,7 @@ function reportDashboardJs() {
     '    if(lost>0)rows.push([nS,"Unscored",lost]);',
     '    if(!rows.length){wrap.style.display="none";return;}',
     '    data.addRows(rows);',
-    '    var opts={width:"100%",height:200,sankey:{node:{label:{color:"#bbb",fontSize:10},nodePadding:15},link:{colorMode:"gradient"}},backgroundColor:{fill:"#111"}};',
+    '    var opts={width:"100%",height:200,sankey:{node:{label:{color:"#1e293b",fontSize:12,bold:true},nodePadding:15},link:{colorMode:"gradient"}},backgroundColor:{fill:"transparent"}};',
     '    var chart=new google.visualization.Sankey(document.getElementById("sankey-chart"));',
     '    chart.draw(data,opts);',
     '  });',
@@ -6896,12 +8484,12 @@ function reportDashboardJs() {
     '  h+=\'<div class="sec-body">\';',
     '  var stTotal=stDist.reduce(function(s,x){return s+x.count;},0);',
     '  if(stDist.length){',
-    '    h+=\'<div style="padding:.45rem 1.1rem .2rem;font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:#444">Channel</div>\';',
-    '    stDist.forEach(function(x){h+=distRow(x.type,x.count,stTotal,"#4488ff");});',
+    '    h+=\'<div style="padding:.45rem 1.1rem .2rem;font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8">Channel</div>\';',
+    '    stDist.forEach(function(x){h+=distRow(x.type,x.count,stTotal,"#2563eb");});',
     '  }',
     '  if(ttDist.length){',
-    '    h+=\'<div style="padding:.45rem 1.1rem .2rem;font-size:.58rem;letter-spacing:.1em;text-transform:uppercase;color:#444">Trust Tier</div>\';',
-    '    ttDist.forEach(function(x){h+=distRow(x.tier,x.count,stTotal,"#aa6688");});',
+    '    h+=\'<div style="padding:.45rem 1.1rem .2rem;font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8">Trust Tier</div>\';',
+    '    ttDist.forEach(function(x){h+=distRow(x.tier,x.count,stTotal,"#be185d");});',
     '  }',
     '  h+="</div></div>";',
     '',
@@ -6925,30 +8513,38 @@ function reportDashboardJs() {
     '  h+=funnelRow("After keyword filter",f.after_keyword_filter,maxF,"-"+((f.after_date_filter||0)-(f.after_keyword_filter||0))+" not BJK","after_keyword",d.removed_keyword);',
     '  h+=funnelRow("After hash dedup",f.after_hash_dedup,maxF,"-"+((f.after_keyword_filter||0)-(f.after_hash_dedup||0))+" seen before","after_hash",d.removed_hash);',
     '  h+=funnelRow("After title dedup",f.after_title_dedup,maxF,"-"+((f.after_hash_dedup||0)-(f.after_title_dedup||0))+" near-dupes","after_title",d.removed_dupes);',
+    '  h+=funnelRow("After URL dedup",f.after_url_dedup,maxF,"-"+((f.after_title_dedup||0)-(f.after_url_dedup||0))+" already scored","after_url_dedup",[]);',
     '  h+=funnelRow("Published ✅",f.auto_published,maxF,"NVS ≥ threshold","published",pub,"g");',
     '  h+=funnelRow("Queued ⏳",f.queued_for_review,maxF,"NVS mid-range","queued",d.queued_items,"queued");',
     '  h+=funnelRow("Rejected ❌",f.rejected,maxF,"NVS too low","rejected",rej,"rejected");',
     '  h+="</div></div>";',
     '',
-    '  h+=\'<div class="section" id="sec-sources">\';',
+    '  h+=\'<div class="section open" id="sec-sources">\';',
     '  h+=\'<div class="sec-head" data-sec="sec-sources" onclick="toggleSec(this.dataset.sec)">\';',
-    '  h+=\'<div class="sec-title">📡 By Source<span class="badge">\'+sources.length+" sources</span></div>";',
+    '  h+=\'<div class="sec-title">📊 Pipeline by Source<span class="badge">\'+sources.length+" sources</span></div>";',
     '  h+=\'<div class="chev">▼</div></div>\';',
-    '  h+=\'<div class="sec-body"><table class="src-table"><thead><tr><th>Source</th><th>Type</th><th>Tier</th><th>In</th><th>Pub</th><th>Rej</th><th>Rate</th><th>Avg NVS</th><th>Last</th></tr></thead><tbody>\';',
+    '  h+=\'<div class="sec-body">\';',
+    '  h+=\'<p style="color:#64748b;font-size:.78rem;margin:0 0 10px">Raw→KW: keyword filter pass. Lost: passed KW but never saved (deduped or below rewrite threshold). Scored: reached DB. Pub: published to live pool.</p>\';',
+    '  h+=\'<table class="src-table"><thead><tr><th>Source</th><th>Type</th><th>Tier</th><th>Family</th><th>Raw</th><th>KW</th><th style="color:#d97706">Lost</th><th>Scored</th><th style="color:#16a34a">Pub</th><th>Rate</th><th>Avg NVS</th><th>Last</th></tr></thead><tbody>\';',
     '  sources.forEach(function(s){',
     '    var sid="src-"+slug(s.source_name);',
     '    var cfg=srcTypeMap[s.source_name]||{};',
+    '    var lostPct=s.kw_passed>0?Math.round((s.lost||0)/s.kw_passed*100):0;',
+    '    var lostColor=lostPct>=80?"#dc2626":lostPct>=50?"#d97706":"#94a3b8";',
     '    h+=\'<tr data-sid="\'+sid+\'" onclick="toggleSrc(this.dataset.sid)">\';',
     '    h+=\'<td><strong>\'+esc(s.source_name)+"</strong></td>";',
-    '    h+=\'<td style="color:#4488ff;font-size:.68rem">\'+esc(cfg.type||"—")+"</td>";',
-    '    h+=\'<td style="color:#aa6688;font-size:.68rem">\'+esc(cfg.tier||"—")+"</td>";',
+    '    h+=\'<td style="color:#2563eb;font-size:.75rem">\'+esc(cfg.type||"—")+"</td>";',
+    '    h+=\'<td style="color:#be185d;font-size:.75rem">\'+esc(cfg.tier||"—")+"</td>";',
+    '    h+=\'<td style="color:#0891b2;font-size:.75rem">\'+esc(cfg.family||"—")+"</td>";',
+    '    h+=\'<td style="color:#64748b">\'+( s.raw_fetched||0)+"</td>";',
+    '    h+=\'<td style="color:#475569">\'+( s.kw_passed||0)+"</td>";',
+    '    h+=\'<td style="color:\'+lostColor+\'"><strong>\'+( s.lost||0)+"</strong>"+(s.kw_passed>0?\' <span style="font-size:.7rem">\'+lostPct+\'%</span>\':\'\')+"</td>";',
     '    h+="<td>"+(s.contributed||0)+"</td>";',
-    '    h+=\'<td style="color:#5a9a5a">\'+( s.published||0)+"</td>";',
-    '    h+=\'<td style="color:#9a5a5a">\'+( s.rejected||0)+"</td>";',
-    '    h+=\'<td><div class="mini-bar-w"><div class="mini-bar" style="width:\'+pct(s.published,s.contributed)+\'%"></div></div>\'+pct(s.published,s.contributed)+"%</td>";',
+    '    h+=\'<td style="color:#16a34a;font-weight:700">\'+( s.published||0)+"</td>";',
+    '    h+=\'<td><div class="mini-bar-w"><div class="mini-bar" style="width:\'+pct(s.published,s.kw_passed||s.contributed)+\'%"></div></div>\'+pct(s.published,s.kw_passed||s.contributed)+"%</td>";',
     '    h+="<td>"+nvsBadgeInline(s.avg_nvs)+"</td>";',
-    '    h+=\'<td style="color:#555">\'+fmtTime(s.last_article_at)+"</td></tr>";',
-    '    h+=\'<tr id="\'+sid+\'" style="display:none"><td colspan="9" style="padding:0"><div class="art-list">\'+articleCards(all.filter(function(a){return a.source_name===s.source_name;}),10)+"</div></td></tr>";',
+    '    h+=\'<td style="color:#94a3b8">\'+fmtTime(s.last_article_at)+"</td></tr>";',
+    '    h+=\'<tr id="\'+sid+\'" style="display:none"><td colspan="12" style="padding:0"><div class="art-list">\'+articleCards(all.filter(function(a){return a.source_name===s.source_name;}),10)+"</div></td></tr>";',
     '  });',
     '  h+="</tbody></table></div></div>";',
     '',
@@ -6966,7 +8562,7 @@ function reportDashboardJs() {
     '  });',
     '  h+="</div>";',
     '  cats.forEach(function(c){',
-    '    h+=\'<div id="cat-\'+slug(c.category)+\'" style="display:none;border-top:1px solid #1a1a1a">\';',
+    '    h+=\'<div id="cat-\'+slug(c.category)+\'" style="display:none;border-top:1px solid #f1f5f9">\';',
     '    h+=\'<div class="art-list">\'+articleCards(all.filter(function(a){return a.category===c.category;}),10)+"</div></div>";',
     '  });',
     '  h+="</div></div>";',
@@ -6996,12 +8592,12 @@ function reportDashboardJs() {
     '  runs.forEach(function(r){',
     '    var sc=r.status==="success"?"ok":r.status==="failed"?"fail":"partial";',
     '    h+="<tr>";',
-    '    h+=\'<td style="color:#555">\'+fmtDate(r.created_at)+"</td>";',
+    '    h+=\'<td style="color:#64748b">\'+fmtDate(r.created_at)+"</td>";',
     '    h+=\'<td class="\'+sc+\'">\'+r.status+"</td>";',
     '    h+="<td>"+(r.items_fetched||0)+"</td>";',
-    '    h+=\'<td style="color:#5a9a5a">\'+( r.items_published||0)+"</td>";',
-    '    h+=\'<td style="color:#d4a000">\'+( r.items_queued||0)+"</td>";',
-    '    h+=\'<td style="color:#9a5a5a">\'+( r.items_rejected||0)+"</td>";',
+    '    h+=\'<td style="color:#16a34a;font-weight:600">\'+( r.items_published||0)+"</td>";',
+    '    h+=\'<td style="color:#d97706">\'+( r.items_queued||0)+"</td>";',
+    '    h+=\'<td style="color:#dc2626">\'+( r.items_rejected||0)+"</td>";',
     '    h+="<td>"+(r.claude_calls||0)+"</td>";',
     '    h+="<td>€"+(r.estimated_cost_eur||0).toFixed(4)+"</td>";',
     '    h+="<td>"+(r.duration_ms?Math.round(r.duration_ms/1000)+"s":"—")+"</td></tr>";',
@@ -7030,10 +8626,646 @@ function reportDashboardJs() {
     '  document.getElementById("content").innerHTML=h;',
     '}',
     '',
-    'setInterval(loadReport, 5*60*1000);',
+    'var plCurrentStage="";',
+    'var plGroupByStory=false;',
+    'var plAllRows=[];',
+    '',
+    'function plStageMeta(stage){',
+    '  var m={',
+    '    published:{label:"Published",cls:"pl-published"},',
+    '    scored_low:{label:"Below threshold",cls:"pl-scored_low"},',
+    '    url_seen:{label:"Already seen",cls:"pl-url_seen"},',
+    '    off_topic:{label:"Off-topic",cls:"pl-off_topic"},',
+    '    date_old:{label:"Too old",cls:"pl-date_old"},',
+    '    too_short:{label:"Too short",cls:"pl-too_short"},',
+    '    hash_dedup:{label:"Hash dup",cls:"pl-hash_dedup"},',
+    '    title_dedup:{label:"Near-dupe",cls:"pl-title_dedup"},',
+    '    cap_drop:{label:"Cap drop",cls:"pl-cap_drop"},',
+    '  };',
+    '  return m[stage]||{label:stage,cls:"pl-url_seen"};',
+    '}',
+    '',
+    'function plStatusBadge(row){',
+    '  if(!row.slug)return"";',
+    '  if(row.content_status==="archived")return\'<span class="pl-st-arch">Arşiv</span>\';',
+    '  var ageH=row.run_at?(Date.now()-new Date(row.run_at).getTime())/3600000:99;',
+    '  return ageH<8?\'<span class="pl-st-live">Canlı</span>\':\'<span class="pl-st-pub">Yayında</span>\';',
+    '}',
+    '',
+    'function plTitleCell(row){',
+    '  var text=esc(row.title||"(no title)");',
+    '  if(row.slug){',
+    '    return\'<a href="https://kartalix.com/haber/\'+esc(row.slug)+\'" target="_blank" rel="noopener">\'+text+"</a>"+plStatusBadge(row);',
+    '  }',
+    '  return text;',
+    '}',
+    'function plSrcCell(r){',
+    '  var name=esc(r.source_name||"—");',
+    '  if(r.url)return\'<a href="\'+esc(r.url)+\'" target="_blank" rel="noopener" style="color:#475569">\'+name+"</a>";',
+    '  return name;',
+    '}',
+    '',
+    'function plTableRow(r){',
+    '  var m=plStageMeta(r.stage);',
+    '  var ts=r.run_at?new Date(r.run_at).toLocaleString("tr-TR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";',
+    '  var nvs=r.nvs_score!=null?nvsBadgeInline(r.nvs_score):"—";',
+    '  var storyCell=r.story_title?\'<span style="color:#0891b2;font-size:.75rem">\'+esc(r.story_title.slice(0,40))+"</span>":"—";',
+    '  var h="<tr>";',
+    '  h+=\'<td style="color:#94a3b8;white-space:nowrap;font-size:.75rem">\'+ts+"</td>";',
+    '  h+=\'<td style="white-space:nowrap;font-size:.78rem">\'+plSrcCell(r)+"</td>";',
+    '  h+=\'<td class="pl-title-cell">\'+plTitleCell(r)+"</td>";',
+    '  h+=\'<td><span class="pl-badge \'+m.cls+\'">\'+m.label+"</span></td>";',
+    '  h+=\'<td>\'+storyCell+"</td>";',
+    '  h+=\'<td>\'+nvs+"</td>";',
+    '  h+="</tr>";',
+    '  return h;',
+    '}',
+    '',
+    'function setPlFilter(btn){',
+    '  document.querySelectorAll(".pl-filter-btn").forEach(function(b){b.classList.remove("active");});',
+    '  btn.classList.add("active");',
+    '  plCurrentStage=btn.dataset.stage||"";',
+    '  renderPipelineLog(plAllRows);',
+    '}',
+    '',
+    'function togglePlGroup(){',
+    '  plGroupByStory=!plGroupByStory;',
+    '  var btn=document.getElementById("pl-group-btn");',
+    '  if(btn)btn.classList.toggle("active",plGroupByStory);',
+    '  renderPipelineLog(plAllRows);',
+    '}',
+    '',
+    'async function loadPipelineLog(){',
+    '  var wrap=document.getElementById("pl-wrap");',
+    '  if(!wrap)return;',
+    '  wrap.innerHTML=\'<div class="loading-state" style="padding:2rem"><div class="spinner"></div><div>Loading...</div></div>\';',
+    '  try{',
+    '    var url="/admin/pipeline-log";',
+    '    var params=[];',
+    '    if(currentFrom)params.push("from="+encodeURIComponent(currentFrom));',
+    '    if(currentTo)params.push("to="+encodeURIComponent(currentTo));',
+    '    if(params.length)url+="?"+params.join("&");',
+    '    var res=await fetch(url);',
+    '    if(!res.ok)throw new Error("HTTP "+res.status);',
+    '    plAllRows=await res.json();',
+    '    var pubCount=plAllRows.filter(function(r){return r.stage==="published";}).length;',
+    '    var badge=document.getElementById("pl-badge-count");',
+    '    if(badge)badge.textContent=plAllRows.length+" articles · "+pubCount+" published";',
+    '    renderPipelineLog(plAllRows);',
+    '  }catch(e){',
+    '    wrap.innerHTML=\'<div class="loading-state" style="padding:2rem;color:#dc2626">⚠ \'+e.message+"</div>";',
+    '  }',
+    '}',
+    '',
+    'function renderPipelineLog(rows){',
+    '  var wrap=document.getElementById("pl-wrap");',
+    '  if(!wrap)return;',
+    '  var filtered=plCurrentStage?rows.filter(function(r){return r.stage===plCurrentStage;}):rows;',
+    '  if(!filtered.length){',
+    '    wrap.innerHTML=\'<div class="loading-state" style="padding:2rem">No articles for this filter and time range.</div>\';',
+    '    return;',
+    '  }',
+    '  if(plGroupByStory){renderPipelineLogGrouped(filtered,wrap);return;}',
+    '  var h=\'<table class="pl-table"><thead><tr><th>Time</th><th>Source</th><th>Title</th><th>Stage</th><th>Story</th><th>NVS</th></tr></thead><tbody>\';',
+    '  filtered.forEach(function(r){h+=plTableRow(r);});',
+    '  h+="</tbody></table>";',
+    '  wrap.innerHTML=h;',
+    '}',
+    '',
+    'function renderPipelineLogGrouped(rows,wrap){',
+    '  // Group by story_id; null story_id → "Bağımsız"',
+    '  var groups={};',
+    '  rows.forEach(function(r){',
+    '    var key=r.story_id||"__none__";',
+    '    if(!groups[key])groups[key]={title:r.story_title||null,rows:[],pubCount:0};',
+    '    groups[key].rows.push(r);',
+    '    if(r.stage==="published")groups[key].pubCount++;',
+    '  });',
+    '  // Sort: stories with most articles first; __none__ last',
+    '  var keys=Object.keys(groups).sort(function(a,b){',
+    '    if(a==="__none__")return 1;if(b==="__none__")return-1;',
+    '    return groups[b].rows.length-groups[a].rows.length;',
+    '  });',
+    '  var h="";',
+    '  keys.forEach(function(key){',
+    '    var g=groups[key];',
+    '    var label=key==="__none__"?"📋 Hikayesiz ("+g.rows.length+" makale)":"📖 "+esc(g.title||"Story "+key.slice(0,8));',
+    '    var sub=key!=="__none__"?" · "+g.rows.length+" makale, "+g.pubCount+" yayında":"";',
+    '    h+=\'<div class="pl-story-hdr" onclick="plToggleNext(this)">\';',
+    '    h+=label+\'<span class="pl-story-count">\'+sub+"</span></div>";',
+    '    h+=\'<div><table class="pl-table"><thead><tr><th>Time</th><th>Source</th><th>Title</th><th>Stage</th><th>NVS</th></tr></thead><tbody>\';',
+    '    g.rows.forEach(function(r){',
+    '      var m=plStageMeta(r.stage);',
+    '      var ts=r.run_at?new Date(r.run_at).toLocaleString("tr-TR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";',
+    '      var nvs=r.nvs_score!=null?nvsBadgeInline(r.nvs_score):"—";',
+    '      h+="<tr>";',
+    '      h+=\'<td style="color:#94a3b8;white-space:nowrap;font-size:.75rem">\'+ts+"</td>";',
+    '      h+=\'<td style="white-space:nowrap;font-size:.78rem">\'+plSrcCell(r)+"</td>";',
+    '      h+=\'<td class="pl-title-cell">\'+plTitleCell(r)+"</td>";',
+    '      h+=\'<td><span class="pl-badge \'+m.cls+\'">\'+m.label+"</span></td>";',
+    '      h+=\'<td>\'+nvs+"</td></tr>";',
+    '    });',
+    '    h+="</tbody></table></div>";',
+    '  });',
+    '  wrap.innerHTML=h;',
+    '}',
+    '',
+    'function fmtAlarmAge(ts){',
+    '  if(!ts)return"";',
+    '  var diff=Date.now()-ts;',
+    '  if(diff<60000)return"just now";',
+    '  if(diff<3600000)return Math.round(diff/60000)+"m ago";',
+    '  if(diff<86400000)return Math.round(diff/3600000)+"h ago";',
+    '  return Math.round(diff/86400000)+"d ago";',
+    '}',
+    'async function clearAlarm(id){',
+    '  try{',
+    '    await fetch("/admin/alarms/clear",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id})});',
+    '    loadAlarms();',
+    '  }catch(e){console.log("clearAlarm error",e);}',
+    '}',
+    'async function loadAlarms(){',
+    '  try{',
+    '    var res=await fetch("/admin/alarms");',
+    '    if(!res.ok)return;',
+    '    var d=await res.json();',
+    '    var panel=document.getElementById("alarm-panel");',
+    '    var alarms=d.alarms||[];',
+    '    if(!alarms.length){panel.style.display="none";return;}',
+    '    panel.style.display="block";',
+    '    var h=\'<div class="alarm-panel"><div class="alarm-panel-head">⚠ Alerts (\'+alarms.length+")</div>";',
+    '    alarms.forEach(function(a){',
+    '      var cat=a.category||"major";',
+    '      h+=\'<div class="alarm-item \'+esc(cat)+\'">\';',
+    '      h+=\'<span class="alarm-cat \'+esc(cat)+\'">\'+esc(cat)+"</span>";',
+    '      h+=\'<div class="alarm-body">\';',
+    '      h+=\'<div class="alarm-row1"><span class="alarm-title">\'+esc(a.title)+"</span>";',
+    '      if(a.first_seen)h+=\'<span class="alarm-ts">since \'+fmtAlarmAge(a.first_seen)+"</span>";',
+    '      h+="</div>";',
+    '      h+=\'<div class="alarm-msg">\'+esc(a.msg)+"</div>";',
+    '      h+="</div>";',
+    '      h+=\'<button class="alarm-clear" onclick="clearAlarm(\\\'\'+esc(a.id)+\'\\\')">Clear</button>\';',
+    '      h+="</div>";',
+    '    });',
+    '    h+="</div>";',
+    '    panel.innerHTML=h;',
+    '  }catch(e){console.log("loadAlarms error",e);}',
+    '}',
+    '',
+    'setInterval(function(){loadReport();loadPipelineLog();if(typeof loadAnalytics==="function")loadAnalytics();loadAlarms();if(typeof loadKpiStrip==="function")loadKpiStrip();}, 5*60*1000);',
     'setRange("24h");',
+    'loadAlarms();',
   ];
   return lines.join('\n');
+}
+
+function kpiStripJs() {
+  return `
+function sparkSvg(values,days){
+  var nonNull=values.filter(function(v){return v!==null;});
+  if(!nonNull.length){return '<svg viewBox="0 0 100 30" style="width:100%;height:32px;display:block"><text x="50" y="20" text-anchor="middle" fill="#e2e8f0" font-size="8">—</text></svg>';}
+  var mn=Math.min.apply(null,nonNull),mx=Math.max.apply(null,nonNull);
+  var mean=nonNull.reduce(function(s,v){return s+v;},0)/nonNull.length;
+  function py(v){if(mx===mn){return 15;}return 3+(1-(v-mn)/(mx-mn))*24;}
+  var meanY=py(mean);
+  var pts=[];
+  for(var i=0;i<values.length;i++){
+    if(values[i]===null)continue;
+    var spx=(i/13)*100;
+    pts.push(spx.toFixed(1)+','+py(values[i]).toFixed(1));
+  }
+  var todayIdx=-1;
+  for(var j=values.length-1;j>=0;j--){if(values[j]!==null){todayIdx=j;break;}}
+  var circles='';
+  for(var k=0;k<values.length;k++){
+    if(values[k]===null)continue;
+    var cx=((k/13)*100).toFixed(1),cy=py(values[k]).toFixed(1);
+    var tip=((days&&days[k])?days[k]+': ':'')+Math.round(values[k]*100)/100;
+    var r=k===todayIdx?'2.5':'1.2',fill=k===todayIdx?'#1e293b':'#cbd5e1';
+    circles+='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+fill+'"><title>'+tip+'</title></circle>';
+  }
+  return '<svg viewBox="0 0 100 30" style="width:100%;height:32px;display:block" preserveAspectRatio="none">'+
+    '<line x1="0" y1="'+meanY.toFixed(1)+'" x2="100" y2="'+meanY.toFixed(1)+'" stroke="#f1f5f9" stroke-width="1"/>'+
+    '<polyline points="'+pts.join(' ')+'" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round"/>'+
+    circles+'</svg>';
+}
+
+function renderKpiStrip(d){
+  var ls=d.live_state||{};
+  var td=d.today||{};
+  var tr=d.trend_14d||{};
+  var days=d.days||[];
+  var ps=ls.pool_size||0;
+  var psColor=ps<12?'kpi-red':ps<=25?'kpi-yellow':'kpi-green';
+  var comp=ls.pool_composition||{};
+  var compParts=[];
+  if(comp.video)compParts.push('Video '+comp.video);
+  if(comp.yz)compParts.push('AI '+comp.yz);
+  if(comp.yz_plus)compParts.push('AI+ '+comp.yz_plus);
+  var hs=ls.hot_story;
+  var hotHtml=hs?
+    '<div class="kpi-title-text">'+esc(hs.title)+'</div><div class="kpi-sub">'+hs.contribution_count+' sources · '+hs.minutes_since_last+' min ago</div>':
+    '<div class="kpi-big" style="font-size:1rem">—</div><div class="kpi-sub" style="color:#cbd5e1">no active story</div>';
+  var lc=ls.last_cron;
+  var cronTs=lc&&lc.timestamp?lc.timestamp.slice(11,16):'—';
+  var cronStatusHtml=lc?(lc.status==='success'?'<span style="color:#16a34a">✓ success</span>':'<span style="color:#dc2626">✗ failed</span>'):'';
+  var cronMins=lc?lc.minutes_ago+' min ago · '+cronStatusHtml:'';
+  var cronBigCls=(lc&&(lc.status!=='success'||lc.minutes_ago>90))?'kpi-red':'';
+  var cronHtml='<div class="kpi-big '+cronBigCls+'">'+cronTs+'</div><div class="kpi-sub">'+cronMins+'</div>';
+  var pub=td.published||{};
+  var pubDelta=pub.delta_pct||0;
+  var pubDeltaCls=(pubDelta<-20||pubDelta>50)?'kpi-delta-red':'';
+  var pubHtml='<div class="kpi-big">'+(pub.count||0)+'</div><div class="kpi-sub">typical '+(pub.baseline||0)+' <span class="'+pubDeltaCls+'">'+(pubDelta>=0?'+':'')+pubDelta+'%</span></div>';
+  var fn=td.funnel||{};
+  var funnelRate=fn.qualified>0?Math.round(((pub.count||0)/fn.qualified)*100):0;
+  var funnelHtml='<div class="kpi-sub" style="font-size:.75rem">'+(fn.qualified||0)+' qualified · '+(fn.unscored||0)+' unscored · '+(fn.rejected||0)+' rejected</div><div class="kpi-sub">Publish rate: '+funnelRate+'% (Q→P)</div>';
+  var ch=td.live_churn||{};
+  var ovStyle=ch.removed_overflow>0?' style="color:#d97706"':'';
+  var churnHtml='<div class="kpi-sub" style="font-size:.75rem">+'+(ch.added||0)+' added · −'+(ch.removed_total||0)+' removed</div><div class="kpi-sub">(aged '+(ch.removed_aged_out||0)+' · TTL '+(ch.removed_ttl||0)+' · <span'+ovStyle+'>ovf '+(ch.removed_overflow||0)+'</span>)</div>';
+  var ft=td.fetched||{};
+  var fetchHtml='<div class="kpi-big" style="font-size:1rem">'+(ft.count||0).toLocaleString()+'</div><div class="kpi-sub">'+(ft.active_sources||0)+' sources active</div>';
+  var cost=td.cost||{};
+  var costBigCls=(cost.baseline_usd>0&&cost.today_usd>cost.baseline_usd*1.5)?'kpi-red':'';
+  var costHtml='<div class="kpi-big '+costBigCls+'">$'+(cost.today_usd||0).toFixed(2)+'</div><div class="kpi-sub">typical $'+(cost.baseline_usd||0).toFixed(2)+'</div>';
+  var sp1=sparkSvg(tr.pool_size||[],days);
+  var sp2=sparkSvg(tr.median_nvs_published||[],days);
+  var sp3=sparkSvg(tr.cost_daily_usd||[],days);
+  var upd=new Date(d.as_of||Date.now()).toLocaleTimeString();
+  return '<div class="kpi-strip-row">'+
+    '<div class="kpi-cell"><div class="kpi-lbl">Live Pool</div><div class="kpi-big '+psColor+'">'+ps+'</div><div class="kpi-sub">'+esc(compParts.join(' · '))+'</div></div>'+
+    '<div class="kpi-cell"><div class="kpi-lbl">Hot Story</div>'+hotHtml+'</div>'+
+    '<div class="kpi-cell"><div class="kpi-lbl">Last Run</div>'+cronHtml+'</div>'+
+    '</div>'+
+    '<div class="kpi-strip-row">'+
+    '<div class="kpi-cell"><div class="kpi-lbl">Published Today</div>'+pubHtml+'</div>'+
+    '<div class="kpi-cell"><div class="kpi-lbl">Funnel Today</div>'+funnelHtml+'</div>'+
+    '<div class="kpi-cell"><div class="kpi-lbl">Pool Churn</div>'+churnHtml+'</div>'+
+    '<div class="kpi-cell"><div class="kpi-lbl">Fetched</div>'+fetchHtml+'</div>'+
+    '<div class="kpi-cell"><div class="kpi-lbl">Cost</div>'+costHtml+'</div>'+
+    '</div>'+
+    '<div class="kpi-strip-row">'+
+    '<div class="kpi-spark-wrap"><div class="kpi-spark-lbl">Pool (14d)</div>'+sp1+'</div>'+
+    '<div class="kpi-spark-wrap"><div class="kpi-spark-lbl">Median NVS (14d)</div>'+sp2+'</div>'+
+    '<div class="kpi-spark-wrap"><div class="kpi-spark-lbl">Cost (14d)</div>'+sp3+'</div>'+
+    '</div>'+
+    '<div class="kpi-meta">Updated '+esc(upd)+'</div>';
+}
+
+async function loadKpiStrip(){
+  var el=document.getElementById('kpi-strip');
+  try{
+    var res=await fetch('/admin/kpi-strip');
+    if(!res.ok){
+      if(el)el.innerHTML='<div class="kpi-loading">KPI error: HTTP '+res.status+'</div>';
+      return;
+    }
+    var d=await res.json();
+    if(el)el.innerHTML=renderKpiStrip(d);
+  }catch(e){
+    console.error('loadKpiStrip error',e);
+    if(el)el.innerHTML='<div class="kpi-loading">KPI error: '+String(e)+'</div>';
+  }
+}
+setInterval(function(){loadKpiStrip();},60*1000);
+loadKpiStrip();
+`;
+}
+
+function analyticsJs() {
+  return `
+var analyticsData=null;
+// Per-chart state: { series:[], from:null, to:null, data:null }
+var CS={
+  'ch-funnel-trend':   {series:['raw','kw','published'],from:null,to:null,data:null},
+  'ch-source-quality': {series:null,from:null,to:null,data:null},
+  'ch-pub-breakdown':  {series:['yz_plus','yz','video','template','other'],from:null,to:null,data:null},
+  'ch-story':          {series:['opened','closed'],from:null,to:null,data:null},
+  'ch-nvs':            {series:['published','rejected'],from:null,to:null,data:null},
+  'ch-cost':           {series:['cost'],from:null,to:null,data:null},
+};
+var SMETA={
+  'ch-funnel-trend':[{k:'raw',c:'#93c5fd',l:'Fetched'},{k:'kw',c:'#fb923c',l:'After KW'},{k:'published',c:'#4ade80',l:'Published',anomaly:true}],
+  'ch-pub-breakdown':[{k:'yz_plus',c:'#818cf8',l:'YZ+'},{k:'yz',c:'#4ade80',l:'YZ'},{k:'video',c:'#f472b6',l:'Video'},{k:'template',c:'#fb923c',l:'Template'},{k:'other',c:'#94a3b8',l:'Other'}],
+  'ch-story':[{k:'opened',c:'#60a5fa',l:'Opened'},{k:'closed',c:'#94a3b8',l:'Closed'}],
+  'ch-nvs':[{k:'published',c:'#86efac',l:'Published'},{k:'rejected',c:'#cbd5e1',l:'Below threshold'}],
+  'ch-cost':[{k:'cost',c:'#d97706',l:'Cost €'}],
+};
+
+function loadAnalytics(){
+  var url='/admin/analytics-data';
+  var params=[];
+  if(currentFrom)params.push('from='+encodeURIComponent(currentFrom));
+  if(currentTo)params.push('to='+encodeURIComponent(currentTo));
+  if(params.length)url+='?'+params.join('&');
+  var loading=document.getElementById('an-loading');
+  if(loading)loading.style.display='block';
+  fetch(url).then(function(r){return r.json();}).then(function(d){
+    analyticsData=d;
+    if(loading)loading.style.display='none';
+    buildAllControls(d);
+    renderAllCharts();
+  }).catch(function(e){
+    if(loading){loading.style.display='block';loading.textContent='⚠ '+e.message;}
+  });
+}
+
+function fetchChartData(id){
+  var url='/admin/analytics-data';
+  var params=[];
+  if(CS[id].from)params.push('from='+encodeURIComponent(CS[id].from));
+  if(CS[id].to)params.push('to='+encodeURIComponent(CS[id].to));
+  if(params.length)url+='?'+params.join('&');
+  var svgEl=document.getElementById(id.replace('ch-','ch-').replace('source-quality','src-quality')+'-svg');
+  if(id==='ch-source-quality')svgEl=document.getElementById('ch-src-quality-svg');
+  else svgEl=document.getElementById(id+'-svg');
+  if(svgEl)svgEl.innerHTML='<div style="text-align:center;padding:1.5rem;color:#94a3b8;font-size:.8rem">Loading…</div>';
+  fetch(url).then(function(r){return r.json();}).then(function(d){
+    CS[id].data=d;
+    renderChart(id);
+  }).catch(function(e){
+    if(svgEl)svgEl.innerHTML='<div style="color:#dc2626;padding:1rem;font-size:.8rem">⚠ '+e.message+'</div>';
+  });
+}
+
+function getChartData(id){return CS[id].data||analyticsData;}
+
+function toggleChart(id,show){
+  var el=document.getElementById(id);
+  if(el)el.style.display=show?'':'none';
+}
+
+// ── Controls builder ─────────────────────────────────────────────
+
+function buildAllControls(d){
+  Object.keys(SMETA).forEach(function(id){buildSeriesCtrls(id);});
+  buildSourceCtrls(d.source_quality||[]);
+}
+
+function seriesCb(id,m){
+  var active=CS[id].series&&CS[id].series.indexOf(m.k)>=0;
+  var dot=m.c?'<span class="an-leg-dot" style="background:'+m.c+';width:7px;height:7px;display:inline-block;border-radius:50%;margin-right:2px;vertical-align:middle"></span>':'';
+  return '<label class="an-src-lbl"><input type="checkbox"'+(active?' checked':'')+' data-chart="'+id+'" data-key="'+m.k+'" onchange="onSeriesToggle(this)"> '+dot+m.l+'</label>';
+}
+
+function buildSeriesCtrls(id){
+  var el=document.getElementById(id+'-ctrl');
+  if(!el)return;
+  var meta=SMETA[id];if(!meta)return;
+  if(!CS[id].series)CS[id].series=meta.map(function(m){return m.k;});
+  var h='<div class="an-series-row">';
+  meta.forEach(function(m){h+=seriesCb(id,m);});
+  h+='</div>';
+  h+=rangeCtrlHtml(id);
+  el.innerHTML=h;
+}
+
+function buildSourceCtrls(srcQ){
+  var el=document.getElementById('ch-source-quality-ctrl');
+  if(!el)return;
+  var existing=el.querySelector('.an-series-row');
+  if(existing)return; // already built — preserve state
+  if(!CS['ch-source-quality'].series)CS['ch-source-quality'].series=srcQ.map(function(s){return s.source_name;});
+  var h='<div class="an-series-row">';
+  srcQ.forEach(function(s){
+    var active=CS['ch-source-quality'].series.indexOf(s.source_name)>=0;
+    h+='<label class="an-src-lbl"><input type="checkbox"'+(active?' checked':'')+' data-chart="ch-source-quality" data-key="'+esc(s.source_name)+'" onchange="onSeriesToggle(this)"> '+esc(s.source_name)+'</label>';
+  });
+  h+='</div>';
+  h+=rangeCtrlHtml('ch-source-quality');
+  el.innerHTML=h;
+}
+
+function rangeCtrlHtml(id){
+  var isCustom=!!(CS[id].from||CS[id].to);
+  return '<div class="an-range-row">'
+    +'<span class="an-range-lbl">Range:</span>'
+    +'<button class="an-range-mode-btn'+(isCustom?'':' active')+'" onclick="setChartRangeMode(\\''+id+'\\',false)">Master</button>'
+    +'<button class="an-range-mode-btn'+(isCustom?' active':'')+'" onclick="setChartRangeMode(\\''+id+'\\',true)">Custom</button>'
+    +'<span id="'+id+'-rinputs" style="display:'+(isCustom?'flex':'none')+';align-items:center;gap:.35rem;flex-wrap:wrap">'
+    +'<input type="datetime-local" class="range-input" id="'+id+'-rfrom" style="width:148px"'+(CS[id].from?' value="'+(CS[id].from||'').slice(0,16)+'"':'')+'>'
+    +'<input type="datetime-local" class="range-input" id="'+id+'-rto" style="width:148px"'+(CS[id].to?' value="'+(CS[id].to||'').slice(0,16)+'"':'')+'>'
+    +'<button class="range-apply" onclick="applyChartRange(\\''+id+'\\')">Apply</button>'
+    +(isCustom?'<button class="range-apply" onclick="clearChartRange(\\''+id+'\\')">Clear</button>':'')
+    +'</span>'
+    +'</div>';
+}
+
+function setChartRangeMode(id,custom){
+  var row=document.getElementById(id+'-rinputs');
+  if(row)row.style.display=custom?'flex':'none';
+  var btns=document.querySelectorAll('#'+id+'-ctrl .an-range-mode-btn');
+  if(btns.length===2){btns[0].classList.toggle('active',!custom);btns[1].classList.toggle('active',custom);}
+  if(!custom)clearChartRange(id);
+}
+
+function applyChartRange(id){
+  var f=document.getElementById(id+'-rfrom');
+  var t=document.getElementById(id+'-rto');
+  CS[id].from=f&&f.value?new Date(f.value).toISOString():null;
+  CS[id].to  =t&&t.value?new Date(t.value).toISOString():null;
+  CS[id].data=null;
+  fetchChartData(id);
+}
+
+function clearChartRange(id){
+  CS[id].from=null;CS[id].to=null;CS[id].data=null;
+  var f=document.getElementById(id+'-rfrom'),t=document.getElementById(id+'-rto');
+  if(f)f.value='';if(t)t.value='';
+  var row=document.getElementById(id+'-rinputs');if(row)row.style.display='none';
+  var btns=document.querySelectorAll('#'+id+'-ctrl .an-range-mode-btn');
+  if(btns.length===2){btns[0].classList.add('active');btns[1].classList.remove('active');}
+  renderChart(id);
+}
+
+function onSeriesToggle(cb){
+  var id=cb.dataset.chart,key=cb.dataset.key;
+  if(!CS[id].series)CS[id].series=[];
+  if(cb.checked){if(CS[id].series.indexOf(key)<0)CS[id].series.push(key);}
+  else{CS[id].series=CS[id].series.filter(function(k){return k!==key;});}
+  renderChart(id);
+}
+
+// ── Render layer ─────────────────────────────────────────────────
+
+function renderAllCharts(){
+  Object.keys(CS).forEach(renderChart);
+}
+
+function renderChart(id){
+  var d=getChartData(id);if(!d)return;
+  if(id==='ch-funnel-trend')   renderFunnelTrend(d);
+  else if(id==='ch-source-quality') renderSrcQuality();
+  else if(id==='ch-pub-breakdown')  renderPubBreakdown(d);
+  else if(id==='ch-story')          renderStoryChart(d);
+  else if(id==='ch-nvs')            renderNvsChart(d);
+  else if(id==='ch-cost')           renderCostChart(d);
+}
+
+function activeSeries(id){
+  return (SMETA[id]||[]).filter(function(m){return !CS[id].series||CS[id].series.indexOf(m.k)>=0;});
+}
+
+function renderFunnelTrend(d){
+  var series=activeSeries('ch-funnel-trend').map(function(m){return{key:m.k,color:m.c,anomaly:m.anomaly};});
+  document.getElementById('ch-funnel-trend-svg').innerHTML=anSvgLine(d.runs_ts||[],series);
+}
+
+function renderPubBreakdown(d){
+  var meta=activeSeries('ch-pub-breakdown');
+  document.getElementById('ch-pub-breakdown-svg').innerHTML=anStackedBar(
+    d.pub_by_day||[],meta.map(function(m){return m.k;}),meta.map(function(m){return m.c;})
+  );
+}
+
+function renderStoryChart(d){
+  var series=activeSeries('ch-story').map(function(m){return{key:m.k,color:m.c};});
+  var stData=(d.story_by_day||[]).map(function(r){return{ts:r.day+'T12:00:00Z',opened:r.opened,closed:r.closed};});
+  document.getElementById('ch-story-svg').innerHTML=anSvgLine(stData,series);
+}
+
+function renderNvsChart(d){
+  var active=CS['ch-nvs'].series||['published','rejected'];
+  document.getElementById('ch-nvs-svg').innerHTML=anHistChart(d.nvs_hist||[],active);
+}
+
+function renderCostChart(d){
+  document.getElementById('ch-cost-svg').innerHTML=anSvgLine(d.runs_ts||[],[{key:'cost',color:'#d97706'}],{H:140});
+}
+
+function renderSrcQuality(){
+  var d=getChartData('ch-source-quality');if(!d)return;
+  var srcQ=d.source_quality||[];
+  var checks=document.querySelectorAll('#ch-source-quality-ctrl input[data-key]');
+  var visible=new Set();
+  if(checks.length){checks.forEach(function(c){if(c.checked)visible.add(c.dataset.key);});}
+  else{srcQ.forEach(function(s){visible.add(s.source_name);});}
+  var filtered=srcQ.filter(function(s){return visible.has(s.source_name);});
+  document.getElementById('ch-src-quality-svg').innerHTML=anHBar(filtered);
+}
+
+// ── SVG chart primitives ─────────────────────────────────────────
+
+function anSvgLine(data,series,opts){
+  opts=opts||{};
+  var W=opts.W||780,H=opts.H||180,PL=44,PR=14,PT=14,PB=28;
+  var cW=W-PL-PR,cH=H-PT-PB;
+  if(!data||!data.length||!series||!series.length)return noDataSvg(W,H);
+  var allVals=[];
+  series.forEach(function(s){data.forEach(function(r){allVals.push(r[s.key]||0);});});
+  var maxV=Math.max.apply(null,allVals.concat([1]));
+  var n=data.length;
+  var svg='<svg width="100%" viewBox="0 0 '+W+' '+H+'" style="overflow:visible;display:block">';
+  for(var gi=0;gi<=4;gi++){
+    var gy=(PT+cH-(gi/4)*cH).toFixed(1);
+    svg+='<line x1="'+PL+'" y1="'+gy+'" x2="'+(PL+cW)+'" y2="'+gy+'" stroke="#f1f5f9" stroke-width="1"/>';
+    svg+='<text x="'+(PL-4)+'" y="'+(parseFloat(gy)+4).toFixed(1)+'" text-anchor="end" fill="#94a3b8" font-size="10">'+Math.round(maxV*gi/4)+'</text>';
+  }
+  var step=Math.max(1,Math.ceil(n/8));
+  data.forEach(function(r,i){
+    if(i%step!==0&&i!==n-1)return;
+    var x=(PL+i/(Math.max(n-1,1))*cW).toFixed(1);
+    var lbl=r.ts?new Date(r.ts).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}):'';
+    svg+='<text x="'+x+'" y="'+(H-4)+'" text-anchor="middle" fill="#94a3b8" font-size="9">'+lbl+'</text>';
+  });
+  series.forEach(function(s){
+    var pts=data.map(function(r,i){
+      return[PL+i/(Math.max(n-1,1))*cW, PT+cH-((r[s.key]||0)/maxV)*cH];
+    });
+    var d=pts.map(function(p,i){return(i===0?'M':'L')+p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' ');
+    svg+='<path d="'+d+'" fill="none" stroke="'+s.color+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
+    pts.forEach(function(p,i){
+      var isAnomaly=s.anomaly&&!(data[i][s.key]);
+      var fill=isAnomaly?'#dc2626':s.color;
+      var r2=isAnomaly?5:3;
+      var tip=(data[i].ts?new Date(data[i].ts).toLocaleString('tr-TR'):'')+': '+(data[i][s.key]||0);
+      svg+='<circle cx="'+p[0].toFixed(1)+'" cy="'+p[1].toFixed(1)+'" r="'+r2+'" fill="'+fill+'"><title>'+tip+'</title></circle>';
+    });
+  });
+  return svg+'</svg>';
+}
+
+function anStackedBar(data,keys,colors,opts){
+  opts=opts||{};
+  var W=opts.W||780,H=opts.H||180,PL=44,PR=14,PT=14,PB=28;
+  var cW=W-PL-PR,cH=H-PT-PB;
+  if(!data||!data.length||!keys||!keys.length)return noDataSvg(W,H);
+  var totals=data.map(function(r){return keys.reduce(function(s,k){return s+(r[k]||0);},0);});
+  var maxV=Math.max.apply(null,totals.concat([1]));
+  var n=data.length;
+  var barW=Math.max(4,Math.floor(cW/n)-2);
+  var gap=n>1?(cW-barW*n)/(n-1):0;
+  var svg='<svg width="100%" viewBox="0 0 '+W+' '+H+'" style="overflow:visible;display:block">';
+  for(var gi=0;gi<=4;gi++){
+    var gy=(PT+cH-(gi/4)*cH).toFixed(1);
+    svg+='<line x1="'+PL+'" y1="'+gy+'" x2="'+(PL+cW)+'" y2="'+gy+'" stroke="#f1f5f9" stroke-width="1"/>';
+    svg+='<text x="'+(PL-4)+'" y="'+(parseFloat(gy)+4).toFixed(1)+'" text-anchor="end" fill="#94a3b8" font-size="10">'+Math.round(maxV*gi/4)+'</text>';
+  }
+  var step=Math.max(1,Math.ceil(n/8));
+  data.forEach(function(r,i){
+    var x=PL+i*(barW+gap),stackY=PT+cH;
+    keys.forEach(function(k,ki){
+      var val=r[k]||0;if(!val)return;
+      var h=(val/maxV)*cH;stackY-=h;
+      svg+='<rect x="'+x.toFixed(1)+'" y="'+stackY.toFixed(1)+'" width="'+barW+'" height="'+h.toFixed(1)+'" fill="'+colors[ki]+'"><title>'+(r.day||'')+' '+k+': '+val+'</title></rect>';
+    });
+    if(i%step===0)svg+='<text x="'+(x+barW/2).toFixed(1)+'" y="'+(H-4)+'" text-anchor="middle" fill="#94a3b8" font-size="9">'+((r.day||'').slice(5))+'</text>';
+  });
+  return svg+'</svg>';
+}
+
+function anHistChart(data,active,opts){
+  opts=opts||{};
+  var W=opts.W||780,H=opts.H||160,PL=44,PR=14,PT=14,PB=26;
+  var cW=W-PL-PR,cH=H-PT-PB;
+  if(!data||!data.length)return noDataSvg(W,H);
+  var showP=!active||active.indexOf('published')>=0;
+  var showR=!active||active.indexOf('rejected')>=0;
+  var allV=[];data.forEach(function(r){if(showP)allV.push(r.published);if(showR)allV.push(r.rejected);});
+  var maxV=Math.max.apply(null,allV.concat([1]));
+  var bw=Math.floor(cW/data.length),half=Math.floor(bw*0.38);
+  var svg='<svg width="100%" viewBox="0 0 '+W+' '+H+'" style="overflow:visible;display:block">';
+  for(var gi=0;gi<=4;gi++){
+    var gy=(PT+cH-(gi/4)*cH).toFixed(1);
+    svg+='<line x1="'+PL+'" y1="'+gy+'" x2="'+(PL+cW)+'" y2="'+gy+'" stroke="#f1f5f9" stroke-width="1"/>';
+    svg+='<text x="'+(PL-4)+'" y="'+(parseFloat(gy)+4).toFixed(1)+'" text-anchor="end" fill="#94a3b8" font-size="10">'+Math.round(maxV*gi/4)+'</text>';
+  }
+  var threshX=(PL+6.5*bw).toFixed(1);
+  svg+='<line x1="'+threshX+'" y1="'+PT+'" x2="'+threshX+'" y2="'+(PT+cH)+'" stroke="#fcd34d" stroke-width="1.5" stroke-dasharray="4,3"/>';
+  svg+='<text x="'+threshX+'" y="'+(PT-3)+'" text-anchor="middle" fill="#d97706" font-size="9">threshold</text>';
+  data.forEach(function(r,i){
+    var cx=PL+(i+0.5)*bw,base=PT+cH;
+    if(showP&&r.published){var pH=(r.published/maxV)*cH;svg+='<rect x="'+(cx-half-1)+'" y="'+(base-pH).toFixed(1)+'" width="'+half+'" height="'+pH.toFixed(1)+'" fill="#86efac"><title>'+r.range+' pub: '+r.published+'</title></rect>';}
+    if(showR&&r.rejected){var rH=(r.rejected/maxV)*cH;svg+='<rect x="'+cx+'" y="'+(base-rH).toFixed(1)+'" width="'+half+'" height="'+rH.toFixed(1)+'" fill="#cbd5e1"><title>'+r.range+' rejected: '+r.rejected+'</title></rect>';}
+    svg+='<text x="'+cx.toFixed(1)+'" y="'+(H-4)+'" text-anchor="middle" fill="#94a3b8" font-size="9">'+r.range+'</text>';
+  });
+  return svg+'</svg>';
+}
+
+function anHBar(data,opts){
+  opts=opts||{};
+  var rowH=22,PL=120,PR=85,PT=8,gap=3,W=opts.W||780;
+  var H=PT+data.length*(rowH+gap)+8;
+  if(!data||!data.length)return noDataSvg(W,60);
+  var cW=W-PL-PR;
+  var maxV=Math.max.apply(null,data.map(function(r){return r.total||1;}));
+  var svg='<svg width="100%" viewBox="0 0 '+W+' '+H+'" style="display:block">';
+  data.forEach(function(r,i){
+    var y=PT+i*(rowH+gap),cy=(y+rowH/2+4).toFixed(1);
+    var tW=((r.total||0)/maxV)*cW,pW=((r.published||0)/maxV)*cW;
+    svg+='<text x="'+(PL-6)+'" y="'+cy+'" text-anchor="end" fill="#1e293b" font-size="11" font-weight="500">'+esc(r.source_name)+'</text>';
+    svg+='<rect x="'+PL+'" y="'+(y+4)+'" width="'+tW.toFixed(1)+'" height="'+(rowH-8)+'" fill="#f1f5f9" rx="2"/>';
+    if(pW>0)svg+='<rect x="'+PL+'" y="'+(y+4)+'" width="'+pW.toFixed(1)+'" height="'+(rowH-8)+'" fill="#86efac" rx="2"/>';
+    svg+='<text x="'+(PL+cW+6)+'" y="'+cy+'" fill="#64748b" font-size="11">'+(r.pub_rate||0)+'% · NVS '+(r.avg_nvs||0)+'</text>';
+  });
+  return svg+'</svg>';
+}
+
+function noDataSvg(W,H){
+  return '<svg width="100%" viewBox="0 0 '+W+' '+H+'"><text x="'+(W/2)+'" y="'+(H/2)+'" text-anchor="middle" fill="#94a3b8" font-size="12">No data for this range</text></svg>';
+}
+
+if(typeof currentFrom!=='undefined')loadAnalytics();
+`;
 }
 
 function renderAdminRoadmapPage() {
@@ -7167,30 +9399,35 @@ ${nav}
 
     <div class="rrow" onclick="toggle('r10')">
       <span class="vtag planned">v1.0</span>
-      <div><div class="rrow-title">Public Launch <span class="freeze-badge">FROZEN RELEASE</span></div><div class="rrow-sub">Security hardened · Cost guard · Telegram ops · 40+ articles/day · Lawyer re-confirmed</div></div>
+      <div><div class="rrow-title">Public Launch <span class="freeze-badge">FROZEN RELEASE</span></div><div class="rrow-sub">Security hardened · Trust gated · Situational awareness · Telegram ops · Lawyer re-confirmed</div></div>
       <div class="rrow-date">Target: Jul 2026</div>
     </div>
     <div id="r10" class="detail">
       <div class="criteria">
         <h5>Freeze criteria — all must pass before tagging v1.0.0</h5>
         <ul>
-          <li>Homepage &lt;2s on mobile (4G throttled)</li>
-          <li>40+ articles visible for 3 consecutive days without manual intervention</li>
-          <li>Widgets load on kartalix.com, app.kartalix.com, www.kartalix.com</li>
-          <li>Kaydet tested: beklemede → yayında appears on homepage within 5 min</li>
-          <li>Admin login: 5 wrong attempts → lockout (Slice 4.2)</li>
-          <li>/admin/cost shows current month spend within cap (Slice 3.7)</li>
-          <li>Rewrite articles: ≥3/day for 3 consecutive days</li>
-          <li>Lawyer re-confirm compliance after Sprint H ships</li>
+          <li>✅ Sprint H complete (news pool, rewrite queue, topic pages, multi-source synthesis)</li>
+          <li>☐ Audit pre-work complete — P0 security fixes + DB migrations (see v0.91)</li>
+          <li>☐ Sprint I complete — trust layer, synthesis gated on source quality</li>
+          <li>☐ Sprint J complete — match highlights pipeline</li>
+          <li>☐ Sprint K complete — situational awareness engine</li>
+          <li>☐ <code>/run</code>, <code>/force-*</code> endpoints require auth — no unauthenticated triggers</li>
+          <li>☐ Admin session cookie is server-generated token (not static <code>kx-editor=1</code>)</li>
+          <li>☐ <code>ADMIN_PIN</code> secret set in Wrangler — no hardcoded fallback</li>
+          <li>☐ Homepage &lt;2s on mobile (4G throttled)</li>
+          <li>☐ 40+ articles visible for 3 consecutive days without manual intervention</li>
+          <li>☐ Widgets load on kartalix.com, app.kartalix.com, www.kartalix.com — all three</li>
+          <li>☐ Kaydet tested: beklemede → yayında promotes to KV within one cron tick</li>
+          <li>☐ /admin/cost shows current month spend within cap</li>
+          <li>☐ Rewrite articles: ≥3/day for 3 consecutive days (proxy + RSS fallback both exercised)</li>
+          <li>☐ No article older than its content-type hard TTL visible on homepage</li>
+          <li>☐ At least one synthesis blocked by trust gate (logged in console)</li>
+          <li>☐ Situational context block present in at least one synthesis article</li>
+          <li>☐ Telegram ops alert wired (Claude cap hit + zero-article run → message)</li>
+          <li>☐ Legal sign-off re-confirmed after Sprint H ships</li>
+          <li>☐ git tag v1.0.0, CF version ID noted, KV export saved, Supabase backup downloaded</li>
         </ul>
       </div>
-      <h4>Requires (in order)</h4>
-      <ul>
-        <li>v0.9 Sprint H — news pool always has 40+ articles</li>
-        <li>Slice 3.7 — cost guard (hard cap before public traffic)</li>
-        <li>Slice 4.2 — security hardening (JWT auth, rate limiting, CSP)</li>
-        <li>Slice 4 partial — Telegram ops channel (visibility in production)</li>
-      </ul>
       <div class="backup-box">
         <strong>Freeze procedure</strong><br>
         1. <code>git tag v1.0.0 &amp;&amp; git push origin v1.0.0</code><br>
@@ -7201,29 +9438,98 @@ ${nav}
       </div>
     </div>
 
-    <div class="rrow" onclick="toggle('r09')">
-      <span class="vtag next">v0.9</span>
-      <div><div class="rrow-title">News Pool &amp; Publish Queue — Sprint H</div><div class="rrow-sub">Persistent rewrite queue · Ranked 200-slot pool · Topic pages · Quick-publish</div></div>
-      <div class="rrow-date">Next up</div>
+    <div class="rrow" onclick="toggle('r097')">
+      <span class="vtag planned">v0.97</span>
+      <div><div class="rrow-title">Situational Awareness Engine — Sprint K</div><div class="rrow-sub">League position · Mathematical locks · European path · Editorial narrative arc</div></div>
+      <div class="rrow-date">After v0.96</div>
     </div>
-    <div id="r09" class="detail">
-      <h4>Scope</h4>
+    <div id="r097" class="detail">
+      <h4>Goal</h4>
+      <p style="font-size:12px;color:#aaa;margin-bottom:12px">Every synthesis article has a factually-grounded situational context block. Fabricated "kritik viraj" framing eliminated.</p>
+      <h4>Prerequisites</h4>
       <ul>
-        <li><strong>H1</strong> Persistent rewrite queue — <code>rewrite:queue</code> KV; NVS≥60 articles queued not dropped; retried each run; 48h TTL; per-run cap removed</li>
-        <li><strong>H2</strong> Pool grows to 200 slots; <code>rank_score = nvs × e^(-age_hours/36)</code>; homepage top 20; "Daha fazla" loads next 20; admin pin support</li>
-        <li><strong>H3</strong> Quick-publish button in admin news list — POST <code>/admin/content-publish?slug=X</code>; bulk promote: select N → publish all</li>
-        <li><strong>H4</strong> Topic pages — <code>/konu/transfer</code>, <code>/konu/mac</code>, <code>/konu/sakat</code>; homepage nav tabs; sitemap extended</li>
-        <li><strong>H5</strong> Multi-source rewrite wired into backgroundWork — stories with ≥3 contributions in 6h trigger synthesizeStory (cap 2/run)</li>
+        <li>Migration 0008 (<code>sites.editorial_context</code>) must be run before K4 begins ✅ done 2026-05-15</li>
+        <li>Worker refactor: extract HTML rendering into <code>src/renderer.js</code> before K5 (audit P1-5)</li>
+      </ul>
+      <h4>Scope — Sprint K</h4>
+      <ul>
+        <li><strong>K4 first</strong> — <code>sites.editorial_context</code> admin form + BJK seed data</li>
+        <li><strong>K1</strong> — Layer 1 gap-fill: remaining fixtures, cache invalidation after result flash</li>
+        <li><strong>K2</strong> — Mathematical locks + rival threat index + GD tiebreaker flag</li>
+        <li><strong>K3</strong> — European qualification tree (rules + cascade + drop-down + unit tests)</li>
+        <li><strong>K5</strong> — <code>src/situation.js</code> glue + <code>formatForPrompt()</code> + integration into synthesize / preview generators</li>
       </ul>
       <div class="criteria">
-        <h5>Done when</h5>
+        <h5>Freeze criteria</h5>
         <ul>
-          <li>Homepage shows ≥40 articles on a quiet news day</li>
-          <li>Post-match run produces ≥8 rewrite articles</li>
-          <li>Admin quick-publish tested</li>
-          <li>Topic pages load with correct filtered articles</li>
+          <li>At least one published synthesis article contains situational context block</li>
+          <li><code>computeMathLocks()</code> + <code>computeEuropeanPath()</code> unit tests pass for edge cases</li>
+          <li>Layer 3 admin form: BJK editorial context seeded and visible in /admin</li>
         </ul>
       </div>
+    </div>
+
+    <div class="rrow" onclick="toggle('r096')">
+      <span class="vtag planned">v0.96</span>
+      <div><div class="rrow-title">Match Highlights — Sprint J</div><div class="rrow-sub">Highlight clips auto-fetched · Embedded around BJK fixtures · Match article quality++</div></div>
+      <div class="rrow-date">After v0.95</div>
+    </div>
+    <div id="r096" class="detail">
+      <h4>Goal</h4>
+      <p style="font-size:12px;color:#aaa;margin-bottom:12px">Match highlight clips fetched and embedded automatically around BJK fixtures.</p>
+      <h4>Prerequisites</h4>
+      <ul>
+        <li>Fix <code>NEXT_MATCH</code> hardcoded constant — Sprint J uses <code>fixture_id</code> for event API calls; stale ID produces silent wrong content. Make <code>match:BJK:next</code> KV the single source of truth.</li>
+      </ul>
+      <h4>Scope</h4>
+      <ul>
+        <li>Full spec in <code>docs/SLICES.md</code> Sprint J and <code>temp/kartalix_match_highlights_prompt.txt</code></li>
+      </ul>
+    </div>
+
+    <div class="rrow" onclick="toggle('r095')">
+      <span class="vtag next">v0.95</span>
+      <div><div class="rrow-title">Trust Layer — Sprint I</div><div class="rrow-sub">Source tier multiplier · Source family diversity gate · Journalist accuracy tracking</div></div>
+      <div class="rrow-date">After v0.91</div>
+    </div>
+    <div id="r095" class="detail">
+      <h4>Goal</h4>
+      <p style="font-size:12px;color:#aaa;margin-bottom:12px">Synthesis only fires on trustworthy evidence. Homepage rank penalises low-trust sources. Foundation for journalist accuracy tracking.</p>
+      <h4>Prerequisites</h4>
+      <ul>
+        <li>Sprint I DB migrations must be run: <code>trust_tier</code>, <code>source_family</code>, <code>trust_score</code> columns ✅ done 2026-05-15</li>
+      </ul>
+      <h4>Scope — Sprint I</h4>
+      <ul>
+        <li><span class="rtag fix">done</span> <strong>I1</strong> <code>trust_multiplier = trust_score / 50</code> wired into <code>rankAndEvict</code>; T1–T4 tier system live; sources admin updated with Family column</li>
+        <li><span class="rtag fix">done</span> <strong>I2</strong> Synthesis gate uses <code>source_family</code> diversity — Turkuvaz papers (A Haber, A Spor, Sabah) count as one family; scMap loaded once per cron cycle</li>
+        <li><em style="color:#555;font-size:11px">I3/I4 journalist accuracy tracking deferred to v1.6 — needs Twitter + YT transcript signal to be meaningful</em></li>
+      </ul>
+      <div class="criteria">
+        <h5>Freeze criteria</h5>
+        <ul>
+          <li>T4-source article visibly lower rank than T1 confirmation for same story</li>
+          <li>✅ Synthesis blocked when all contributions from same <code>source_family</code> (I2 live)</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="rrow" onclick="toggle('r091')">
+      <span class="vtag next">v0.91</span>
+      <div><div class="rrow-title">Audit Pre-work — Security + DB Migrations</div><div class="rrow-sub">P0 auth guards · Session cookie upgrade · Architecture audit 2026-05-15</div></div>
+      <div class="rrow-date">In flight</div>
+    </div>
+    <div id="r091" class="detail">
+      <h4>Scope — from architecture audit 2026-05-15</h4>
+      <ul>
+        <li><span class="rtag fix">done</span> <strong>P0-2</strong> Remove <code>|| 'kartalix2026'</code> fallback from admin login — fails hard if <code>ADMIN_PIN</code> secret unset</li>
+        <li><span class="rtag fix">done</span> <strong>P0-1</strong> <code>requireOps()</code> auth guard on all <code>force-*</code>, <code>/run</code>, <code>/clear-cache</code>, <code>/rebuild-cache</code> handlers (20 routes) — CF version 5567db5a</li>
+        <li><span class="rtag fix">done</span> <strong>P1-4</strong> Migration 0008 <code>sites.editorial_context</code> created and run</li>
+        <li><span class="rtag fix">done</span> <strong>P1-2</strong> Sprint I DB migrations run: <code>trust_tier</code>, <code>source_family</code>, <code>trust_score</code></li>
+        <li><span class="rtag fix">done</span> <strong>P2-5</strong> pitchos-proxy auto-enrich cron confirmed disabled</li>
+        <li>☐ <strong>P1-1</strong> Upgrade session cookie: <code>crypto.randomUUID()</code> on login, KV-stored token (7-day TTL), <code>HttpOnly; Secure; SameSite=Lax</code> flags</li>
+      </ul>
+      <p style="font-size:12px;color:#666;margin-top:10px">P1-1 is ~1 day. Can start Sprint I1 now and complete P1-1 before v1.0 ships.</p>
     </div>
 
   </div>
@@ -7231,8 +9537,27 @@ ${nav}
   <div class="section-title">Shipped</div>
   <div class="rlist">
 
+    <div class="rrow" onclick="toggle('r09')">
+      <span class="vtag shipped">v0.9</span>
+      <div><div class="rrow-title">News Pool &amp; Publish Queue — Sprint H ✅</div><div class="rrow-sub">Persistent rewrite queue · Ranked 200-slot pool · Topic pages · Multi-source synthesis gate</div></div>
+      <div class="rrow-date">May 14, 2026</div>
+    </div>
+    <div id="r09" class="detail">
+      <table>
+        <tr><td>Shipped</td><td>2026-05-14</td></tr>
+      </table>
+      <ul>
+        <li><span class="rtag feat">feat</span> <strong>H1</strong> Persistent rewrite queue — NVS≥60 overflow queued to KV; drain runs each hourly cron (top 8 by NVS)</li>
+        <li><span class="rtag feat">feat</span> <strong>H2</strong> <code>rankAndEvict</code> — <code>rank_score = nvs × e^(-age/halfLife) × storyBoost</code>; pool 200; re-rank every tick</li>
+        <li><span class="rtag feat">feat</span> <strong>H3</strong> Quick-publish "Yayınla ↑" button — POST <code>/admin/content-publish</code>; one-click from pending list</li>
+        <li><span class="rtag feat">feat</span> <strong>H4</strong> Topic pages — <code>/konu/transfer</code>, <code>/konu/mac</code>, <code>/konu/sakat</code>, <code>/konu/kulup</code>, <code>/konu/analiz</code>, <code>/konu/milli</code></li>
+        <li><span class="rtag feat">feat</span> <strong>H5</strong> Multi-source synthesis gate — ≥3 contributions, ≥2 in 6h, NVS≥60, ≥2 distinct sources</li>
+        <li><span class="rtag feat">feat</span> Homepage <code>.cat-nav</code> tabs: Tümü / Transfer / Maç / Videolar</li>
+      </ul>
+    </div>
+
     <div class="rrow" onclick="toggle('r08')">
-      <span class="vtag current">v0.8</span>
+      <span class="vtag shipped">v0.8</span>
       <div><div class="rrow-title">Operational Fixes <span class="freeze-badge">b8dd716 · CF: 0fbe6b4e</span></div><div class="rrow-sub">Widget CORS wildcard · Rewrite RSS fallback · Kaydet status · Badge cleanup</div></div>
       <div class="rrow-date">May 13, 2026</div>
     </div>
@@ -7395,6 +9720,30 @@ ${nav}
       <div class="rrow-date">~3 wks</div>
     </div>
 
+    <div class="rrow" onclick="toggle('b17')">
+      <span class="vtag planned">v1.7</span>
+      <div><div class="rrow-title">Multi-Dimensional Trust Engine</div><div class="rrow-sub">Content-type multiplier · Corroboration score · Journalist accuracy ranking</div></div>
+      <div class="rrow-date">~3–4 wks</div>
+    </div>
+    <div id="b17" class="detail">
+      <h4>Full rank formula</h4>
+      <p style="font-size:12px;color:#aaa;margin-bottom:10px"><code>rank = nvs × decay × storyBoost × tierMultiplier × contentTypeMultiplier × journalistMultiplier</code></p>
+      <p style="font-size:12px;color:#666;margin-bottom:10px">Currently live: <code>tierMultiplier</code> only (wired in Sprint I1). This release adds the remaining three dimensions.</p>
+      <ul>
+        <li><strong>D2 — Content-type</strong> (<code>contentTypeMultiplier</code>): fact=1.0×, analysis=0.9×, rumor=0.8× — single line in <code>rankAndEvict</code></li>
+        <li><strong>D3 — Corroboration</strong> (upgrading <code>storyBoost</code>): distinct <code>source_family</code> in 6h window — 1 family=no boost, 2=1.2×, 3+=1.5×</li>
+        <li><strong>D4 — Journalist accuracy</strong>: ≥80% accuracy=1.3×, 60–79%=1.0×, &lt;60%=0.7×, unknown=1.0×</li>
+      </ul>
+      <div class="criteria">
+        <h5>Prerequisites before starting</h5>
+        <ul>
+          <li>Sprint I2 complete (source_family flowing through story_contributions)</li>
+          <li>Sprint I3/I4 running ≥6 weeks in production (data must accumulate)</li>
+          <li>At least 500 journalist_claims rows with resolved outcomes</li>
+        </ul>
+      </div>
+    </div>
+
     <div class="rrow">
       <span class="vtag blocked">blocked</span>
       <div><div class="rrow-title">Twitter/X auto-post</div><div class="rrow-sub">X API Basic $100/mo — unblocks when ad revenue covers it</div></div>
@@ -7416,6 +9765,183 @@ function toggle(id) {
   const isOpen = el.classList.contains('open');
   document.querySelectorAll('.detail.open').forEach(d => { d.classList.remove('open'); d.previousElementSibling.classList.remove('active'); });
   if (!isOpen) { el.classList.add('open'); el.previousElementSibling.classList.add('active'); }
+}
+</script>
+</body>
+</html>`;
+}
+
+function renderAdminQAPage(saved = {}) {
+  const nav = adminNav('qa');
+
+  const TESTS = [
+    { id:'T01', group:'Feed & Articles', action:'GET kartalix.com/cache', check:'JSON array, no article with today-dated slug but old content, no copy_source entries' },
+    { id:'T02', group:'Feed & Articles', action:'Load kartalix.com home page', check:'Cards render, no JS errors in console' },
+    { id:'T03', group:'Feed & Articles', action:'Click any article card', check:'Full body text visible, source attribution present, no raw HTML entities' },
+    { id:'T04', group:'Feed & Articles', action:'Find publish_mode:rewrite in /cache JSON, open its slug', check:'250–400 word body, not just RSS excerpt' },
+    { id:'T05', group:'Feed & Articles', action:'GET kartalix.com/rss', check:'Valid XML, <item> entries present, no 500' },
+    { id:'T06', group:'Topic Pages (H4)', action:'GET kartalix.com/konu/transfer', check:'Page loads with nav tabs, card grid appears (client-side /cache fetch)' },
+    { id:'T07', group:'Topic Pages (H4)', action:'GET kartalix.com/konu/mac', check:'Page loads, filters to match articles' },
+    { id:'T08', group:'Topic Pages (H4)', action:'GET kartalix.com/konu/sakat', check:'Page loads, shows heading even if grid is empty' },
+    { id:'T09', group:'Topic Pages (H4)', action:'Check if /konu/* nav tabs are on the home page index.html', check:'PENDING — homepage tabs not added to index.html yet; skip if not done' },
+    { id:'T10', group:'Admin Panel', action:'GET kartalix.com/admin → click İçerik', check:'Article list loads, NO "Yükleniyor…" spinner stuck' },
+    { id:'T11', group:'Admin Panel (H3)', action:'Find a pending article in İçerik, click "Yayınla ↑"', check:'Button turns green, article in /cache within 5 min' },
+    { id:'T12', group:'Admin Panel (H3)', action:'Check non-pending rows in İçerik', check:'"Yayınla ↑" button absent from published/draft rows' },
+    { id:'T13', group:'Admin Panel (H1)', action:'GET kartalix.com/admin/rewrite-queue', check:'Returns JSON { queue:[...], count:N } — may be 0 if no overflow today' },
+    { id:'T14', group:'Admin Panel', action:'GET kartalix.com/admin/sources/ui', check:'Source table renders, inline edit fields work' },
+    { id:'T15', group:'Admin Panel', action:'GET kartalix.com/admin/tools', check:'All cards visible, no 500' },
+    { id:'T16', group:'Decay / H2', action:'Check /cache: any copy_source article with published_at older than 12h?', check:'None — hard TTL evicted; stale TRT Haber article should be gone' },
+    { id:'T17', group:'Decay / H2', action:'Scan /cache output for publish_mode values', check:'No rss_summary entries (never saved to DB/KV)' },
+    { id:'T18', group:'Decay / H2', action:'Check /cache for NVS values', check:'No NVS 0 articles (evicted by floor=5 in rankAndEvict)' },
+    { id:'T19', group:'Story Gate (H5)', action:'GET kartalix.com/force-h5', check:'Returns JSON gate check results — no "maxNvs is not defined" error' },
+    { id:'T20', group:'Story Gate (H5)', action:'After a synthesis fires, call /force-h5 for same story', check:'Returns eligible:false, reason:already synthesized today' },
+    { id:'T21', group:'Story Gate (H5)', action:'Check /cache for publish_mode:synthesis articles', check:'Body 250+ words, no "according to source X" phrasing' },
+    { id:'T22', group:'Stale Fix', action:'Hit kartalix.com/clear-cache, wait 5 min, check /cache', check:'No today-dated slug with old content, no Kadıköy/TRT Haber article' },
+    { id:'T23', group:'Stale Fix', action:'Check published_at values in /cache after reseed', check:'All dates within last 30 days' },
+    { id:'T24', group:'Stale Fix', action:'Run kartalix.com/run, check /cache immediately', check:'No new copy_source entries appear' },
+    { id:'T25', group:'Pipeline Health', action:'GET kartalix.com/run', check:'200, JSON with articles_processed, no top-level error' },
+    { id:'T26', group:'Pipeline Health', action:'GET kartalix.com/force-h5?story_id={active_story_id}', check:'Either fires synthesis or returns reason — no JS crash' },
+    { id:'T27', group:'Pipeline Health', action:'GET kartalix.com/sitemap.xml', check:'Valid XML, contains recent haber slugs' },
+    { id:'T28', group:'Pipeline Health', action:'GET kartalix.com/force-synthesis on a recent article URL', check:'Body 250+ words returned, publish_mode:rewrite' },
+  ];
+
+  const groups = [...new Set(TESTS.map(t => t.group))];
+  const total = TESTS.length;
+  const passed = TESTS.filter(t => (saved[t.id]?.verdict) === 'pass').length;
+  const failed = TESTS.filter(t => (saved[t.id]?.verdict) === 'fail').length;
+  const pending = total - passed - failed;
+  const savedAt = saved._saved_at || null;
+
+  const groupHtml = groups.map(g => {
+    const rows = TESTS.filter(t => t.group === g).map(t => {
+      const s = saved[t.id] || {};
+      const v = s.verdict || 'pending';
+      const c = s.comment || '';
+      const rowBg    = v === 'pass' ? '#0d200d' : v === 'fail' ? '#200d0d' : '#141414';
+      const rowBdr   = v === 'pass' ? '#1e5c1e' : v === 'fail' ? '#5c1e1e' : '#252525';
+      const idColor  = v === 'pass' ? '#5ed65e' : v === 'fail' ? '#ff6b6b' : '#999';
+      return `<tr data-id="${t.id}" style="background:${rowBg};border-bottom:1px solid ${rowBdr}">
+  <td style="padding:10px 12px;font-size:13px;font-weight:800;color:${idColor};white-space:nowrap;width:52px;letter-spacing:.03em">${t.id}</td>
+  <td style="padding:10px 12px;width:280px"><code style="font-size:12px;color:#e8d87a;background:#1c1c10;padding:3px 7px;border-radius:3px;line-height:1.6;display:inline-block">${t.action}</code></td>
+  <td style="padding:10px 12px;font-size:13px;color:#d4d4d4;line-height:1.5">${t.check}</td>
+  <td style="padding:10px 12px;white-space:nowrap;width:150px">
+    <label style="margin-right:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px"><input type="radio" name="v_${t.id}" value="pass" onchange="mark('${t.id}')" ${v==='pass'?'checked':''}><span style="color:#5ed65e;font-size:13px;font-weight:700">Pass</span></label>
+    <label style="cursor:pointer;display:inline-flex;align-items:center;gap:5px"><input type="radio" name="v_${t.id}" value="fail" onchange="mark('${t.id}')" ${v==='fail'?'checked':''}><span style="color:#ff6b6b;font-size:13px;font-weight:700">Fail</span></label>
+  </td>
+  <td style="padding:10px 12px;width:220px"><textarea id="c_${t.id}" rows="1" oninput="autoGrow(this)" placeholder="not ekle…" style="width:100%;background:#1a1a1a;border:1px solid #333;color:#e0e0e0;font-size:13px;padding:5px 8px;border-radius:3px;resize:none;font-family:inherit;line-height:1.4">${c}</textarea></td>
+</tr>`;
+    }).join('');
+    return `<tr><td colspan="5" style="padding:14px 12px 7px;font-size:11px;font-weight:800;color:#aaa;text-transform:uppercase;letter-spacing:.12em;border-bottom:1px solid #2a2a2a;background:#0d0d0d">${g}</td></tr>${rows}`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kartalix — QA</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d0d0d;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.6}
+.content{max-width:1200px;margin:0 auto;padding:2rem 1.5rem}
+h1{font-size:22px;font-weight:800;margin-bottom:4px;color:#fff}
+.subtitle{color:#888;font-size:13px;margin-bottom:1.5rem}
+.summary{display:flex;gap:2rem;margin-bottom:1.5rem;align-items:center;background:#141414;border:1px solid #252525;padding:14px 20px;border-radius:6px}
+.stat{font-size:26px;font-weight:800;line-height:1}
+.stat-label{font-size:12px;color:#888;margin-top:3px}
+.pass-stat{color:#5ed65e}
+.fail-stat{color:#ff6b6b}
+.pend-stat{color:#888}
+.total-label{font-size:13px;color:#666}
+.save-btn{margin-left:auto;background:#E30A17;color:#fff;border:none;padding:9px 22px;font-size:13px;font-weight:700;border-radius:4px;cursor:pointer;letter-spacing:.04em}
+.save-btn:disabled{background:#2a2a2a;color:#666;cursor:default}
+.saved-at{font-size:12px;color:#666;margin-left:8px}
+table{width:100%;border-collapse:collapse}
+thead th{padding:10px 12px;text-align:left;font-size:12px;color:#aaa;font-weight:700;background:#111;border-bottom:2px solid #2a2a2a}
+</style>
+</head>
+<body>
+${nav}
+<div class="content">
+  <h1>QA Test Plan</h1>
+  <p class="subtitle">Sessions 17–20 · Sprints H1–H5 · Stale article fix</p>
+
+  <div class="summary">
+    <div><div class="stat pass-stat" id="sumPass">${passed}</div><div class="stat-label">Pass</div></div>
+    <div><div class="stat fail-stat" id="sumFail">${failed}</div><div class="stat-label">Fail</div></div>
+    <div><div class="stat pend-stat" id="sumPend">${pending}</div><div class="stat-label">Bekliyor</div></div>
+    <div class="total-label">${total} test toplam</div>
+    <button class="save-btn" id="saveBtn" onclick="saveAll()">Kaydet</button>
+    <span class="saved-at" id="savedAt">${savedAt ? 'Son kayıt: ' + savedAt : ''}</span>
+  </div>
+
+  <table>
+    <thead><tr>
+      <th style="width:52px">ID</th>
+      <th style="width:280px">Aksiyon</th>
+      <th>Beklenen Sonuç</th>
+      <th style="width:150px">Sonuç</th>
+      <th style="width:220px">Not</th>
+    </tr></thead>
+    <tbody id="tbody">${groupHtml}</tbody>
+  </table>
+</div>
+
+<script>
+const results = ${JSON.stringify(saved)};
+
+function mark(id) {
+  const row = document.querySelector('tr[data-id="'+id+'"]');
+  const v = document.querySelector('input[name="v_'+id+'"]:checked')?.value || 'pending';
+  row.style.background = v==='pass' ? '#0a1a0a' : v==='fail' ? '#1a0a0a' : '#111';
+  row.style.borderBottomColor = v==='pass' ? '#1a4a1a' : v==='fail' ? '#4a1a1a' : '#1e1e1e';
+  if (!results[id]) results[id] = {};
+  results[id].verdict = v;
+  updateSummary();
+}
+
+function autoGrow(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+  const id = el.id.replace('c_','');
+  if (!results[id]) results[id] = {};
+  results[id].comment = el.value;
+}
+
+function updateSummary() {
+  const ids = ${JSON.stringify(TESTS.map(t => t.id))};
+  let p=0,f=0;
+  ids.forEach(id => {
+    const v = results[id]?.verdict;
+    if (v==='pass') p++;
+    else if (v==='fail') f++;
+  });
+  document.getElementById('sumPass').textContent = p;
+  document.getElementById('sumFail').textContent = f;
+  document.getElementById('sumPend').textContent = ids.length - p - f;
+}
+
+async function saveAll() {
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true; btn.textContent = 'Kaydediliyor…';
+  const ids = ${JSON.stringify(TESTS.map(t => t.id))};
+  ids.forEach(id => {
+    const v = document.querySelector('input[name="v_'+id+'"]:checked')?.value;
+    const c = document.getElementById('c_'+id)?.value || '';
+    if (!results[id]) results[id] = {};
+    if (v) results[id].verdict = v;
+    results[id].comment = c;
+  });
+  results._saved_at = new Date().toLocaleString('tr-TR');
+  const res = await fetch('/admin/qa/save', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(results) });
+  if (res.ok) {
+    btn.textContent = '✓ Kaydedildi'; btn.style.background='#1a4a1a';
+    document.getElementById('savedAt').textContent = 'Son kayıt: ' + results._saved_at;
+    setTimeout(() => { btn.disabled=false; btn.textContent='Kaydet'; btn.style.background='#E30A17'; }, 2000);
+  } else {
+    btn.textContent = 'Hata'; btn.style.background='#4a1a1a';
+    setTimeout(() => { btn.disabled=false; btn.textContent='Kaydet'; btn.style.background='#E30A17'; }, 2000);
+  }
 }
 </script>
 </body>
@@ -7493,6 +10019,13 @@ ${nav}
   </div>
 
   <div class="card">
+    <h2>Anasayfa Önbelleğini Yenile</h2>
+    <p style="font-size:.8rem;color:#888;margin-bottom:1rem">Supabase'deki yayınlanmış makaleleri KV önbelleğine yazar. Pipeline duraklaması sonrası anasayfada haber azalırsa kullanın.</p>
+    <button class="btn" onclick="rebuildCache()">Önbelleği Yenile</button>
+    <div id="rebuild-status" class="status"></div>
+  </div>
+
+  <div class="card">
     <h2>Hikaye Sentezi Tetikle</h2>
     <p style="font-size:.8rem;color:#888;margin-bottom:.75rem">Belirli bir hikaye ID'si için Sonnet sentezini zorla tetikler (dedup key'i temizler).</p>
     <div class="row">
@@ -7534,6 +10067,9 @@ function archiveExecute() {
 }
 function runVoicePatterns() {
   post('/admin/run-voice-patterns', d => \`Tamamlandı. Kütüphanede \${d.total} örnek var.\`, 'vp-status');
+}
+function rebuildCache() {
+  post('/rebuild-cache', d => \`Tamamlandı: \${d.rebuilt} makale KV'ye yazıldı.\`, 'rebuild-status');
 }
 function runSynth() {
   const id = document.getElementById('synth-id').value.trim();
