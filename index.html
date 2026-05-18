@@ -91,6 +91,24 @@
     .ticker-sep { color: #555; padding: 0 0.5rem; }
     @keyframes scroll { from{transform:translateX(0)} to{transform:translateX(-50%)} }
 
+    /* ── CATEGORY NAV ── */
+    .cat-nav {
+      background: #111; border-bottom: 1px solid #1e1e1e;
+      display: flex; align-items: center; gap: 0; overflow-x: auto;
+      scrollbar-width: none; padding: 0 1rem;
+    }
+    .cat-nav::-webkit-scrollbar { display: none; }
+    .cat-nav a {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; text-decoration: none;
+      color: #777; padding: 0.6rem 0.9rem;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap; transition: color .15s, border-color .15s;
+    }
+    .cat-nav a:hover { color: #ddd; }
+    .cat-nav a.active { color: #fff; border-bottom-color: var(--accent); }
+
     /* ── MATCH DAY BANNER ── */
     .matchday {
       background: var(--accent); color: var(--text);
@@ -768,6 +786,14 @@
     <span class="ticker-item">⚫ Kartalix yükleniyor...</span>
   </div>
 </div>
+
+<!-- ── CATEGORY NAV ── -->
+<nav class="cat-nav">
+  <a href="/" class="active" id="catAll">Tümü</a>
+  <a href="/konu/transfer">Transfer</a>
+  <a href="/konu/mac">Maç</a>
+  <a href="/konu/videolar">Videolar</a>
+</nav>
 
 <!-- ── MATCH DAY ── -->
 <div class="matchday" id="matchdayBanner">
@@ -1566,14 +1592,9 @@
 
     _articles = articles; // keep all for index lookups
 
-    // Show expired count
+    // Expired articles are accessible via direct URL but not surfaced on homepage
     const expiredRow = document.getElementById('expiredRow');
-    if (expired.length > 0) {
-      expiredRow.style.display = 'block';
-      expiredRow.innerHTML = `<a href="#" onclick="alert('Yakında!');return false" style="color:var(--muted);font-family:'Barlow Condensed',sans-serif;font-size:0.8rem;letter-spacing:0.06em">+ ${expired.length} eski haber →</a>`;
-    } else {
-      expiredRow.style.display = 'none';
-    }
+    if (expiredRow) expiredRow.style.display = 'none';
 
     const footballArticles = visible.filter(a => !a.sport || a.sport === 'football');
     const otherArticles    = visible.filter(a => a.sport && a.sport !== 'football');
@@ -1724,7 +1745,7 @@
     if (offset === 0) {
       grid.innerHTML = '';
       if (!items || items.length === 0) {
-        grid.innerHTML = '<p style="color:var(--muted);padding:2rem 0;text-align:center;grid-column:1/-1">Daha fazla haber yükleniyor...</p>';
+        grid.innerHTML = '<p style="color:var(--muted);padding:2rem 0;text-align:center;grid-column:1/-1">Şu an yeni haber yok.</p>';
         document.getElementById('loadMoreRow').style.display = 'none';
         return;
       }
