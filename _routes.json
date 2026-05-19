@@ -4,7 +4,6 @@
   "exclude": [
     "/",
     "/haber/*",
-    "/konu/*",
     "/cache",
     "/admin",
     "/admin/*",
