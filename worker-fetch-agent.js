@@ -6503,15 +6503,33 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null) 
   })();
 
   // Source attribution (P1.3)
+  // When DB/KV source_name is 'Kartalix' for rewrite articles, derive display name from URL hostname.
+  const HOST_NAMES = {
+    'ntvspor.net':'NTV Spor','hurriyet.com.tr':'Hürriyet','sabah.com.tr':'Sabah',
+    'fanatik.com.tr':'Fanatik','milliyet.com.tr':'Milliyet','haberturk.com':'Habertürk',
+    'sporx.com':'Sporx','fotomac.com.tr':'Fotomaç','posta.com.tr':'Posta',
+    'sozcu.com.tr':'Sözcü','cumhuriyet.com.tr':'Cumhuriyet','takvim.com.tr':'Takvim',
+    'goal.com':'Goal','bbc.com':'BBC','espn.com':'ESPN','transfermarkt.com':'Transfermarkt',
+    'as.com':'AS','marca.com':'Marca','bjk.com.tr':'BJK Resmi',
+    'trtspor.com.tr':'TRT Spor','aspor.com.tr':'A Spor','beinsports.com':'beIN Sports',
+  };
+  const srcLabel = (() => {
+    if (rawSource && rawSource !== 'Kartalix') return rawSource;
+    if (!srcUrl) return 'Kaynak';
+    try {
+      const host = new URL(srcUrl).hostname.replace(/^www\./, '');
+      return HOST_NAMES[host] || host;
+    } catch { return 'Kaynak'; }
+  })();
   const attrHtml = (() => {
     if (['youtube_embed', 'video_embed', 'rabona_digest'].includes(a.publish_mode) && srcUrl) {
-      return `<div class="source-attr">Video kaynağı: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(rawSource || 'YouTube')}</strong> →</a></div>`;
+      return `<div class="source-attr">Video kaynağı: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(srcLabel)}</strong> →</a></div>`;
     }
     if (!isKartalix && srcUrl) {
       return `<div class="source-attr">Kaynak: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(source)}</strong> →</a></div>`;
     }
     if (a.publish_mode === 'rewrite' && srcUrl) {
-      return `<div class="source-attr">Kaynak temel alınarak Kartalix editörleri tarafından üretildi: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(rawSource || 'Kaynak')}</strong> →</a></div>`;
+      return `<div class="source-attr">Kaynak temel alınarak Kartalix editörleri tarafından üretildi: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(srcLabel)}</strong> →</a></div>`;
     }
     if (['synthesis', 'original_synthesis'].includes(a.publish_mode)) {
       return `<div class="source-attr">Birden fazla kaynaktan derlenerek Kartalix editörleri tarafından üretildi.</div>`;
