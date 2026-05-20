@@ -15,7 +15,14 @@
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'Articles: {len\\(d.get\\(\\\\\"articles\\\\\",[]\\)\\)}'\\); [print\\(f'  [{i+1}] {a[\\\\\"title\\\\\"][:80]} | NVS:{a.get\\(\\\\\"nvs_score\\\\\",\\\\\"?\\\\\"\\)} | GS:{a.get\\(\\\\\"golden_score\\\\\",\\\\\"?\\\\\"\\)}'\\) for i,a in enumerate\\(d.get\\('articles',[]\\)[:10]\\)]\")",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); articles=d if isinstance\\(d,list\\) else d.get\\('articles',[]\\); print\\(f'Articles: {len\\(articles\\)}'\\); [print\\(f'  [{i+1}] {a[\\\\\"title\\\\\"][:80]} | NVS:{a.get\\(\\\\\"nvs_score\\\\\",\\\\\"?\\\\\"\\)} | GS:{a.get\\(\\\\\"golden_score\\\\\",\\\\\"?\\\\\"\\)}'\\) for i,a in enumerate\\(articles[:10]\\)]\")",
       "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); articles=d if isinstance\\(d,list\\) else d.get\\('articles',[]\\); print\\(json.dumps\\(articles[0], indent=2, ensure_ascii=False\\)\\)\")",
-      "Bash(python -c ':*)"
+      "Bash(python -c ':*)",
+      "Bash(node *)",
+      "Bash(npx wrangler *)",
+      "WebFetch(domain:kartalix.com)",
+      "WebFetch(domain:pitchos-fetch-agent.gencerali.workers.dev)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('Pool size:', len\\(d\\)\\); [print\\(a.get\\('slug','?'\\), a.get\\('published_at','?'\\)[:16]\\) for a in d[:3]]\")",
+      "Bash(python -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(f\\\\\"{a.get\\('publish_mode','?'\\)} | {a.get\\('source','?'\\)} | {a.get\\('slug','?'\\)[:60]}\\\\\"\\) for a in data[:30]]\")",
+      "Bash(python -c \"import sys,json; keys=json.load\\(sys.stdin\\); [print\\(k['name']\\) for k in keys[:30]]\")"
     ]
   }
 }

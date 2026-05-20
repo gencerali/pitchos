@@ -34,7 +34,10 @@ Option A implemented. `serveArticlePage` falls back to `kvArticle.source_name` w
 - About page + byline copy — AdSense P0.3 (highest remaining AdSense risk)
 - Read top 20 published articles critically, improve weakest 5 — AdSense P1.1
 
-**Then**: seed sources → title dedup trust-aware refactor → Sprint J.
+**Then**: seed sources → title dedup trust-aware refactor → Kartalix title generation → Sprint J.
+
+**Kartalix title generation** (queued, not started):  
+Stop using verbatim RSS titles for rewrite/synthesis articles. After body generation, add a Haiku call to produce a clean Kartalix title from the body. Rules: 50–75 chars, no clickbait words (flaş/bomba/şok/sürpriz unless body justifies), subject name early. Preserve original RSS title as `original_rss_title` in DB for audit. Cost: ~$0.001/day at current volumes. Apply to synthesis + rewrite flows only (not templates, video, official). Details in `temp/title.txt` (now deleted — prompt archived here).
 
 ---
 
