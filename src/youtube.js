@@ -1,3 +1,5 @@
+import { bjkMatch } from './utils.js';
+
 // ─── YOUTUBE ATOM FEED FETCHER ────────────────────────────────
 // Public Atom feeds, no auth, no quota.
 // Feed URL: https://www.youtube.com/feeds/videos.xml?channel_id={id}
@@ -17,7 +19,7 @@ export const YOUTUBE_CHANNELS = [
   { id: 'UCebdo7-2NdjcktKzco64iNw', name: 'TRT Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
 
   // Digital / analysis — Fırat Günayer videos on Rabona; transcript synthesis only, no embed
-  { id: 'UCpj3LeIWetKktdIJQcBx-uw', name: 'Rabona Digital',     tier: 'digital',    all_qualify: false, embed_qualify: false, transcript_qualify: true  },
+  { id: 'UCpj3LeIWetKktdIJQcBx-uw', name: 'Rabona Digital',     tier: 'digital',    all_qualify: true,  embed_qualify: false, transcript_qualify: true  },
 
   // Additional channels — add channel IDs below (find via youtube.com/@handle → About → Share → Copy channel ID)
   // { id: 'UC___NTVSpor___',    name: 'NTV Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
@@ -29,7 +31,6 @@ export const YOUTUBE_CHANNELS = [
 const EXCLUDE_TERMS = ['#shorts', ' shorts '];
 // Matches "YYYY/YYYY" season notation for pre-2024 seasons (e.g. "2016/2017", "2022/2023")
 const ARCHIVE_SEASON_RE = /\b20(0[0-9]|1[0-9]|2[0-3])\/20\d{2}\b/;
-const BJK_TITLE_RE = /beşiktaş|besiktas|bjk|kartal|siyah.beyaz/i;
 
 // ─── MATCH VIDEO CLASSIFICATION ───────────────────────────────
 // Returns a match video type when the video is clearly linked to a Süper Lig
@@ -149,7 +150,7 @@ export function qualifyYouTubeVideo(video) {
   const t = video.title.toLowerCase();
   if (EXCLUDE_TERMS.some(k => t.includes(k))) return false;
   if (ARCHIVE_SEASON_RE.test(video.title)) return false;
-  if (!video.all_qualify && !BJK_TITLE_RE.test(video.title)) return false;
+  if (!video.all_qualify && !bjkMatch(video.title)) return false;
   return true;
 }
 

@@ -11,7 +11,7 @@
  */
 import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
-import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory } from './src/processor.js';
+import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
@@ -2071,7 +2071,7 @@ Sadece JSON döndür:
       }
       if (request.method === 'POST') {
         const body = await request.json().catch(() => ({}));
-        const allowed = ['name','source_type','url','channel_id','trust_tier','treatment','sport','is_p4','nvs_hint','bjk_filter','all_qualify','proxy','notes','is_active'];
+        const allowed = ['name','source_type','url','channel_id','trust_tier','treatment','sport','is_p4','nvs_hint','all_qualify','proxy','notes','is_active'];
         const row = Object.fromEntries(Object.entries(body).filter(([k]) => allowed.includes(k)));
         if (!row.name || !row.source_type) return Response.json({ error: 'name and source_type required' }, { headers, status: 400 });
         row.site_id    = site.id;
@@ -2085,7 +2085,7 @@ Sadece JSON döndür:
       if (request.method === 'PATCH') {
         const { id, ...fields } = await request.json().catch(() => ({}));
         if (!id) return Response.json({ error: 'id required' }, { headers, status: 400 });
-        const allowed = ['name','is_active','trust_tier','source_family','treatment','nvs_hint','bjk_filter','all_qualify','notes'];
+        const allowed = ['name','is_active','trust_tier','source_family','treatment','nvs_hint','all_qualify','url','channel_id','proxy','is_p4','notes'];
         const patch   = Object.fromEntries(Object.entries(fields).filter(([k]) => allowed.includes(k)));
         patch.updated_at = new Date().toISOString();
         await supabase(env, 'PATCH', `/rest/v1/source_configs?id=eq.${id}`, patch);
@@ -2154,7 +2154,6 @@ Sadece JSON döndür:
           treatment:  'publish',
           sport:      f.sport || 'football',
           is_p4:      f.is_p4 ?? true,
-          bjk_filter: f.keywordFilter ?? false,
           proxy:      f.proxy ?? false,
           is_active:  true,
         }));
@@ -2239,7 +2238,7 @@ Sadece JSON döndür:
 
       const [rows, recentItems] = await Promise.all([
         supabase(env, 'GET',
-          `/rest/v1/pipeline_log?site_id=eq.${SITE}&order=run_at.desc,created_at.desc&limit=1000${filt}&select=source_name,title,url,stage,nvs_score,publish_mode,run_at`
+          `/rest/v1/pipeline_log?site_id=eq.${SITE}&order=run_at.desc,created_at.desc&limit=1000${filt}&select=source_name,title,url,stage,nvs_score,publish_mode,run_at,trust_tier,source_body_len,drop_detail`
         ),
         supabase(env, 'GET',
           `/rest/v1/content_items?site_id=eq.${SITE}${ciTimeFilt}&order=reviewed_at.desc&select=original_url,slug,status,story_id&limit=500`
@@ -2578,6 +2577,24 @@ Sadece JSON döndür:
         }
       }
 
+      // 6. Source test failures (written by daily runSourceTests cron)
+      const testFailRaw = await env.PITCHOS_CACHE.get('source_tests:failed').catch(() => null);
+      const testFails = testFailRaw ? JSON.parse(testFailRaw) : null;
+      if (Array.isArray(testFails) && testFails.length > 0) {
+        if (markFiring('source_test_fail')) {
+          alarms.push({
+            id: 'source_test_fail', category: 'major',
+            title: `Source fetch failures (${testFails.length})`,
+            msg: testFails.map(s => `${s.name}: ${s.error}`).join('; '),
+            first_seen: state.alarm_first_seen.source_test_fail,
+          });
+        }
+        stateDirty = true;
+      } else if (testFails !== null && state.alarm_first_seen.source_test_fail) {
+        markCleared('source_test_fail');
+        stateDirty = true;
+      }
+
       if (stateDirty) {
         env.PITCHOS_CACHE.put('alarms:state', JSON.stringify(state), { expirationTtl: 86400 * 7 }).catch(() => {});
       }
@@ -2658,13 +2675,6 @@ Sadece JSON döndür:
       const kvRaw = await env.PITCHOS_CACHE.get('match:BJK:next').catch(() => null);
       const cachedMatch = kvRaw ? JSON.parse(kvRaw) : null;
       return new Response(renderAdminToolsPage(NEXT_MATCH, cachedMatch), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
-    }
-
-    if (url.pathname === '/admin/roadmap') {
-      const cookie = request.headers.get('cookie') || '';
-      const authed = await checkAdminAuth(request, env);
-      if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
-      return new Response(renderAdminRoadmapPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/releases') {
@@ -3395,6 +3405,30 @@ Sadece JSON döndür:
       return Response.json({ synced: kvOnly.length, slugs: kvOnly.map(a => a.slug) }, { headers: h });
     }
 
+    if (url.pathname === '/admin/migrate-pipeline-log' && request.method === 'POST') {
+      if (request.headers.get('X-Migration-Key') !== 'plv-2026-05-19') return new Response('Unauthorized', { status: 401 });
+      const h = { 'Content-Type': 'application/json' };
+      try {
+        const sql = [
+          'ALTER TABLE pipeline_log ADD COLUMN IF NOT EXISTS trust_tier TEXT',
+          'ALTER TABLE pipeline_log ADD COLUMN IF NOT EXISTS source_body_len INTEGER',
+          'ALTER TABLE pipeline_log ADD COLUMN IF NOT EXISTS drop_detail TEXT',
+        ];
+        const results = [];
+        const projectRef = env.SUPABASE_URL.replace('https://','').split('.')[0];
+        for (const q of sql) {
+          const r = await fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` },
+            body: JSON.stringify({ query: q }),
+          });
+          const txt = await r.text();
+          results.push({ q, status: r.status, body: txt.slice(0, 200) });
+        }
+        return Response.json({ ok: true, results }, { headers: h });
+      } catch(e) { return Response.json({ ok: false, error: e.message }, { status: 500, headers: h }); }
+    }
+
     if (url.pathname === '/rss') {
       return serveRSSFeed(env);
     }
@@ -3557,13 +3591,15 @@ async function runSourceTests(env) {
       `/rest/v1/source_configs?site_id=eq.${site.id}&is_active=eq.true&select=*`
     ) || [];
     let passed = 0, failed = 0;
+    const failures = [];
     for (const src of sources) {
       const result = await testSourceConfig(src, env);
       await env.PITCHOS_CACHE.put(`source_test:${src.id}`, JSON.stringify({
         ...result, tested_at: new Date().toISOString(),
       }), { expirationTtl: 86400 * 3 });
-      result.ok ? passed++ : failed++;
+      if (result.ok) { passed++; } else { failed++; failures.push({ id: src.id, name: src.name, error: result.error || 'unknown' }); }
     }
+    await env.PITCHOS_CACHE.put('source_tests:failed', JSON.stringify(failures), { expirationTtl: 86400 * 3 });
     console.log(`Source tests [${site.short_code}]: ${passed} passed, ${failed} failed`);
   }
 }
@@ -4630,9 +4666,18 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
 
   // ── PRE-FILTER (pure JS, zero Claude calls) ──────────────────
   const seenHashes = await getSeenHashes(env, site.short_code);
-  const allFetched = [...rssArticles, ...webArticles, ...beINArticles, ...twitterArticles];
+  const offTopicHashes = await getOffTopicHashes(env, site.short_code);
+  const allFetched = [...rssArticles, ...webArticles, ...beINArticles, ...twitterArticles]
+    .filter(a => !offTopicHashes.has(simpleHash(a.url || a.original_url || '')));
 
   const { articles: afterPreFilter, counts: filterCounts, rejected: preFilterRejected } = preFilter(allFetched, seenHashes, lookbackMs);
+
+  // Persist off_topic rejections so next cron run skips re-evaluation.
+  const newOffTopicHashes = new Set(offTopicHashes);
+  for (const r of preFilterRejected) {
+    if (r._stage === 'off_topic') newOffTopicHashes.add(simpleHash(r.url || r.original_url || ''));
+  }
+  await saveOffTopicHashes(env, site.short_code, newOffTopicHashes, Math.floor(lookbackMs / 1000));
 
   // ── URL DEDUP against Supabase (permanent, prevents re-scoring) ──
   const seenUrls = await getSeenUrls(env, site.id);
@@ -4641,7 +4686,10 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
     const url = a.url || a.original_url || '';
     if (!url || url === '#') return true;
     if (seenUrls.has(url)) {
-      urlSeenItems.push({ url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'url_seen' });
+      urlSeenItems.push({ url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'url_seen',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+        drop_detail: 'seen previously' });
       return false;
     }
     return true;
@@ -5219,7 +5267,10 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
 
       scoredLowItems = allWritten
         .filter(a => a.publish_mode === 'rss_summary')
-        .map(a => ({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs, _stage: 'scored_low' }));
+        .map(a => ({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs, _stage: 'scored_low',
+          trust_tier: a.trust_tier || a.trust || null,
+          source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+          drop_detail: null }));
 
       const publishThreshold = site.auto_publish_threshold || 30;
       // template_official = @Besiktas official tweets — always publish regardless of NVS score
@@ -5231,7 +5282,10 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       const pubResult   = toPublish.length > 0 ? await saveArticles(env, site.id, toPublish, 'published') : { saved: [], failed: [] };
       stats.published = pubResult.saved.length;
       publishedLogItems = pubResult.saved
-        .map(a => ({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs, publish_mode: a.publish_mode, _stage: 'published' }));
+        .map(a => ({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs, publish_mode: a.publish_mode, _stage: 'published',
+          trust_tier: a.trust_tier || a.trust || null,
+          source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+          drop_detail: null }));
       const queueResult = { saved: [], failed: [] };
 
       // Surface any DB write failures to the admin panel immediately
@@ -5367,14 +5421,17 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       ];
       if (allEvents.length > 0) {
         const rows = allEvents.slice(0, 600).map(a => ({
-          site_id:      site.id,
-          run_at:       runAt,
-          source_name:  (a.source_name || '').slice(0, 100),
-          title:        (a.title       || '').slice(0, 250),
-          url:          (a.url         || '').slice(0, 500),
-          stage:        a._stage,
-          nvs_score:    a.nvs_score || null,
-          publish_mode: a.publish_mode || null,
+          site_id:         site.id,
+          run_at:          runAt,
+          source_name:     (a.source_name || '').slice(0, 100),
+          title:           (a.title       || '').slice(0, 250),
+          url:             (a.url         || '').slice(0, 500),
+          stage:           a._stage,
+          nvs_score:       a.nvs_score || null,
+          publish_mode:    a.publish_mode || null,
+          trust_tier:      a.trust_tier || null,
+          source_body_len: a.source_body_len != null ? a.source_body_len : null,
+          drop_detail:     a.drop_detail || null,
         }));
         await supabase(env, 'POST', `/rest/v1/pipeline_log`, rows).catch(e => console.error('pipeline_log write failed:', e.message));
       }
@@ -5458,9 +5515,10 @@ async function buildReport(env, from, to) {
       const d = JSON.parse(run.error_message);
       if (d.by_source && typeof d.by_source === 'object') {
         Object.entries(d.by_source).forEach(([src, s]) => {
-          if (!srcFetchStats[src]) srcFetchStats[src] = { raw: 0, kw: 0 };
-          srcFetchStats[src].raw += s.raw || 0;
-          srcFetchStats[src].kw  += s.after_keyword || 0;
+          if (!srcFetchStats[src]) srcFetchStats[src] = { raw: 0, after_date: 0, kw: 0 };
+          srcFetchStats[src].raw        += s.raw          || 0;
+          srcFetchStats[src].after_date += s.after_date   || 0;
+          srcFetchStats[src].kw         += s.after_keyword || 0;
         });
       }
     } catch(e) {}
@@ -5470,13 +5528,13 @@ async function buildReport(env, from, to) {
   const mergedSources = {};
   Object.entries(srcFetchStats).forEach(([src, fs]) => {
     mergedSources[src] = {
-      source_name: src, raw_fetched: fs.raw || 0, kw_passed: fs.kw || 0,
+      source_name: src, raw_fetched: fs.raw || 0, after_date: fs.after_date || 0, kw_passed: fs.kw || 0,
       contributed: 0, published: 0, queued: 0, rejected: 0, nvs_total: 0, last_article_at: null,
     };
   });
   Object.values(bySource).forEach(s => {
     if (!mergedSources[s.source_name]) mergedSources[s.source_name] = {
-      source_name: s.source_name, raw_fetched: 0, kw_passed: 0,
+      source_name: s.source_name, raw_fetched: 0, after_date: 0, kw_passed: 0,
       contributed: 0, published: 0, queued: 0, rejected: 0, nvs_total: 0, last_article_at: null,
     };
     const m = mergedSources[s.source_name];
@@ -5733,9 +5791,15 @@ async function serveArticlePage(slug, env, ctx) {
     `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&status=not.in.(rejected,archived)&select=*&limit=1`);
   if (rows && rows.length > 0) {
     const r = rows[0];
+    // For rewrites, saveArticles overwrites source_name → 'Kartalix' in Supabase.
+    // Fall back to KV article's source_name (original value) when available.
+    const effectiveSource = (r.publish_mode === 'rewrite' && r.source_name === 'Kartalix' &&
+      kvArticle?.source_name && kvArticle.source_name !== 'Kartalix')
+      ? kvArticle.source_name
+      : (r.source_name || '');
     article = {
       title: r.title, summary: r.summary || '', full_body: r.full_body || '',
-      source: r.source_name || '', category: r.category || 'Haber',
+      source: effectiveSource, category: r.category || 'Haber',
       published_at: r.fetched_at, image_url: r.image_url || '',
       nvs: r.nvs_score || 0, url: r.original_url || '#', slug,
       is_kartalix_content: r.content_type === 'kartalix_generated',
@@ -6194,7 +6258,7 @@ const CATS = ${catFilter};
 async function init() {
   const grid = document.getElementById('grid');
   try {
-    const res = await fetch('/cache');
+    const res = await fetch('https://kartalix.com/cache');
     if (!res.ok) throw new Error('cache ' + res.status);
     const all = await res.json();
     const articles = all.filter(a => {
@@ -6388,7 +6452,7 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null) 
   const rawSource = a.source || a.source_name || '';
   const isKartalix = !rawSource || rawSource === 'Kartalix' ||
     ['rewrite','original_synthesis','manual'].includes(a.publish_mode) ||
-    (a.publish_mode && (a.publish_mode.startsWith('template') || a.publish_mode.startsWith('youtube') || a.publish_mode === 'video_embed'));
+    (a.publish_mode && a.publish_mode.startsWith('template'));
   const source    = isKartalix ? 'Kartalix' : rawSource;
   const category  = a.category || 'Haber';
   const nvs       = a.nvs || a.nvs_score || 0;
@@ -6430,13 +6494,16 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null) 
 
   // Source attribution (P1.3)
   const attrHtml = (() => {
+    if (['youtube_embed', 'video_embed', 'rabona_digest'].includes(a.publish_mode) && srcUrl) {
+      return `<div class="source-attr">Video kaynağı: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(rawSource || 'YouTube')}</strong> →</a></div>`;
+    }
     if (!isKartalix && srcUrl) {
       return `<div class="source-attr">Kaynak: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(source)}</strong> →</a></div>`;
     }
     if (a.publish_mode === 'rewrite' && srcUrl) {
       return `<div class="source-attr">Kaynak temel alınarak Kartalix editörleri tarafından üretildi: <a href="${escHtml(srcUrl)}" target="_blank" rel="noopener"><strong>${escHtml(rawSource || 'Kaynak')}</strong> →</a></div>`;
     }
-    if (a.publish_mode === 'original_synthesis') {
+    if (['synthesis', 'original_synthesis'].includes(a.publish_mode)) {
       return `<div class="source-attr">Birden fazla kaynaktan derlenerek Kartalix editörleri tarafından üretildi.</div>`;
     }
     return '';
@@ -6517,6 +6584,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
 .article-body a{color:#E30A17}
 .article-body blockquote{border-left:3px solid #E30A17;padding:0.75rem 1rem;background:#161616;margin:1.5rem 0;border-radius:0 4px 4px 0;color:#aaa}
 .source-attr{font-size:0.75rem;color:#666;margin-top:2rem;padding-top:1rem;border-top:1px solid #222}
+.article-meta .source-attr{display:block;width:100%;margin-top:0.4rem;padding-top:0;border-top:none}
 .source-link{color:#888;font-size:0.75rem;display:inline-block;margin-top:0.5rem}
 .share-box{margin-top:2.5rem;padding:1.5rem;background:#141414;border:1px solid #222;border-radius:6px}
 .share-title{font-size:0.7rem;letter-spacing:0.12em;text-transform:uppercase;color:#888;margin-bottom:1rem}
@@ -6547,6 +6615,7 @@ ${siteHeader('/haber/')}
       <time datetime="${isoDate}">${dateStr}</time>
       ${nvs >= 40 ? `<span class="nvs-pill">NVS ${nvs}</span>` : ''}
       <span style="color:#555;font-size:0.68rem">YZ destekli</span>
+      ${attrHtml}
     </div>
     ${image ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
     <div class="article-body">${bodyHtml}</div>
@@ -6616,7 +6685,6 @@ ${siteHeader('/haber/')}
       } catch(e){}
     })();
     </script>` : ''}
-    ${attrHtml}
   </article>
   <div class="reaction-bar">
     <button id="btnLike" class="rxn-btn" onclick="react('like')">👍 <span id="likeCount" class="rxn-count">0</span></button>
@@ -7242,7 +7310,6 @@ function adminNav(active) {
     { href: '/admin/report',          label: 'Rapor',        key: 'report'     },
     { href: '/admin/test-templates',  label: 'Şablon Test',  key: 'test'       },
     { href: '/admin/tools',       label: 'Araçlar',    key: 'tools'      },
-    { href: '/admin/roadmap',     label: 'Yol Haritası', key: 'roadmap'  },
     { href: '/admin/releases',    label: 'Sürümler',   key: 'releases'   },
     { href: '/admin/qa',          label: 'QA',          key: 'qa'         },
   ];
@@ -7702,9 +7769,6 @@ ${adminNav('sources')}
       <div><label>NVS Hint</label><input type="number" id="aNvs" style="width:70px" placeholder="auto"/></div>
       <div style="display:flex;gap:1rem;align-items:flex-end;padding-bottom:4px">
         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#666;cursor:pointer">
-          <input type="checkbox" id="aBjk"/> BJK Filter
-        </label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#666;cursor:pointer">
           <input type="checkbox" id="aAllQ"/> All Qualify
         </label>
         <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#666;cursor:pointer">
@@ -7729,7 +7793,7 @@ ${adminNav('sources')}
     <thead>
       <tr>
         <th>On</th><th>Name / URL</th><th>Type</th><th>Trust</th><th>Family</th><th>Treatment</th>
-        <th>NVS</th><th>Notes</th><th style="text-align:right">Actions</th>
+        <th>NVS</th><th style="text-align:center;white-space:nowrap;font-size:10px" title="All videos qualify — bypass BJK keyword filter">All Q</th><th>Notes</th><th style="text-align:right">Actions</th>
       </tr>
     </thead>
     <tbody id="tbody"></tbody>
@@ -7768,15 +7832,29 @@ async function load() {
       <td><input type="text" value="\${esc(r.source_family||'')}" placeholder="e.g. turkuvaz" style="width:90px" onchange="markDirty('\${r.id}')"/></td>
       <td><select onchange="markDirty('\${r.id}')">\${TREATMENTS.map(t=>\`<option \${t===r.treatment?'selected':''}>\${t}</option>\`).join('')}</select></td>
       <td><input type="number" style="width:52px" value="\${r.nvs_hint??''}" placeholder="auto" onchange="markDirty('\${r.id}')"/></td>
+      <td style="text-align:center"><input type="checkbox" \${r.all_qualify?'checked':''} onchange="markDirty('\${r.id}')"/></td>
       <td><input type="text" value="\${esc(r.notes||'')}" placeholder="notes" onchange="markDirty('\${r.id}')"/></td>
       <td style="text-align:right;white-space:nowrap">
         <button class="btn btn-sm" onclick="save('\${r.id}')">Save</button>
         <span class="saved" id="saved-\${r.id}" style="display:none">✓</span>
+        <button class="btn btn-sm" onclick="openEdit('\${r.id}')">Edit</button>
         <button class="btn btn-blue btn-sm" onclick="testSource('\${r.id}')">Test</button>
         <button class="btn btn-red btn-sm" onclick="delSource('\${r.id}')">Del</button>
       </td>
     </tr>
-    <tr class="test-row" id="test-\${r.id}" style="display:none"><td colspan="8"><span id="test-out-\${r.id}"></span></td></tr>
+    <tr class="test-row" id="test-\${r.id}" style="display:none"><td colspan="10"><span id="test-out-\${r.id}"></span></td></tr>
+    <tr id="edit-\${r.id}" style="display:none"><td colspan="10">
+      <div style="padding:8px 14px;background:#f8fafc;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;border-top:1px solid #e2e8f0">
+        \${r.source_type==='rss'
+          ? \`<label style="font-size:11px;display:flex;flex-direction:column;gap:2px">Feed URL<input id="eu-\${r.id}" type="text" value="\${esc(r.url||'')}" style="width:320px"/></label>\`
+          : \`<label style="font-size:11px;display:flex;flex-direction:column;gap:2px">Channel ID<input id="ec-\${r.id}" type="text" value="\${esc(r.channel_id||'')}" style="width:180px"/></label>\`
+        }
+        <label style="font-size:11px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="eproxy-\${r.id}" \${r.proxy?'checked':''}/> Proxy</label>
+        <label style="font-size:11px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="ep4-\${r.id}" \${r.is_p4?'checked':''}/> P4</label>
+        <button class="btn btn-green btn-sm" onclick="saveEdit('\${r.id}','\${r.source_type}')">Apply</button>
+        <button class="btn btn-sm" onclick="document.getElementById('edit-\${r.id}').style.display='none'">Cancel</button>
+      </div>
+    </td></tr>
   \`;}).join('');
 }
 
@@ -7793,12 +7871,14 @@ async function save(id) {
   const family  = inputs[3];
   const treat   = inputs[4];
   const nvs     = inputs[5];
-  const notes   = inputs[6];
+  const allq    = inputs[6];
+  const notes   = inputs[7];
   await fetch('/admin/sources', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
     id, is_active: active.checked, name: name.value,
     trust_tier: tier.value, source_family: family.value || null,
     treatment: treat.value,
     nvs_hint: nvs.value ? parseInt(nvs.value) : null,
+    all_qualify: allq.checked,
     notes: notes.value,
   })});
   const s = document.getElementById('saved-'+id);
@@ -7842,6 +7922,29 @@ async function testSource(id) {
   }
 }
 
+function openEdit(id) {
+  const row = document.getElementById('edit-'+id);
+  row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+
+async function saveEdit(id, type) {
+  const patch = { id };
+  if (type === 'rss') {
+    const u = document.getElementById('eu-'+id);
+    if (u) patch.url = u.value.trim();
+  } else {
+    const c = document.getElementById('ec-'+id);
+    if (c) patch.channel_id = c.value.trim();
+  }
+  const proxy = document.getElementById('eproxy-'+id);
+  const p4    = document.getElementById('ep4-'+id);
+  if (proxy) patch.proxy  = proxy.checked;
+  if (p4)    patch.is_p4  = p4.checked;
+  await fetch('/admin/sources', { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(patch) });
+  document.getElementById('edit-'+id).style.display = 'none';
+  load();
+}
+
 function toggleAdd() {
   const p = document.getElementById('addPanel');
   p.classList.toggle('open');
@@ -7864,7 +7967,6 @@ async function addSource() {
     trust_tier: document.getElementById('aTier').value,
     treatment:  document.getElementById('aTreat').value,
     nvs_hint:   document.getElementById('aNvs').value ? parseInt(document.getElementById('aNvs').value) : null,
-    bjk_filter: document.getElementById('aBjk').checked,
     all_qualify:document.getElementById('aAllQ').checked,
     proxy:      document.getElementById('aProxy').checked,
     is_p4:      document.getElementById('aP4').checked,
@@ -8202,6 +8304,7 @@ ${nav}
         <button class="pl-filter-btn" data-stage="hash_dedup" onclick="setPlFilter(this)">Hash dup</button>
         <span style="color:#e2e8f0;margin:0 .25rem">|</span>
         <button class="pl-filter-btn" id="pl-group-btn" onclick="togglePlGroup()">Group by story</button>
+        <button class="pl-filter-btn" onclick="exportPlCsv()" style="margin-left:.25rem">⬇ Export CSV</button>
       </div>
       <div class="pl-wrap" id="pl-wrap">
         <div class="loading-state" style="padding:2rem"><div class="spinner"></div><div>Loading article log...</div></div>
@@ -8524,8 +8627,8 @@ function reportDashboardJs() {
     '  h+=\'<div class="sec-title">📊 Pipeline by Source<span class="badge">\'+sources.length+" sources</span></div>";',
     '  h+=\'<div class="chev">▼</div></div>\';',
     '  h+=\'<div class="sec-body">\';',
-    '  h+=\'<p style="color:#64748b;font-size:.78rem;margin:0 0 10px">Raw→KW: keyword filter pass. Lost: passed KW but never saved (deduped or below rewrite threshold). Scored: reached DB. Pub: published to live pool.</p>\';',
-    '  h+=\'<table class="src-table"><thead><tr><th>Source</th><th>Type</th><th>Tier</th><th>Family</th><th>Raw</th><th>KW</th><th style="color:#d97706">Lost</th><th>Scored</th><th style="color:#16a34a">Pub</th><th>Rate</th><th>Avg NVS</th><th>Last</th></tr></thead><tbody>\';',
+    '  h+=\'<p style="color:#64748b;font-size:.78rem;margin:0 0 10px">Raw: total feed items. Date: after 8h lookback cutoff. KW: after BJK keyword filter. Lost: passed KW but never saved (deduped or below threshold). Scored: reached DB. Pub: published to live pool.</p>\';',
+    '  h+=\'<table class="src-table"><thead><tr><th>Source</th><th>Type</th><th>Tier</th><th>Family</th><th>Raw</th><th title="After 8h date cutoff">Date</th><th title="After BJK keyword filter">KW</th><th style="color:#d97706">Lost</th><th>Scored</th><th style="color:#16a34a">Pub</th><th>Rate</th><th>Avg NVS</th><th>Last</th></tr></thead><tbody>\';',
     '  sources.forEach(function(s){',
     '    var sid="src-"+slug(s.source_name);',
     '    var cfg=srcTypeMap[s.source_name]||{};',
@@ -8537,6 +8640,7 @@ function reportDashboardJs() {
     '    h+=\'<td style="color:#be185d;font-size:.75rem">\'+esc(cfg.tier||"—")+"</td>";',
     '    h+=\'<td style="color:#0891b2;font-size:.75rem">\'+esc(cfg.family||"—")+"</td>";',
     '    h+=\'<td style="color:#64748b">\'+( s.raw_fetched||0)+"</td>";',
+    '    h+=\'<td style="color:#64748b">\'+( s.after_date||0)+"</td>";',
     '    h+=\'<td style="color:#475569">\'+( s.kw_passed||0)+"</td>";',
     '    h+=\'<td style="color:\'+lostColor+\'"><strong>\'+( s.lost||0)+"</strong>"+(s.kw_passed>0?\' <span style="font-size:.7rem">\'+lostPct+\'%</span>\':\'\')+"</td>";',
     '    h+="<td>"+(s.contributed||0)+"</td>";',
@@ -8544,7 +8648,7 @@ function reportDashboardJs() {
     '    h+=\'<td><div class="mini-bar-w"><div class="mini-bar" style="width:\'+pct(s.published,s.kw_passed||s.contributed)+\'%"></div></div>\'+pct(s.published,s.kw_passed||s.contributed)+"%</td>";',
     '    h+="<td>"+nvsBadgeInline(s.avg_nvs)+"</td>";',
     '    h+=\'<td style="color:#94a3b8">\'+fmtTime(s.last_article_at)+"</td></tr>";',
-    '    h+=\'<tr id="\'+sid+\'" style="display:none"><td colspan="12" style="padding:0"><div class="art-list">\'+articleCards(all.filter(function(a){return a.source_name===s.source_name;}),10)+"</div></td></tr>";',
+    '    h+=\'<tr id="\'+sid+\'" style="display:none"><td colspan="13" style="padding:0"><div class="art-list">\'+articleCards(all.filter(function(a){return a.source_name===s.source_name;}),10)+"</div></td></tr>";',
     '  });',
     '  h+="</tbody></table></div></div>";',
     '',
@@ -8695,6 +8799,40 @@ function reportDashboardJs() {
     '  renderPipelineLog(plAllRows);',
     '}',
     '',
+    'var PL_STAGE_LABELS={"":"All","published":"Published","scored_low":"Below threshold","url_seen":"Already seen","off_topic":"Off-topic","date_old":"Too old","too_short":"Too short","title_dedup":"Near-dupe","hash_dedup":"Hash dup"};',
+    'function updatePlFilterCounts(rows){',
+    '  var counts={};',
+    '  rows.forEach(function(r){var s=r.stage||"";counts[s]=(counts[s]||0)+1;});',
+    '  counts[""]=rows.length;',
+    '  document.querySelectorAll(".pl-filter-btn[data-stage]").forEach(function(btn){',
+    '    var stage=btn.dataset.stage;',
+    '    var label=PL_STAGE_LABELS[stage]||stage;',
+    '    var n=counts[stage]||0;',
+    '    btn.textContent=label+" ("+n+")";',
+    '  });',
+    '}',
+    '',
+    'function exportPlCsv(){',
+    '  if(!plAllRows||!plAllRows.length){alert("No pipeline data loaded yet.");return;}',
+    '  var cols=["run_at","source_name","title","stage","nvs_score","publish_mode","trust_tier","source_body_len","drop_detail","story_title","url","slug"];',
+    '  var labels=["Run At","Source","Title","Stage","NVS","Mode","Trust","BodyLen","Detail","Story","URL","Slug"];',
+    '  function csvEsc(v){',
+    '    if(v==null)return"";',
+    '    var s=String(v);',
+    '    if(s.indexOf(",")>=0||s.indexOf("\\"")>=0||s.indexOf("\\n")>=0)return\'"\'+s.replace(/"/g,\'""\')+\'"\';',
+    '    return s;',
+    '  }',
+    '  var lines=[labels.join(",")];',
+    '  plAllRows.forEach(function(r){lines.push(cols.map(function(c){return csvEsc(r[c]);}).join(","));});',
+    '  var bom="\\uFEFF";',
+    '  var blob=new Blob([bom+lines.join("\\n")],{type:"text/csv;charset=utf-8;"});',
+    '  var u=URL.createObjectURL(blob);',
+    '  var a=document.createElement("a");',
+    '  a.href=u;a.download="pipeline-log-"+new Date().toISOString().slice(0,10)+".csv";',
+    '  document.body.appendChild(a);a.click();document.body.removeChild(a);',
+    '  URL.revokeObjectURL(u);',
+    '}',
+    '',
     'async function loadPipelineLog(){',
     '  var wrap=document.getElementById("pl-wrap");',
     '  if(!wrap)return;',
@@ -8711,6 +8849,7 @@ function reportDashboardJs() {
     '    var pubCount=plAllRows.filter(function(r){return r.stage==="published";}).length;',
     '    var badge=document.getElementById("pl-badge-count");',
     '    if(badge)badge.textContent=plAllRows.length+" articles · "+pubCount+" published";',
+    '    updatePlFilterCounts(plAllRows);',
     '    renderPipelineLog(plAllRows);',
     '  }catch(e){',
     '    wrap.innerHTML=\'<div class="loading-state" style="padding:2rem;color:#dc2626">⚠ \'+e.message+"</div>";',
@@ -9268,76 +9407,6 @@ if(typeof currentFrom!=='undefined')loadAnalytics();
 `;
 }
 
-function renderAdminRoadmapPage() {
-  const nav = adminNav('roadmap');
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Kartalix — Roadmap</title>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:#0d0d0d;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
-.content{max-width:900px;margin:0 auto;padding:2rem 1.5rem}
-.loading{text-align:center;padding:4rem 2rem;color:#555}
-.spinner{width:20px;height:20px;border:2px solid #222;border-top-color:#c8f135;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 1rem}
-@keyframes spin{to{transform:rotate(360deg)}}
-.md-body{font-family:'JetBrains Mono',monospace,sans-serif;font-size:14px;line-height:1.75;color:#ccc}
-.md-body h1{font-size:24px;font-weight:800;margin:36px 0 14px;padding-bottom:10px;border-bottom:2px solid #c8f135;color:#fff}
-.md-body h2{font-size:18px;font-weight:700;margin:32px 0 10px;color:#fff}
-.md-body h3{font-size:15px;font-weight:700;margin:24px 0 8px;color:#e8e6e0}
-.md-body h4{font-size:12px;font-weight:600;margin:18px 0 6px;color:#666;text-transform:uppercase;letter-spacing:.5px}
-.md-body p{margin-bottom:12px}
-.md-body ul,.md-body ol{padding-left:24px;margin-bottom:12px}
-.md-body li{margin-bottom:4px}
-.md-body strong{color:#fff;font-weight:600}
-.md-body em{color:#666}
-.md-body code{background:#1e1e1e;border:1px solid #2a2a2a;padding:2px 6px;font-size:12px;color:#c8f135}
-.md-body pre{background:#161616;border:1px solid #222;padding:16px;overflow-x:auto;margin-bottom:14px}
-.md-body pre code{background:none;border:none;padding:0;color:#a8d8a8}
-.md-body hr{border:none;border-top:1px solid #222;margin:28px 0}
-.md-body blockquote{border-left:3px solid #c8f135;padding:8px 14px;background:#161616;margin-bottom:12px;color:#888}
-.md-body table{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:13px}
-.md-body th{background:#161616;padding:8px 12px;text-align:left;font-weight:600;color:#fff;border-bottom:1px solid #222}
-.md-body td{padding:7px 12px;border-bottom:1px solid #1a1a1a}
-.md-body tr:hover td{background:#111}
-.sprint-done{color:#c8f135 !important}
-.sprint-next{color:#ffaa00 !important}
-</style>
-</head>
-<body>
-${nav}
-<div class="content">
-  <div id="roadmap-content" class="loading">
-    <div class="spinner"></div>
-    <div>Loading roadmap...</div>
-  </div>
-</div>
-<script>
-async function load() {
-  const el = document.getElementById('roadmap-content');
-  try {
-    const r = await fetch('https://raw.githubusercontent.com/gencerali/pitchos/main/ROADMAP.md?t=' + Date.now());
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const md = await r.text();
-    el.innerHTML = marked.parse(md);
-    el.className = 'md-body';
-    el.querySelectorAll('h3').forEach(h => {
-      if (h.textContent.includes('\\u2705')) h.classList.add('sprint-done');
-      if (h.textContent.includes('\\uD83D\\uDCCB')) h.classList.add('sprint-next');
-    });
-  } catch(e) {
-    el.innerHTML = '<p style="color:#ff4444;padding:2rem">Could not load roadmap: ' + e.message + '<br><small style="color:#555">Check GitHub repo visibility or ROADMAP.md exists at repo root.</small></p>';
-  }
-}
-load();
-<\/script>
-</body>
-</html>`;
-}
-
 function renderAdminReleasesPage() {
   const nav = adminNav('releases');
   return `<!DOCTYPE html>
@@ -9407,12 +9476,12 @@ ${nav}
         <h5>Freeze criteria — all must pass before tagging v1.0.0</h5>
         <ul>
           <li>✅ Sprint H complete (news pool, rewrite queue, topic pages, multi-source synthesis)</li>
-          <li>☐ Audit pre-work complete — P0 security fixes + DB migrations (see v0.91)</li>
-          <li>☐ Sprint I complete — trust layer, synthesis gated on source quality</li>
+          <li>✅ Audit pre-work complete — P0 security fixes + DB migrations (v0.91 done 2026-05-16)</li>
+          <li>✅ Sprint I complete — trust layer, synthesis gated on source quality (v0.95 done 2026-05-18)</li>
           <li>☐ Sprint J complete — match highlights pipeline</li>
           <li>☐ Sprint K complete — situational awareness engine</li>
-          <li>☐ <code>/run</code>, <code>/force-*</code> endpoints require auth — no unauthenticated triggers</li>
-          <li>☐ Admin session cookie is server-generated token (not static <code>kx-editor=1</code>)</li>
+          <li>✅ <code>/run</code>, <code>/force-*</code> endpoints require auth — <code>requireOps()</code> on 20 routes (CF 5567db5a)</li>
+          <li>✅ Admin session cookie is server-generated token (<code>crypto.randomUUID()</code> + KV, done 2026-05-16)</li>
           <li>☐ <code>ADMIN_PIN</code> secret set in Wrangler — no hardcoded fallback</li>
           <li>☐ Homepage &lt;2s on mobile (4G throttled)</li>
           <li>☐ 40+ articles visible for 3 consecutive days without manual intervention</li>
@@ -9488,36 +9557,28 @@ ${nav}
     </div>
 
     <div class="rrow" onclick="toggle('r095')">
-      <span class="vtag next">v0.95</span>
-      <div><div class="rrow-title">Trust Layer — Sprint I</div><div class="rrow-sub">Source tier multiplier · Source family diversity gate · Journalist accuracy tracking</div></div>
-      <div class="rrow-date">After v0.91</div>
+      <span class="vtag shipped">v0.95</span>
+      <div><div class="rrow-title">Trust Layer + AdSense Compliance ✅</div><div class="rrow-sub">Source tier multiplier · Source family diversity · Rewrite quality · AdSense structural fix · _routes.json catch-all</div></div>
+      <div class="rrow-date">May 18, 2026</div>
     </div>
     <div id="r095" class="detail">
-      <h4>Goal</h4>
-      <p style="font-size:12px;color:#aaa;margin-bottom:12px">Synthesis only fires on trustworthy evidence. Homepage rank penalises low-trust sources. Foundation for journalist accuracy tracking.</p>
-      <h4>Prerequisites</h4>
+      <table>
+        <tr><td>Shipped</td><td>2026-05-18</td></tr>
+      </table>
       <ul>
-        <li>Sprint I DB migrations must be run: <code>trust_tier</code>, <code>source_family</code>, <code>trust_score</code> columns ✅ done 2026-05-15</li>
+        <li><span class="rtag fix">done</span> <strong>I1</strong> <code>trust_multiplier = trust_score / 50</code> wired into <code>rankAndEvict</code>; T1→90, T2→70, T3→50, T4→25; sources admin updated with Family column</li>
+        <li><span class="rtag fix">done</span> <strong>I2</strong> Synthesis gate uses <code>source_family</code> diversity — Turkuvaz papers count as one family; scMap loaded once per cron cycle</li>
+        <li><span class="rtag feat">feat</span> <strong>Rewrite quality</strong> — <code>extractFactsFromSource()</code> (Haiku, transient) injected into synthesis; <code>targetWords</code> tiers by bullet count; filler prohibitions added</li>
+        <li><span class="rtag fix">fix</span> <strong>AdSense compliance</strong> — <code>shouldShowAds()</code> gates articles by template + body length (≥1200 chars); utility pages fully ad-free; <code>_routes.json</code> + catch-all 404 Pages Function eliminates SPA fallback serving ads; all trailing-slash variants handled</li>
+        <li><span class="rtag perf">perf</span> Pipeline cron: hourly → 2-hourly (<code>0 */2 * * *</code>)</li>
+        <li><em style="color:#555;font-size:11px">I3/I4 journalist accuracy tracking deferred to v1.6 — needs Twitter + YT transcript signal</em></li>
       </ul>
-      <h4>Scope — Sprint I</h4>
-      <ul>
-        <li><span class="rtag fix">done</span> <strong>I1</strong> <code>trust_multiplier = trust_score / 50</code> wired into <code>rankAndEvict</code>; T1–T4 tier system live; sources admin updated with Family column</li>
-        <li><span class="rtag fix">done</span> <strong>I2</strong> Synthesis gate uses <code>source_family</code> diversity — Turkuvaz papers (A Haber, A Spor, Sabah) count as one family; scMap loaded once per cron cycle</li>
-        <li><em style="color:#555;font-size:11px">I3/I4 journalist accuracy tracking deferred to v1.6 — needs Twitter + YT transcript signal to be meaningful</em></li>
-      </ul>
-      <div class="criteria">
-        <h5>Freeze criteria</h5>
-        <ul>
-          <li>T4-source article visibly lower rank than T1 confirmation for same story</li>
-          <li>✅ Synthesis blocked when all contributions from same <code>source_family</code> (I2 live)</li>
-        </ul>
-      </div>
     </div>
 
     <div class="rrow" onclick="toggle('r091')">
-      <span class="vtag next">v0.91</span>
-      <div><div class="rrow-title">Audit Pre-work — Security + DB Migrations</div><div class="rrow-sub">P0 auth guards · Session cookie upgrade · Architecture audit 2026-05-15</div></div>
-      <div class="rrow-date">In flight</div>
+      <span class="vtag shipped">v0.91</span>
+      <div><div class="rrow-title">Audit Pre-work — Security + DB Migrations ✅</div><div class="rrow-sub">P0 auth guards · Session cookie upgrade · Architecture audit 2026-05-15</div></div>
+      <div class="rrow-date">May 16, 2026</div>
     </div>
     <div id="r091" class="detail">
       <h4>Scope — from architecture audit 2026-05-15</h4>
@@ -9527,9 +9588,8 @@ ${nav}
         <li><span class="rtag fix">done</span> <strong>P1-4</strong> Migration 0008 <code>sites.editorial_context</code> created and run</li>
         <li><span class="rtag fix">done</span> <strong>P1-2</strong> Sprint I DB migrations run: <code>trust_tier</code>, <code>source_family</code>, <code>trust_score</code></li>
         <li><span class="rtag fix">done</span> <strong>P2-5</strong> pitchos-proxy auto-enrich cron confirmed disabled</li>
-        <li>☐ <strong>P1-1</strong> Upgrade session cookie: <code>crypto.randomUUID()</code> on login, KV-stored token (7-day TTL), <code>HttpOnly; Secure; SameSite=Lax</code> flags</li>
+        <li><span class="rtag fix">done</span> <strong>P1-1</strong> Session cookie: <code>crypto.randomUUID()</code> on login, KV-stored token (7-day TTL), <code>HttpOnly; Secure; SameSite=Lax</code> flags — done 2026-05-16</li>
       </ul>
-      <p style="font-size:12px;color:#666;margin-top:10px">P1-1 is ~1 day. Can start Sprint I1 now and complete P1-1 before v1.0 ships.</p>
     </div>
 
   </div>

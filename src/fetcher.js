@@ -1,13 +1,28 @@
-import { callClaude, MODEL_FETCH, extractText, sleep, BJK_KEYWORDS, supabase } from './utils.js';
-import { BJK_REGEX, CUTOFF_48H } from './processor.js';
+import { callClaude, MODEL_FETCH, extractText, sleep, BJK_KEYWORDS, bjkMatch, supabase } from './utils.js';
+const DEFAULT_LOOKBACK_MS = 3 * 60 * 60 * 1000; // 3h fallback when no cron context
 
 // Strip common source domain suffixes appended by aggregator RSS feeds (Google News, etc.)
 // e.g. "Recep Uçar: Maç Çok Önemli - BJK.com.tr" → "Recep Uçar: Maç Çok Önemli"
+function decodeEntities(str) {
+  return (str || '')
+    .replace(/&apos;/g, "'").replace(/&#39;/g, "'").replace(/&#x27;/g, "'")
+    .replace(/&quot;/g, '"').replace(/&#34;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+}
+
 function cleanTitle(title) {
-  return title
+  return decodeEntities(title)
     .replace(/\s*[\|\-–—]\s*(bjk\.com\.tr|bjkspor\.net|bjk\.com|besiktas\.com\.tr)[\s.]*$/i, '')
     .replace(/\s*[\|\-–—]\s*[a-z0-9\-]+\.(com\.tr|net\.tr|org\.tr|com|net|org)\s*$/i, '')
     .trim();
+}
+
+function stripHTML(str) {
+  return decodeEntities((str || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
 }
 
 // ─── RSS FEEDS ────────────────────────────────────────────────
@@ -161,7 +176,8 @@ export async function fetchViaRss2Json(feed) {
 
 // ─── RSS FETCH ────────────────────────────────────────────────
 // Returns { articles, bySource: { feedName: { raw, after_date, after_keyword } } }
-export async function fetchRSSArticles(site, overrideFeeds = null) {
+// lookbackMs: derived from 3× cron interval by the caller
+export async function fetchRSSArticles(site, overrideFeeds = null, lookbackMs = DEFAULT_LOOKBACK_MS) {
   const allArticles = [];
   const bySource = {};
 
@@ -172,7 +188,7 @@ export async function fetchRSSArticles(site, overrideFeeds = null) {
     if (feed.proxy) {
       const proxyItems = await fetchViaRss2Json(feed);
       const raw = proxyItems.length;
-      const cutoff = Date.now() - CUTOFF_48H;
+      const cutoff = Date.now() - lookbackMs;
       // Apply same date cutoff as fetchOneFeed: articles with no parseable date = treat as now
       const afterDate = proxyItems.filter(a => {
         const pubMs = a.published_at ? new Date(a.published_at).getTime() : Date.now();
@@ -187,7 +203,7 @@ export async function fetchRSSArticles(site, overrideFeeds = null) {
     }
 
     try {
-      const result = await fetchOneFeed(feed, site, keywords);
+      const result = await fetchOneFeed(feed, site, keywords, lookbackMs);
       allArticles.push(...result.articles);
       const fs = result.feedStats;
       bySource[fs.name] = { raw: fs.raw, after_date: fs.after_date, after_keyword: fs.after_keyword };
@@ -196,10 +212,10 @@ export async function fetchRSSArticles(site, overrideFeeds = null) {
     }
   }
 
-  return { articles: allArticles.slice(0, 100), bySource };
+  return { articles: allArticles, bySource };
 }
 
-async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS) {
+async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS, lookbackMs = DEFAULT_LOOKBACK_MS) {
   const sourceName = feed.name || feed.source;
   const trustTier  = feed.trust || feed.trust_tier || 'unknown';
   const feedSport  = feed.sport || 'football';
@@ -227,7 +243,7 @@ async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS) {
   }
 
   const xml = await res.text();
-  const cutoff = Date.now() - CUTOFF_48H;
+  const cutoff = Date.now() - lookbackMs;
   // Support both RSS (<item>) and Atom (<entry>) formats
   const items = xml.match(/<item[\s\S]*?<\/item>/g)
              || xml.match(/<entry[\s\S]*?<\/entry>/g)
@@ -275,17 +291,17 @@ async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS) {
     if (pubMsForCutoff < cutoff) continue;
     recentCount++;
 
-    const haystack = (title + ' ' + (rawDesc || '')).toLowerCase();
+    const haystack = title + ' ' + (rawDesc || '');
 
     // journalist/international feeds: BJK_KEYWORDS filter
     // general press feeds with keywordFilter flag: same filter
     if (trustTier === 'journalist' || trustTier === 'international' || feed.keywordFilter) {
-      if (!keywords.some(kw => haystack.includes(kw))) continue;
+      if (!bjkMatch(haystack, keywords)) continue;
     }
 
     // Sky Sports and other mixed-sport international feeds: must mention football or BJK
     if (feed.footballOnly) {
-      if (!haystack.includes('football') && !keywords.some(kw => haystack.includes(kw))) continue;
+      if (!haystack.toLowerCase().includes('football') && !bjkMatch(haystack, keywords)) continue;
     }
 
     const summary   = stripHTML(rawDesc).slice(0, 500) || title;
@@ -356,7 +372,7 @@ async function fetchNTVSporFromHTML(fallbackUrl, sourceName) {
       const title = stripHTML(m[2]).trim();
       if (title.length < 20 || seen.has(url)) continue;
       seen.add(url);
-      if (!BJK_REGEX.test(title)) continue;
+      if (!bjkMatch(title)) continue;
       articles.push({ title, summary: title, url, source: sourceName, trust_tier: 'broadcast', sport: 'football', is_fresh: true, time_ago: 'Güncel', published_at: null });
     }
     console.log(`RSS [${sourceName}] HTML fallback: ${articles.length} articles`);
@@ -662,6 +678,3 @@ function stripCDATA(str) {
   return (str || '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim();
 }
 
-function stripHTML(str) {
-  return (str || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-}

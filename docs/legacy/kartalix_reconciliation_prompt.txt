@@ -1,0 +1,194 @@
+# Kartalix — Reconciliation & Forward-Plan Prompt
+
+## Context
+
+The founder (Ali) had a long strategic conversation with another
+Claude instance and produced 11+ proposal documents in `temp/`
+without grounding them in the actual project state.
+
+The project already has mature documentation discipline:
+- `docs/ROADMAP.md` — releases v0.x → v1.0 → v1.x with explicit
+  scope per release and parallel workstreams
+- `docs/NEXT.md` — single-next-action discipline, updated at end
+  of every session
+- `docs/DECISIONS.md` — append-only architectural decision log
+- `docs/SLICES.md` — sprint inventory (Sprints H done; I done;
+  J/K/L specified)
+- `docs/ARCHITECTURE-AUDIT-2026-05-15.md` — existing audit with
+  P0/P1/P2 findings
+- `docs/sprint-k-analysis.md` and `docs/sprint-l-analysis.md` —
+  already contain pre-development analysis of the situational
+  awareness and alarm framework briefs
+
+Many of the founder's recent proposals (in `temp/`) duplicate or
+contradict work already specified in these files. This prompt
+asks you to reconcile and produce ONE clean forward-plan output.
+
+## Your task
+
+Do this in one focused session. Produce ONE markdown document at
+the end. Do not start coding.
+
+### Step 1 — Read in this order (and only this order)
+
+1. `docs/NEXT.md` — what the current concrete next action is
+2. `docs/ROADMAP.md` — current release state and v1.0 freeze
+   criteria
+3. `docs/DECISIONS.md` — entries from the last 30 days
+4. `docs/ARCHITECTURE-AUDIT-2026-05-15.md` — yesterday's audit
+   findings and whether they have been actioned (cross-reference
+   with NEXT.md DONE markers)
+5. `docs/sprint-k-analysis.md` and `docs/sprint-l-analysis.md`
+6. `docs/SLICES.md` — Sprints J, K, L specs
+7. The `temp/` folder — every `kartalix_*.txt` file Ali generated
+   with the other Claude:
+   - `kartalix_brief_inventory.txt`
+   - `kartalix_match_highlights_prompt.txt`
+   - `kartalix_situational_awareness_brief.txt`
+   - `kartalix_pipeline_and_alarms_brief.txt`
+   - `kartalix_kpi_strip_prompt.txt`
+   - `kartalix_cockpit_prompt.txt`
+   - `kartalix_modular_growth_proposal.txt`
+   - `kartalix_adsense_readiness_brief.txt`
+   - `architecture_audit_prompt.txt`
+   - Any others present
+
+Read them all. Do not skim.
+
+### Step 2 — Produce ONE reconciliation document
+
+Save to `docs/RECONCILIATION-2026-05-17.md` with this exact
+structure:
+
+```
+# Reconciliation Report — 2026-05-17
+
+## 1. Project State Snapshot
+- Current release: [from ROADMAP.md]
+- Current NEXT action: [from NEXT.md, one line]
+- Active sprints: [from SLICES.md "CURRENTLY IN FLIGHT"]
+- Most recent decisions: [3 most recent from DECISIONS.md]
+- Open P0/P1 from architecture audit: [count + one-liner each]
+
+## 2. Brief-by-Brief Reconciliation
+For each file in temp/, one block:
+
+### temp/[filename]
+- **Topic**: [one line]
+- **Status in current docs**:
+  - DUPLICATE: already covered by [ROADMAP entry / SLICE / NEXT
+    line / DECISION]
+  - REFINEMENT: adds detail to existing [thing] without conflict
+  - CONFLICT: contradicts [thing] in [file]
+  - NEW: not yet covered anywhere
+  - OBSOLETE: was relevant when written but is now overtaken
+    by [thing]
+- **Recommended disposition**: KEEP / MERGE INTO [doc] / ARCHIVE
+  / DELETE
+- **One-sentence rationale**
+
+## 3. Items Already Done That The Briefs Treat As Open
+Walk through and list every brief item that is already done in
+NEXT.md or implemented in code. Be specific. Each entry:
+- Brief item: [what the brief proposed]
+- Already done: [where/when, with date]
+- Action: archive that section of the brief
+
+## 4. Items in Briefs That Should Become Roadmap Entries
+For each genuinely NEW item, write the proposed ROADMAP entry:
+- Where it belongs (which release section)
+- One-paragraph scope
+- Dependencies
+- Estimated effort (S/M/L/XL)
+- Why it matters for v1.0 vs post-launch
+
+## 5. Items in Briefs That Should Become DECISIONS.md Entries
+For each strategic decision implied in the briefs but not yet in
+DECISIONS.md, write the entry in the proper format:
+- e.g. "No multi-step LLM agents — single-prompt LLM calls and
+  scheduled functions only"
+- e.g. "Strangler over big-bang rebuild for content-shape
+  refactor"
+- e.g. "AI disclosure is positive for AdSense in 2026"
+
+## 6. Open Questions That Block Forward Progress
+The brief inventory listed 8 open questions. For each, either:
+- Answer it now from code/docs inspection
+- Confirm it remains open and add to NEXT.md as a discovery task
+
+Specifically check:
+- Are rss_summary articles currently served at public /haber/*
+  URLs? (read serveArticlePage and renderArticleHTML)
+- Does sitemap include rss_summary articles?
+- Does article HTML include a byline? What does it say?
+- Are eviction reasons (aged_out / TTL / overflow)
+  instrumented?
+- Does each cron run write a success/failure record somewhere?
+- What % of published articles in last 30 days have a story_id?
+  (Supabase query)
+- Are any /force-* endpoints still missing requireOps? (grep the
+  worker)
+- What is the current daily Claude API spend?
+  (admin/cost data)
+
+## 7. Recommended Forward Plan (Next 4 Weeks)
+Concrete week-by-week plan that:
+- Respects the existing release cadence (v0.96 → v0.97 → v0.98
+  → v1.0)
+- Adds the new items from Section 4 into the right releases
+  (don't invent a new release)
+- Sequences AdSense readiness as the parallel workstream
+  alongside Sprint J or K
+- Identifies the SINGLE next action to update in NEXT.md
+
+Format as:
+- Week of [date]: [headline]. NEXT action: [one line for NEXT.md]
+- ...
+
+## 8. Files to Archive
+Anything in temp/ that should be moved to docs/legacy/ (kept for
+reference) or deleted. Be specific about each file.
+
+## 9. Files to Update
+List every existing doc file that needs an update as a result of
+this reconciliation:
+- docs/NEXT.md: [change]
+- docs/ROADMAP.md: [change]
+- docs/DECISIONS.md: [new entry to append]
+- docs/SLICES.md: [change]
+
+## 10. What I Did Not Do
+Be explicit about anything you couldn't resolve and why. Do not
+silently skip.
+```
+
+### Step 3 — Stop. Do not code.
+
+Save the reconciliation report and stop. Do not start
+implementing any of the recommendations.
+
+Ali reviews the reconciliation report. Based on it, he will:
+- Approve specific updates to NEXT.md / ROADMAP.md / DECISIONS.md
+- Decide which `temp/` files to archive vs keep
+- Confirm the next action for the upcoming week
+
+Only after Ali's approval do you make file edits or write code.
+
+## Constraints
+
+- One reconciliation document. Not 11 small ones.
+- Cite specific lines from existing docs when claiming
+  duplication or conflict.
+- Be honest about quality of the briefs. If one is overengineered
+  for the actual project state, say so. If one was written
+  without context that's now visible, say so.
+- Respect the existing release model. The briefs were written
+  without knowing about it. Items go into existing releases, not
+  into a new parallel structure.
+- Respect DECISIONS.md as append-only. New decisions are new
+  entries. Old entries are never edited.
+- Respect NEXT.md as "single next action." Don't dilute it with
+  a list.
+- The briefs were generated by another Claude instance during a
+  long strategic conversation. Treat them as proposals with
+  variable quality, not as commitments.

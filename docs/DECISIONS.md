@@ -30,6 +30,47 @@
 
 ## ENTRIES
 
+### 2026-05-20 — Attribution rendering corrected for all publish modes
+
+**Decision**: Fixed 4 attribution failures identified in `docs/attribution-audit-2026-05-20.md`. All changes in `renderArticleHTML` (`worker-fetch-agent.js`) and the Rabona KV card builder (`src/publisher.js`).
+
+- `isKartalix` flag no longer forces `true` for `youtube_embed` and `video_embed` modes. These modes now correctly expose the original source.
+- New attrHtml branch for `youtube_embed`, `video_embed`, `rabona_digest`: renders "Video kaynağı: [Source] →" with working YouTube URL link.
+- `synthesis` mode added alongside `original_synthesis` in the "Birden fazla kaynaktan…" branch — both modes now render generic multi-source attribution.
+- All `attrHtml` blocks moved from bottom of article (after body) into `div.article-meta`, directly under the title. CSS contextual override `.article-meta .source-attr` handles layout (display:block, no border-top).
+- Rabona digest KV card: `url` now set to specific video watch URL (single video) or channel URL (multi-video), preserving the link through to `renderArticleHTML`.
+
+**Rewrite source gap — fixed 2026-05-20 (version `972583f6`):** `serveArticlePage` now falls back to `kvArticle.source_name` for rewrite articles when Supabase has `source_name='Kartalix'` and KV has a non-Kartalix value. This is minimal (Option A): reliable while KV is warm (cron every 30 min keeps TTL fresh); on rare KV drought + seed-from-DB, source name reverts to 'Kartalix' temporarily. Verified: rewrite article renders "Kaynak temel alınarak Kartalix editörleri tarafından üretildi: **NTV Spor** →" with correct href.
+
+**Not fixed (deferred):** Multi-source synthesis listing contributing source names (requires `sources[]` field in article shape). Duhuliye upstream piercing.
+
+**Deployed:** version `8a9d3172-6bea-40ab-aec7-dfa342b1ff3d`
+
+### 2026-05-20 — off_topic URLs added to KV seen cache (Fix B)
+
+**Decision**: Articles rejected at preFilter Stage 2 (off_topic) have their URL hashes saved to `seen:off_topic:{siteCode}` KV key with TTL equal to the lookback window. Incoming articles are filtered against this cache before preFilter runs.
+
+**Why this one**: Same off_topic URLs were re-entering the pipeline across 4+ consecutive cron runs, each costing one RSS fetch slot, one preFilter pass, and one pipeline_log row. Fix eliminates re-evaluation entirely with zero Claude calls.
+
+**Alternatives considered**:
+- Merge with existing `seen:{siteCode}` hash-dedup cache — rejected because that cache uses content hash (title+summary) at Stage 3; off_topic uses URL hash at Stage 2; mixing would corrupt hash-dedup semantics and cause false-positive drops.
+
+**Tradeoff**: Suppressed articles do not appear in pipeline_log on subsequent runs (filtered before reaching the rejection logger). Original rejection is preserved from first encounter. `off_topic count per source per day` queries will undercount re-encounters; acceptable because the original count is what matters.
+
+**Cache parameters**: 200 entries per site (vs 50 for hash-dedup — off_topic volume is higher). TTL = `lookbackMs / 1000` seconds (matches the existing lookback window constant already in scope at call site).
+
+**What would change our mind**: If a legitimate BJK article is permanently suppressed because it was previously off_topic (e.g., keyword expansion now covers it). In that case, clear `seen:off_topic:BJK` from KV to reset the cache.
+
+**Related**: Fix A (preFilter uses BJK_KEYWORDS via bjkMatch) deployed 2026-05-19.
+
+### 2026-05-20 — BJK_KEYWORDS cleanup: removed generic noise terms
+
+**Decision**: Removed `'optik'`, `'optik baskan'`, and bare `'seba'` from BJK_KEYWORDS. `'süleyman seba'` and `'suleyman seba'` retained as full names. Final count: 164 entries.
+
+**Why this one**: `'optik'` matches eyeglasses retailers, fiber optics companies; `'optik baskan'` has no clear BJK referent; bare `'seba'` overlaps with common names (Sebastian, Sebahattin) causing false positives on non-BJK content. Full-name forms of Süleyman Seba are unambiguous.
+
+**What would change our mind**: Specific missed articles that would have been caught by the removed terms.
+
 ### 2026-04-28 — Story-centric over article-centric architecture
 
 **Decision**: Stories are the primary entity. Articles are generated outputs of stories at specific lifecycle states. Multiple source contributions about the same event aggregate into one story, producing one Kartalix article that evolves with the story state.
@@ -639,6 +680,193 @@ any        → debunked      trigger: manual only
 **What would change our mind**: Turkish IP lawyer ruling that video caption content has different legal treatment than RSS body text under FSEK Article 36 — at which point caption flow could be moved to Sprint C.
 
 **Related**: SLICES.md Sprint C, DECISIONS.md 2026-04-29 match template data source architecture (G6), `C:\Temp\planning-input.txt`
+
+---
+
+### 2026-05-17 — No multi-step LLM agents: scheduled functions and single-prompt LLM calls only
+
+**Decision**: Kartalix capability modules are implemented as cron-scheduled functions or single-prompt LLM calls with structured output. Multi-step autonomous agents — where the LLM decides its own investigation path and calls tools iteratively — are rejected for all pipeline and editorial work.
+
+**Alternatives considered**:
+- Multi-step editorial review agent (investigates a story, calls multiple tools) — rejected; the path is known at code-write time; richer prompt context achieves the same quality gain without the cost and unpredictability
+- Autonomous source trust agent — rejected; trust is computed deterministically from journalist outcome data and source tier; no autonomy needed
+
+**Why this one**: Multi-step agents are expensive, slow, and fail in ways that compound at cron frequency. Every module proposed in the capability roadmap (alarm framework, relevance bucket, situational awareness, KPI strip) has a fixed operation path — what varies is the *data*, not the *path*. Single-prompt calls with well-constructed context outperform agent loops for structured generation tasks. The one potential exception (a borderline-article editorial review calling 2–3 inspection tools) is explicitly deferred to post-v1.
+
+**What would change our mind**: A specific use case where the investigation path is genuinely unknown at code-write time and the quality gain from agent autonomy justifies the cost. No such case exists in v1 scope.
+
+**Related**: `docs/legacy/kartalix_modular_growth_proposal.txt` Part C, SLICES.md Capability Modules table
+
+---
+
+### 2026-05-17 — Alarm framework: checks registered in code, definitions stored as data
+
+**Decision**: Alarm check logic is implemented as named JavaScript functions registered in `src/alarms/checks/index.js`. Alarm definitions (schedule, severity, params, thresholds, notification channels, enabled/disabled) are rows in Supabase `alarm_definitions`. Adding a new alarm = write a check function + insert a row. Arbitrary SQL or DSL strings editable in definition rows are explicitly rejected.
+
+**Alternatives considered**:
+- Pure data-driven (alarm check is a SQL query string stored in DB, executed by runner) — rejected; SQL injection risk, debugging is painful (logic scattered across DB rows), no version control on check behaviour
+- Pure code-driven (all alarm config hardcoded) — rejected; can't add/disable alarms without a deploy
+
+**Why this one**: Preserves the operational flexibility of data-driven alarms (enable/disable, threshold tuning, schedule changes without deploys) while keeping check logic in version-controlled, testable JavaScript. The security and maintainability tradeoffs are clearly in favour of code-registered checks.
+
+**What would change our mind**: A strong need to add alarms without any code deploy — at which point a carefully sandboxed DSL could be evaluated.
+
+**Related**: `docs/legacy/kartalix_pipeline_and_alarms_brief.txt`, `docs/sprint-l-analysis.md` Sprint L
+
+---
+
+### 2026-05-17 — KPI strip is read-only operational view, separate from Cockpit and Report
+
+**Decision**: The `/admin/report` KPI strip (3-row: live state / today's activity / 14-day trend) is a read-only health snapshot. Config changes live in `/admin/cockpit`. Analytics and funnel charts live in `/admin/report` below the strip. The strip never gains an interactive config panel.
+
+**Alternatives considered**:
+- Merge KPI strip into Cockpit — rejected; the use cases are different: strip = "is it working now?", Cockpit = "change something". Mixing read + write in one view creates operational confusion.
+- Merge KPI strip into existing Report charts — rejected; the strip answers a different time-horizon question (now + today) than the analytics charts (last 30 days). Physical separation at the top of the page reflects the priority difference.
+
+**Why this one**: Operator mental models matter. The strip is opened for a 10-second scan; the cockpit is opened to make a change; the report is opened to analyse trends. Three distinct intents, three distinct UI zones.
+
+**What would change our mind**: Nothing architectural — this is a UX principle. The strip could gain an "Edit thresholds" shortcut link to Cockpit, but not inline editing.
+
+**Related**: `docs/legacy/kartalix_kpi_strip_prompt.txt`, `docs/legacy/kartalix_modular_growth_proposal.txt` Part B
+
+### 2026-05-18 — Rewrite and synthesis articles generate Kartalix titles from the body; original RSS title preserved in DB
+
+**Decision**: After body generation, a second Haiku call produces a clean Kartalix-style headline from the finished body. The generated title replaces the RSS title for `rewrite` and `original_synthesis` articles. The original RSS title is stored in `content_items.original_rss_title` for audit and A/B comparison. Slug is generated from the Kartalix title.
+
+**Alternatives considered**:
+- Keep RSS titles verbatim — rejected; RSS titles are clickbait, source-tagged, and mismatch the editorial voice of the Kartalix body.
+- Generate title inside the body synthesis prompt — rejected; forces Claude to produce body + title in one call, increasing risk of format drift and making refusal detection harder.
+
+**Why this one**: Separation of concerns. Body generation focuses on prose quality; title generation focuses on headline craft. Haiku is sufficient and cheap (~$0.001/day). Original title preserved for rollback and monitoring.
+
+**What would change our mind**: If Haiku title quality proves worse than RSS titles over a statistically meaningful sample (A/B via `original_rss_title`), revert and accept RSS titles.
+
+**Related**: `temp/title.txt`, `docs/migrations/0013_original_rss_title.sql`
+
+---
+
+### 2026-05-18 — Rewrite quality: transient fact extraction, not persistent
+
+**Decision**: Generation-time fact extraction in `synthesizeArticle` is transient. A Haiku call extracts source claims as a bullet list from the full fetched source text, uses the list to constrain length and prohibit filler, then discards it. No DB write, no schema changes.
+
+**Alternatives considered**:
+- Reuse the existing `facts` table — rejected; the facts table is entities-only in production (transfer_fee, contract_years, dates are null across all 411 rows) because extraction runs on RSS title+summary (≤800 chars), not full source text. Redesigning the schema to capture numbers from full source text would require rebuilding extraction, validation, storage, and reuse logic — work not yet earned.
+- Persist extracted bullets in a new `source_bullets` column — rejected; bullets are prompt scaffolding, not durable facts. Storing them adds migration cost and schema complexity with no consumer beyond the one prompt.
+- Store in `story_contributions` as a generation hint — rejected; contributions are matched before synthesis fires, so hints would need a separate retrieval step with no guarantee the same source is used at generation time.
+
+**Why this one**: The problem (filler padding) is a prompt calibration problem, not a data architecture problem. The fix belongs in the prompt layer. Transient extraction is high-leverage (one Haiku call), low-risk (graceful fail → empty bullets, unchanged path), and reversible without touching DB.
+
+**What would change our mind**: If a cross-article use case emerges that requires durable structured facts — e.g., contradiction detection across sources, fact-density publish gates, or fact-based freshness scoring. At that point, extract from full source text and design proper schema. Not before.
+
+**Related**: `docs/generation-paths-audit.md`, `temp/kartalix_rewrite_quality_fix_prompt.txt`
+
+---
+
+### 2026-05-18 — AdSense compliance: structural URL routing fix
+
+**Root cause**: Cloudflare Pages was serving `index.html` as fallback for unknown URLs, loading the auto-ads AdSense script on pages with wrong or no content.
+
+**Fix has three layers**:
+1. `shouldShowAds()` conditional in worker (`renderArticleHTML`, `renderStaticPage`) — gates ad code by page type and body length.
+2. `functions/[[catchall]].js` Pages Function — returns clean 404 for unknown URLs.
+3. `_routes.json` — explicit Pages routing config that activates the catch-all and overrides Cloudflare's auto-generated routing (which was the actual root cause; without `_routes.json` the catch-all never fires).
+
+**Lesson**: Any URL path that doesn't resolve to specific content is a compliance risk surface. The `_routes.json` exclude list must be audited regularly — any path in it that doesn't have a real handler will fall through to home page fallback.
+
+---
+
+### 2026-05-18 — Cloudflare Pages SPA-fallback overridden by catch-all Pages Function
+
+**Decision**: Unknown URLs on kartalix.com return 404 (via `functions/[[catchall]].js` + `_routes.json`) instead of serving `index.html` with a 200. The Pages project had SPA-fallback active: any URL with no matching Worker route, Pages Function, or static file was served the home page — which contains the AdSense auto-ads script.
+
+Two files are required together: (1) `functions/[[catchall]].js` returns 404; (2) `_routes.json` with `include: ["/*"]` and an explicit exclude list for known-good paths. Without `_routes.json`, Cloudflare auto-generates its own routes config that does not activate the catch-all for unknown paths — the SPA fallback wins. With `_routes.json`, Cloudflare invokes Functions for any path not in the exclude list, which hits the catch-all.
+
+**Related**: `functions/[[catchall]].js`, `_routes.json`
+
+---
+
+### 2026-05-18 — Worker routes must claim both trailing-slash and non-trailing-slash variants
+
+**Decision**: Every worker route that has a corresponding static asset in the Pages deployment must be registered in `wrangler.toml` for both `/path` and `/path/`. If only `/path` is registered, Cloudflare serves the static file for `/path/` as a Pages fallback — bypassing the worker entirely.
+
+---
+
+### 2026-05-18 — AdSense ad rendering gated on page type and content substance
+
+**Decision**: AdSense auto-ads script renders only on article pages (`/haber/*`) with a minimum body length of 1200 characters (~200 words). All utility pages, error pages, flash-event templates, and the home page with a thin pool receive no ad script.
+
+**Specifics**:
+- Utility pages (`/hakkimizda`, `/iletisim`, `/gizlilik`, `/kaynak-atif`, `/editoryal-politika`): ad script removed from `renderStaticPage()` shared template.
+- Article pages: `shouldShowAds()` function gates the script on `bodyLength >= 1200` AND `templateId` not in `['T10','T11','T-RED','T-VAR','T-OG','T-PEN','T-HT']` AND `publishMode !== 'rss_summary'`.
+- Home page (`index.html`): script moved from `<head>` (unconditional) to a DOM-gated dynamic injection that fires only after `footballArticles.length >= 8` AND `#newsGrid .card` exists in the DOM.
+- Static HTML files (`hakkimizda/`, `gizlilik/`, `iletisim/` variants): ad script removed; these are served at trailing-slash paths by Cloudflare Pages as fallback.
+- `/impressum` route: removed from `wrangler.toml`; Cloudflare Pages now serves the complete static `impressum/index.html` directly (no ads, German legal content intact).
+
+**Trigger**: Google AdSense compliance notification 2026-05-18 — "Google-served ads on screens without publisher-content."
+
+**Alternatives considered**:
+- Wrap individual `<ins>` ad slots — not applicable; no manual placements exist, only auto-ads global script.
+- Configure "manual placements only" in AdSense console — rejected; requires AdSense console access and approval cycle. Code-side gating is immediate and does not depend on Google review.
+
+**Why this one**: The auto-ads script triggers policy violation purely by existing on thin-content pages. Removing it from those pages is the only compliant fix. The `shouldShowAds()` guard is intentionally conservative (1200 chars) to stay well above the policy line.
+
+**What would change our mind**: If average article body length drops significantly below 1200 chars despite the `MIN_BODY_CHARS = 600` floor — adjust threshold down, but not below 800.
+
+**Related**: `temp/kartalix_adsense_compliance_fix_prompt.txt`
+
+---
+
+### 2026-05-19 — preFilter aligned with fetch-time keyword filter
+
+**Decision**: Replace `BJK_REGEX` with `BJK_KEYWORDS` in `preFilter`'s off_topic check. Both gates now use the same 45-entry keyword list via case-insensitive substring match.
+
+**Alternatives considered**:
+- Keep BJK_REGEX and extend it with player/coach names — rejected because it duplicates the maintenance surface; BJK_KEYWORDS already tracks squad changes
+- Remove preFilter off_topic check entirely and rely on fetch-time filter — rejected because preFilter runs on all sources including official ones that skip the fetch-time filter
+
+**Why this one**: `BJK_REGEX` (4 club name variants) was narrower than `BJK_KEYWORDS` (45 entries including player and coach names), causing false-positive off_topic rejections on quote articles ("Sergen Yalçın: '...'"), player-focused stories (Orkun Kökçü, Cerny), and coach decisions where titles don't literally contain 'Beşiktaş'/'BJK'/'kartal'. The two gates must agree on what counts as BJK content. `BJK_REGEX` remains exported in `processor.js` for `fetcher.js`'s NTV HTML fallback path.
+
+**What would change our mind**: If the wider keyword list causes non-BJK articles to pass preFilter in volume (e.g., a player transferred away still matching on their name). Monitor for a week and prune stale names from BJK_KEYWORDS if false negatives appear.
+
+**Related**: `docs/pipeline-diagnostic-2026-05-19.md` — Extended Investigation 1; `src/processor.js` line 26; `src/utils.js` BJK_KEYWORDS
+
+---
+
+### 2026-05-19 — pipeline_log enhanced with trust_tier, source_body_len, drop_detail
+
+**Decision**: Add three nullable columns to `pipeline_log` to enable diagnostic queries that previously required reading source code.
+
+- `trust_tier TEXT` — source trust tier at pipeline event time; enables "what % of T1/T2 drops are false positives?" directly from CSV
+- `source_body_len INTEGER` — `(summary + full_text).length` before any pipeline transformation; distinguishes tweet stubs (< 100) from real articles (> 500)
+- `drop_detail TEXT` — per-stage rejection specifics: `no_match` for off_topic; winner URL for title_dedup; `seen previously` for url_seen; publish date for date_old; char count for too_short
+
+**Why this one**: Several diagnostic questions became unanswerable from the export alone — most urgently, verifying whether title_dedup was keeping the higher-trust article. `drop_detail` on title_dedup rows now records the winning article's URL, making the planned trust-aware dedup refactor verifiable from CSV without code reading.
+
+**What would change our mind**: Nothing structural; individual `drop_detail` values may be refined per stage as more diagnostic questions emerge.
+
+**Related**: `temp/2.kartalix_pipeline_log_visibility_prompt.txt`, `docs/pipeline-diagnostic-2026-05-19.md`
+
+---
+
+### 2026-05-19 — synthesizeStory defensive gates aligned with synthesizeArticle
+
+**Decision**: Add four gates to `synthesizeStory` in `src/story-matcher.js` — it previously had only a 200-char body length check while `synthesizeArticle` in `publisher.js` had a full suite of defenses.
+
+Gates added:
+- **C — BJK title gate**: `!BJK_REGEX.test(story.title)` returns null immediately. Prevents synthesizing stories whose cluster title drifted to a rival or off-topic subject during story matching.
+- **D — Content-covers-title gate**: `checkContentCoversTitlePromise(story.title, combinedSources, env)` — same Haiku EVET/HAYIR check already used in `generateOriginalNews` and `synthesizeArticle`. Blocks synthesis when Strategy 3 keyword fallback fetches unrelated articles.
+- **A — Refusal text detection**: `SYNTH_REFUSAL_SIGNALS` array (15 phrases, Turkish + English) checked against body before save. Extended phrase list includes `yayınlayamam`, `talimatları incelediğimde`, `haberi yazabilirim` — the exact phrases that leaked in the 2026-05-19 incident. Same phrase additions also applied to `REFUSAL_SIGNALS` in `synthesizeArticle` and `BODY_REFUSAL_SIGNALS` in `saveArticles`.
+- **E — MIN_BODY_CHARS floor**: Raised from 200 to 600 chars, matching `MIN_BODY_CHARS` in `saveArticles`. The old 200-char gate was below the system-wide minimum and allowed refusal essays (which are typically 300–500 chars) to pass through.
+
+**Why now**: A refusal essay was published to kartalix.com because SYNTH-D2 had none of these gates. The body opened with "talimatları incelediğimde bu haberi yayınlayamam" — not in any existing signal list — and was 400+ chars long. The article exposed internal editorial instructions verbatim to readers and was indexed by search engines before being archived.
+
+**Alternatives considered**:
+- Patch only the missing phrase: too narrow — the root cause was SYNTH-D2 having no gate suite at all. One missed phrase would repeat.
+- Move synthesis into `synthesizeArticle`/`saveArticles` so gates apply automatically: larger refactor, cross-file state needed. Deferred to v1.1.
+
+**What would change our mind**: If Gate D causes too many false-positive drops on legitimate stories (stories whose title is editorially rewritten by the story matcher away from source titles), we may relax it to a soft warning rather than a hard block.
+
+**Related**: `temp/fix34.txt`, bad article slug `2026-05-19-fenerbahcede-teknik-direktor-arayisi-aziz-yildirimin-3-adayi-analiz` (archived), version `2d3e8a8d-371d-446c-9b03-9c04fab047d4`
 
 ---
 

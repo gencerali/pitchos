@@ -1,41 +1,89 @@
-import { simpleHash, callClaude, extractText, MODEL_SCORE, supabase } from './utils.js';
+import { simpleHash, callClaude, extractText, MODEL_SCORE, supabase, bjkMatch, bjkMatchDetail } from './utils.js';
 
 export const BJK_REGEX  = /beşiktaş|besiktas|bjk|kartal|siyah.beyaz/i;
-export const CUTOFF_48H = 72 * 60 * 60 * 1000;
+export const CUTOFF_48H = 72 * 60 * 60 * 1000; // kept for any external callers
 
 // ─── PRE-FILTER (pure JS, zero Claude calls) ─────────────────
-// Returns { articles, counts } with per-stage breakdown
-export function preFilter(articles, seenHashes) {
-  const cutoff = Date.now() - CUTOFF_48H;
+// Returns { articles, counts, rejected } with per-stage breakdown.
+// lookbackMs: how far back to accept articles (default 3h; caller derives from cron frequency)
+export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000) {
+  const cutoff = Date.now() - lookbackMs;
+  const rejected = [];
 
   // Stage 1: date filter
   const afterDate = articles.filter(a => {
     const pubMs = a.published_at ? new Date(a.published_at).getTime() : Date.now();
-    return pubMs >= cutoff;
+    if (pubMs < cutoff) {
+      rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'date_old',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+        drop_detail: a.published_at || null });
+      return false;
+    }
+    return true;
   });
 
   // Stage 2: BJK keyword + minimum summary length
   const afterKeyword = afterDate.filter(a => {
     const haystack = `${a.title} ${a.summary || ''} ${a.full_text || ''}`.slice(0, 600);
-    if (!BJK_REGEX.test(haystack)) return false;
-    if ((a.summary || '').length < 50) return false;
+    if (!bjkMatch(haystack)) {
+      rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'off_topic',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+        drop_detail: 'no_match' });
+      return false;
+    }
+    const bodyLen = `${a.title || ''} ${a.summary || ''} ${a.full_text || ''}`.trim().length;
+    if (bodyLen < 50) {
+      rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'too_short',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+        drop_detail: String(bodyLen) });
+      return false;
+    }
     return true;
   });
 
   // Stage 3: seen hash dedup
   const afterHash = afterKeyword.filter(a => {
     const hash = simpleHash(a.title + (a.summary || '').slice(0, 100));
-    return !seenHashes.has(hash);
+    if (seenHashes.has(hash)) {
+      rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'hash_dedup',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+        drop_detail: null });
+      return false;
+    }
+    return true;
   });
 
   // Stage 4: title similarity dedup + sort by date + cap 100
-  const afterTitle = dedupeByTitle(afterHash)
-    .sort((a, b) => {
-      const ta = a.published_at ? new Date(a.published_at).getTime() : 0;
-      const tb = b.published_at ? new Date(b.published_at).getTime() : 0;
-      return tb - ta;
-    })
-    .slice(0, 100);
+  const { kept: deduped, dupeWinnerMap } = dedupeByTitle(afterHash);
+  // Find title_dedup rejections by comparing afterHash vs deduped
+  const dedupedUrlSet = new Set(deduped.map(a => a.url || a.original_url || a.title));
+  for (const a of afterHash) {
+    const key = a.url || a.original_url || a.title;
+    if (!dedupedUrlSet.has(key)) {
+      rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'title_dedup',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+        drop_detail: dupeWinnerMap.get(key) || null });
+    }
+  }
+
+  const sorted = deduped.sort((a, b) => {
+    const ta = a.published_at ? new Date(a.published_at).getTime() : 0;
+    const tb = b.published_at ? new Date(b.published_at).getTime() : 0;
+    return tb - ta;
+  });
+
+  const afterTitle = sorted.slice(0, 100);
+  // Find cap_drop rejections
+  if (sorted.length > 100) {
+    for (const a of sorted.slice(100)) {
+      rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'cap_drop' });
+    }
+  }
 
   return {
     articles: afterTitle,
@@ -45,14 +93,42 @@ export function preFilter(articles, seenHashes) {
       after_hash:    afterHash.length,
       after_title:   afterTitle.length,
     },
+    rejected,
   };
 }
 
 // ─── DEDUPE BY TITLE SIMILARITY ──────────────────────────────
 const KEY_TOKEN_RE = /\b([A-ZÇĞİÖŞÜa-zçğışöşü]{4,}|\d+-\d+)\b/g;
 
-function extractKeyTokens(title) {
+// Tokens that appear in almost every Beşiktaş article — excluded from story-dedup
+// shared-token counting so they don't falsely mark unrelated articles as dupes.
+const DEDUP_STOPWORDS = new Set(['beşiktaş', 'besiktas', 'bjk', 'siyahbeyaz']);
+
+export function extractKeyTokens(title) {
   return new Set((title.match(KEY_TOKEN_RE) || []).map(t => t.toLowerCase()));
+}
+
+// Returns true when two tokens are morphologically related (same Turkish root).
+// Handles common suffixes: "Muciyi" → "Muci", "Beşiktaşa" → "Beşiktaş", etc.
+// Match if one token is a prefix of the other and the prefix is ≥4 chars.
+function tokensMatch(a, b) {
+  if (a === b) return true;
+  const minLen = Math.min(a.length, b.length);
+  if (minLen < 4) return false;
+  return a.startsWith(b.slice(0, minLen)) || b.startsWith(a.slice(0, minLen));
+}
+
+// Count non-stopword token matches between two token sets, using morphological matching.
+export function sharedStoryTokens(aKeys, bKeys) {
+  let shared = 0;
+  for (const t of aKeys) {
+    if (DEDUP_STOPWORDS.has(t)) continue;
+    for (const s of bKeys) {
+      if (DEDUP_STOPWORDS.has(s)) continue;
+      if (tokensMatch(t, s)) { shared++; break; }
+    }
+  }
+  return shared;
 }
 
 export function normalizeTitle(title = '') {
@@ -70,24 +146,30 @@ export function titleSimilarity(a, b) {
 
 export function dedupeByTitle(articles) {
   const kept = [];
+  const dupeWinnerMap = new Map();
   for (const a of articles) {
     const aNorm = normalizeTitle(a.title);
     const aKeys = extractKeyTokens(a.title);
+    let winner = null;
     const isDupe = kept.some(k => {
-      if (titleSimilarity(aNorm, normalizeTitle(k.title)) > 0.3) return true;
+      if (titleSimilarity(aNorm, normalizeTitle(k.title)) > 0.3) { winner = k; return true; }
       const kKeys = extractKeyTokens(k.title);
-      let shared = 0;
-      for (const t of aKeys) if (kKeys.has(t)) shared++;
-      return shared >= 3;
+      if (sharedStoryTokens(aKeys, kKeys) >= 3) { winner = k; return true; }
+      return false;
     });
-    if (!isDupe) kept.push(a);
+    if (!isDupe) {
+      kept.push(a);
+    } else {
+      dupeWinnerMap.set(a.url || a.original_url || a.title, winner?.url || winner?.original_url || null);
+    }
   }
-  return kept;
+  return { kept, dupeWinnerMap };
 }
 
 // ─── POST-SCORING STORY DEDUP ─────────────────────────────────
 // Deduplicates scored articles by story cluster, keeping highest-NVS per story.
 // Input must already be sorted by NVS descending.
+// Uses morphological token matching (handles Turkish suffixes) and stopword exclusion.
 export function dedupeByStory(articles) {
   const kept = [];
   for (const a of articles) {
@@ -95,12 +177,10 @@ export function dedupeByStory(articles) {
     const aKeys = extractKeyTokens(a.title);
     const isDupe = kept.some(k => {
       // Same story: ≥25% word overlap
-      if (titleSimilarity(aNorm, normalizeTitle(k.title)) > 0.25) return true;
-      // Same story: 2+ shared named tokens (player name, club, event)
+      if (titleSimilarity(aNorm, normalizeTitle(k.title)) >= 0.25) return true;
+      // Same story: 1+ shared meaningful named token (morphology-aware, stopwords excluded)
       const kKeys = extractKeyTokens(k.title);
-      let shared = 0;
-      for (const t of aKeys) if (kKeys.has(t)) shared++;
-      return shared >= 2;
+      return sharedStoryTokens(aKeys, kKeys) >= 1;
     });
     if (!isDupe) kept.push(a);
   }
@@ -262,7 +342,7 @@ Return JSON array only. No markdown. No text outside JSON.`;
 
 // ─── PERMANENT URL DEDUP (against Supabase) ──────────────────
 export async function getSeenUrls(env, siteId) {
-  const result = await supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${siteId}&select=original_url&limit=2000&order=created_at.desc`);
+  const result = await supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${siteId}&select=original_url&limit=10000&order=created_at.desc`);
   return new Set((result || []).map(r => r.original_url).filter(Boolean));
 }
 
@@ -284,5 +364,30 @@ export async function saveSeenHashes(env, siteCode, articles) {
     await env.PITCHOS_CACHE.put(`seen:${siteCode}`, JSON.stringify(trimmed), { expirationTtl: 172800 });
   } catch (e) {
     console.error('saveSeenHashes failed:', e.message);
+  }
+}
+
+// ─── OFF-TOPIC SEEN CACHE ─────────────────────────────────────
+// Separate from seen:{siteCode} (hash-dedup). off_topic rejection happens
+// at Stage 2 (preFilter); mixing with Stage 3 hash-dedup would corrupt semantics.
+export async function getOffTopicHashes(env, siteCode) {
+  try {
+    const raw = await env.PITCHOS_CACHE.get(`seen:off_topic:${siteCode}`);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch { return new Set(); }
+}
+
+export async function saveOffTopicHashes(env, siteCode, hashes, ttlSeconds) {
+  try {
+    const arr = Array.from(hashes).slice(-200);
+    await env.PITCHOS_CACHE.put(
+      `seen:off_topic:${siteCode}`,
+      JSON.stringify(arr),
+      { expirationTtl: Math.max(60, Math.floor(ttlSeconds)) }
+    );
+  } catch (e) {
+    console.error(`saveOffTopicHashes failed for ${siteCode}:`, e);
   }
 }

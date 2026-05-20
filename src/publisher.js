@@ -1,5 +1,5 @@
 ﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes } from './utils.js';
-import { normalizeTitle, titleSimilarity } from './processor.js';
+import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens } from './processor.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
 // Note: getBJKLastLineupData + getOpponentLastLineup imported by caller (worker) to avoid circular deps
@@ -121,7 +121,7 @@ export function isHotNewsHeld(article) {
 export function decidePublishMode(article) {
   const cat   = (article.category     || '').toLowerCase();
   const type  = (article.content_type || '').toLowerCase();
-  const trust = (article.trust        || '').toLowerCase();
+  const trust = (article.trust_tier || article.trust || '').toLowerCase();
   const nvs   = article.nvs || 0;
 
   // Hot News hold: P4 articles younger than 15 minutes are not published
@@ -137,8 +137,6 @@ export function decidePublishMode(article) {
   // with the original article title but empty match data.
   if (cat === 'injury')                   return 'template_injury';
   if (cat === 'transfer' && nvs >= 70)    return 'template_transfer';
-  // copy_source restricted to non-P4 sources only
-  if (nvs >= 55 && article.url && article.url !== '#' && !article.is_p4) return 'copy_source';
   return 'rss_summary';
 }
 
@@ -312,46 +310,160 @@ DETAYLAR: [önemli rakamlar, tarihler, maç/kulüp/turnuva adları — yoksa bo�
 
 const PROXY_BASE = 'https://pitchos-proxy.onrender.com';
 
-export async function synthesizeArticle(article, env, site = null) {
+// Gate: does the available content actually deliver on what the title promises?
+// Cheap check (~200 input tokens, 1-2 output). Returns true if content is sufficient,
+// false if the title makes claims the source doesn't support.
+export async function checkContentCoversTitlePromise(title, content, env) {
+  const prompt = `Kaynak başlık: "${title}"
+
+Kaynak içerik:
+${content.slice(0, 2500)}
+
+Bu kaynak içerik, başlığın vaat ettiği konuyu ve bilgileri yeterince kapsıyor mu?
+Başlıkta geçen önemli kişi, iddia, rakam veya detaylar içerikte gerçekten mevcut mu?
+
+Sadece EVET ya da HAYIR yaz.`;
+
+  try {
+    const res = await callClaude(env, MODEL_FETCH, prompt, false, 5);
+    const answer = extractText(res.content).trim().toUpperCase();
+    return answer.startsWith('EVET');
+  } catch {
+    return true; // on error, don't block synthesis
+  }
+}
+
+async function generateKartalixTitle(body, rssTitle, env) {
+  const prompt = `Sen Beşiktaş haber siteleri için başlık yazan bir editörsün.
+
+KAYNAK BAŞLIK (sadece referans — kopyalama, clickbait olabilir):
+${rssTitle}
+
+HABER METNİ:
+${body.slice(0, 1500)}
+
+Bu haber için Türkçe bir başlık yaz:
+- 50-75 karakter
+- Haberin ana iddiasını yansıt (yan detayı değil)
+- Öznenin adını (oyuncu / teknik direktör / kulüp) erken kullan
+- Abartma yok: "flaş", "bomba", "şok", "sürpriz" kullanma (metinde açıkça yoksa)
+- Emoji yok, tamamı büyük harf yok, ünlem işareti yok
+- Gerçek bir Türk futbol haberi başlığı gibi oku
+
+Sadece başlığı yaz. Başka hiçbir şey yazma.`;
+
+  try {
+    const clean = t => t.trim().replace(/^["'«»]+|["'«»]+$/g, '').replace(/\.+$/, '').trim();
+    const res = await callClaude(env, MODEL_FETCH, prompt, false, 50);
+    const title = clean(extractText(res.content));
+    if (title.length >= 30 && title.length <= 100) return title;
+
+    const res2 = await callClaude(env, MODEL_FETCH, prompt, false, 50);
+    const title2 = clean(extractText(res2.content));
+    if (title2.length >= 30 && title2.length <= 100) return title2;
+
+    // Fallback: first sentence of body capped at 80 chars
+    return (body.split(/[.!?]/)[0].trim().slice(0, 80)) || rssTitle;
+  } catch {
+    return rssTitle;
+  }
+}
+
+async function extractFactsFromSource(title, sourceText, env) {
+  const prompt = `Aşağıdaki Beşiktaş haberinden yalnızca açıkça belirtilen gerçekleri çıkar. Tahmin etme, ekstra bağlam ekleme.
+
+Başlık: ${title}
+Metin: ${sourceText.slice(0, 3000)}
+
+Haberde geçen her doğrulanmış gerçeği MADDE şeklinde listele:
+- [gerçek 1]
+- [gerçek 2]
+...
+
+Sadece kaynak metinde birebir bulunan bilgileri yaz — oyuncu adı, kulüp, rakam, tarih, alıntı. Kaynak desteklemiyorsa madde ekleme.
+Madde yoksa "Doğrulanmış bilgi yok." yaz.`;
+
+  try {
+    const res = await callClaude(env, MODEL_FETCH, prompt, false, 200);
+    const text = extractText(res.content).trim();
+    if (text === 'Doğrulanmış bilgi yok.' || !text) return { bullets: '', count: 0 };
+    const lines = text.split('\n').filter(l => l.trim().startsWith('-'));
+    return { bullets: text, count: lines.length };
+  } catch {
+    return { bullets: '', count: 0 };
+  }
+}
+
+export async function synthesizeArticle(article, env, site = null, opts = {}) {
   const srcUrl = article.url || article.original_url || '';
   let sourceText = null; // null = source not fetched; synthesis requires real source text
 
   if (srcUrl && srcUrl !== '#') {
     try {
-      // Wake up Render free tier — cold start takes 10-30s; /health responds as soon as it's up
-      await fetch(PROXY_BASE + '/health', { signal: AbortSignal.timeout(35000) }).catch(() => {});
-      // Service is now awake — fetch the article
-      const res = await fetch(PROXY_BASE + '/article?url=' + encodeURIComponent(srcUrl),
-        { signal: AbortSignal.timeout(15000) });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.content && data.content.length > 200) sourceText = data.content.slice(0, 10000);
+      if (!opts.proxyWarmed) {
+        // Wake up Render free tier — cold start takes 10-30s; /health responds as soon as it's up
+        const warmStart = Date.now();
+        await fetch(PROXY_BASE + '/health', { signal: AbortSignal.timeout(35000) }).catch(() => {});
+        // Grace period: health endpoint responds early in Render startup; article handler needs a
+        // few more seconds. Only wait if health took >5s (i.e. this was a cold start, not warm).
+        if (Date.now() - warmStart > 5000) {
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 4000));
+          const res = await fetch(PROXY_BASE + '/article?url=' + encodeURIComponent(srcUrl),
+            { signal: AbortSignal.timeout(15000) });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.content && data.content.length > 400) {
+              sourceText = data.content.slice(0, 10000);
+              break;
+            }
+          }
+        } catch(e) {
+          console.log(`synthesizeArticle: proxy attempt ${attempt + 1} failed:`, e.message);
+        }
       }
     } catch(e) {
       console.log('synthesizeArticle: proxy fetch failed:', e.message, '|', srcUrl);
     }
   }
 
-  // Proxy failed — fall back to RSS summary if it's substantial enough to synthesize from.
-  // Many Turkish sports feeds include 100-200 words in the RSS excerpt.
+  // No RSS fallback — RSS summaries are often a single generic line that misrepresents
+  // the actual story direction (e.g. "Player joins club" when the story is about them leaving).
+  // Without real source text we cannot rewrite accurately, so we skip.
   if (!sourceText) {
-    const raw = (article.summary || article.description || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-    if (raw.length >= 100) {
-      sourceText = raw.slice(0, 2000);
-      console.log(`synthesizeArticle: RSS fallback (${raw.length}ch) for`, srcUrl);
-    } else {
-      console.log('synthesizeArticle: skipping — no source content for', srcUrl);
-      return { body: null };
-    }
+    console.log('synthesizeArticle: skipping — could not fetch source content for', srcUrl);
+    return { body: null };
   }
-  const [editorialCtx, groundingCtx, keyEntities] = await Promise.all([
+
+  // Gate: only synthesize if the source content actually delivers on the title's promise.
+  const covers = await checkContentCoversTitlePromise(article.title, sourceText, env);
+  if (!covers) {
+    console.log(`SYNTHESIS GATE FAIL [${article.nvs}]: "${article.title?.slice(0, 60)}" — source does not cover title's promise`);
+    return { body: null };
+  }
+
+  const [editorialCtx, groundingCtx, keyEntities, sourceFacts] = await Promise.all([
     getEditorialNotes(env, ['general', 'style']),
     buildGroundingContext(env, site),
     extractKeyEntities(article.title, sourceText, env),
+    extractFactsFromSource(article.title, sourceText, env),
   ]);
+  console.log(`FACTS EXTRACTED [${article.nvs}]: ${sourceFacts.count} bullets — "${article.title?.slice(0, 50)}"`);
 
   const entityBlock = keyEntities
     ? `\n\nZORUNLU BİLGİLER — bunlar haberde mutlaka yer almalı:\n${keyEntities}`
+    : '';
+
+  const targetWords = sourceFacts.count >= 7 ? '300-400'
+                    : sourceFacts.count >= 4 ? '200-300'
+                    : '150-200';
+
+  const factsBlock = sourceFacts.bullets
+    ? `\n\nKAYNAKTAN DOĞRULANAN BİLGİLER — haberde yalnızca bunlar kullanılabilir:\n${sourceFacts.bullets}`
     : '';
 
   const isOfficial = article.trust_tier === 'official';
@@ -362,22 +474,60 @@ export async function synthesizeArticle(article, env, site = null) {
   const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak metinden özgün bir Kartalix haberi yaz.
 
 Kaynak başlık: ${article.title}
-${isOfficial ? `Kaynak metin: ${sourceText}\n${sourceLabel}` : sourceLabel}${entityBlock}${editorialCtx}${groundingCtx}
+${isOfficial ? `Kaynak metin: ${sourceText}\n${sourceLabel}` : sourceLabel}${factsBlock}${entityBlock}${editorialCtx}${groundingCtx}
 
 Kurallar:
-- 250-400 kelime, Türkçe
-- Ateşli bir BJK taraftarı gibi yaz — duygusal bağ kur, heyecan ve gerilimi yansıt
-- İLK CÜMLE: KİŞİLER ve OLAY bilgisini içermeli — kim, ne yaptı/oldu net şekilde belirt
-- "...kaynağına göre" veya "...iddia ediyor" gibi ifadeler kullanma — bilgiyi doğrudan sun
-- DOĞRULANMIŞ VERİLER arka plan bilgisidir: rakamları aynen aktarma, sezon bağlamını habere doğal şekilde dokut
-- Kaynak metinde tırnak içinde doğrudan alıntı varsa, o alıntıları kelimesi kelimesine koru — asla parafraz yapma
+- ${targetWords} kelime — fazlası yasak. Kaynak kaç bilgi veriyorsa o kadar yaz.
+- Türkçe, doğrudan haber üslubu
+- İLK CÜMLE: KİŞİLER ve OLAY — kim, ne yaptı/oldu
+- Yalnızca KAYNAK METNİNDE bulunan bilgileri yaz. Şunları YAZMA:
+  * Genel meta-gözlemler ("X meselesi her dönem önemlidir", "Bu tür kararlar kritik viraj niteliği taşır")
+  * Taraftar adına konuşma ("Taraftar ne beklediğini biliyor", "Tribünler bu kararı iyi karşılayacak")
+  * Kaynak desteklemeyen yoğunlaştırıcılar: flaş, bomba, şok, sürpriz, tarihi, kritik — kaynak metinde bu kelime yoksa kullanma
+  * Dolgu cümlesi — kelime hedefine ulaşmak için ek cümle ekleme
+- Kaynak metinde tırnak içinde alıntı varsa kelimesi kelimesine koru
+- DOĞRULANMIŞ VERİLER arka plan bilgisidir: sezon bağlamını habere işle ama birebir aktarma
 - Paragraflar arası boş satır bırak
-- Sadece haber metnini yaz, başlık ekleme`;
+- Başlık ekleme`;
 
   const res = await callClaude(env, MODEL_GENERATE, prompt, false, 1000);
   let body = extractText(res.content).trim();
 
-  const verification = await verifyArticle(body, groundingCtx, env);
+  // Detect Claude refusal/rejection responses — these must never be published.
+  // Claude occasionally decides source content isn't publishable and returns an
+  // explanation instead of article text. The phrases below are known refusal signals.
+  const REFUSAL_SIGNALS = [
+    'yayınlanabilir bir haber üretmek için yeterli içerik',
+    'bu kaynak materyal',
+    'haber yazamam',
+    'yeterli bilgi bulunmamaktadır',
+    'bu konuda haber yazamıyorum',
+    'özür dilerim, bu',
+    'üzgünüm, bu',
+    'içerik yetersiz',
+    'yayınlayamam',
+    'yayımlayamam',
+    'yayınlanamaz',
+    'talimatları incelediğimde',
+    'haberi yazabilirim',
+    'yazmak mümkün değil',
+    'talimat ihlal',
+    'i cannot write',
+    "i'm unable to",
+    'i cannot create',
+  ];
+  const bodyLower = body.toLowerCase();
+  if (REFUSAL_SIGNALS.some(sig => bodyLower.includes(sig))) {
+    console.log(`SYNTHESIS REFUSED [${article.nvs}]: "${article.title?.slice(0, 50)}" — Claude returned refusal, treating as no-body`);
+    return { body: null };
+  }
+
+  const [kartalixTitle, verification] = await Promise.all([
+    generateKartalixTitle(body, article.title, env),
+    verifyArticle(body, groundingCtx, env),
+  ]);
+  console.log(`TITLE GEN: "${kartalixTitle?.slice(0, 60)}" (was: "${article.title?.slice(0, 60)}")`);
+
   if (!verification.passed && verification.issues.length > 0) {
     console.log(`VERIFY FAIL: ${verification.issues.join('; ')}`);
     try {
@@ -386,19 +536,31 @@ Kurallar:
       const body2 = extractText(res2.content).trim();
       if (body2.length > 200) {
         console.log(`VERIFY REGENERATED OK`);
-        return { body: body2, needs_review: false, verification_result: { passed: true, issues: [], regenerated: true } };
+        return { body: body2, title: kartalixTitle, needs_review: false, verification_result: { passed: true, issues: [], regenerated: true } };
       }
     } catch {}
     console.log(`VERIFY FAIL — needs_review flagged`);
-    return { body, needs_review: true, verification_result: verification };
+    return { body, title: kartalixTitle, needs_review: true, verification_result: verification };
   }
 
-  return { body, needs_review: false, verification_result: verification };
+  return { body, title: kartalixTitle, needs_review: false, verification_result: verification };
 }
 
 export async function writeArticles(articles, site, env) {
   const results = [];
   let factsExtracted = 0;
+
+  // Warm proxy once before the loop if any article is likely to need synthesis.
+  // Prevents the first synthesis call from paying both the cold-start cost AND
+  // the article fetch timeout simultaneously.
+  let proxyWarmed = false;
+  if (articles.some(a => (a.nvs || 0) >= 50 && a.treatment !== 'embed')) {
+    const warmStart = Date.now();
+    await fetch(PROXY_BASE + '/health', { signal: AbortSignal.timeout(35000) }).catch(() => {});
+    if (Date.now() - warmStart > 5000) await new Promise(r => setTimeout(r, 3000));
+    proxyWarmed = true;
+    console.log(`PROXY WARM-UP: ready in ${Date.now() - warmStart}ms`);
+  }
 
   for (let i = 0; i < articles.length; i++) {
     const article = articles[i];
@@ -438,24 +600,35 @@ export async function writeArticles(articles, site, env) {
       published.full_body = published.summary;
       published.publish_mode = 'rss_summary';
 
-      // Auto-synthesis: for high-NVS articles, fetch source and write a full Kartalix article
-      if ((article.nvs || 0) >= 60 && results.filter(r => r.publish_mode === 'rewrite').length < 6) {
-        try {
-          const result = await synthesizeArticle(article, env, site);
-          const body = result?.body;
-          if (body && body.length > 200) {
-            published.full_body          = body;
-            published.publish_mode       = 'rewrite';
-            published.needs_review       = result.needs_review || false;
-            published.verification_result = result.verification_result || null;
-            console.log(`SYNTHESIS OK [${article.nvs}]: "${article.title?.slice(0, 50)}" — ${body.length}ch${result.needs_review ? ' ⚠️ needs_review' : ''}`);
-          } else if (!body) {
-            console.log(`SYNTHESIS SKIPPED [${article.nvs}]: "${article.title?.slice(0, 50)}" — no source, stays rss_summary`);
+      // Auto-synthesis: for high-NVS articles, fetch source and write a full Kartalix article.
+      // Cap 6 rewrites per run; overflow is queued to rewrite:queue:<siteCode> KV for the next hourly run.
+      if ((article.nvs || 0) >= 50) {
+        const rewritesSoFar = results.filter(r => r.publish_mode === 'rewrite').length;
+        if (rewritesSoFar < 6) {
+          try {
+            const result = await synthesizeArticle(article, env, site, { proxyWarmed });
+            const body = result?.body;
+            if (body && body.length > 600) {
+              published.full_body           = body;
+              published.publish_mode        = 'rewrite';
+              published.needs_review        = result.needs_review || false;
+              published.verification_result = result.verification_result || null;
+              if (result.title && result.title !== article.title) {
+                published.original_rss_title = article.title;
+                published.title              = result.title;
+              }
+              console.log(`SYNTHESIS OK [${article.nvs}]: "${(result.title || article.title)?.slice(0, 50)}" — ${body.length}ch${result.needs_review ? ' ⚠️ needs_review' : ''}`);
+            } else if (!body) {
+              console.log(`SYNTHESIS SKIPPED [${article.nvs}]: "${article.title?.slice(0, 50)}" — no source, stays rss_summary`);
+            }
+          } catch(e) {
+            console.error('Synthesis failed:', e.message, '|', article.title?.slice(0, 50));
           }
-        } catch(e) {
-          console.error('Synthesis failed:', e.message, '|', article.title?.slice(0, 50));
+          await new Promise(r => setTimeout(r, 300));
+        } else {
+          // Cap reached — queue for next hourly drain
+          await enqueueForRewrite(article, site?.short_code || 'BJK', env);
         }
-        await new Promise(r => setTimeout(r, 300));
       }
 
       // Extract facts for story matching (top P4 articles only, capped at MAX_FACTS_EXTRACTS).
@@ -487,9 +660,65 @@ export async function writeArticles(articles, site, env) {
 export async function saveArticles(env, siteId, articles, status = 'published') {
   if (!articles || articles.length === 0) return { saved: [], failed: [] };
 
-  // rss_summary = raw feed text, never synthesized — do not save to DB
-  const publishable = articles.filter(a => a.publish_mode !== 'rss_summary');
+  // rss_summary = raw feed text, never synthesized — do not save to DB.
+  // Also block refusal text and thin bodies.
+  const BODY_REFUSAL_SIGNALS = [
+    'yayınlanabilir bir haber üretmek için yeterli içerik',
+    'bu kaynak materyal',
+    'haber yazamam',
+    'yeterli bilgi bulunmamaktadır',
+    'yayınlayamam',
+    'yayımlayamam',
+    'yayınlanamaz',
+    'talimatları incelediğimde',
+    'haberi yazabilirim',
+    'yazmak mümkün değil',
+    'talimat ihlal',
+  ];
+  const MIN_BODY_CHARS = 600; // ~80 words minimum — below this the article is too thin to publish
+  let publishable = articles.filter(a => {
+    if (a.publish_mode === 'rss_summary') return false;
+    const body = (a.full_body || '').toLowerCase();
+    if (BODY_REFUSAL_SIGNALS.some(sig => body.includes(sig))) {
+      console.warn(`SAVE BLOCKED — refusal text in body: "${(a.title || '').slice(0, 60)}"`);
+      return false;
+    }
+    // Template cards (event flashes, lineups) are legitimately short — only enforce for synthesis
+    const isSynth = ['rewrite', 'original_synthesis'].includes(a.publish_mode);
+    if (isSynth && (a.full_body || '').length < MIN_BODY_CHARS) {
+      console.warn(`SAVE BLOCKED — body too thin (${(a.full_body || '').length} chars): "${(a.title || '').slice(0, 60)}"`);
+      return false;
+    }
+    return true;
+  });
   if (publishable.length === 0) return { saved: [], failed: [] };
+
+  // Cross-run story dedup — check recently published articles from DB.
+  // Catches the same story published by multiple sources across different cron runs.
+  try {
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const recent = await supabase(env, 'GET',
+      `/rest/v1/content_items?site_id=eq.${siteId}&status=eq.published&published_at=gte.${since}&select=title&limit=100&order=published_at.desc`
+    );
+    const recentTitles = (recent || []).map(r => r.title).filter(Boolean);
+    if (recentTitles.length > 0) {
+      publishable = publishable.filter(a => {
+        const aNorm = normalizeTitle(a.title);
+        const aKeys = extractKeyTokens(a.title);
+        const isDupe = recentTitles.some(rt => {
+          if (titleSimilarity(aNorm, normalizeTitle(rt)) >= 0.5) return true;
+          return sharedStoryTokens(aKeys, extractKeyTokens(rt)) >= 3;
+        });
+        if (isDupe) {
+          console.log(`CROSS-RUN DEDUP: "${(a.title || '').slice(0, 60)}" — similar article already published in last 24h`);
+          return false;
+        }
+        return true;
+      });
+    }
+  } catch (e) {
+    console.warn('Cross-run dedup query failed (non-blocking):', e.message);
+  }
 
   const isSynthesized = m => m === 'rewrite' || m === 'original_synthesis' || (m && m.startsWith('template') && m !== 'template_official') || m === 'video_embed' || m === 'youtube_embed' || (m && m.startsWith('youtube_'));
 
@@ -504,7 +733,9 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
     category:     a.category || 'Club',
     content_type: a.content_type || 'fact',
     sport:        a.sport || 'football',
-    nvs_score:    a.nvs || a.nvs_score || 0,
+    nvs_score:       a.nvs || a.nvs_score || 0,
+    first_nvs_score: a.nvs || a.nvs_score || 0,
+    trust_score:     tierToTrustScore(a.trust_tier || a.trust),
     nvs_notes:    a.nvs_notes || '',
     golden_score: a.golden_score != null ? String(a.golden_score) : null,
     image_url:    a.image_url || '',
@@ -515,14 +746,15 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
     reviewed_by:         'auto',
     fetched_at:   a.published_at || a.fetched_at || new Date().toISOString(),
     reviewed_at:  new Date().toISOString(),
-    slug:         a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
+    slug:               a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
+    original_rss_title: a.original_rss_title || null,
   }));
 
   console.log('SUPABASE INSERT: attempting', rows.length, 'rows (status=' + status + ')');
 
   try {
     const result = await supabase(env, 'POST', '/rest/v1/content_items', rows,
-      { 'Prefer': 'resolution=ignore-duplicates' });
+      { 'Prefer': 'return=representation,resolution=ignore-duplicates' });
 
     if (result && result.error) {
       const errMsg = JSON.stringify(result.error);
@@ -530,8 +762,16 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
       return { saved: [], failed: publishable, error: errMsg };
     }
 
-    console.log('SUPABASE INSERT OK:', publishable.length, 'articles confirmed in DB');
-    return { saved: publishable, failed: [] };
+    // Map DB-returned IDs back to original article objects by slug
+    const savedRows = Array.isArray(result) ? result : [];
+    const idBySlug = Object.fromEntries(savedRows.map(r => [r.slug, r.id]).filter(([s, id]) => s && id));
+    const savedWithIds = publishable.map(a => {
+      const slug = a.slug || '';
+      return idBySlug[slug] ? { ...a, id: idBySlug[slug] } : a;
+    });
+
+    console.log(`SUPABASE INSERT OK: ${publishable.length} articles, ${savedRows.length} returned with IDs`);
+    return { saved: savedWithIds, failed: [] };
   } catch (e) {
     console.error('SUPABASE INSERT EXCEPTION:', e.message);
     return { saved: [], failed: publishable, error: e.message };
@@ -557,25 +797,295 @@ export async function logFetch(env, siteId, status, stats, errorMsg, funnelStats
     tokens_input:       stats.tokensIn            || 0,
     tokens_output:      stats.tokensOut           || 0,
     estimated_cost_eur: stats.costEur             || 0,
-    model_used:         `${MODEL_FETCH}`,
+    model_used:         `${MODEL_FETCH}`.slice(0, 50),
     error_message:      funnelStats
       ? JSON.stringify({ ...funnelStats, _error: errorMsg || null })
       : errorMsg || null,
     duration_ms:        stats.durationMs          || null,
   };
-  await supabase(env, 'POST', '/rest/v1/fetch_logs', row);
+  const result = await supabase(env, 'POST', '/rest/v1/fetch_logs', row);
+  if (!result) console.error('logFetch: insert returned null — check fetch_logs schema/constraints');
 }
 
 // ─── KV CACHE ─────────────────────────────────────────────────
-export async function cacheToKV(env, siteCode, articles) {
+
+// Half-lives in hours. Templates with kickoff-pin logic use null.
+const HALF_LIFE_BY_TEMPLATE = {
+  'T10': 0.5, 'T-HT': 0.5, 'T-RED': 0.5, 'T-VAR': 0.5, 'T-OG': 0.5, 'T-PEN': 0.5,
+  'T11': 4,
+  'T12': 24, 'T13': 24,
+  'T01': 18, 'T02': 18, 'T03': 18,
+  'T07': 36, 'T08c': 8, 'T-REF': 18, 'T-XG': 12,
+  'T05': null, // pinned until kickoff+2h, then 4h decay
+};
+const HALF_LIFE_BY_MODE = {
+  'rewrite': 24, 'synthesis': 24,
+  'original_synthesis': 24, 'synthesis_generated': 24,
+  'copy_source': 3, 'rss_summary': 0.5,
+  'manual': 96,
+  'video_embed': 24,
+};
+// Hard TTL caps (hours). Evict unconditionally after this age.
+const HARD_TTL_BY_TEMPLATE = {
+  // In-match / post-match events — evict fast
+  'T10': 3, 'T-HT': 3, 'T-RED': 3, 'T-VAR': 3, 'T-OG': 3, 'T-PEN': 3,
+  'T11': 12, 'T12': 72, 'T13': 72,
+  // Pre-match previews — evict well after the final whistle
+  'T01': 36, 'T03': 36, 'T07': 24, 'T-REF': 36,
+  'T02': 72, // H2H history — low urgency, keep a bit longer
+  'T09': 12, // Lineup — only useful on match day
+};
+const HARD_TTL_BY_MODE = {
+  'copy_source': 12, 'rss_summary': 2, 'manual': 168,
+};
+
+function getArticleAge(article) {
+  const ts = article.fetched_at || article.published_at || article.created_at;
+  if (!ts) return 0;
+  return (Date.now() - new Date(ts).getTime()) / 3600000; // hours
+}
+
+// Returns { halfLife (hours | null for pin), hardTtl (hours | null) }
+function getDecayParams(article) {
+  const tid = article.template_id;
+  const mode = article.publish_mode;
+  const halfLife = tid
+    ? (HALF_LIFE_BY_TEMPLATE[tid] !== undefined ? HALF_LIFE_BY_TEMPLATE[tid] : 18)
+    : (HALF_LIFE_BY_MODE[mode] || 8);
+  const hardTtl = tid
+    ? (HARD_TTL_BY_TEMPLATE[tid] || null)
+    : (HARD_TTL_BY_MODE[mode] || null);
+  return { halfLife, hardTtl };
+}
+
+// ─── PERSISTENT REWRITE QUEUE (H1) ───────────────────────────
+// When the per-run synthesis cap (6) is hit, overflow articles are saved to KV
+// and drained by the hourly cron. Each entry: { url, title, nvs, source_name, summary, fetched_at }
+const REWRITE_QUEUE_MAX = 200;
+const REWRITE_QUEUE_TTL = 48 * 3600; // 48h
+
+export async function enqueueForRewrite(article, siteCode, env) {
+  const key = `rewrite:queue:${siteCode}`;
+  let queue = [];
+  try { const raw = await env.PITCHOS_CACHE.get(key); if (raw) queue = JSON.parse(raw); } catch {}
+  const url = article.url || article.original_url || '';
+  if (!url || queue.some(e => e.url === url)) return; // already queued
+  queue.push({
+    url,
+    title:     article.title || '',
+    nvs:       article.nvs || 0,
+    source_name: article.source_name || article.source || '',
+    summary:   (article.summary || article.description || '').slice(0, 2000),
+    fetched_at: article.fetched_at || new Date().toISOString(),
+  });
+  // keep top REWRITE_QUEUE_MAX by NVS
+  queue.sort((a, b) => b.nvs - a.nvs);
+  if (queue.length > REWRITE_QUEUE_MAX) queue = queue.slice(0, REWRITE_QUEUE_MAX);
+  await env.PITCHOS_CACHE.put(key, JSON.stringify(queue), { expirationTtl: REWRITE_QUEUE_TTL });
+  console.log(`REWRITE QUEUE [${siteCode}]: queued "${article.title?.slice(0, 40)}" NVS=${article.nvs} (queue=${queue.length})`);
+}
+
+// Called by the hourly cron. Drains up to 8 articles from the rewrite queue.
+export async function drainRewriteQueue(site, env) {
+  const siteCode = site.short_code || 'BJK';
+  const key = `rewrite:queue:${siteCode}`;
+  let queue = [];
+  try { const raw = await env.PITCHOS_CACHE.get(key); if (raw) queue = JSON.parse(raw); } catch { return 0; }
+  if (!queue.length) return 0;
+
+  // Prune stale entries (> 48h)
+  const cutoff = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  queue = queue.filter(e => !e.fetched_at || e.fetched_at >= cutoff);
+
+  const batch = queue.slice(0, 8);
+  const succeeded = [];
+  const results = [];
+
+  // Warm proxy once before draining the batch
+  let proxyWarmed = false;
+  if (batch.length > 0) {
+    const warmStart = Date.now();
+    await fetch(PROXY_BASE + '/health', { signal: AbortSignal.timeout(35000) }).catch(() => {});
+    if (Date.now() - warmStart > 5000) await new Promise(r => setTimeout(r, 3000));
+    proxyWarmed = true;
+    console.log(`PROXY WARM-UP (drain): ready in ${Date.now() - warmStart}ms`);
+  }
+
+  for (const entry of batch) {
+    try {
+      const article = { title: entry.title, url: entry.url, original_url: entry.url,
+        source_name: entry.source_name, summary: entry.summary, nvs: entry.nvs,
+        fetched_at: entry.fetched_at, category: 'Haber', content_type: 'fact', sport: 'football' };
+      const result = await synthesizeArticle(article, env, site, { proxyWarmed });
+      const body = result?.body;
+      if (body && body.length > 600) {
+        results.push({ ...article, full_body: body, publish_mode: 'rewrite',
+          needs_review: result.needs_review || false, verification_result: result.verification_result || null });
+        succeeded.push(entry.url);
+        console.log(`REWRITE DRAIN OK [${siteCode}]: "${entry.title?.slice(0, 50)}" NVS=${entry.nvs}`);
+      } else {
+        succeeded.push(entry.url); // skip silently — no source content available
+        console.log(`REWRITE DRAIN SKIP [${siteCode}]: "${entry.title?.slice(0, 50)}" — no source`);
+      }
+    } catch(e) {
+      console.error(`REWRITE DRAIN FAIL [${siteCode}]: "${entry.title?.slice(0, 50)}" —`, e.message);
+      // Leave in queue for retry
+    }
+    await new Promise(r => setTimeout(r, 300));
+  }
+
+  // Remove processed (success or skip) from queue; failures stay for retry
+  queue = queue.filter(e => !succeeded.includes(e.url));
+  await env.PITCHOS_CACHE.put(key, JSON.stringify(queue), { expirationTtl: REWRITE_QUEUE_TTL });
+  console.log(`REWRITE DRAIN [${siteCode}]: processed ${succeeded.length}, remaining ${queue.length}`);
+  return results;
+}
+
+// Maps trust_tier (old string labels or new T1–T4) to a numeric trust_score.
+// trust_multiplier = trust_score / 50  →  T1 = 1.8×, T2 = 1.4×, T3 = 1.0×, T4 = 0.5×
+const TIER_SCORES = {
+  T1: 90, official: 90,
+  T2: 70, broadcast: 70,
+  T3: 50, press: 50, journalist: 50,
+  T4: 25, digital: 25, aggregator: 25,
+};
+export function tierToTrustScore(tier) { return TIER_SCORES[tier] || 50; }
+
+export function rankAndEvict(articles, limit = 200, opts = {}) {
+  const { kickoffIso = null, floor = 5 } = opts;
+  const kickoffMs = kickoffIso ? new Date(kickoffIso).getTime() : null;
+  const nowMs = Date.now();
+
+  // Dedupe by title hash (keep first occurrence)
+  const seen = new Set();
+  const unique = articles.filter(a => {
+    const hash = simpleHash(a.title);
+    if (seen.has(hash)) return false;
+    seen.add(hash);
+    return true;
+  });
+
+  const scored = unique.map(a => {
+    const ageHours = getArticleAge(a);
+    const { halfLife, hardTtl } = getDecayParams(a);
+    const nvs = a.nvs || a.nvs_score || 0;
+    const storyBoost = Math.min(1.4, 1.0 + ((a.contributions_last_6h || 0) * 0.05));
+    const trustMultiplier = Math.max(0.2, Math.min(2.0, (a.trust_score || 50) / 50));
+
+    // Hard TTL: evict unconditionally
+    if (hardTtl && ageHours >= hardTtl) return { ...a, _rank: -1 };
+
+    let rankScore;
+    if (a.template_id === 'T05' && kickoffMs) {
+      // T05 lineup: pinned until kickoff + 2h, then fast decay
+      const postKickoffHours = (nowMs - kickoffMs) / 3600000;
+      if (postKickoffHours < 2) {
+        rankScore = 1000; // pinned
+      } else {
+        rankScore = nvs * Math.exp(-postKickoffHours / 4) * storyBoost;
+      }
+    } else if (halfLife === null) {
+      rankScore = nvs * storyBoost; // no decay (unknown pin template)
+    } else {
+      rankScore = nvs * Math.exp(-ageHours / halfLife) * storyBoost;
+    }
+
+    if (rankScore > 0) rankScore *= trustMultiplier;
+
+    // Templates with valid rank still float above rewrites at same score
+    // by adding a small bias (preserves existing behavior for fresh templates)
+    if (a.template_id && rankScore > 0) rankScore += 0.1;
+
+    return { ...a, _rank: rankScore };
+  });
+
+  // Classify evictions and build slug → reason map for churn tracking
+  const evictedReasonMap = new Map();
+  const survived = [];
+  for (const a of scored) {
+    const slug = a.slug || null;
+    if (a._rank === -1) {
+      if (slug) evictedReasonMap.set(slug, 'ttl');
+      continue;
+    }
+    if (a._rank < floor) {
+      if (slug) evictedReasonMap.set(slug, 'aged_out');
+      continue;
+    }
+    survived.push(a);
+  }
+  survived.sort((a, b) => b._rank - a._rank);
+  const overflowItems = survived.slice(limit);
+  for (const a of overflowItems) {
+    const slug = a.slug || null;
+    if (slug) evictedReasonMap.set(slug, 'overflow');
+  }
+
+  return {
+    articles: survived.slice(0, limit).map(({ _rank, ...rest }) => rest),
+    evictedReasonMap,
+  };
+}
+
+export async function cacheToKV(env, siteCode, articles, opts = {}) {
   try {
+    const { articles: ranked, evictedReasonMap } = rankAndEvict(articles, 200, opts);
     const key = `articles:${siteCode}`;
-    const value = JSON.stringify(articles);
-    console.log(`KV WRITE: key=${key} articles=${articles.length} size=${value.length} chars`);
-    await env.PITCHOS_CACHE.put(key, value, { expirationTtl: 7200 });
+    const timelineKey = `kv:timeline:${siteCode}`;
+    const now = new Date().toISOString();
+
+    const [oldRaw, timelineRaw] = await Promise.all([
+      env.PITCHOS_CACHE.get(key),
+      env.PITCHOS_CACHE.get(timelineKey),
+    ]);
+    const oldSlugs = new Set((oldRaw ? JSON.parse(oldRaw) : []).map(a => a.slug).filter(Boolean));
+    const newSlugs = new Set(ranked.map(a => a.slug).filter(Boolean));
+    const timeline = timelineRaw ? JSON.parse(timelineRaw) : {};
+
+    for (const slug of newSlugs) {
+      if (!timeline[slug]) timeline[slug] = {};
+      if (!timeline[slug].published_at) timeline[slug].published_at = now;
+      timeline[slug].last_seen = now;
+      delete timeline[slug].removed_at;
+      delete timeline[slug].removed_reason;
+    }
+    for (const slug of oldSlugs) {
+      if (!newSlugs.has(slug) && timeline[slug] && !timeline[slug].removed_at) {
+        timeline[slug].removed_at = now;
+        timeline[slug].removed_reason = evictedReasonMap.get(slug) || 'aged_out';
+      }
+    }
+
+    // Accumulate daily pool churn for KPI strip
+    const addedSlugs = [...newSlugs].filter(s => !oldSlugs.has(s));
+    const removedSlugs = [...oldSlugs].filter(s => !newSlugs.has(s));
+    if (addedSlugs.length > 0 || removedSlugs.length > 0) {
+      const today = now.slice(0, 10);
+      const churnKey = `churn:${siteCode}:${today}`;
+      const churnRaw = await env.PITCHOS_CACHE.get(churnKey).catch(() => null);
+      const churn = churnRaw ? JSON.parse(churnRaw) : { added: 0, removed_total: 0, removed_aged_out: 0, removed_ttl: 0, removed_overflow: 0 };
+      churn.added += addedSlugs.length;
+      churn.removed_total += removedSlugs.length;
+      for (const slug of removedSlugs) {
+        const reason = evictedReasonMap.get(slug) || 'aged_out';
+        if (reason === 'ttl') churn.removed_ttl++;
+        else if (reason === 'overflow') churn.removed_overflow++;
+        else churn.removed_aged_out++;
+      }
+      env.PITCHOS_CACHE.put(churnKey, JSON.stringify(churn), { expirationTtl: 86400 * 16 }).catch(() => {});
+    }
+
+    const value = JSON.stringify(ranked);
+    console.log(`KV WRITE: key=${key} in=${articles.length} out=${ranked.length} size=${value.length} chars`);
+    await Promise.all([
+      env.PITCHOS_CACHE.put(key, value, { expirationTtl: 7200 }),
+      env.PITCHOS_CACHE.put(timelineKey, JSON.stringify(timeline), { expirationTtl: 86400 * 90 }),
+    ]);
     console.log(`KV WRITE SUCCESS: ${key}`);
+    return ranked.length;
   } catch(e) {
     console.error(`KV WRITE FAILED:`, e.message);
+    return 0;
   }
 }
 
@@ -584,6 +1094,8 @@ export async function getCachedArticles(env, siteCode) {
   return cached ? JSON.parse(cached) : [];
 }
 
+// mergeAndDedupe: lightweight in-memory dedup+sort used for building the input
+// pool before cacheToKV. Does NOT apply decay — use rankAndEvict / cacheToKV for that.
 export function mergeAndDedupe(articles, limit) {
   const seen = new Set();
   return articles
@@ -594,7 +1106,6 @@ export function mergeAndDedupe(articles, limit) {
       return true;
     })
     .sort((a, b) => {
-      // Pin template cards to top regardless of NVS
       if (a.template_id && !b.template_id) return -1;
       if (!a.template_id && b.template_id) return 1;
       return (b.nvs || 0) - (a.nvs || 0);
@@ -2023,6 +2534,14 @@ export async function generateOriginalNews(sources, site, env) {
     `[Kaynak ${i + 1}] Başlık: ${a.title}\n${(a.summary || '').slice(0, 600)}`
   ).join('\n\n');
 
+  // Gate: combined sources must give a complete picture for the primary title's promise.
+  const combinedContent = sources.map(a => `${a.title}\n${a.summary || ''}`).join('\n\n');
+  const covers = await checkContentCoversTitlePromise(sources[0].title, combinedContent, env);
+  if (!covers) {
+    console.log(`ORIGINAL NEWS GATE FAIL: "${sources[0].title?.slice(0, 60)}" — combined sources do not cover title's promise`);
+    return null;
+  }
+
   const [editorialCtx, groundingCtx] = await Promise.all([
     getEditorialNotes(env, ['general', 'style']),
     buildGroundingContext(env, site),
@@ -2062,7 +2581,7 @@ KURALLAR:
 
   const res = await callClaude(env, MODEL_GENERATE, prompt, false, 800);
   let body = extractText(res.content).trim();
-  if (!body || body.length < 150) return null;
+  if (!body || body.length < 600) return null;
 
   let needsReview = false;
   let verificationResult = null;
@@ -2073,7 +2592,7 @@ KURALLAR:
       const fixPrompt = prompt + `\n\nDİKKAT — aşağıdaki olgusal hatalar tespit edildi, düzelt:\n${verification.issues.join('\n')}`;
       const res2 = await callClaude(env, MODEL_GENERATE, fixPrompt, false, 800);
       const body2 = extractText(res2.content).trim();
-      if (body2.length > 150) { body = body2; verificationResult = { passed: true, regenerated: true, issues: [] }; }
+      if (body2.length > 600) { body = body2; verificationResult = { passed: true, regenerated: true, issues: [] }; }
       else { needsReview = true; verificationResult = verification; }
     } catch { needsReview = true; verificationResult = verification; }
   } else {
@@ -2175,7 +2694,9 @@ KURALLAR:
     published_at: new Date().toISOString(),
     is_kartalix_content: true, is_template: false,
     publish_mode: 'rabona_digest', nvs: 74,
-    category: 'Analiz', slug, url: '', source_url: '',
+    category: 'Analiz', slug,
+    url: videos.length === 1 ? `https://www.youtube.com/watch?v=${videos[0].video_id}` : 'https://www.youtube.com/c/RabonaDigital',
+    source_url: '',
     image_url: '', is_p4: false, is_fresh: true, sport: 'football',
     template_id: null, fixture_id: null,
     ...(saved?.[0] ? { id: saved[0].id } : {}),

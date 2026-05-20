@@ -10,12 +10,34 @@ const COST = {
   'claude-sonnet-4-6':         { input: 2.75, output: 13.75 },
 };
 
-// ─── SQUAD KEYWORD LIST (BJK players, coaches, staff) ────────
-// Used to filter journalist/international feeds by player name
+// ─── BJK KEYWORD LIST ────────────────────────────────────────
+// Used to filter feeds and titles for BJK relevance.
+// Organized into tiers so additions stay maintainable.
+// Review quarterly. Major churn expected during transfer windows.
+//
+// Tier 1 — Club identity (rarely changes)
+// Tier 2 — Current first-team squad
+// Tier 3 — Current management & coaching staff
+// Tier 4 — Recent former players still in news cycle (last 24 months)
+// Tier 5 — Legends regularly mentioned in retrospectives
+// Tier 6 — Recent former management still news-relevant
+
 export const BJK_KEYWORDS = [
-  'beşiktaş','besiktas','bjk','kartal',
+  // ─── Tier 1 — Club identity ────────────────────────────────
+  'beşiktaş','besiktas','bjk','kartal','kara kartal','kara kartallar',
+  'kartallar','siyah-beyaz','siyah beyaz','siyah-beyazlı','siyah beyazlı',
+  'beşiktaş jk','besiktas jk',
+  'tüpraş stadyumu','tupras stadyumu','vodafone park','vodafone arena',
+  'beşiktaş park','besiktas park','dolmabahçe stadı','dolmabahce stadi',
+  'nevzat demir','nevzat demir tesisleri',
+  'çarşı','carsi','beşiktaş akademi','besiktas akademi',
+  'bjk u19','bjk u17','beşiktaş u19','beşiktaş u17',
+
+  // ─── Tier 2 — Current first-team squad ─────────────────────
+  // Goalkeepers
   'ersin destanoğlu','ersin destanoglu','ersin',
-  'devis vasquez','vasquez',
+    'devis vasquez','vasquez',
+  // Defenders
   'amir murillo','murillo',
   'emmanuel agbadou','agbadou',
   'tiago djalo','djalo',
@@ -24,25 +46,85 @@ export const BJK_KEYWORDS = [
   'rıdvan yılmaz','ridvan yilmaz','rıdvan',
   'taylan bulut','taylan',
   'gökhan sazdağı','gokhan sazdagi',
+  // Midfielders
   'orkun kökçü','orkun kokcu','orkun',
   'wilfred ndidi','ndidi',
   'kristjan asllani','asllani',
   'salih uçan','salih ucan',
   'kartal kayra yılmaz','kartal kayra',
+  'jean onana','onana',
+  // Wingers / attacking mid
   'milot rashica','rashica',
   'junior olaitan','olaitan',
-  'tammy abraham','abraham',
   'vaclav cerny','cerny',
-  'el bilal touré','el bilal toure','el bilal',
-  'hyeon-gyu oh','hyeon gyu oh','hyeon-gyu','oh hyeon',
   'jota silva','jota',
   'cengiz ünder','cengiz under','cengiz',
+  // Forwards
+  'tammy abraham','abraham',
+  'el bilal touré','el bilal toure','el bilal',
+  'hyeon-gyu oh','hyeon gyu oh','hyeon-gyu','oh hyeon',
   'mustafa hekimoğlu','hekimoğlu','hekimoglu',
+  'semih kılıçsoy','semih kilicsoy','semih',
+  // Add/remove as squad changes — verify against API-Football squad endpoint periodically
+
+  // ─── Tier 3 — Current management & coaching staff ──────────
   'sergen yalçın','sergen yalcin','sergen',
   'serdal adalı','serdal adali','serdal',
-  'mert günok','mert gunok',
-  'jean onana','onana',
+
+  // ─── Tier 4 — Recent former players still in news (24mo) ───
+  'rafa silva','rafa',
+  'al-musrati','al musrati','musrati',
+  'gedson fernandes','gedson',
+  'rachid ghezzal','ghezzal',
+  'ciro immobile','immobile',
+  'jackson muleka','muleka',
+  'vincent aboubakar','aboubakar',
+  'arthur masuaku','masuaku',
+  'kenan karaman','kenan',
+  'necip uysal','necip',
+  'ernest muçi','ernest muci','muçi','muci',
+  'demir ege tıknaz','demir ege tiknaz','demir ege', 'mert günok','mert gunok',
+
+  // ─── Tier 5 — Legends regularly mentioned ──────────────────
+  'bobô','bobo',
+  'pascal nouma','nouma',
+  'ricardo quaresma','quaresma',
+  'demba ba',
+  'ahmet dursun',
+  'ali gültiken','ali gultiken','gültiken','gultiken',
+  'rıza çalımbay','riza calimbay','çalımbay','calimbay',
+  'metin tekin',
+  'feyyaz uçar','feyyaz ucar','feyyaz',
+  'gökhan inler','gokhan inler','inler','holosko',
+
+  // ─── Tier 6 — Recent former management ─────────────────────
+  'hasan arat','arat',
+  'fikret orman','orman',
+  'ahmet nur çebi','ahmet nur cebi','çebi','cebi',
+  'süleyman seba', 'suleyman seba',
+  'hakki yeten'
 ];
+
+// Checks whether text mentions any BJK keyword.
+// Uses both toLowerCase() and toLocaleLowerCase('tr') to handle Turkish all-caps titles
+// where standard toLowerCase turns İ into i+combining-dot (no match) while tr-locale gives plain i.
+// BESIKTAS (ASCII caps) needs toLowerCase() because tr-locale turns I→ı (dotless) which misses 'besiktas'.
+export function bjkMatch(text, keywords = BJK_KEYWORDS) {
+  const lo = text.toLowerCase();
+  const tr = text.toLocaleLowerCase('tr');
+  return keywords.some(kw => lo.includes(kw) || tr.includes(kw));
+}
+
+// Returns the first matched keyword (or null if none).
+// Used for pipeline_log.drop_detail population — see kartalix_pipeline_log_visibility_prompt.txt.
+export function bjkMatchDetail(text, keywords = BJK_KEYWORDS) {
+  const lo = text.toLowerCase();
+  const tr = text.toLocaleLowerCase('tr');
+  for (const kw of keywords) {
+    if (lo.includes(kw) || tr.includes(kw)) return kw;
+  }
+  return null;
+}
 
 // ─── CLAUDE API CALL ─────────────────────────────────────────
 export async function callClaude(env, model, prompt, useWebSearch, maxTokens = 2000) {

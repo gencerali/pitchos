@@ -1,0 +1,255 @@
+# Kartalix — Situational Awareness Engine
+
+## Brief for Claude Code: roadmap addition + pre-development analysis
+
+## Purpose of this document
+
+Add a "Situational Awareness" capability to Kartalix so every generated
+article (match report, transfer flash, news, analysis) inherently knows:
+- Where the team stands in the league
+- What every result mathematically means for the season
+- Which rival results matter
+- What European qualification path is at stake
+- What the team's stated goals and narrative arc are
+
+Right now this context is re-derived manually by the editor for each
+article, with inconsistent quality and outdated assumptions. We want to
+centralize this so the LLM that writes any article gets a fresh,
+correct, structured situational paragraph injected as preamble.
+
+## What we are NOT doing
+
+We are explicitly rejecting the simpler architecture of "one big editable
+JSON blob per team holding scenarios, goals, dependencies." That blob
+needs constant manual updates and goes stale silently. We want a system
+that derives as much as possible from facts, and isolates the small
+remaining editorial layer that genuinely needs a human.
+
+## Pre-development analysis we want from Claude
+
+Before any code is written, we want Claude to deepen this brief and
+return a written analysis covering the points below. Treat the
+architecture below as our starting hypothesis — challenge it where you
+disagree, but justify why.
+
+### A1. Validate the three-layer split
+Is splitting situational context into (1) Live Facts, (2) Derived
+Situation, (3) Editorial Context the right cut for our use case?
+- Where might Layer 2 derivation be unreliable and need Layer 3 to
+  override?
+- What live facts do we already have cached in the existing publisher
+  pipeline that we should reuse?
+- Are there facts we don't have that we'd need to source?
+
+### A2. Map every claim from a sample article to its layer
+Take one or two recent articles from Kartalix (Ali will paste them in
+chat). For each factual or contextual claim, label it: Layer 1 (live
+fact), Layer 2 (derivable via logic), Layer 3 (genuine editorial
+judgment), or Layer 1.5 (fact we should cache but don't yet). The goal
+is to validate that Layer 3 is genuinely small (we expect 10-20% of
+claims at most).
+
+### A3. European qualification rule encoding — feasibility
+The hardest part is encoding UEFA + TFF rules for European
+qualification into a pure function that takes (league position, cup
+status, country coefficient slot count) and returns the team's European
+path including which competition, which round, seeding status, and
+probable opponent pots.
+- Confirm the rule set is stable enough to encode (expect: yes, changes
+  are slow and well-published by UEFA)
+- Identify the edge cases that catch most engineers out
+  (e.g. cup winner already qualified for CL via league → cup slot
+  cascades down; country coefficient changes mid-season; Turkey's
+  specific slot allocation for 2025-26 vs 2024-25)
+- Recommend whether to hardcode 2025-26 rules and update yearly, or
+  build a rule-engine table that admins can edit
+- Estimate effort honestly
+
+### A4. League position math — derived signals to compute
+For Layer 2, list every derivable signal we should compute. Starter
+list (extend or critique):
+- Mathematical top-4 / top-3 / top-1 lock status (best/worst case
+  remaining)
+- Mathematical relegation impossible / possible / probable
+- Best-case and worst-case final points and final rank
+- Each remaining BJK fixture rated by opponent rank
+- Each rival within 6 points: list of their remaining fixtures with
+  opponent rank
+- Goal difference scenarios where tied points possible
+- Form: last 5 weighted by opponent strength
+- Head-to-head tiebreaker projection for tied-points scenarios
+
+For each, propose: input data needed, formula or algorithm, output
+shape.
+
+### A5. Editorial context schema — what's the minimum
+Propose the smallest possible Layer 3 schema. Starter list (4-6
+fields): manager_stated_goal, narrative_arc, key_dates_to_watch,
+fan_mood (optional), transfer_posture (optional). Challenge this:
+- Is anything missing that we'd hit within a season?
+- Is anything we listed actually derivable, so it should be in Layer 2?
+- Should this live in the existing `sites` table JSONB per Kartalix
+  pattern, or a separate `editorial_context` table?
+
+### A6. The optional LLM-curation cron (Layer 3.5)
+Should we add a weekly cron that reads recent Kartalix articles plus a
+small set of credible Turkish football sources (TBD) and proposes
+updates to the Editorial Context JSON for admin review? Risks: prompt
+cost, hallucination drift into "live facts" territory, source quality.
+- Recommend: yes / no / yes-later
+- If yes: which sources, what prompt template, how to constrain output
+  to Layer 3 only
+
+### A7. Cache and freshness strategy
+- How often does each layer refresh? Layer 1 already runs on existing
+  cron — confirm cadence is right. Layer 2 is computed on demand from
+  Layer 1 — verify this is performant. Layer 3 is admin-edited.
+- Where do we cache the derived Layer 2 output? Per-request, or
+  short-TTL cache keyed by team+date?
+- When match results come in (a Layer 1 change), how do we make sure
+  the next article generated reflects the new derived state?
+
+### A8. Multi-team scaling
+Kartalix is multi-team from the start (per existing architecture). The
+European-qualification rule engine works for every Turkish team. The
+editorial JSON is per-team. Confirm the function signatures support
+both Beşiktaş today and other teams later without refactor.
+
+### A9. Failure modes and graceful degradation
+- What happens if API-Football is down on article-generation time?
+- What happens if Layer 3 editorial is missing for a newly added team?
+- What happens if the derivation logic disagrees with reality (e.g.
+  UEFA changes a rule mid-season)?
+- Should we expose any of this to admins for manual override per
+  article?
+
+### A10. Test strategy
+- Unit tests for the European qualification decision tree (input
+  scenarios → expected output paths)
+- A frozen snapshot of 2024-25 final standings + ZTK result, validated
+  against the actual European pots Beşiktaş ended up in
+- How do we verify Layer 2 didn't silently drift when UEFA publishes
+  next year's access list?
+
+## Deliverable from Claude (analysis phase)
+
+A written response covering A1-A10 above, plus:
+- Function signatures and module boundaries
+- Data model for any new tables / JSONB schemas
+- Honest effort estimate per component (in days, by senior dev
+  equivalent)
+- Risks and unknowns flagged
+- Recommended implementation order
+
+We will review the analysis before any code is written. The plan goes
+into the Kartalix roadmap as a tracked workstream — add a roadmap entry
+"Situational Awareness Engine" with the analysis as the first
+deliverable, and the implementation broken into the phases Claude
+recommends.
+
+## Architecture starting hypothesis
+
+(This is what we want Claude to validate or refine in the analysis
+above, not implement blindly.)
+
+### Three layers
+
+**Layer 1 — Live Facts**
+Already exists in some form. Standings, fixtures, results, goal
+difference, head-to-head, recent form. Sourced from API-Football,
+cached, cron-refreshed.
+
+**Layer 2 — Derived Situation**
+Pure function over Layer 1. Computes mathematical position locks,
+remaining-fixture analysis, rival dependencies, European qualification
+decision tree, head-to-head tiebreaker projections. No human input.
+Always fresh because it's computed from facts that themselves are
+fresh.
+
+**Layer 3 — Editorial Context**
+Small JSONB per team in `sites` table. Manager's stated goal, season
+narrative arc, key dates to watch, optional mood and transfer posture.
+Changes slowly (monthly cadence). Admin form for editing.
+
+**Layer 3.5 (optional, later) — LLM-Curated Editorial Updates**
+Weekly cron asks Claude to read recent Kartalix articles and credible
+sources, and propose updates to Layer 3 for admin review.
+
+### Composition
+
+```
+async function buildSituationContext(teamCode, season) {
+  const facts = await liveFacts(teamCode, season)
+  const situation = deriveSituation(facts)
+  const editorial = await editorialContext(teamCode)
+  return formatForPrompt(facts, situation, editorial)
+}
+```
+
+The result is injected as preamble into every article-generation
+prompt in `publisher.js`.
+
+### Output shape (illustrative)
+
+A compact Turkish paragraph the LLM consumes as context. For Beşiktaş
+in late 2024-25 it would read approximately:
+
+> Beşiktaş 2024-25 sezonu özet durum:
+> Süper Lig 3. sıra, 62 puan, kalan 2 maç. Matematiksel olarak top-3
+> kesinleşti, top-2 imkansız (Fenerbahçe ile 6 puan fark, averaj
+> elverişsiz).
+>
+> Avrupa kulvarı ZTK finaline bağlı (18 Mayıs):
+> - Trabzonspor kazanırsa: UEFA Avrupa Ligi 2. Eleme Turu, Play-Off'a
+>   kalırsa seribaşı.
+> - Konyaspor veya Gençlerbirliği kazanırsa: UEFA Konferans Ligi 2.
+>   Eleme Turu, Play-Off'ta seribaşı olmama riski.
+>
+> Yönetim hedefi (manager_stated_goal): top-3 garanti, Avrupa'da en
+> üst kulvarı yakalamak.
+> Sezon arc'ı: Van Bronckhorst altında yeniden yapılanma, yaz
+> transferi için ofansif takviye bekleniyor.
+>
+> Bu hafta izlenecek: Trabzonspor - Konyaspor / Gençlerbirliği ZTK
+> finali.
+
+### What this replaces
+
+Currently the editor manually types similar context (often
+inconsistently) into each article generation prompt, or omits it
+entirely and articles read like they were written by someone who just
+woke up from a coma.
+
+After this, every article — match report, transfer rumor, injury
+flash, manager press conference summary — starts from the same fresh
+situational ground truth.
+
+## Roadmap entry to add
+
+Title: Situational Awareness Engine
+Status: Analysis phase
+Owner: TBD (Ali to assign after analysis review)
+Phases:
+1. Pre-development analysis (this document → Claude's response)
+2. Layer 1 audit and gap-filling
+3. Layer 2 — league position math derivation
+4. Layer 2 — European qualification rule engine
+5. Layer 3 — minimal editorial schema and admin UI
+6. Glue function `buildSituationContext` and integration into
+   publisher.js
+7. (optional) Layer 3.5 — LLM curation cron
+
+Estimated total scope: pending Claude's analysis. Rough order-of-
+magnitude expectation: 2-3 weeks of senior dev time for Phases 1-6,
+plus 3-5 days for Phase 7 if pursued.
+
+## What we expect from this brief, in order
+
+1. Claude reads this brief
+2. Claude adds the workstream to the Kartalix roadmap
+3. Claude returns the deepened analysis covering A1-A10
+4. Ali reviews the analysis, refines, approves
+5. Phased development begins
+
+Do not start coding before the analysis is approved. The analysis IS
+the first deliverable.

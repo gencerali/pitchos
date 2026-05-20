@@ -1,0 +1,391 @@
+# Kartalix — Google AdSense Approval Readiness
+
+## Brief for Claude Code: evaluate, decide what to fix, update
+## roadmap. Do not implement before Ali's approval.
+
+## Context
+
+Kartalix applied for Google AdSense on **9 May 2026**. The current
+status reads:
+
+> "Getting ready: We're running some checks on your site. This
+> usually takes a few days, but in some cases it can take 2-4 weeks."
+
+The site is an AI-assisted Beşiktaş news pipeline. Articles are
+fetched from RSS / social sources, scored with NVS, rewritten or
+synthesized by Claude, and published with editorial oversight.
+
+The concern: Google's review may flag the site as low-quality AI
+content. Approval probability today, based on a fresh review of
+the codebase and the live `/admin/report` data: **estimated
+60-70%**, with several specific risks that can be fixed during the
+2-4 week review window before reviewers look closely.
+
+This brief outlines what to audit, what to fix, and what to defer.
+The goal: get to **85%+ approval probability** by completing the
+P0 items below within one week, without disrupting the pipeline.
+
+## Google's 2026 stance — what reviewers actually evaluate
+
+Google AdSense policy (as of 2026) does not prohibit AI-generated
+content. It prohibits **low-quality content regardless of how it
+was produced**. Disclosure of AI use is not required but is
+considered a positive E-E-A-T signal when framed correctly.
+
+Reviewers evaluate (in roughly this order):
+
+1. **Site-wide trust signals** — About, Contact, Privacy, Editorial
+   Policy pages with substance
+2. **Editorial polish** — does the site read like a real publication
+   or like content factory output
+3. **Author / editorial identity** — is there a real human behind
+   this site, not anonymous AI output
+4. **Per-page consistency** — is the worst 20% of indexed pages
+   embarrassing or thin
+5. **Originality and value** — does the site add insight beyond
+   rehashing source articles
+6. **Technical compliance** — ads.txt, mobile, page speed, no
+   broken pages
+
+Critically: **AdSense approves the whole site, not individual
+articles**. Even great articles can be undermined by thin pages
+(tag archives, short cards, social-quote articles) bulking up the
+indexed count.
+
+## Risk assessment — Kartalix specific
+
+### P0 risks (fix this week)
+
+#### P0.1 — Thin content indexed by Google
+Per the PIPELINE doc:
+- Articles scoring NVS 55-59 are saved as `rss_summary` mode (the
+  source summary is shown essentially as-is, NOT placed in the
+  live KV pool but saved to `content_items` DB)
+- Twitter and Reddit source content can be very short (single
+  sentences, scoreline tweets, "GOL 2-1!" updates)
+- Template articles (T10 goal flash, T11 result flash) are
+  intentionally short, time-sensitive cards
+
+**The question**: are any of these publicly indexed at
+`/haber/[slug]` URLs that Googlebot can crawl?
+
+If yes → reviewers will sample them and see thin content. This is
+the single biggest rejection risk.
+
+**Action required:**
+1. Run `site:kartalix.com` and `site:app.kartalix.com` on Google.
+   Count indexed pages by type.
+2. Audit `renderArticleHTML` and `serveArticlePage` — do they
+   render `rss_summary`-mode articles? Twitter-source articles?
+3. For any thin-content article type: either add `<meta
+   name="robots" content="noindex,nofollow">` to its rendered HTML,
+   or stop rendering it at a public URL entirely.
+4. Confirm sitemap.xml excludes thin-content article types.
+5. Audit T10/T11 templates — are they visually marked as
+   live-event cards (badge, color, "Canlı" tag) so a reviewer
+   understands them as time-sensitive cards, not as articles?
+
+**Estimated effort:** 0.5-1 day to audit and add noindex headers.
+
+#### P0.2 — About / Editorial Policy / Contact pages substance
+Functions exist: `renderAboutPage`, `renderContactPage`,
+`renderAttributionPage`, `renderPrivacyPage`. **Substance unknown
+from code inspection.** A page that exists but is one sentence is
+worse than no page in some reviewer interpretations.
+
+**Action required:**
+1. Open each of the four pages on the live site. Read as a Google
+   reviewer would.
+2. Rewrite About page (200-400 words minimum) with:
+   - Real founder identity (Ali [full name or pseudonym], location)
+   - Personal voice (Beşiktaş fan since X, started Kartalix
+     because Y)
+   - Mission statement (give fans news first, with context)
+   - Explicit AI disclosure framed positively (see template
+     below)
+3. Rewrite Editorial Policy page covering:
+   - How articles are sourced (RSS, social, API-Football, manual)
+   - The role of AI in article production (drafting, scoring,
+     rewriting)
+   - The role of human review (editor checks before publishing,
+     corrections welcomed)
+   - Source attribution policy
+   - Update / correction policy
+   - Contact for editorial concerns
+4. Contact page: real email address that's checked. Optional:
+   physical location, social handles.
+5. Privacy page: GDPR/KVKK basics + cookie/AdSense disclosure.
+   Existing privacy page may already cover this — verify.
+
+**AI disclosure template (suggested for About page):**
+
+> "Kartalix is a Beşiktaş-focused news platform. Articles are
+> researched and drafted with the help of AI tools, fact-checked
+> against multiple Turkish football sources, and reviewed before
+> publication. We attribute sources transparently and update
+> articles as stories develop. Our goal is to give fans the news
+> first, with the context to make sense of it."
+
+**Why this matters:** "Disclosure of AI assistance combined with
+clear human oversight" is a 2026 E-E-A-T positive. Reviewers are
+trained to look for it. Hiding AI usage when output is obviously
+AI-assisted is the worst option.
+
+**Estimated effort:** 0.5 day if Ali writes the copy; 1 day if
+including translation between Turkish/English and design polish.
+
+#### P0.3 — Author byline / editorial identity on articles
+Current state: unclear whether articles show a byline. If they
+all show "Kartalix" or no author, the site reads as anonymous mass
+content. This is a flagged pattern.
+
+**Action required:**
+1. Audit `renderArticleHTML` — what byline (if any) appears on
+   articles?
+2. Add a consistent byline: "Kartalix Editorial • Ali [Surname]"
+   or similar.
+3. Optional but stronger: link byline to an Author page
+   (`/yazar/ali` or similar) with a real bio.
+4. Add visible publication date and (where applicable) last-updated
+   date on every article.
+
+**Estimated effort:** 0.5 day.
+
+### P1 risks (fix within 2 weeks, during review window)
+
+#### P1.1 — Top articles audit
+Reviewers sample, they don't read everything. The site's "average
+quality from a 5-article sample" matters more than total volume.
+
+**Action required:**
+1. Identify the top 20 highest-engagement articles from the last
+   30 days (use existing analytics or sort published articles by
+   NVS desc).
+2. Read each one critically as a Google reviewer would. Is it
+   substantive? Does it add insight beyond what the source said?
+3. For the bottom 5 of those 20 (the weakest of the "good"
+   articles): improve them. Add analysis, context, depth.
+4. The goal is that any random sample of 5 articles a reviewer
+   clicks on includes at least 4 substantive ones.
+
+**Estimated effort:** 1-2 days.
+
+#### P1.2 — Article template visual distinction
+Match-day cards, goal flashes, result flashes are legitimately
+short — they're live cards, not analysis. But a reviewer skimming
+URLs may not understand this without visual cues.
+
+**Action required:**
+1. Add a clearly visible content-type badge on each article:
+   "Maç Önü", "Maç Günü", "Canlı", "Sonuç", "Analiz", "Transfer",
+   "Haber"
+2. Differentiate visual styling: live cards smaller, with different
+   header color or icon
+3. Long-form analysis should look distinctly like long-form (lead
+   image, byline, structure, sections)
+
+**Estimated effort:** 1 day.
+
+#### P1.3 — Source attribution on each article
+Reviewers check whether articles credit their sources. Failure to
+attribute = "scraping" in reviewer terms.
+
+**Action required:**
+1. Audit `renderArticleHTML` — does every article show source
+   attribution (e.g. "Source: Fanatik, A Spor" at bottom)?
+2. For synthesis articles: list all contributing sources.
+3. For single-source rewrites: clearly credit the original.
+4. Where possible, link to the source URL.
+
+**Estimated effort:** 0.5-1 day.
+
+### P2 risks (fix when possible, not blocking)
+
+#### P2.1 — Sitemap quality
+Even with noindex on thin content, sitemap should only include
+substantive articles. Sitemaps with thin content URLs signal
+"please index this filler" to crawlers.
+
+**Action required:**
+- Audit `serveSitemap` — what's included? Should exclude:
+  rss_summary articles, T10/T11 cards beyond 24h old, social-source
+  articles, archived articles.
+
+**Estimated effort:** 0.5 day.
+
+#### P2.2 — ads.txt verification
+AdSense requires `ads.txt` at `/ads.txt` with the right
+publisher ID.
+
+**Action required:**
+- Verify `/ads.txt` exists and contains the Google AdSense entry
+  with the correct publisher ID.
+- Verify the file is served with `Content-Type: text/plain`.
+
+**Estimated effort:** 15 minutes.
+
+#### P2.3 — Page speed and Core Web Vitals
+Slow sites get rejected. Worker-rendered pages are usually fast,
+but verify.
+
+**Action required:**
+- Run Lighthouse / PageSpeed Insights on:
+  - Home page
+  - A long-form article
+  - An admin page (less critical but shows polish)
+- Target: LCP < 2.5s, CLS < 0.1, INP < 200ms on mobile.
+
+**Estimated effort:** 0.5 day if fixes needed; 1 hour if just
+running checks.
+
+#### P2.4 — Mobile usability
+AdSense reviewers test on mobile. Verify:
+- All pages responsive
+- No horizontal scrolling on mobile
+- Tap targets large enough
+- Text readable without zoom
+
+**Estimated effort:** 0.5 day for fixes if needed.
+
+### P3 risks (track, don't act unless rejection)
+
+#### P3.1 — Backlinks / external trust signals
+A site with zero inbound links from credible sources can feel
+isolated to reviewers. Not blocking, but a signal.
+
+**Action**: defer. If rejected, consider basic outreach to BJK
+fan blogs / Turkish football communities.
+
+#### P3.2 — Site age
+9 May application means a known activation date. Site age isn't a
+hard threshold but newer sites face stricter scrutiny.
+
+**Action**: nothing actionable. Let time pass.
+
+## What we are explicitly NOT doing
+
+- **Don't make sweeping site changes during review.** Reviewers
+  may re-crawl during the window. Changes that introduce new risks
+  (new article types, new sources, new templates) could trigger
+  rejection.
+- **Don't apply to other ad networks in parallel** that place test
+  ads. This can confuse the review.
+- **Don't hide AI usage.** The 2026 stance favors disclosure with
+  human-oversight framing.
+- **Don't fake author identities.** Real founder name (or
+  consistent pseudonym + clear About page) beats "John Smith"
+  fake bylines every time.
+- **Don't add a flood of generic "About" / "Privacy" boilerplate.**
+  Reviewers spot template-only legal pages. Make them feel
+  written by a real human.
+- **Don't remove all short content.** Match-day cards have real
+  fan value. The fix is visual distinction + noindex on the
+  worst-quality, not deleting things readers care about.
+
+## Pre-development questions for Claude Code
+
+Before any work:
+
+1. **Current indexing state:**
+   - Run a Google `site:` query (or check Google Search Console if
+     verified). How many pages are indexed? Sample 10 random ones
+     — what fraction are thin?
+   - If GSC is verified, what's the average rank / impression
+     pattern? Any "Crawled but not indexed" status?
+
+2. **Code audit results:**
+   - Does `renderArticleHTML` currently include a `<meta robots>`
+     tag? What does it default to?
+   - Does `serveSitemap` filter out any article types? What's
+     included today?
+   - What does the current About / Contact / Editorial Policy /
+     Privacy page actually say? Quote the text.
+   - Is there a byline in `renderArticleHTML`? What does it say?
+   - Are rss_summary mode articles served at a public URL?
+     Confirm yes/no.
+   - Are Twitter / Reddit source articles served at a public URL?
+     Confirm yes/no.
+
+3. **Sitemap audit:**
+   - Count of URLs in current sitemap.
+   - Distribution by content type (rewrite, synthesis, template,
+     rss_summary).
+   - Any URLs in sitemap that 404 or redirect?
+
+4. **Recommended sequencing within the AdSense readiness work
+   itself.** Mine: P0.1 indexing audit → P0.3 byline → P0.2
+   trust pages → P1 items in parallel. Validate or propose
+   alternative.
+
+5. **Effort estimate** total: senior-dev days for all P0 + P1.
+   Mine: 3-5 days.
+
+6. **Risk assessment:** What's the actual probability of approval
+   given current state vs. after P0 fixes? Be honest.
+
+## Roadmap entry to add
+
+**Title:** AdSense Approval Readiness
+**Status:** Active — review window in progress
+**Owner:** Ali
+**Phases:**
+1. Audit current state (P0.1 indexing, P0.2 trust pages, P0.3
+   byline — analysis only)
+2. P0 fixes — noindex thin content, rewrite trust pages, add byline
+3. P1 fixes — top articles audit, visual distinction, attribution
+4. P2 fixes — sitemap, ads.txt, performance
+5. Post-review actions — handle approval or rejection follow-up
+
+**Dependencies:** None. AdSense readiness work is parallel to all
+other Kartalix work.
+
+**Constraint:** Must complete P0 items within ~5 days from now to
+land before reviewers look closely. P1 items within ~14 days.
+
+## What we want from Claude Code first
+
+Return analysis covering:
+
+1. Concrete answers to questions 1-3 above (current state audit
+   based on code inspection + GSC if available)
+2. Validate or challenge the P0 / P1 / P2 / P3 prioritization
+3. Effort estimate per phase
+4. Anything in the codebase that creates AdSense risk that I
+   haven't listed
+5. Recommended order of fixes within the next 5 days
+
+Wait for Ali's approval before changing any code or content. The
+analysis IS the first deliverable.
+
+## What happens after approval (or rejection)
+
+**If approved:**
+- Place ad units carefully — not in template cards or thin
+  content, only on substantive articles
+- Don't over-place. Aim for editorial-first, ads-second feel.
+- Track per-page revenue to identify which content types monetize
+  well
+
+**If rejected:**
+- Read the rejection email carefully — Google cites specific
+  policy violations
+- Focus fixes on the cited issue, not a generic overhaul
+- Wait for recrawl (~2 weeks) before reappplying
+- Reapplication after substantial improvement has good approval
+  odds — first rejection is feedback, not permanent
+
+## Notes for Ali
+
+Two things worth doing yourself, not delegating to Claude Code:
+
+1. **Read each About / Editorial / Contact page on the live site
+   right now**, before any audit. Spend 5 minutes per page. If any
+   feels generic, write it again yourself — even rough Turkish
+   text from your voice is better than polished AI text. Reviewers
+   recognize the difference.
+
+2. **Verify Google Search Console is set up** for both
+   `kartalix.com` and `app.kartalix.com`. If not, do it today. GSC
+   gives you visibility into what Google is actually indexing, and
+   it's the only data source that matters for understanding the
+   reviewer's view.

@@ -1,0 +1,306 @@
+# Kartalix — Match Highlights ("Maç Özetleri") Section
+
+## Context
+
+Kartalix.com is a Beşiktaş fan content platform. The /konu/videolar
+page currently embeds a mix of YouTube content (interviews, podcasts,
+match highlights) in a single feed, which buries the most-wanted
+content: match summaries (özetler).
+
+This brief specifies a dedicated Match Highlights section to be added
+within the existing /konu/videolar page — not a replacement, an
+addition that gets visual priority at the top of the page.
+
+## User goal
+
+A Beşiktaş fan opens the page and within 3 seconds can:
+1. Watch the latest match özet (most common case)
+2. Find any past match from the current season by opponent name
+3. Browse past seasons if curious
+4. Distinguish wins, losses, derbies at a glance
+
+## Scope
+
+### In scope (v1)
+- New "Maç Özetleri" section at the top of /konu/videolar
+- Hero strip: latest played match card + upcoming match card (if
+  within 7 days)
+- Filter bar with pills + opponent search
+- Match grid with cards (3-column desktop, 1-column mobile)
+- Dedicated route per match for shareability and SEO
+  (/videolar/{season}/{competition}/{slug})
+- Modal YouTube player on card click (stays on Kartalix)
+- Season summary stats bar
+- Admin backend to associate YouTube video URLs with match rows
+- Cron job to auto-pull beIN SPORTS Türkiye YouTube channel daily and
+  match new özet uploads to fixture rows
+
+### Out of scope (v1)
+- Goal timestamps within videos
+- Player-specific highlight clips
+- Pre-match preview videos
+- Comments / fan reactions
+- Notifications when new özet is published
+- Live fixture-feed integration (TFF API etc.) — seed via CSV in v1
+
+## Data model
+
+Single Supabase table per existing Kartalix architecture (one record
+per match).
+
+```
+matches:
+  id (uuid, primary key)
+  slug (string, unique — used in URL, e.g. "hafta-7-bjk-kocaelispor")
+  season (string, e.g. "2025-26")
+  competition (enum: super_lig | turkiye_kupasi | uefa_cl | uefa_el |
+               uefa_conf)
+  competition_round (string, e.g. "7. Hafta", "Çeyrek Final",
+                     "Grup C - 4. Maç")
+  match_date (timestamp)
+  home_team (string)
+  away_team (string)
+  home_score (int, nullable until played)
+  away_score (int, nullable until played)
+  venue (string, e.g. "Tüpraş Stadyumu")
+  bjk_is_home (boolean, derived)
+  bjk_result (enum: win | draw | loss | not_played, derived)
+  is_derby (boolean, derived: opponent in
+            {Fenerbahçe, Galatasaray, Trabzonspor})
+  ozet_youtube_id (string, nullable — 11-char YouTube video ID)
+  ozet_thumbnail_url (string, nullable — auto-fetched from oEmbed or
+                      maxresdefault)
+  ozet_source_channel (string, e.g. "beinsportsturkiye")
+  ozet_published_at (timestamp, nullable)
+  notes (text, nullable — for manual annotations like "extra time",
+         "penalties")
+```
+
+### Slug generation
+Slugs are auto-generated on insert and stored. Pattern:
+- Süper Lig: "hafta-{N}-{bjk-or-opponent-first-by-home}-{opponent}"
+  Example: "hafta-7-bjk-kocaelispor" or "hafta-11-bjk-fenerbahce"
+- Türkiye Kupası: "kupa-{round-slug}-{opponent}"
+  Example: "kupa-ceyrek-final-galatasaray"
+- Avrupa: "{comp}-{round-slug}-{opponent}"
+  Example: "uel-grup-c-4-mac-frankfurt"
+- Turkish characters lowercased and asciified (Beşiktaş → besiktas).
+- Slug uniqueness enforced; on collision append "-2", "-3" etc.
+
+### URLs
+- Match page: /videolar/{season}/{competition}/{slug}
+  Example: /videolar/2025-26/super-lig/hafta-7-bjk-kocaelispor
+- Default highlights view: /videolar (the existing page; new section
+  rendered at top)
+- Filter state in query params: /videolar?sezon=2025-26&kupa=super-lig
+  &q=fener
+- Modal opens via match page URL; deep links to /videolar/.../{slug}
+  open with the modal pre-opened and the highlights section scrolled
+  into view, so back button returns to the filtered list.
+
+## UI components
+
+### 1. Section header
+- H2: "Maç Özetleri"
+- Subtitle: season summary line, e.g.
+  "2025-26 Sezonu • 18 G  8 B  7 M • 62 puan • Süper Lig 3. sıra"
+- Stats auto-calculated from filtered matches in current view.
+
+### 2. Hero strip (only on default view; hidden when filters active)
+Two cards side by side on desktop, stacked on mobile:
+- LEFT: "Son Maç" — latest played match, large card with prominent
+  play button overlaying YouTube thumbnail.
+- RIGHT: "Sıradaki Maç" — next scheduled match within 7 days, smaller
+  card with countdown timer ("3 gün 4 saat") and kickoff time.
+- If no upcoming match within 7 days, hero is a single full-width
+  latest match card.
+
+### 3. Filter bar
+Three filter groups, all rendered as pill buttons (not dropdowns):
+
+- **Sezon**: 2025-26 (default) | 2024-25 | 2023-24 | Tümü
+- **Kupa**: Tümü (default) | Süper Lig | Türkiye Kupası |
+  Avrupa Kupaları
+- **Rakip Ara**: free text search input, instant filter on opponent
+  name (case-insensitive, Turkish character-aware:
+  "fenerbahce" matches "Fenerbahçe").
+
+Filters combine with AND. Selected pills have BJK-black background +
+white text. URL state syncs so filter state is shareable and back
+button works.
+
+### 4. Match card
+
+Card dimensions: ~340px wide on desktop, full-width minus padding on
+mobile. Aspect ratio roughly 4:3.
+
+**Card layout (top to bottom):**
+- Top bar (32px): competition badge/logo on left, round label on
+  right (e.g. "Süper Lig" + "7. Hafta")
+- Center area: home crest (48px) — large scoreline — away crest
+  (48px)
+- Score color: green tint background if BJK won, light red if lost,
+  neutral grey if draw. Subtle (~10% opacity wash behind the score),
+  not aggressive.
+- BJK crest always visually emphasized (slightly larger or with
+  subtle ring), regardless of home/away
+- Bottom bar (32px): date (15 Kasım 2025) + venue icon
+  ("İç" or "Dep")
+- Derby badge: small "DERBİ" pill in top-right corner with B/W
+  stripe background if is_derby = true
+- "Özet yok" empty state: if ozet_youtube_id is null, replace play
+  button with greyed "Özet yakında" badge
+
+**Hover/focus state (desktop):**
+- Card lifts slightly (translateY -2px, shadow grows)
+- YouTube thumbnail of özet appears as subtle background overlay
+  (40% opacity)
+- Red play circle appears in center
+
+**Click/tap:**
+- Navigates to /videolar/{season}/{competition}/{slug} and opens
+  modal
+- Modal shows: embedded YouTube iframe (1280x720, autoplay), match
+  title, score, date, full competition+round label below the player,
+  share button (copies the match URL)
+- Modal closes on Esc or backdrop click; closing returns to /videolar
+  with prior filter state preserved
+
+### 5. Match grid
+- 3 columns on desktop (≥1024px), 2 on tablet (768–1023px),
+  1 on mobile
+- Sorted by match_date descending (most recent first) by default
+- Pagination: load 12 cards initially, "Daha fazla göster" button
+  loads next 12; infinite scroll on mobile
+
+### 6. Visual design tokens
+Match Beşiktaş identity:
+- Primary: #000000 (Beşiktaş black)
+- Secondary: #FFFFFF
+- Accent for wins: subtle green (#10b981 at low opacity for tints)
+- Accent for losses: subtle red (#ef4444 at low opacity)
+- Accent for derbies: black/white stripe pattern
+- Font: existing Kartalix typography stack
+- Card border-radius: 12px
+- Card shadow: subtle, increases on hover
+
+## SEO
+
+Each match page (/videolar/{season}/{competition}/{slug}) is rendered
+with:
+- <title>: "Beşiktaş 3-1 Kocaelispor Maç Özeti | 7. Hafta Süper Lig
+  | Kartalix"
+- <meta description>: brief auto-generated summary
+- Open Graph tags: og:title, og:description, og:image (YouTube
+  maxres thumbnail), og:url
+- JSON-LD SportsEvent schema with score, date, teams, video object
+- Canonical URL: the match page route
+
+Sitemap.xml includes all match pages. Match pages are linked from the
+/videolar grid via real <a href> elements (not just onclick handlers)
+so crawlers can follow.
+
+## Backend / data ingestion
+
+### Admin interface
+A new admin page (existing admin pattern) where moderator can:
+- View matches table sorted by date desc
+- For each match without ozet_youtube_id: paste YouTube URL → system
+  extracts video ID, fetches thumbnail and title via YouTube oEmbed
+- Edit/override existing entries
+- Mark a match as "no özet expected" (rights issue) so it doesn't
+  show "Özet yakında" indefinitely
+
+### Auto-ingestion (cron, runs daily at 02:00 TRT)
+
+Pseudocode:
+1. Fetch latest 50 videos from beIN SPORTS Türkiye channel via
+   YouTube Data API (channel_id = UCPe9vNjHF1kEExT5kHwc7aw)
+2. Filter titles matching pattern:
+   /Beşiktaş.*\(.*\d-\d.*\).*ÖZET|Beşiktaş.*Highlights/i
+3. Parse opponent name, score, week number from title
+   (regex against established beIN format, e.g.
+   "Beşiktaş (3-1) Kocaelispor | 7. Hafta Maç ÖZETİ | Trendyol
+    Süper Lig-2025/26")
+4. Match against matches table by date proximity (±2 days) + opponent
+5. If found and ozet_youtube_id is null: populate fields
+6. Log unmatched videos for manual review
+
+For Türkiye Kupası and European matches: manual curation only in v1.
+Document the channels to monitor:
+- Süper Lig: beIN SPORTS Türkiye (UCPe9vNjHF1kEExT5kHwc7aw)
+- Türkiye Kupası: aSpor (manual check) or beIN if licensed
+- Avrupa kupaları: beIN SPORTS Türkiye (preferred) or UEFA official
+  (note: embedding restrictions apply to UEFA channel)
+
+### Match fixtures seeding
+Initial matches table populated from a static fixture list (CSV
+import or seed script). Subsequent season fixtures imported at
+season start from TFF source or manual entry. Out of scope to
+integrate live fixture feeds in v1.
+
+## Performance and accessibility
+
+- Lazy-load YouTube thumbnails (use loading="lazy")
+- Lazy-load YouTube iframe (only inject after modal opens — saves
+  ~500KB per card)
+- Keyboard navigation: tab through cards, Enter opens modal,
+  Esc closes
+- ARIA labels on cards:
+  "Beşiktaş 3-1 Kocaelispor maç özetini izle"
+- Color is never the only signal of result (icon or text accompanies
+  the win/loss tint)
+- Mobile-first responsive
+
+## Open questions for product owner
+
+1. Are we OK manually curating cup competitions in v1, or do we
+   want to integrate aSpor channel monitoring too?
+2. Do we want to track "yorum" (post-match analysis) videos as a
+   separate linked content type per match, or stay focused on özet
+   only in v1?
+3. Should the season stats bar pull from a separate `season_stats`
+   view for accuracy, or compute from filtered matches each render?
+4. For UEFA matches where embed is restricted: redirect to the
+   external YouTube page in a new tab, or show "YouTube'da izle"
+   button instead of in-page modal?
+
+## Deliverables
+
+1. React component: <MatchHighlightsSection /> placed at top of
+   /konu/videolar page
+2. Supabase table + migration for `matches`
+3. Match page route /videolar/{season}/{competition}/{slug} with
+   SSR-rendered SEO metadata
+4. Admin CRUD page at /admin/matches (matching existing admin
+   patterns)
+5. Cron job in existing worker for beIN SPORTS daily sync
+6. Seed data: all 2025-26 Beşiktaş matches played to date with özet
+   YouTube IDs populated where available
+7. sitemap.xml update to include match pages
+
+## Suggested implementation order
+1. Schema + slug generation + seed data + admin CRUD (1–2 days)
+2. Match card component + grid + filter pills (2–3 days)
+3. Match page route + SSR metadata + modal player (1–2 days)
+4. Hero strip with countdown timer (1 day)
+5. Cron + auto-matching logic for beIN SPORTS (1–2 days)
+6. SEO, accessibility, mobile polish (1 day)
+
+## Notes for implementation
+
+- YouTube Data API key: required for cron ingestion. Get from Google
+  Cloud Console. Daily quota (10k units) covers single-channel
+  polling comfortably (~5% usage).
+- Rights: embedding beIN SPORTS uploads via iframe is fine —
+  that's the intended use of YouTube embed. Do not host, download,
+  or re-upload video files. Iframe only.
+- Existing Kartalix architecture: respect the per-team config
+  pattern. Beşiktaş-specific values (channels to poll, derby
+  opponents list, brand colors) should sit in the team config
+  (`sites` table JSONB), not hardcoded in the worker. This keeps
+  the section reusable for other teams in future.
+- Turkish character handling: ensure slug generation, search
+  matching, and JSON-LD all handle ç/ğ/ş/ı/ö/ü correctly. Use
+  Intl.Collator with Turkish locale for sorts/comparisons where
+  user-facing.

@@ -1,0 +1,695 @@
+# Kartalix — Modular Growth Proposal
+
+## Brief for Claude Code: evaluate, refine, add to roadmap as
+## tracked workstreams. Do not implement before Ali's approval.
+
+## What this document covers
+
+Three connected proposals that together define how Kartalix grows
+from here:
+
+**Part A — Worker file split.** The `worker-fetch-agent.js` is
+10,041 lines. Not yet broken, but it's becoming the bottleneck for
+AI-assisted development (every Claude Code session reads the whole
+file) and for safe iteration (every change risks unrelated areas).
+This part defines an incremental split plan.
+
+**Part B — Cockpit page.** A new `/admin/cockpit` for operational
+control: triggers, parameters, maintenance actions, activity log.
+Consolidates scattered controls into one place.
+
+**Part C — Capability modules for the two strategic goals.** Two
+strategic priorities exist:
+1. **Solid pipeline** — qualified news, enough stories, generated
+   articles, templates firing correctly
+2. **Editorial quality** — grammar, situational awareness, analytical
+   depth, fan engagement
+
+This part proposes how to grow capability around these goals
+*without* over-engineering with LLM agents where simple modules
+suffice. Most capability is best implemented as scheduled functions
+or LLM-wrapped function calls, not as autonomous agents.
+
+## Read order for Claude Code
+
+1. Read this document fully
+2. For each part, evaluate the proposal — challenge anything you
+   disagree with, justify why
+3. Return a written response covering: assumptions you're making,
+   anything missing, what you would do differently, effort
+   estimates per phase
+4. Add three tracked workstreams to the roadmap:
+   - `Worker split` (phases 1-4 as defined in Part A)
+   - `Cockpit page` (depends on Part A phase 2)
+   - `Capability modules` (long-running, per Part C)
+5. Wait for Ali's approval before writing any code
+
+================================================================
+## PART A — Worker file split
+================================================================
+
+### Why split
+
+The worker file is large but not the real problem. The real
+problems:
+
+1. **HTTP router is 3,176 lines (lines 113–3288).** Every new
+   endpoint adds to one giant if/else chain. Two features cannot
+   be worked on independently without conflict.
+2. **Report dashboard is 1,845 lines (lines 7711–9555) inline.**
+   Includes HTML, dashboard JS, analytics rendering all as
+   template strings.
+3. **`processSite` is 800 lines.** Complex pipeline logic in one
+   function. Hard to test, hard to AI-edit without unintended
+   side effects.
+4. **AI-assisted dev cost.** Every Claude Code session reading
+   the whole file burns ~50k input tokens of context. Splitting
+   into focused modules cuts this by an order of magnitude per
+   session. Direct API cost savings.
+
+### What NOT to do
+
+- Don't refactor everything in one go. High risk of breakage.
+- Don't split by file size ("files over 500 lines bad"). Split by
+  what changes together.
+- Don't add tooling complexity (build steps, bundlers Wrangler
+  doesn't need). Worker imports are simple ESM.
+- Don't refactor `src/` files (utils, fetcher, processor, publisher,
+  story-matcher, firewall, api-football, youtube). Those are
+  already well-split.
+
+### Target structure
+
+```
+worker-fetch-agent.js        — 200 lines (entrypoint only)
+├── routes/
+│   ├── index.js              — top-level router that dispatches
+│   ├── public.js             — public site (/, /haber/X, /rss, /sitemap)
+│   ├── admin-content.js      — /admin/content + editor
+│   ├── admin-report.js       — /admin/report + report-data
+│   ├── admin-cockpit.js      — /admin/cockpit (new, Part B)
+│   ├── admin-sources.js      — /admin/sources + source tests + seed
+│   ├── admin-cost.js         — /admin/cost + financials
+│   ├── admin-alarms.js       — /admin/alarms + /admin/rapor
+│   ├── force-triggers.js     — all /force-* endpoints
+│   └── widgets-api.js        — /widgets/api/*
+├── jobs/
+│   ├── cron-handler.js       — scheduled() event router
+│   ├── match-watcher.js      — matchWatcher (already isolated logic)
+│   └── maintenance.js        — archival, voice patterns, redistill
+├── domain/
+│   ├── process-site.js       — processSite (the pipeline)
+│   ├── h5-gate.js            — checkH5SynthGate
+│   ├── alarm-checks.js       — runAlarmChecks
+│   └── report-builder.js     — buildReport + buildMatchStats
+├── render/
+│   ├── nav.js                — adminNav, shared nav HTML
+│   ├── pin.js                — renderPinPage
+│   ├── article.js            — renderArticleHTML
+│   ├── topic.js              — renderTopicPage
+│   ├── static-pages.js       — renderAboutPage, renderContactPage, etc
+│   └── components.js         — shared CSS, fonts, header, footer
+└── src/  (unchanged)
+    ├── utils.js
+    ├── fetcher.js
+    ├── processor.js
+    ├── publisher.js
+    ├── story-matcher.js
+    ├── firewall.js
+    ├── api-football.js
+    └── youtube.js
+```
+
+After the split, the entrypoint becomes:
+
+```javascript
+import { handleCron } from './jobs/cron-handler.js'
+import { route } from './routes/index.js'
+
+export default {
+  async fetch(request, env, ctx) {
+    return route(request, env, ctx)
+  },
+  async scheduled(event, env, ctx) {
+    return handleCron(event, env, ctx)
+  }
+}
+```
+
+### Phased plan
+
+#### Phase 1 — Extract report dashboard (1–2 days)
+Move lines ~7711–9555 (renderAdminReportPage + reportDashboardJs +
+analyticsJs) into `routes/admin-report.js`. Move `buildReport` and
+`buildMatchStats` into `domain/report-builder.js`. The `/admin/report`
+route stays at the same URL, just imports its handler.
+
+**Why first:**
+- Biggest single block in the file
+- Cleanest extraction (leaf, no inbound dependencies)
+- About to grow significantly with KPI strip work and per-source
+  health table
+- Easy verification: open `/admin/report`, does it render?
+
+#### Phase 2 — Extract force-triggers (1 day)
+Move all `/force-*` endpoints into `routes/force-triggers.js`. They
+share patterns (auth → call function → return JSON). Adds a small
+helper for the auth + activity-log pattern.
+
+**Why second:**
+- Unblocks the Cockpit (Part B) — cockpit imports from this module
+- Low risk (each endpoint is independent)
+- Reveals which endpoints are missing `requireOps()` (audit
+  benefit)
+
+#### Phase 3 — Extract `processSite` and pipeline domain (2 days)
+Move `processSite`, `runAllSites`, `recordPipelineFailures`,
+`backfillArticleToSupabase`, `checkH5SynthGate`, `runAlarmChecks`
+into `domain/`. Move `matchWatcher` into `jobs/match-watcher.js`.
+
+**Why third:**
+- Pipeline is the most-iterated code (relevance scoring, alarm
+  framework, eviction reasons all touch this)
+- Medium risk — needs careful before/after comparison
+- After this lands, every pipeline tweak is isolated
+
+#### Phase 4 — Extract render layer (1 day)
+Static pages, nav, article HTML, topic page. Pure rendering
+functions. Easy to move, low priority.
+
+**Why fourth:**
+- Lowest urgency, mostly cosmetic
+- Do when convenient
+
+#### Phase 5 — Stop
+Other admin pages (sources, cost, financials, content) can stay in
+the main file or get extracted opportunistically. Not blocking.
+Don't refactor for completion's sake.
+
+### Verification strategy
+
+Each phase ships independently. Before merging a phase:
+1. All existing routes return same HTTP status as before
+2. Sample assertions per critical route (e.g. `/admin/report`
+   returns 200, contains "Pipeline Flow")
+3. One full pipeline run completes (manual trigger via `/force-cache`
+   or `/admin/run-pipeline`)
+4. No new TypeScript-style errors (the worker is plain JS but
+   should still pass `wrangler dev` checks)
+
+### Cost impact
+
+| Item | Before | After | Notes |
+|------|--------|-------|-------|
+| Worker bundle size | ~550 KB | ~550 KB | Same — modules concatenated by Wrangler |
+| Cold start time | unchanged | unchanged | Cloudflare ESM works the same |
+| AI dev session cost | ~50k tokens loaded | ~5-15k tokens per focused change | Direct savings |
+| Risk of accidental breakage | high (one shared file) | low (isolated modules) | Each phase is independent |
+
+================================================================
+## PART B — Cockpit page (/admin/cockpit)
+================================================================
+
+### What it is
+
+A new admin page consolidating all operational controls:
+configuration parameters, manual triggers, maintenance actions,
+and activity log. The operator's "control room" — the page you
+open when you want to *change* something or *make something happen*,
+as opposed to `/admin/report` which is for *seeing* what's happening.
+
+### Why this exists
+
+Right now operational controls are scattered:
+- Match config, voice rules, archival in `/admin/tools`
+- Force-triggers (`/force-t01` through `/force-t13`, `/force-h5`,
+  `/force-story-synthesis`, etc.) have no UI — require curl
+- Configuration like `auto_publish_threshold`, half-lives,
+  pool ranking floor are partly in `sites.config` JSONB and partly
+  hardcoded
+- Source enable/disable in `/admin/sources`
+- Pipeline failures and alarms surfaced in different places
+
+The cockpit gives every operational lever one home.
+
+### Page structure
+
+Four collapsible sections, top to bottom:
+
+```
+/admin/cockpit
+├── Section 1: System state (read-only summary)
+├── Section 2: Manual triggers (force-run actions)
+├── Section 3: Configuration (editable parameters)
+└── Section 4: Maintenance (destructive / one-off actions)
+```
+
+### Section 1 — System state (read-only)
+
+Four small tiles in a row. No editable fields here.
+
+**Tile 1.1 — Pipeline**
+- `Last cron: HH:MM (N min ago)` — green if <90 min, red otherwise
+- `Active sites: N`
+- Link: → Report
+
+**Tile 1.2 — Live pool**
+- `BJK pool: N articles (Video V · AI Y · AI+ P)`
+- `Last article: HH:MM (N min ago)`
+- Link: → Content
+
+**Tile 1.3 — Alarms**
+- `N active · M acknowledged`
+- Each active alarm listed with one-line label
+- Link: → Rapor
+
+**Tile 1.4 — Cost**
+- `Today: $X.XX (typical $Y.YY)`
+- `This month: $Z.ZZ`
+- Link: → Cost
+
+### Section 2 — Manual triggers
+
+Buttons wrapping existing `/force-*` endpoints with proper UI:
+confirmation, parameter inputs where needed, status display.
+
+**2A — Pipeline triggers**
+- Run pipeline now (POST `/admin/run-pipeline` — new wrapper, with
+  60-second lock semantics to prevent double-run)
+- Drain rewrite queue (POST `/admin/drain-rewrites` — new wrapper
+  around `drainRewriteQueue`)
+- Re-rank live pool (POST `/admin/rerank-pool` — new wrapper around
+  `rankAndEvict`)
+- Refresh match config (POST `/admin/next-match` — exists)
+
+**2B — Template triggers**
+Single dropdown listing all T01–T13 templates with description,
+plus Run button. Maps to existing `/force-tXX` endpoints.
+
+**2C — Story / synthesis triggers**
+- Story ID input + Synthesize button (POST
+  `/force-story-synthesis?story_id=X`)
+- Test H5 gate button (GET `/force-h5?story_id=X`)
+- Test reference article dry-run (POST `/force-tref?dry_run=1`)
+
+### Section 3 — Configuration
+
+Editable parameters that currently live in `sites.config` JSONB or
+are hardcoded. Each parameter has: current value, new-value input,
+per-field Save button, description, default value.
+
+**3A — Pipeline thresholds**
+- `auto_publish_threshold` (default 55)
+- `synthesis_min_contributions` (3)
+- `synthesis_min_recent_hours` (6)
+- `synthesis_min_nvs` (60)
+- `synthesis_min_families` (2)
+
+**3B — Pool ranking**
+- `pool_max_size` (200)
+- `pool_rank_floor` (5)
+- `pool_alarm_floor` (20)
+- `half_life_rewrite_h` (8)
+- `half_life_synthesis_h` (12)
+- `half_life_video_h` (12)
+- `half_life_match_result_h` (4)
+- `story_boost_max` (1.4)
+
+**3C — Pre-screen and fetch**
+- `fetch_lookback_hours` (3)
+- `fetch_age_cap_hours` (72)
+- `fetch_min_summary_chars` (50)
+- `fetch_max_articles_per_run` (100)
+- `keyword_config_keywords` (array — edit as JSON)
+
+**3D — Cost guards**
+- `daily_cost_cap_usd` (optional — if set, pipeline pauses Claude
+  calls when hit)
+- `single_run_cost_alarm_x` (3 — alarm if run >X× baseline)
+
+**3E — Cron config (read-only display)**
+Cron expressions from wrangler.toml, displayed but not editable.
+Note: "to edit, modify wrangler.toml and redeploy."
+
+### Section 4 — Maintenance (destructive)
+
+Red-styled buttons with confirm dialogs:
+- Archive legacy articles (POST `/admin/archive-legacy`)
+- Find duplicates (GET `/admin/find-duplicates`)
+- Cleanup orphan stories (POST `/admin/cleanup-orphans`)
+- Remove from KV by slug (DELETE `/admin/kv-remove?slug=X`)
+- Re-seed sources (POST `/admin/sources/seed`)
+- Re-seed voice rules (POST `/admin/seed-voice`)
+- Re-distill editorial notes (POST `/admin/redistill`)
+- Run voice patterns extraction (POST `/admin/run-voice-patterns`)
+- Clear pipeline failures (POST existing)
+
+### Activity log
+
+Bottom of page, scrollable list of recent operator actions:
+
+```
+22:14  Ali  triggered  Run pipeline now    → 22 published, $0.62
+21:55  Ali  saved      auto_publish_threshold: 55 → 57
+21:12  Ali  triggered  Drain rewrite queue → 4 articles
+20:30  Ali  cleared    alarm: pool_floor
+```
+
+New `admin_activity` table:
+
+```sql
+CREATE TABLE admin_activity (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  occurred_at timestamp DEFAULT NOW(),
+  actor text NOT NULL,        -- 'system' | user identifier
+  action_type text NOT NULL,  -- 'trigger' | 'config_change' | 'maintenance'
+  action_name text NOT NULL,
+  before_value jsonb,
+  after_value jsonb,
+  result jsonb,
+  duration_ms integer
+);
+CREATE INDEX ON admin_activity (occurred_at DESC);
+```
+
+### Config migration prep (Phase 0 of cockpit work)
+
+Most parameters in Section 3 are currently hardcoded in worker
+code (e.g. half_life values, pool_max_size in `publisher.js`).
+Before the cockpit UI is built, these must move into `sites.config`
+JSONB with fallback defaults in code. This is a separate
+preparation task — about 1 day of focused work.
+
+```javascript
+// Before
+const HALF_LIFE_REWRITE = 8;
+
+// After
+const halfLifeRewrite = site.config?.half_life_rewrite_h ?? 8;
+```
+
+Without this prep, the cockpit UI would be cosmetic — saving values
+that nothing reads.
+
+### Dependencies
+
+Cockpit depends on:
+- Part A Phase 2 (force-triggers extracted) — otherwise the cockpit
+  imports from a 10k-line file
+- Config migration prep (Phase 0 above)
+- Activity log table
+
+================================================================
+## PART C — Capability modules
+================================================================
+
+### The two strategic goals (Ali's stated priorities)
+
+1. **Solid pipeline.** Qualified news, enough stories, generated
+   articles, templates firing correctly. Operational reliability.
+2. **Editorial quality.** Grammar, situational awareness, analytical
+   skills, fan engagement. Content excellence.
+
+These are distinct work programs. Modules for goal 1 are mostly
+about *correctness and observability*. Modules for goal 2 are
+mostly about *what the LLM knows when it writes*.
+
+### Should they be agents?
+
+No. Almost no part of either goal benefits from a multi-step LLM
+agent loop. The two goals are best served by:
+
+- **Scheduled functions** (cron jobs) — for periodic checks,
+  drift detection, refresh of cached context
+- **LLM-wrapped function calls** (single-prompt, structured output)
+  — for scoring, rewriting, synthesizing
+- **Pure functions over cached data** — for derivation logic
+  (math, position-locking, qualification rules)
+
+LLM agents (the multi-step, autonomously-deciding kind) are
+expensive, slow, and unpredictable. They're appropriate only when
+the *path* of investigation is genuinely unknown. For news pipeline
+work, the path is almost always known — what's unknown is the
+quality of the output, which we improve by giving the LLM better
+context, not by giving it autonomy.
+
+There may be one or two genuine use cases (e.g. an "editorial
+review" agent that decides whether a borderline article should
+publish, calling 2-3 inspection tools), but these are exceptions,
+not the default architecture.
+
+### Goal 1 — Solid pipeline: capability modules
+
+Each is a single-purpose module. Most are already proposed in
+earlier briefs (alarm framework, situational awareness, KPI strip,
+relevance bucket).
+
+#### 1.1 — Source health module
+- Per-source pass rates, baselines, anomaly detection
+- Daily report: which sources gained / lost / drifted
+- Auto-disable sources with 3+ consecutive zero days (with manual
+  override in cockpit)
+- Already partly covered in alarm framework brief; this is the
+  per-source view
+
+**Implementation:** scheduled function, runs daily. Pure logic over
+existing `content_items` and `pipeline_runs` data. No LLM.
+
+#### 1.2 — Relevance bucket module
+- Replaces binary keyword filter with HIGH/MEDIUM/NONE
+  confidence bucket
+- `team_entities` table auto-synced from API-Football weekly
+- Already specified in pipeline-and-alarms brief
+
+**Implementation:** pure function in `domain/relevance.js`. No LLM.
+
+#### 1.3 — Alarm framework module
+- Generic alarm engine: data-driven definitions, code-driven checks
+- State machine (clear / firing / acknowledged / resolved)
+- Telegram + in-app notifications
+- Already specified in pipeline-and-alarms brief
+
+**Implementation:** runner + registered check functions. No LLM in
+the engine itself; some checks may use LLM-derived signals (e.g.
+NVS distribution drift).
+
+#### 1.4 — Template firing audit
+- For each match day: did T01 (preview), T02 (match day card),
+  T08b (probable XI), T09 (confirmed lineup), T03 (match report),
+  T11 (result flash) fire as expected?
+- Detect missed templates (e.g. confirmed lineup never published
+  because cron didn't run in the right window)
+- Report shown on cockpit / report page
+
+**Implementation:** scheduled function, runs hourly during match
+windows. Pure logic. No LLM.
+
+#### 1.5 — Story coverage audit
+- Are stories with 3+ contributions getting synthesized?
+- Are stories drifting (5+ contributions over 24h, never synthesized)
+  because of family-diversity gate?
+- Surface stalled stories in cockpit
+
+**Implementation:** scheduled function, daily. Reads stories +
+story_contributions. No LLM.
+
+#### 1.6 — Cost ceiling module
+- Daily cost cap enforcement (from cockpit config)
+- Alert when monthly trajectory exceeds budget
+- Cost-per-published-article efficiency metric
+
+**Implementation:** check in alarm framework + budget enforcer in
+`processSite`. Pure logic.
+
+### Goal 2 — Editorial quality: capability modules
+
+This is where the work gets interesting. Editorial quality is
+*emergent* — it depends on what the LLM sees when it writes. So
+most modules here are about *enriching the prompt context*, not
+about post-hoc judgment.
+
+#### 2.1 — Situational awareness module
+- League position math, European qualification path, rival
+  dependencies
+- Already specified in situational-awareness brief
+- Three layers: live facts (API-Football), derived situation (pure
+  logic), editorial context (small JSONB per team)
+
+**Implementation:** `buildSituationContext()` function that runs
+on every article generation. Pure logic + 1 cached LLM call per
+week for narrative arc updates.
+
+#### 2.2 — Voice patterns module (already exists, extend)
+- Current state: weekly extraction of voice patterns from past
+  high-quality articles, injected into every Claude generation
+  prompt
+- Extension: separate voice patterns per content type (match
+  report voice ≠ transfer rumor voice ≠ controversy article voice)
+- Extension: per-author "model articles" (best examples) curated
+  manually as references
+
+**Implementation:** extend existing `voice_patterns` table to
+include `content_type` dimension. Extend `runVoicePatternExtraction`
+to bucket by type. Update prompts in `publisher.js` to pull voice
+patterns by content type. Mostly existing infra, additive.
+
+#### 2.3 — Grammar and style firewall
+- Post-generation check: pass article through a cheap LLM
+  (Claude Haiku) with a strict grammar/style rubric
+- Returns: pass / fail + specific corrections
+- If fail: article goes to queue with corrections, operator
+  reviews in `/admin/content`
+- If pass: publishes normally
+
+**Implementation:** new module `domain/grammar-firewall.js`.
+LLM-wrapped function call (NOT an agent). Single prompt with
+structured JSON output. Optional — toggle in cockpit. Estimated
+cost: $0.001 per article × ~20 articles/day = ~$0.02/day.
+
+#### 2.4 — Fan engagement signals module
+- Read existing reaction data (likes, shares, time-on-page from
+  existing analytics) per article
+- Compute "what worked this week" — top 5 articles by engagement,
+  with their characteristics (length, opening style, headline
+  pattern)
+- Inject these as few-shot examples into next week's prompts
+
+**Implementation:** scheduled function (weekly) + addition to
+prompt grounding context. Pure logic + adds a few-shot examples
+section to existing prompts. No new LLM calls.
+
+#### 2.5 — Analytical depth module
+- For high-NVS articles (≥70): generate not just a rewrite but also
+  a "depth pass" that pulls additional context (last 5 matches,
+  H2H, recent quotes, related stories)
+- Optional template flag per article
+- Result is a longer, more analytical version published alongside
+  or replacing the short version
+
+**Implementation:** new generator in `publisher.js` for "long-form"
+content type. Uses Claude Sonnet (more capable than Haiku) for
+depth pass. Selective firing — only for top NVS articles, maybe
+2–4 per day, ~$0.05/article = ~$0.20/day.
+
+#### 2.6 — Editorial sample queue
+- Daily, randomly sample 3 published articles for operator review
+- Operator rates 1-5 on grammar, style, accuracy, depth
+- Ratings feed back into prompt improvements over time
+
+**Implementation:** scheduled function (daily) + queue UI in
+cockpit. Manual review by operator. No LLM. About 2 minutes of
+operator time per day, ~10 minutes per week.
+
+### What's NOT in capability modules
+
+Things tempting to add but rejected:
+
+- **Multi-step editorial agent** that "investigates" stories.
+  Reasoning: the path is fixed. Use a structured grounding
+  context, not a wandering agent.
+- **Real-time SEO scoring agent.** Reasoning: SEO is mostly
+  deterministic (title length, meta tags, keyword presence).
+  Use a checker, not an agent.
+- **Auto-translator agent.** Reasoning: not on the roadmap, and
+  if added, single LLM call suffices.
+- **Trend prediction.** Reasoning: out of scope and unreliable.
+
+### Modular growth principle
+
+Each capability module above:
+- Has a single clear purpose
+- Lives in its own file under `domain/` or `routes/`
+- Has clear inputs/outputs
+- Can be enabled/disabled independently
+- Has its own activity log entries
+- Has its own cost tracking
+- Can ship without depending on others (some have dependencies on
+  worker split or cockpit, but none on each other)
+
+This is the "modular growth" you asked for. As Kartalix expands
+(adding Fenerbahçe site, then Galatasaray, then non-football),
+each module either generalizes naturally (team_entities is keyed
+by team) or stays Beşiktaş-specific (voice patterns can be
+per-team).
+
+### Sequencing recommendation for Part C
+
+These are ranked by leverage per unit of effort, given the
+strategic priorities (solid pipeline + editorial quality):
+
+| Order | Module | Goal | Days | Notes |
+|-------|--------|------|------|-------|
+| 1 | 1.3 Alarm framework | Pipeline | 5 | Specified in earlier brief |
+| 2 | 1.2 Relevance bucket | Pipeline | 5 | Specified in earlier brief |
+| 3 | 2.1 Situational awareness | Editorial | 8 | Specified in earlier brief |
+| 4 | 1.1 Source health | Pipeline | 2 | Builds on alarm framework |
+| 5 | 2.2 Voice patterns extension | Editorial | 3 | Extend existing |
+| 6 | 1.4 Template firing audit | Pipeline | 2 | After alarm framework |
+| 7 | 1.5 Story coverage audit | Pipeline | 2 | After alarm framework |
+| 8 | 2.4 Fan engagement signals | Editorial | 3 | Once analytics data is reliable |
+| 9 | 2.6 Editorial sample queue | Editorial | 1 | Easy, adds operator habit |
+| 10 | 2.3 Grammar firewall | Editorial | 3 | Optional, toggle in cockpit |
+| 11 | 1.6 Cost ceiling | Pipeline | 2 | Adds safety, defer until needed |
+| 12 | 2.5 Analytical depth | Editorial | 4 | Once base quality is solid |
+
+Total: ~40 days of senior dev work. Spread over 2-3 months,
+2 modules per sprint.
+
+================================================================
+## What we want from Claude Code
+================================================================
+
+Before any implementation, return analysis covering:
+
+1. **Worker split (Part A):** Confirm the phasing makes sense given
+   current code state. Identify any cross-cutting concerns I may
+   have missed (e.g. global state, shared imports, circular deps).
+   Estimate effort per phase honestly.
+
+2. **Cockpit (Part B):** Walk through the config migration list and
+   identify which values are currently hardcoded vs already in
+   `sites.config`. List specifically what needs to move. Estimate
+   the config migration prep effort.
+
+3. **Capability modules (Part C):** Challenge any module where
+   you think the "no agents needed" call is wrong. Specifically:
+   are there places where a real multi-step agent would actually be
+   better than what's proposed? Justify.
+
+4. **Cross-cutting issues:** Any architectural concerns across the
+   three parts? E.g. do the modules in Part C assume capabilities
+   that the worker split (Part A) doesn't enable?
+
+5. **Sequencing:** Recommended order of operations across all
+   three parts. Mine is: Part A Phase 1 → 1.3 Alarm framework →
+   Part A Phase 2 → Part B Cockpit prep → 1.2 Relevance bucket →
+   Part B Cockpit UI → Part A Phase 3 → other modules. Validate or
+   propose alternative.
+
+6. **Roadmap entries:** Add three tracked workstreams:
+   - `Worker split` with sub-items per phase
+   - `Cockpit page` with prep + UI items
+   - `Capability modules` with each module as a sub-item
+
+7. **Honest effort estimate** total across all three parts, with
+   uncertainty band. Mine: 50-70 senior-dev days, spread over 2-3
+   months part-time.
+
+Wait for Ali's approval before writing any code. The analysis IS
+the first deliverable.
+
+================================================================
+## What's explicitly OUT of scope of this document
+================================================================
+
+- Multi-team expansion mechanics (separate brief when ready)
+- Migration to TypeScript (premature, worker is fine as JS)
+- Cloudflare Durable Objects (overkill for current scale)
+- Vector DB for semantic dedup (current text dedup is sufficient)
+- External analytics platform (existing data sufficient for v1
+  of capability modules)
+- Mobile app (separate roadmap)
+- Multi-language support (separate roadmap)
+
+These are real future considerations but bundling them into this
+document dilutes its focus.

@@ -1,0 +1,448 @@
+# Kartalix — Self-Maintaining News Pipeline + Extensible Alarm Framework
+
+## Brief for Claude Code: pre-development analysis + implementation roadmap
+
+## What we are building
+
+Two related capabilities, delivered together:
+
+**A. Self-maintaining news pipeline**
+Eliminate manual keyword/entity maintenance from the news pipeline.
+The pre-screen should auto-update from API-Football data, the two
+inconsistent filter paths should be unified, and the pre-screen should
+become a confidence bucket rather than a binary pass/fail so NVS
+(which already works well) handles borderline relevance decisions.
+
+**B. Generic alarm framework under /admin/rapor**
+A framework for monitoring anomalies across Kartalix (and later other
+Opticoms/personal projects). Alarms are defined as data in a table, run
+by a generic engine, and managed through an admin UI that supports
+auto-clear, manual clear, acknowledgement, and history.
+
+The pipeline self-maintenance work (A) does NOT depend on the alarm
+framework (B), but the first three alarms we'll register in the
+framework are alarms about pipeline health. So both ship together.
+
+## Why both at once
+
+Today the pipeline relies on Ali to notice when something looks
+wrong. Removing manual keyword editing (A) without adding automated
+observability (B) creates a worse situation: the system runs more
+autonomously but no one notices when it drifts. The two changes are
+complementary and should ship as one workstream.
+
+## Constraints from the product owner
+
+- Zero manual intervention at the article level. No human reviewing
+  individual articles, no per-article tagging, no editorial approval
+  loops.
+- Some manual intervention at the SYSTEM level is acceptable and
+  desired: weekly glances at alarms, quarterly threshold tuning,
+  responding to actual incidents.
+- The alarm framework must be extensible by adding rows, not by
+  deploying code. New alarms over time will come from many domains
+  beyond the news pipeline.
+- Minimum cost impact on Claude API spend. Target: at most +10% on
+  current monthly spend, offset by other levers if needed.
+- Build for multi-team from day one (Beşiktaş today, others later
+  per existing Kartalix architecture).
+
+## Pre-development analysis — what we want from Claude first
+
+Before any code, return a written analysis covering:
+
+### A. Pipeline self-maintenance
+
+**A1.** Validate that consolidating the two filter paths (BJK_KEYWORDS
+in fetcher.js, BJK_REGEX in processor.js) into one
+`passesEntityScreen()` function used everywhere is the right move.
+Identify any callers that would need updating. Flag any subtle
+behavioral differences between the two that need preserving.
+
+**A2.** Validate the proposed `team_entities` schema and the
+API-Football sync logic. Recommend a sync cadence (we propose weekly).
+Identify edge cases: loan moves, youth promotions, transfer window
+timing, dual-nationality name variants, players with accented vs
+non-accented Turkish names.
+
+**A3.** Validate the confidence-bucket pre-screen design (HIGH /
+MEDIUM / NONE). Estimate the impact on NVS call volume per 6-hour
+window vs current. Confirm Claude Haiku batch pricing makes this
+trivial. Identify any sources where MEDIUM bucket would be unusually
+high (e.g. transfer roundup sites that mention many player names).
+
+**A4.** Validate the proposal to keep NVS scoring untouched. Should
+NVS receive the bucket as additional context (e.g. "this article was
+flagged MEDIUM — only player name matched, no team name") to improve
+its own scoring? Or should NVS remain context-blind?
+
+**A5.** Migration path. We have an existing `keyword_config` JSONB
+in the `sites` table. How do we transition to the new system without
+breaking the current pipeline? Recommend a parallel-run strategy
+(both old and new run for N days, compare outputs, switch over).
+
+### B. Alarm framework
+
+**B1.** Validate the "alarms as data" approach. Should each alarm be
+a row referencing a registered check function (registered in code), or
+should the check itself be expressible in the row (SQL query string,
+or a small DSL)? Recommend based on flexibility vs safety tradeoffs.
+
+**B2.** State machine design. We propose states: `clear`, `firing`,
+`acknowledged`, `auto_resolved`, `manually_resolved`. Validate or
+propose alternatives. Specifically: should "acknowledged" suppress
+notifications while keeping the underlying check still running?
+
+**B3.** Notification routing. v1 we want at minimum: in-app indicator
+on /admin/rapor (badge counter), email or Telegram/Signal alert for
+P1 severity. Validate this stack. Identify the lowest-friction
+delivery channel that doesn't require external paid services.
+
+**B4.** History and retention. How long do we keep alarm event
+history? Storage cost vs investigability tradeoff. Should resolved
+alarms be archived after N days?
+
+**B5.** Multi-project future. The framework should work for Kartalix
+alarms today and other projects' alarms later (FlexNet uptime,
+Opticoms RFx tracking, etc.). What's the right scoping primitive?
+We propose a `project` field on each alarm definition. Validate.
+
+**B6.** Failure modes. What happens if the alarm runner itself fails?
+How do we monitor the monitor? Propose a simple heartbeat mechanism.
+
+### C. Sequencing
+
+**C1.** Recommend the order of phases. We propose: framework
+scaffolding first (data model, runner, UI shell), then pipeline
+filter unification, then auto-entities, then confidence bucket, with
+the first three pipeline-health alarms registered in the framework
+as the final step. Validate or propose alternative sequencing.
+
+**C2.** Honest effort estimate per phase, in senior-dev days.
+
+Return the analysis before writing any code. Wait for approval.
+
+## Architecture — starting hypothesis
+
+(Validate or refine in the analysis above; do not implement blindly.)
+
+### Part A: Pipeline self-maintenance
+
+#### A.1 Single source of truth for entity matching
+
+```javascript
+// src/relevance.js (new file)
+
+// Stable hardcoded core regex per team — never auto-updated.
+// These never change for the lifetime of the club.
+const TEAM_CORE_REGEX = {
+  BJK: /beşiktaş|besiktas|bjk|kartal|siyah[\s-]?beyaz|kara kartal|vodafone park|tüpraş stadyumu|inönü stadı/i,
+  // FB, GS, TS added later as Kartalix expands
+}
+
+// Returns { bucket: 'HIGH' | 'MEDIUM' | 'NONE', matched: [strings] }
+async function classifyRelevance(text, teamCode) {
+  const coreMatch = TEAM_CORE_REGEX[teamCode]?.exec(text)
+  if (coreMatch) {
+    return { bucket: 'HIGH', matched: [coreMatch[0]] }
+  }
+
+  const entities = await getActiveEntities(teamCode)  // cached, see A.2
+  const entityMatches = entities.filter(e => entityInText(e, text))
+  if (entityMatches.length > 0) {
+    return {
+      bucket: 'MEDIUM',
+      matched: entityMatches.map(e => e.surname)
+    }
+  }
+
+  return { bucket: 'NONE', matched: [] }
+}
+```
+
+Used by:
+- `fetcher.js` Stage 2 keyword filter (replace BJK_KEYWORDS lookup)
+- `processor.js` Stage 3 pre-filter regex (replace BJK_REGEX)
+- Anywhere else relevance is tested
+
+Pipeline behavior change:
+- HIGH or MEDIUM bucket → proceeds to NVS scoring
+- NONE bucket → dropped at pre-screen (same as today's "−101 not BJK")
+
+The MEDIUM bucket flag is stored on the article record so we can later
+measure: of MEDIUM-bucket articles, what % did NVS rate ≥55? This
+tells us whether MEDIUM bucket inclusion is worth its cost.
+
+#### A.2 team_entities table — auto-synced from API-Football
+
+```sql
+CREATE TABLE team_entities (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_code text NOT NULL,           -- 'BJK', 'FB', etc.
+  entity_type text NOT NULL,         -- 'player' | 'manager' | 'board' | 'legend'
+  full_name text NOT NULL,
+  surname text NOT NULL,
+  ascii_surname text NOT NULL,       -- accent-stripped for ASCII matching
+  nicknames text[],                  -- manual additions for unusual cases
+  active_from date NOT NULL,
+  active_until date,                 -- NULL = currently active
+  source text NOT NULL,              -- 'api_football' | 'manual'
+  api_football_player_id integer,    -- for upsert key
+  last_synced_at timestamp,
+  notes text,
+  UNIQUE (team_code, api_football_player_id)
+);
+
+CREATE INDEX ON team_entities (team_code, active_until)
+  WHERE active_until IS NULL OR active_until > NOW() - INTERVAL '90 days';
+```
+
+Cron job: weekly, Sunday 03:00 TRT.
+
+```
+1. For each team in `sites` table:
+   1.1 Fetch /players/squads?team={apifootball_team_id} from API-Football
+   1.2 Fetch /coachs?team={id} for manager
+   1.3 Upsert into team_entities (set active_until = NULL for current,
+       active_until = NOW() for players in DB but no longer in feed)
+2. Cache the active entity list per team in a hot cache (e.g. KV
+   key entities:BJK) with 7-day TTL.
+3. Emit a metric: entities_synced_count per team, expected ~30
+4. On unexpected delta (>20% change in active count), fire an
+   alarm via the alarm framework (registered alarm: ENTITY_SYNC_DELTA)
+```
+
+#### A.3 Threshold offset
+
+After confidence buckets are live, monitor: median NVS of published
+articles. If unchanged or higher, leave `auto_publish_threshold` at
+55. If slightly lower (MEDIUM bucket admitting some marginal
+content), increase threshold to 57 to keep monthly cost neutral.
+This is a quarterly review item, not weekly.
+
+### Part B: Alarm framework
+
+#### B.1 Data model
+
+```sql
+-- Alarm definitions: the registered alarms the system knows how to run
+CREATE TABLE alarm_definitions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  code text UNIQUE NOT NULL,           -- 'pipeline.drop_rate_spike'
+  name text NOT NULL,                  -- 'Pre-screen drop rate spike'
+  description text,                    -- one-paragraph for admin
+  project text NOT NULL,               -- 'kartalix' | 'flexnet' | 'opticoms'
+  category text,                       -- 'pipeline' | 'uptime' | 'data_quality'
+  severity text NOT NULL,              -- 'P0' | 'P1' | 'P2' | 'info'
+
+  check_function text NOT NULL,        -- name of the registered JS function
+  check_params jsonb DEFAULT '{}'::jsonb,  -- params passed to the check
+
+  schedule_cron text NOT NULL,         -- '0 * * * *' = hourly
+  enabled boolean NOT NULL DEFAULT true,
+
+  auto_clear boolean NOT NULL DEFAULT true,
+  auto_clear_after_minutes int,        -- if NULL, only clears when check returns clear
+
+  notify_channels text[] DEFAULT '{}', -- 'inapp' | 'email' | 'telegram'
+
+  created_at timestamp DEFAULT NOW(),
+  updated_at timestamp DEFAULT NOW()
+);
+
+-- Current state of each alarm
+CREATE TABLE alarm_states (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  definition_id uuid REFERENCES alarm_definitions ON DELETE CASCADE,
+  state text NOT NULL,                 -- 'clear' | 'firing' | 'acknowledged'
+  first_fired_at timestamp,
+  last_checked_at timestamp,
+  last_change_at timestamp,
+  current_value jsonb,                 -- the value that caused current state
+  acknowledged_by text,                -- user email when acknowledged
+  acknowledged_at timestamp,
+  acknowledged_note text,
+  UNIQUE (definition_id)
+);
+
+-- Event history: every state transition
+CREATE TABLE alarm_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  definition_id uuid REFERENCES alarm_definitions ON DELETE CASCADE,
+  event_type text NOT NULL,            -- 'fired' | 'auto_cleared'
+                                       -- | 'manually_cleared'
+                                       -- | 'acknowledged'
+                                       -- | 'check_error'
+  occurred_at timestamp DEFAULT NOW(),
+  prev_state text,
+  new_state text,
+  value jsonb,                         -- check output at time of event
+  actor text,                          -- 'system' | user email
+  note text
+);
+
+CREATE INDEX ON alarm_events (definition_id, occurred_at DESC);
+```
+
+Retention: keep alarm_events 90 days, then archive to cold storage
+or drop. Validate in analysis.
+
+#### B.2 Alarm runner
+
+Single cron job, runs every minute. Inside:
+
+```
+for each enabled alarm_definition:
+  if (now matches definition.schedule_cron):
+    try:
+      result = await checkRegistry[definition.check_function](
+        definition.check_params
+      )
+      // result shape: { firing: bool, value: any, details: string }
+
+      state = await getState(definition.id)
+      if (result.firing && state.state !== 'firing'):
+        transitionTo('firing', result)
+        notify(definition, result)
+      else if (!result.firing && state.state === 'firing'
+               && definition.auto_clear):
+        transitionTo('clear', result)
+        // optionally notify clear
+      // if acknowledged + still firing: do nothing, no re-notify
+    catch (err):
+      logCheckError(definition.id, err)
+```
+
+Check functions are registered in code:
+
+```javascript
+// src/alarms/checks/index.js
+export const checkRegistry = {
+  'pipeline.drop_rate_spike': checkDropRateSpike,
+  'pipeline.zero_articles_window': checkZeroArticles,
+  'pipeline.nvs_distribution_drift': checkNvsDrift,
+  // add more here as new alarms are registered
+}
+```
+
+This is the "alarms as data, but checks as code" split (the
+recommendation requested in B1 analysis). Pure data-driven checks
+(arbitrary SQL strings) feel flexible but become a security and
+debugging mess. Registered check functions with parameterized inputs
+are the right balance.
+
+#### B.3 First three alarms (registered together with the framework)
+
+| code | check | params | severity | schedule |
+|------|-------|--------|----------|----------|
+| pipeline.zero_articles_window | check published count in last N hours | {hours: 6, min: 3} | P1 | every 30 min |
+| pipeline.drop_rate_spike | per-source pass rate vs 14d baseline | {threshold_pct: 30} | P2 | hourly |
+| pipeline.nvs_distribution_drift | median published NVS vs 14d baseline | {drift_points: 10} | P2 | daily |
+
+Each is just a function in `src/alarms/checks/` + a row in
+`alarm_definitions`. Adding a new alarm later is: write a check
+function, register it in `checkRegistry`, insert a row in
+`alarm_definitions`. No infra changes.
+
+#### B.4 /admin/rapor UI
+
+Three sections on the page:
+
+**Section 1: Active alarms (top of page)**
+- Red banner if any P0/P1 firing
+- Yellow banner if any P2 firing
+- Each alarm card shows: name, severity, fired duration ("3h 14m"),
+  current value, [Acknowledge] [Manual Clear] buttons
+- Click into card → full event history
+
+**Section 2: Recently cleared (last 7 days)**
+- Compact list: timestamp, alarm name, was firing for X, clear type
+  (auto / manual)
+- Sortable
+
+**Section 3: Alarm definitions (collapsible)**
+- All registered alarms with enabled/disabled toggle
+- Schedule, severity, last check time
+- Edit thresholds inline (the `check_params` JSON)
+- "Run now" button for manual trigger
+
+Buttons:
+- **Acknowledge** — suppresses notifications until state changes,
+  check keeps running
+- **Manual Clear** — forces state to 'clear', regardless of check
+- **Disable** — stops the check from running
+
+#### B.5 Notification routing v1
+
+In-app: counter badge on /admin/rapor link in nav, updates real-time
+(or 30s poll).
+
+Email: simple SMTP via Supabase Auth's existing email infra or a
+free SendGrid tier. One email per alarm transition to 'firing'. No
+re-notify unless state changes.
+
+Telegram (alternative to email, often preferred for ops): Telegram
+Bot API is free, sends to a private channel. One bot, one chat ID,
+send via HTTP POST. Lower-friction than email for "I want to see this
+on my phone immediately."
+
+Recommend Telegram bot. Email as backup.
+
+#### B.6 Self-monitoring
+
+The alarm runner itself emits a heartbeat: writes `last_run_at` to
+a `system_heartbeat` table every minute. A separate, dead-simple
+check (NOT the alarm runner) runs every 5 minutes via Cloudflare
+cron and verifies `last_run_at` is fresh. If not, send a direct
+Telegram message bypassing the alarm system. This is the "monitor
+the monitor" safety net.
+
+## Roadmap entry
+
+Title: Self-Maintaining Pipeline + Alarm Framework
+Status: Analysis phase
+Owner: TBD after analysis review
+
+Phases (subject to Claude's analysis recommendation in C1):
+
+1. Pre-development analysis (this brief → Claude's response)
+2. Alarm framework scaffolding
+   - Data model migration
+   - Runner cron
+   - /admin/rapor UI shell
+   - Notification channels (Telegram + email)
+   - Self-heartbeat safety net
+3. Pipeline filter unification (consolidate fetcher + processor)
+4. team_entities table + API-Football weekly sync
+5. Confidence bucket pre-screen integration
+6. Register first three pipeline-health alarms
+7. Parallel-run period (1 week) comparing old vs new pipeline outputs
+8. Cutover; remove old keyword_config code path
+
+Estimated total: 8–12 senior-dev days for phases 2–8, plus
+analysis time. Confirm in analysis.
+
+## Things explicitly OUT of scope for v1
+
+- Editable check functions in the admin UI (no SQL string editing,
+  no DSL — check functions are code only)
+- Alarm grouping / suppression / dependency chains (a fires →
+  suppress b)
+- Multiple severity escalation timers (if P2 unresolved >24h,
+  escalate to P1)
+- Slack / Discord / PagerDuty integration
+- Cross-project alarm dashboards (filter by project works, but no
+  unified summary across projects)
+- Alarm SLA tracking (% acknowledged within X, % resolved within Y)
+
+These are all reasonable v2 additions. We want v1 to be the minimum
+working framework that we can extend with rows, not features.
+
+## What we want from Claude in the analysis
+
+A written response covering A1–A6, B1–B6, C1–C2 with concrete
+recommendations and effort estimates. Add the workstream to the
+Kartalix roadmap. Wait for approval before writing code. The
+analysis IS the first deliverable.
+
+Do not implement until approved.

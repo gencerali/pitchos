@@ -8,10 +8,14 @@
 
 ## CURRENTLY IN FLIGHT
 
-**Slice 0 — Build Scaffold + PM Agent**
-Started: 2026-04-28
-Estimated: 1–2 weeks
-Status: `in-progress`
+**Sprint J — Match Highlights (v0.96)**
+Started: 2026-05-17
+Prerequisite: Sprint K (v0.97 Situational Awareness) → Sprint L (v0.98 Alarms + Self-Maintaining Pipeline) → v1.0
+Status: `not-started` — blocked on DB cleanup + source seeding first
+
+Next action: Run Supabase DELETE (117 duplicate content_items rows), seed sources in /admin/sources/ui, then begin J1 schema/admin.
+
+> Slices 0–7 complete or superseded. See individual slice sections for done status.
 
 ---
 
@@ -722,76 +726,448 @@ NVS < 40  → web only
 
 **Why this matters**: The current pipeline has a hard rewrite cap (6/run) and a single 100-slot KV list. During high-volume news days (post-derby, transfer window), high-NVS articles get skipped and fall off the radar. The site never has more than ~20 fresh articles visible at once. This sprint replaces the cap with a persistent rewrite queue and grows the visible pool to 50–60 articles.
 
-**Status**: `not-started`
+**Status**: `done`
 **Estimated**: 2–3 sessions
 
 ---
 
-### H1 — Persistent Rewrite Queue (~3h)
+### H1 — Persistent Rewrite Queue (~3h) ✅ DONE (2026-05-14)
 
-**Problem**: `results.filter(r => r.publish_mode === 'rewrite').length < 6` is a per-run in-memory cap. Articles that miss the cap aren't saved to Supabase dedup, so they _may_ get retried next run — but only if still in the RSS feed. Articles from smaller feeds that expire within 2h are silently lost.
-
-**Solution**: `rewrite:queue` KV key — a JSON array of `{ url, title, nvs, source, published_at, rss_summary }` entries. Each hourly run:
-1. Any NVS≥60 article that would get `rss_summary` mode is appended to the queue (deduped by URL)
-2. Worker processes the top N from the queue (sorted by NVS desc) — N sized to fit worker CPU budget (~8–10)
-3. Successfully rewritten articles are removed from the queue; failures are retried next run
-4. Queue entries expire after 48h automatically (KV TTL)
-
-Cap removed from `writeArticles`. Queue bounded at 200 entries max.
+**Done**:
+- `enqueueForRewrite(article, siteCode, env)` in `src/publisher.js` — when per-run cap (6) is hit, queues article to `rewrite:queue:BJK` KV (JSON array sorted by NVS desc, max 200, 48h TTL)
+- `drainRewriteQueue(site, env)` in `src/publisher.js` — drains top 8 from queue via `synthesizeArticle`, removes succeeded/skipped entries, retries failures
+- `runAllSites` in worker calls drain after main pipeline on every hourly run; saves results to DB+KV
+- `/admin/rewrite-queue` endpoint — GET to inspect current queue
+- Articles that miss the cap are no longer silently lost; they persist up to 48h with retry
 
 ---
 
-### H2 — Pool Size: 20 → 60 articles (~2h)
+### H2 — Pool Size & Decay Engine ✅ DONE (2026-05-14)
 
-**Problem**: `mergeAndDedupe([...newKVItems, ...latestKV], 100)` caps the KV pool at 100 items but the homepage only shows ~20. Articles 21–100 are never seen. The pool doesn't distinguish "featured" from "available."
+**Problem**: `mergeAndDedupe([...newKVItems, ...latestKV], 100)` caps the KV pool at 100 items with no age decay — an NVS-70 article from 3 days ago outranked NVS-65 fresh articles.
 
-**Solution**:
-- Grow `articles:BJK` pool to 200 slots (KV stores JSON; 200 short articles ~= 150KB, well within KV 25MB limit)
-- Introduce a `rank_score = nvs × freshness_decay` where `freshness_decay = e^(-age_hours / 36)` — NVS 75 article is still top-ranked at 12h; by 48h it's dropped to 30% weight
-- Homepage renders top 20 by rank_score; "Daha fazla" button loads next 20 from the same pool
-- Admin can pin articles (`is_pinned: true`) which forces `rank_score = 999` regardless of age
+**Done**:
+- `rankAndEvict(articles, limit=200, opts)` in `src/publisher.js` — dedupes, scores each article with `rank_score = nvs × e^(-age/halfLife) × storyBoost`, applies hard TTL eviction, evicts below floor=5
+- Half-lives: event flashes 0.5h, result flash 4h, rewrites 8h, copy_source 3h, match report 24h, previews 18h, manual 96h
+- Hard TTLs: event flashes 3h, T11 12h, T12/T13 72h, copy_source 12h, rss_summary 2h
+- `cacheToKV` now calls `rankAndEvict` internally — all 35 write sites get decay automatically; output ceiling 200
+- All `mergeAndDedupe` limits raised 100→300 so rankAndEvict receives full candidate pool
+- Re-rank pass added to quiet cron path: existing KV re-ranked every 30-min tick even with no new articles
+- DB seed queries raised to 300 rows
 
----
-
-### H3 — Manual Publish: Beklemede → Yayında (~1h) ✅ PARTIAL (2026-05-13)
-
-**Problem**: Admin editors see pending articles but have no one-click path to promote them. "Kaydet" button was wired to content fields only — status dropdown was disconnected.
-
-**Done (2026-05-13)**:
-- `saveArticle()` now reads `eStatus` dropdown and sends `status` field to `/admin/content-save`
-- Backend PATCH includes `status` field
-- KV promoted immediately on publish: pending article fetched from Supabase and prepended to `articles:BJK` feed
-
-**Remaining**:
-- [ ] Quick-publish button directly in the admin news list (one click, no edit form needed) — POST `/admin/content-publish?slug=X`
-- [ ] Bulk promote: select N pending articles → publish all
+**Not yet done** (defer to Sprint I):
+- `trust_score` multiplier in rank formula (designed but not implemented — see Sprint I)
+- `is_pinned` admin override (`rank_score = 999`)
+- "Daha fazla" pagination on homepage
 
 ---
 
-### H4 — Topic / Category Pages (~2h)
+### H3 — Manual Publish: Beklemede → Yayında (~1h) ✅ DONE (2026-05-14)
 
-**Problem**: All articles live at `/` in a single chronological feed. A user interested only in transfer news has no way to filter. SEO suffers — no structured topic URLs.
-
-**Solution**:
-- `/konu/transfer`, `/konu/sakat`, `/konu/mac-sonuclari`, `/konu/kurumsal` — worker serves filtered KV pool per category
-- Navigation tabs on homepage (Tümü | Transfer | Maç | Sakat | Diğer)
-- No new DB schema needed — `category` field already on every article; filtering is client-side from the KV pool
-- `sitemap.xml` extended to include category pages
+**Done**:
+- `saveArticle()` reads `eStatus` dropdown and sends `status` field to `/admin/content-save` (2026-05-13)
+- `/admin/content-publish` POST endpoint — auth-gated, PATCH status+published_at, promotes article into KV feed immediately
+- "Yayınla ↑" button shown inline in every `pending` article row in the admin list — one-click, no editor form needed
+- Click gives green ✓ feedback and refreshes the list
+- Bulk promote deferred (low priority — queue is usually 0–3 pending)
 
 ---
 
-### H5 — Multi-Source Rewrite Upgrade (~2h)
+### H4 — Topic / Category Pages (~2h) ✅ DONE (2026-05-14)
 
-**Problem**: Standard `synthesizeArticle` reads 1 source. For major news (derby reaction, big transfer), multiple sources are writing on the same story at the same time — combining their perspectives produces a richer Kartalix original than any single source.
+**Done**:
+- `renderTopicPage(slug)` in worker: full HTML page with nav, card grid, client-side `/cache` fetch + category filter
+- Routes: `/konu/transfer`, `/konu/mac`, `/konu/sakat`, `/konu/kulup`, `/konu/analiz`, `/konu/milli`
+- `TOPIC_META` map: label, SEO title/desc, category filter strings per slug
+- `kartalix.com/konu/*` route added to `wrangler.toml`
+- 404 fallback for unknown topic slugs
 
-**Solution**:
-- After story matching runs, if a story has ≥3 confirmed contributions within 6h of each other: trigger `synthesizeStory` (already implemented in Sprint D2, but only callable via `/force-story-synthesis`)
-- Wire `synthesizeStory` into backgroundWork: after story matching loop, collect stories that became `developing` or `confirmed` this run, fire for each (cap 2/run)
-- Result: a Kartalix original (`publish_mode: 'rewrite'`) written across 3–5 independent sources — demonstrably non-derivative, better editorial quality
+**Not done** (defer):
+- [ ] Navigation tabs in `index.html` homepage (Cloudflare Pages static — separate deploy)
+- [ ] `sitemap.xml` extended to include `/konu/*` URLs
+
+---
+
+### H5 — Multi-Source Synthesis Trigger (~2h) ✅ DONE (2026-05-14)
+
+**Done**:
+- `checkH5SynthGate(storyId, env)` module-level function: gates on ≥3 total contributions, ≥2 in last 6h, NVS≥60 + 2 distinct sources (when items are linked), dedup-today KV key
+- H5 block in `backgroundWork` loop: fires `synthesizeStory` for stories in `storiesThisRun`, cap 2/run
+- `/force-h5` endpoint: dry-run + `fire=1` mode; `all=1` scans all stories
+- `synthesizeStory` 3-strategy source finding: (1) story_id on content_items, (2) via contributions, (3) keyword fallback with progressive shortening
+- Full test: "Beşiktaş departures" (72 contribs) → gate passed → article published
+- trust_score gate deferred to Sprint I
 
 ---
 
 **Done when**: homepage consistently shows 40+ articles; post-derby day produces ≥15 rewrite articles without manual intervention; pending articles can be one-click published from admin list.
+
+---
+
+---
+
+## Sprint I — Trust Architecture
+
+**Why this matters**: NVS scores engagement + relevance but not factual reliability. A tabloid transfer rumor (NVS 75) currently outranks a confirmed club statement (NVS 60) on the homepage, and can trigger synthesis. Trust is a separate signal that must gate synthesis and influence ranking independently of fan value.
+
+**Status**: `not-started`
+**Estimated**: 3–4 sessions
+**Prerequisite**: Sprint H complete
+
+---
+
+### The two scores
+
+| Score | What it measures | Used for |
+|---|---|---|
+| `nvs_score` | Fan relevance + freshness + content quality + fun factor | Homepage ranking (already drives `rankAndEvict`) |
+| `trust_score` (new) | Source tier + story independence + journalist accuracy | Synthesis gate; ranking multiplier |
+
+In `rankAndEvict`: `rank_score = nvs × decay × trust_multiplier` where `trust_multiplier = trust_score / 50` (trust=50 neutral, trust=100 doubles rank, trust=10 nearly zeros it). Low-trust articles decay faster in effective rank.
+
+---
+
+### I1 — Source Trust Tiers (~2h)
+
+Add `trust_tier` and `source_family` fields to `source_configs` table.
+
+| Tier | Who | trust_score base | Effect |
+|---|---|---|---|
+| `T1` | BJK official, UEFA, TFF | 90 | NVS +10 at ingestion |
+| `T2` | Established sports press (Fanatik, Milliyet, Sporx) | 70 | Normal |
+| `T3` | Press agencies (AA, DHA, Reuters) | 60 | Flag `agency_wire=true` — counts as half-source for independence |
+| `T4` | Aggregators, blogs, unknown | 30 | NVS cap −10; cannot trigger synthesis alone |
+
+`source_family`: media group slug (e.g. `turkuvaz`, `dogan`, `ihlas`, `bjk_official`, `independent`). Used for source diversity check in synthesis gate.
+
+- [ ] DB migration: `source_configs` add columns `trust_tier TEXT`, `source_family TEXT`, `trust_score INT DEFAULT 50`
+- [ ] Seed values for all 17+ existing sources in `/admin/sources/ui`
+- [ ] `scoreArticles` reads `trust_score` from source config and stores it on `content_items.trust_score`
+- [ ] `rankAndEvict` applies `trust_multiplier = trust_score / 50` in rank formula
+
+---
+
+### I2 — Story Independence Hardening (~1h)
+
+Strengthen the synthesis trigger's source diversity check from "distinct source_name" to "distinct source_family":
+
+- 3 articles from Sabah + Takvim + Yeni Şafak = 1 source family (Turkuvaz) → does NOT trigger synthesis
+- 2 articles from Fanatik (Doğan) + 1 from BJK official = 2 source families → DOES trigger synthesis
+
+Replace `count(distinct source_name) >= 2` with a join to `source_configs` on `source_family`.
+
+- [ ] Story synthesis trigger updated in `backgroundWork` (Sprint H5)
+- [ ] Story confirmation gate in `story-matcher.js` hardened with same family logic
+
+---
+
+### I3 — Journalist Trust Tracking (~3h)
+
+Long-term reliability scoring. Designed to run silently alongside the pipeline; no breaking changes.
+
+**New tables** (migration `0006_journalist_trust.sql`):
+```sql
+journalists (id, name, outlet, source_id → source_configs, verified bool, created_at)
+
+journalist_claims (id, journalist_id, article_id → content_items,
+  claim_text, claim_type TEXT CHECK IN
+    (transfer_arrival, transfer_departure, injury, contract, appointment, result_prediction),
+  claim_subject TEXT, claim_date DATE, resolved BOOL DEFAULT false, created_at)
+
+journalist_outcomes (id, claim_id, resolved_at, verdict TEXT CHECK IN
+    (true, false, partial, unverifiable), evidence_url, notes)
+```
+
+**Accuracy view** (materialized or computed on read):
+```sql
+journalist_accuracy (journalist_id, claim_type,
+  total_claims, resolved_claims, true_count, true_ratio, last_updated)
+```
+
+**At ingestion** (Haiku, same call as `extractKeyEntities`): extract journalist name if byline present → match or create `journalists` record → extract any forward-looking claims → store in `journalist_claims`.
+
+**Weekly cron** (Sunday 02:00, alongside voice extraction): scan resolved stories, compare against open claims, update `journalist_outcomes` where auto-verifiable (e.g. "Rashica transferi kesinleşti" in later article confirms claim).
+
+**trust_score evolution**: `trust_score = source_tier_base × journalist_accuracy.true_ratio` (if journalist known; otherwise tier base alone).
+
+- [ ] DB migration written and run
+- [ ] Claim extraction added to `extractKeyEntities` in publisher.js (Haiku, incremental)
+- [ ] Weekly outcome cron (auto-verifiable subset only — manual verification UI deferred)
+- [ ] Admin `/admin/journalists` page: list journalists, true_ratio per claim type, recent claims
+
+---
+
+### I4 — trust_score Feedback Loop (~1h)
+
+Wire journalist accuracy back into rank scores:
+
+- Weekly: recompute `trust_score` for each source/journalist in `source_configs` / `journalists`
+- On next ingestion, new articles from that source get updated `trust_score`
+- No backfill needed — only future articles carry the updated score
+
+- [ ] Weekly recompute cron added (Monday 03:00)
+- [ ] Admin shows `trust_score` column in source list
+
+---
+
+**Done when**: a transfer rumor from a T4 source gets visibly lower rank on homepage than a T1 confirmation; synthesis requires ≥2 source families; journalist accuracy table has 30+ resolved claims.
+
+---
+
+## Sprint J — Maç Özetleri (Match Highlights)
+
+**Why this matters**: The `/konu/videolar` tab mixes everything. Fans arriving after a match want the özet immediately — it gets buried. A dedicated highlights section with per-match cards, filters, and deep links becomes the highest-engagement page on the site during match week.
+
+**Status**: `not-started`
+**Estimated**: 6–8 sessions
+**Prerequisite**: Sprint I complete
+**Spec**: `C:\Git\pitchos\temp\kartalix_match_highlights_prompt.txt`
+
+**Architecture notes (Kartalix-specific)**:
+- No React. Vanilla JS in Worker-rendered HTML, same pattern as `renderTopicPage`.
+- Fixture data from API-Football (already live) — `matches` DB table stores only özet metadata keyed by `fixture_id`.
+- Channels: beIN SPORTS Türkiye (Süper Lig özet) + aSpor (Türkiye Kupası özet + yorum) — both already in YouTube pipeline.
+- Yorum videos flow into general Videolar feed in v1 (no per-match linking).
+- UEFA embed restrictions: "YouTube'da izle" button placeholder.
+- Season stats: computed client-side from filtered matches.
+
+---
+
+### J1 — Schema + Admin (~2h)
+
+`matches` table — özet metadata linked to API-Football fixture IDs:
+```sql
+CREATE TABLE matches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  fixture_id INT UNIQUE NOT NULL,         -- API-Football fixture ID
+  slug TEXT UNIQUE NOT NULL,              -- URL slug, auto-generated
+  season TEXT NOT NULL,                   -- e.g. "2025-26"
+  competition TEXT NOT NULL,             -- super_lig | turkiye_kupasi | uefa_cl | uefa_el | uefa_conf
+  competition_round TEXT,               -- e.g. "7. Hafta", "Çeyrek Final"
+  match_date TIMESTAMPTZ NOT NULL,
+  home_team TEXT NOT NULL,
+  away_team TEXT NOT NULL,
+  home_score INT,
+  away_score INT,
+  venue TEXT,
+  bjk_is_home BOOLEAN NOT NULL,
+  bjk_result TEXT CHECK (bjk_result IN ('win','draw','loss','not_played')),
+  is_derby BOOLEAN DEFAULT false,
+  ozet_youtube_id TEXT,
+  ozet_thumbnail_url TEXT,
+  ozet_source_channel TEXT,
+  ozet_published_at TIMESTAMPTZ,
+  no_ozet_expected BOOLEAN DEFAULT false,  -- rights issue flag
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+- [ ] DB migration `0007_matches.sql` written and run
+- [ ] Slug generation utility (Turkish character normalisation, competition-aware pattern)
+- [ ] `/admin/matches` — table view sorted by date desc, paste YouTube URL per row, oEmbed fetch for thumbnail + title, `no_ozet_expected` toggle
+- [ ] Seed: all 2025-26 Beşiktaş fixtures populated (via API-Football `/fixtures` endpoint), özet IDs filled where known
+
+---
+
+### J2 — Maç Özetleri Section on /konu/videolar (~3h)
+
+New section rendered at top of topic page, above existing video feed:
+
+- Hero strip: "Son Maç" card (latest played, large play button) + "Sıradaki Maç" card (within 7 days, countdown)
+- Filter bar: Sezon pills + Kupa pills + Rakip Ara text input (Turkish-aware)
+- Match card grid: 3-col desktop / 2-col tablet / 1-col mobile, 12 per page + "Daha fazla" button
+- Card layout: competition badge + round label, home crest — scoreline — away crest, result tint (win/draw/loss), Derby pill, date + venue, play button or "Özet yakında" badge
+- Hover: thumbnail overlay at 40% opacity + red play circle
+
+- [ ] `/konu/videolar` `renderTopicPage` refactored — separate "Maç Özetleri" section above existing video cards
+- [ ] Match cards fetch from new `/matches` API endpoint (Worker route, returns JSON from `matches` table)
+- [ ] Filter state syncs to query params (`?sezon=2025-26&kupa=super-lig&q=fener`)
+- [ ] "Özet yok" and "Özet yakında" empty states handled
+
+---
+
+### J3 — Match Pages + Modal Player (~2h)
+
+- Worker route `/videolar/{season}/{competition}/{slug}` → `renderMatchPage(slug)`
+- SEO: `<title>`, `<meta description>`, OG tags (og:image = YouTube maxres thumbnail), JSON-LD SportsEvent schema
+- Modal: YouTube iframe (autoplay on open), score + date + round below player, Share button
+- Deep link: navigating directly to match URL opens modal pre-opened on `/konu/videolar` grid
+- Sitemap updated to include all match pages
+
+- [ ] `renderMatchPage` function in worker
+- [ ] Pages Function `functions/videolar/[[path]].js` proxies to Worker
+- [ ] `serveSitemap()` extended with `/videolar/*` entries
+- [ ] Canonical URL + robots: index on match pages
+
+---
+
+### J4 — Auto-ingestion Cron (~2h)
+
+Daily at 02:00 TRT — runs alongside existing crons:
+1. Fetch latest 50 videos from beIN SPORTS Türkiye (channel `UCPe9vNjHF1kEExT5kHwc7aw`)
+2. Fetch latest 50 videos from aSpor channel
+3. Filter titles matching Beşiktaş özet patterns (regex)
+4. Parse opponent + score + round from title
+5. Match against `matches` table by `match_date ±2 days` + opponent name similarity
+6. If match found and `ozet_youtube_id` is null: populate + fetch thumbnail via oEmbed
+7. Log unmatched videos to KV `matches:unmatched` for admin review
+
+- [ ] `syncMatchOzetleri(env)` function in worker
+- [ ] beIN SPORTS + aSpor channel IDs confirmed and stored in site config
+- [ ] Unmatched log visible in `/admin/matches`
+
+---
+
+### J5 — SEO, Accessibility, Mobile Polish (~1h)
+
+- [ ] Lazy-load thumbnails (`loading="lazy"`)
+- [ ] Keyboard nav: tab through cards, Enter opens modal, Esc closes
+- [ ] ARIA labels on cards
+- [ ] Color never the only result signal (icon/text accompanies win/loss tint)
+- [ ] Mobile: infinite scroll on match grid
+- [ ] Lighthouse pass: Performance ≥ 85, Accessibility ≥ 90
+
+---
+
+**Done when**: a fan arriving post-match can click Maç tab → see latest özet card at top → click → watch embedded video without leaving Kartalix.
+
+---
+
+## Sprint K — Situational Awareness Engine
+
+**Why this matters**: Every generated article currently lacks situational ground truth. A transfer flash doesn't know we're chasing 3rd place. A match report doesn't know whether a win locks us into EL or UECL. The ZTK result cascades to European qualification scenarios that no article currently reflects. Centralizing this context means every article — regardless of type — starts from accurate situational footing without manual prompt engineering.
+
+**Status**: `not-started`
+**Estimated**: 6–8 days (senior dev equivalent)
+**Prerequisite**: Sprint I (trust architecture) preferred but not blocking
+**Spec**: `C:\Git\pitchos\temp\kartalix_situational_awareness_brief.txt`
+**Analysis**: `docs/sprint-k-analysis.md` — full A1–A10 analysis, effort estimates, function signatures, data model (session 22)
+
+**Architecture**: Three-layer system.
+- **Layer 1** — Live Facts: standings, fixtures, form, rivals. Already largely implemented in `getLeagueContext()` / `buildGroundingContext()`. Gap-fill needed.
+- **Layer 2** — Derived Situation: pure function. Mathematical locks, European path decision tree (including cup cascade + seeding + drop-down rules). Partially exists (`gaps.possible`). Key gaps: cup cascade logic, seeding bands, lock/guarantee calculations.
+- **Layer 3** — Editorial Context: structured JSONB per team in `sites` table. Manager stated goal, narrative arc, transfer posture, key editorial dates. Currently: primitive `season:notes` KV string. Needs schema + admin form.
+
+**New module**: `src/situation.js` (~300 lines). Integrates via `buildSituationContext(teamCode, season, env)` called alongside `buildGroundingContext()` in synthesis paths.
+
+---
+
+### K1 — Layer 1 Audit + Gap-Fill (~1d)
+
+Audit what `getLeagueContext()` already returns, add what's missing:
+
+- [ ] Confirm what `getLeagueContext()` already provides: standings ✅, form ✅, rivals + their next fixture ✅, gap-to-cutoff calculations ✅, European spot mapping ✅
+- [ ] **Gap**: remaining fixture list for BJK (all, not just next) — `getFixturesByTeam(teamId, leagueId, season, 'not_played', env)` — add to `api-football.js`
+- [ ] **Gap**: rival remaining fixtures (plural, not just next one) — `rivalRemainingFixtures` — add to `getLeagueContext()` output
+- [ ] **Gap**: cup competition status — TFF cup bracket not in API-Football; add as manually-settable KV key `cup:status:${teamId}` (who's in the final, result once played)
+- [ ] **Gap**: Turkey's UEFA coefficient band for 2025-26 — hardcode in `EUROPEAN_RULES` constant (changes annually, not mid-season)
+- [ ] Layer 1.5 cache: invalidate `league-context:*` after `generateResultFlash()` fires so next article sees fresh standings
+
+---
+
+### K2 — Layer 2: Mathematical Locks + Rival Analysis (~1d)
+
+Extend the existing `gaps` computation in `getLeagueContext()`:
+
+- [ ] `computeMathLocks(table, teamRow)` — for each cutoff position (top-1/2/3/4), compute whether BJK is **mathematically guaranteed** regardless of remaining results (distinct from `possible`): `locked_top_N: bool`
+- [ ] `computeMathElimination(table, teamRow)` — whether catching a given position is mathematically impossible
+- [ ] `computeWorstCaseRank(table, teamRow, remainingFixtures)` — BJK loses all; rivals win all; what's the worst possible final rank?
+- [ ] `computeRivalThreatIndex(rival, rivalRemainingFixtures)` — difficulty-weighted remaining schedule (opponent rank as proxy); high threat = easy schedule ahead
+- [ ] Goal difference scenario flag: `gd_tiebreaker_risk: bool` — true if BJK could end level on points with any rival (at which point GD becomes decisive)
+
+---
+
+### K3 — Layer 2: European Qualification Rule Engine (~2d)
+
+The hardest component. Pure function: `computeEuropeanPath(facts, cupStatus, rules)`.
+
+- [ ] `EUROPEAN_RULES` constant in `src/situation.js`:
+  ```js
+  {
+    '2024-25': { 'TR': {
+      league: {
+        1: { comp: 'UCL', round: 'Q1', note: 'Path B' },
+        2: { comp: 'UEL', round: 'Q2', seeded: true },
+        3: { comp: 'UEL', round: 'Q2', seeded: false, playoff_seeded: true },
+        4: { comp: 'UECL', round: 'Q2', seeded: false },
+      },
+      cupWinner: { comp: 'UEL', round: 'Q2', cascade_if_qualified: true },
+      dropDown: {
+        UCL_Q1_exit: 'UEL_Q1', UEL_Q2_exit: 'UECL_Q2', UEL_PO_exit: 'UECL_GS'
+      }
+    }}
+  }
+  ```
+- [ ] `resolveCupCascade(leagueTable, cupWinnerId, rules)` — if cup winner already qualified via league, walk down the table to the next unqualified team and assign them the cup slot
+- [ ] `computeEuropeanPath(leaguePosition, cupWinnerId, teamId, rules)` → `{ competition, round, seeded, fallback_if_eliminated, scenarios }`
+- [ ] `scenarios` array: when multiple outcomes are still possible (cup not yet played), return all live scenarios with their conditions
+- [ ] Edge case: team qualifies via both league AND cup — "best competition" rule (keep the higher competition, cup slot cascades)
+- [ ] Unit tests: `test/european-rules.test.js` — 8+ scenarios covering cascade, drop-down, double qualification
+- [ ] Frozen snapshot: `test/fixtures/bjk_2024_25_final.json` — populate after 2024-25 season ends, verify against actual UEFA pot placement
+
+---
+
+### K4 — Layer 3: Editorial Context Schema + Admin Form (~1.5d)
+
+Replace the primitive `season:notes:${teamId}` KV string with a structured schema.
+
+- [ ] DB migration `0008_sites_editorial_context.sql`:
+  ```sql
+  ALTER TABLE sites ADD COLUMN IF NOT EXISTS editorial_context JSONB DEFAULT '{}';
+  ```
+- [ ] Schema (validated on save):
+  ```json
+  {
+    "manager": "string",
+    "manager_stated_goal": "string",
+    "narrative_arc": "string",
+    "transfer_posture": "string (optional)",
+    "key_editorial_dates": [{ "date": "YYYY-MM-DD", "event": "string", "impact": "string" }],
+    "concerns": ["string"],
+    "european_path_override": "string (optional — manual override if rules are wrong)",
+    "season_closed": false
+  }
+  ```
+- [ ] `/admin/editorial-context` — form with one textarea per field, live preview of the formatted prompt paragraph below the form, "Kaydet" button
+- [ ] Seed BJK 2024-25 editorial context on first deploy
+- [ ] `editorialContext(teamCode, env)` in `src/situation.js` — reads from `sites.editorial_context` JSONB, falls back gracefully with empty fields
+
+---
+
+### K5 — Glue + Integration (~1.5d)
+
+Wire all three layers into the article generation paths.
+
+- [ ] `src/situation.js` new file:
+  ```js
+  export async function buildSituationContext(teamCode, season, env)
+  export async function liveFacts(teamCode, season, env)
+  export function deriveSituation(facts, rules)
+  export async function editorialContext(teamCode, env)
+  function formatForPrompt(facts, situation, editorial, lang = 'tr')
+  ```
+- [ ] `formatForPrompt()` returns the Turkish paragraph (see spec for target output shape); `european_path_override` in Layer 3 supersedes Layer 2 derivation when set
+- [ ] Integrate into `publisher.js`: call `buildSituationContext()` in parallel with `buildGroundingContext()` in `synthesizeArticle()` and `generateOriginalNews()` — prepend as separate block before the DOĞRULANMIŞ VERİLER block
+- [ ] Integrate into template generators: inject into `generateMatchPreview()`, `generateMatchReport()` (match-context templates that most benefit from situational narrative)
+- [ ] Cache Layer 2 output: `situation:derived:${teamCode}:${standingsHash}` in KV, 1h TTL; invalidate alongside standings cache
+- [ ] Graceful degradation: if `buildSituationContext()` throws, log and return `''` — article generation continues
+
+---
+
+### K6 — Layer 3.5: LLM-Curation Cron (optional, later) (~3d)
+
+**Deferred** — implement after K1–K5 have been running for 4+ weeks and Layer 3 schema is stable.
+
+When implemented:
+- Weekly cron (Wednesday 03:00) reads last 14 days of Kartalix articles (from `content_items` in Supabase) + runs Haiku call proposing updates to Layer 3 JSON fields only
+- Output strictly schema-validated; rejects any fields not in Layer 3 schema (blocks hallucinated Layer 1/2 data creeping in)
+- Proposed changes surface in `/admin/editorial-context` as a diff view — admin accept/reject per field
+- Each proposed change sourced to specific article slugs in our DB
+
+---
+
+**Done when**: a match report, a transfer flash, and a YouTube embed article all contain an accurate situational paragraph referencing the team's league position, European qualification path, and the relevant week's stakes — with zero manual prompt engineering.
 
 ---
 
@@ -864,6 +1240,7 @@ Cap removed from `writeArticles`. Queue bounded at 200 entries max.
 | 6 | Editorial QA + Authors | 2–3 wks | not-started |
 | 7 | Governance Layer (CLO + CFO) | 2 wks | not-started |
 | 8 | Self-Learning Loops | 3 wks | not-started |
+| K | Situational Awareness Engine | 6–8 days | not-started — analysis done |
 
 **Agents live or planned**:
 | Agent | Slice | Status |

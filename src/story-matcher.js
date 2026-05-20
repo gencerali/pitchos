@@ -1,5 +1,6 @@
 import { callClaude, extractText, supabase, generateSlug, MODEL_FETCH, MODEL_GENERATE, getEditorialNotes } from './utils.js';
-import { fetchViaReadability } from './publisher.js';
+import { fetchViaReadability, cacheToKV, getCachedArticles, checkContentCoversTitlePromise } from './publisher.js';
+import { BJK_REGEX } from './processor.js';
 import { normalizeStoryType } from './firewall.js';
 
 // ─── CONFIDENCE DELTAS ────────────────────────────────────────
@@ -126,7 +127,7 @@ If this is a new story:
   "match": "new",
   "story_type": "<use the pre-classified type above if provided, otherwise: transfer, injury, contract, disciplinary, institutional, other>",
   "story_category": "sporting" | "financial" | "institutional" | "other",
-  "title": "<short working title for this story>",
+  "title": "<short working title in Turkish>",
   "contribution_type": "initial",
   "confidence_delta": 30,
   "reason": "<one sentence>"
@@ -250,7 +251,7 @@ async function applyContribution(story, decision, article, env) {
 // synthesizes an original 300–500 word Kartalix article via Claude Sonnet.
 // Source text is never stored — discarded after generation.
 // See DECISIONS.md 2026-04-29 — Synthesis generation.
-async function generateStoryArticle(story, facts, article, siteId, env) {
+async function generateStoryArticle(story, facts, article, siteId, env, siteCode = '') {
   // 1. Fetch full text of the triggering source article
   let sourceText = '';
   if (article.url && article.url !== '#') {
@@ -345,6 +346,11 @@ Sadece Türkçe haber metnini yaz.`;
   });
   await recordTransition(story.id, 'confirmed', 'active', 'new_contribution', env, 'Article synthesized');
 
+  if (siteCode && saved?.[0]) {
+    const existing = await getCachedArticles(env, siteCode);
+    await cacheToKV(env, siteCode, [{ ...saved[0], nvs: saved[0].nvs_score || 75, is_kartalix_content: true }, ...existing]);
+  }
+
   console.log(`STORY SYNTHESIZED: "${title.slice(0, 60)}" → story ${story.id}`);
   return saved?.[0] || null;
 }
@@ -354,7 +360,7 @@ Sadece Türkçe haber metnini yaz.`;
 // from up to 5 contributions, writes an original Kartalix article from
 // an angle that cannot be attributed to any single source.
 // Dedup: one synthesis per story per calendar day (KV key synth:{id}:{date}).
-export async function synthesizeStory(story, siteId, env) {
+export async function synthesizeStory(story, siteId, env, siteCode = '') {
   const today = new Date().toISOString().slice(0, 10);
   const dedupKey = `synth:${story.id}:${today}`;
   if (await env.PITCHOS_CACHE.get(dedupKey)) {
@@ -362,19 +368,64 @@ export async function synthesizeStory(story, siteId, env) {
     return null;
   }
 
-  // Fetch contributions with their source URLs
-  const contribs = await supabase(env, 'GET',
-    `/rest/v1/story_contributions?story_id=eq.${story.id}&content_item_id=not.is.null&order=created_at.asc&limit=5&select=content_item_id`
-  ) || [];
-  if (contribs.length < 3) {
-    console.log(`SYNTH-D2: skipping ${story.id} — only ${contribs.length} contributions`);
+  // Gate C: story title must contain a BJK keyword — prevents synthesizing rival/off-topic stories
+  if (!BJK_REGEX.test(story.title || '')) {
+    console.log(`SYNTH-D2: skipping ${story.id} — story title has no BJK keyword: "${(story.title || '').slice(0, 60)}"`);
     return null;
   }
 
-  const itemIds = contribs.map(c => c.content_item_id).filter(Boolean);
-  const items = await supabase(env, 'GET',
-    `/rest/v1/content_items?id=in.(${itemIds.join(',')})&select=title,original_url,summary`
+  // Count contributions from story_contributions table
+  const contribRows = await supabase(env, 'GET',
+    `/rest/v1/story_contributions?story_id=eq.${story.id}&order=added_at.desc&limit=100&select=content_item_id,added_at`
   ) || [];
+  if (contribRows.length < 3) {
+    console.log(`SYNTH-D2: skipping ${story.id} — only ${contribRows.length} contributions`);
+    return null;
+  }
+
+  // Strategy 1: content_items directly linked by story_id (new pipeline, post ID-fix)
+  let items = await supabase(env, 'GET',
+    `/rest/v1/content_items?story_id=eq.${story.id}&order=nvs_score.desc&limit=5&select=title,original_url,summary,source_name`
+  ) || [];
+
+  // Strategy 2: items linked via story_contributions.content_item_id (partial — many null)
+  if (items.length < 2) {
+    const linkedIds = contribRows.map(c => c.content_item_id).filter(Boolean);
+    if (linkedIds.length >= 2) {
+      items = await supabase(env, 'GET',
+        `/rest/v1/content_items?id=in.(${linkedIds.slice(0, 5).join(',')})&select=title,original_url,summary,source_name`
+      ) || [];
+    }
+  }
+
+  // Strategy 3: keyword search from story entities or title (fallback for legacy stories)
+  if (items.length < 2) {
+    const entityName = (() => {
+      try {
+        const e = story.entities;
+        if (!e) return null;
+        const parsed = typeof e === 'string' ? JSON.parse(e) : e;
+        const val = parsed?.name || parsed?.player_name || parsed?.person
+          || (Array.isArray(parsed) ? parsed[0]?.name || parsed[0] : null);
+        return typeof val === 'string' ? val : null;
+      } catch { return null; }
+    })();
+    const since = new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    // Try progressively shorter keywords until we find at least 2 items
+    const titleWords = (story.title || '').split(/\s+/).filter(w => w.length > 3);
+    const candidates = [
+      entityName,
+      titleWords.slice(0, 2).join(' '),
+      titleWords[0],
+    ].filter(Boolean);
+    for (const keyword of candidates) {
+      items = await supabase(env, 'GET',
+        `/rest/v1/content_items?title=ilike.*${encodeURIComponent(keyword)}*&fetched_at=gte.${since}&order=nvs_score.desc&limit=5&select=title,original_url,summary,source_name`
+      ) || [];
+      console.log(`SYNTH-D2: strategy3 keyword="${keyword}" found ${items.length} items`);
+      if (items.length >= 2) break;
+    }
+  }
 
   // Fetch full text for each source in parallel (cap 5s per source)
   const sourceFetches = await Promise.all(
@@ -390,6 +441,14 @@ export async function synthesizeStory(story, siteId, env) {
   const validSources = sourceFetches.filter(s => s.text && s.text.length > 100);
   if (validSources.length < 2) {
     console.log(`SYNTH-D2: skipping ${story.id} — not enough source text`);
+    return null;
+  }
+
+  // Gate D: combined sources must cover the story title's promise
+  const combinedSourceText = validSources.map(s => `${s.title}\n${s.text}`).join('\n\n');
+  const covers = await checkContentCoversTitlePromise(story.title || items[0]?.title || '', combinedSourceText, env);
+  if (!covers) {
+    console.log(`SYNTH-D2: skipping ${story.id} — sources do not cover story title's promise: "${(story.title || '').slice(0, 60)}"`);
     return null;
   }
 
@@ -414,28 +473,64 @@ KAYNAKLAR:
 ${sourceBlocks}
 
 YAZIM KURALLARI:
+- Önce Türkçe bir manşet yaz, sonra haber gövdesini yaz
+- Çıktı formatı — tam olarak bu şekilde:
+BAŞLIK: [Türkçe manşet buraya]
+
+[haber gövdesi buraya]
 - 350–500 kelime, güçlü Kartalix sesi
 - Lede: en önemli bilgiyi ilk cümlede ver, doğrudan ve çarpıcı
 - Kaynakların çerçevesinden bağımsız kendi Kartalix açını bul
 - Rakam ve tarih bilgilerini doğru kullan, yorumlarda özgün ol
 - "Kaynağa göre", "habere göre" gibi referans ifadeleri KULLANMA
-- Emoji yok, başlık yok — sadece haber gövdesi
-
-Sadece haber metnini yaz.`;
+- Emoji yok`;
 
   let body = '';
+  let title = story.title || items[0]?.title || 'Kartalix Analizi';
   try {
     const res = await callClaude(env, MODEL_GENERATE, prompt, false, 1800);
-    body = extractText(res.content).trim();
-    console.log(`SYNTH-D2: story ${story.id} → ${body.split(/\s+/).length} words from ${validSources.length} sources`);
+    const raw = extractText(res.content).trim();
+    // Parse BAŞLIK: prefix if present
+    const titleMatch = raw.match(/^BAŞLIK:\s*(.+)/m);
+    if (titleMatch) {
+      title = titleMatch[1].trim();
+      body = raw.replace(/^BAŞLIK:\s*.+\n*/m, '').trim();
+    } else {
+      body = raw;
+    }
+    console.log(`SYNTH-D2: story ${story.id} → title="${title.slice(0,60)}" ${body.split(/\s+/).length} words from ${validSources.length} sources`);
   } catch (e) {
     console.error('SYNTH-D2 failed:', e.message);
     return null;
   }
 
-  if (!body || body.length < 200) return null;
+  // Gate A: refusal text detection — matches known Claude refusal patterns in Turkish and English
+  const SYNTH_REFUSAL_SIGNALS = [
+    'yayınlanabilir bir haber üretmek için yeterli içerik',
+    'bu kaynak materyal',
+    'haber yazamam',
+    'yeterli bilgi bulunmamaktadır',
+    'bu konuda haber yazamıyorum',
+    'yayınlayamam',
+    'yayımlayamam',
+    'yayınlanamaz',
+    'talimatları incelediğimde',
+    'haberi yazabilirim',
+    'yazmak mümkün değil',
+    'talimat ihlal',
+    'i cannot write',
+    "i'm unable to",
+    'i cannot create',
+  ];
+  const bodyLower = (body || '').toLowerCase();
+  if (!body || SYNTH_REFUSAL_SIGNALS.some(sig => bodyLower.includes(sig))) {
+    console.log(`SYNTH-D2: refusal text detected in output for story ${story.id} — dropping`);
+    return null;
+  }
 
-  const title   = story.title || items[0]?.title || 'Kartalix Analizi';
+  // Gate E: minimum body length aligned with MIN_BODY_CHARS in saveArticles
+  if (body.length < 600) return null;
+
   const summary = body.replace(/\n+/g, ' ').slice(0, 300);
   const slug    = generateSlug(`${title}-analiz`, new Date().toISOString());
 
@@ -460,6 +555,12 @@ Sadece haber metnini yaz.`;
   }, { Prefer: 'return=representation' });
 
   await env.PITCHOS_CACHE.put(dedupKey, '1', { expirationTtl: 86400 });
+
+  if (siteCode && saved?.[0]) {
+    const existing = await getCachedArticles(env, siteCode);
+    await cacheToKV(env, siteCode, [{ ...saved[0], nvs: saved[0].nvs_score || 82, is_kartalix_content: true }, ...existing]);
+  }
+
   console.log(`SYNTH-D2: published "${title.slice(0, 60)}" from story ${story.id}`);
   return saved?.[0] || null;
 }
@@ -468,7 +569,7 @@ Sadece haber metnini yaz.`;
 // Called once per ingested article after facts are extracted.
 // openStories is pre-fetched once per processSite run and passed in to avoid
 // N×Supabase reads when matching multiple articles.
-export async function matchOrCreateStory(article, facts, siteId, env, openStories = null) {
+export async function matchOrCreateStory(article, facts, siteId, env, openStories = null, siteCode = '') {
   if (!openStories) openStories = await getOpenStories(siteId, env);
 
   // Stage 1: find candidates by entity overlap
@@ -486,7 +587,7 @@ export async function matchOrCreateStory(article, facts, siteId, env, openStorie
     const story = await createStory(facts, article, decision, siteId, env);
     await addContribution(story.id, article, facts, decision, env);
     if (story.state === 'confirmed') {
-      await generateStoryArticle(story, facts, article, siteId, env);
+      await generateStoryArticle(story, facts, article, siteId, env, siteCode);
     }
     return { story, decision, isNew: true, usage };
   }
@@ -498,7 +599,7 @@ export async function matchOrCreateStory(article, facts, siteId, env, openStorie
     const story = await createStory(facts, article, { ...decision, match: 'new' }, siteId, env);
     await addContribution(story.id, article, facts, { ...decision, contribution_type: 'initial', confidence_delta: 30 }, env);
     if (story.state === 'confirmed') {
-      await generateStoryArticle(story, facts, article, siteId, env);
+      await generateStoryArticle(story, facts, article, siteId, env, siteCode);
     }
     return { story, decision, isNew: true, usage };
   }
@@ -515,11 +616,11 @@ export async function matchOrCreateStory(article, facts, siteId, env, openStorie
   await addContribution(matched.id, article, facts, decision, env);
   const updated = await applyContribution(matched, decision, article, env);
   if (updated.state === 'confirmed' && matched.state !== 'confirmed') {
-    await generateStoryArticle(updated, facts, article, siteId, env);
+    await generateStoryArticle(updated, facts, article, siteId, env, siteCode);
   }
   // Sprint D2: fire multi-source synthesis when an active story gets its 3rd+ contribution
   if (['confirmed', 'active'].includes(updated.state) && (updated.contribution_count || 0) >= 3) {
-    synthesizeStory(updated, siteId, env).catch(e => console.error('SYNTH-D2 async failed:', e.message));
+    synthesizeStory(updated, siteId, env, siteCode).catch(e => console.error('SYNTH-D2 async failed:', e.message));
   }
   return { story: updated, decision, isNew: false, usage };
 }
