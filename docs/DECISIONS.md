@@ -71,6 +71,24 @@
 
 **What would change our mind**: Specific missed articles that would have been caught by the removed terms.
 
+### 2026-05-20 — Pool drought fix: seed exclusion + minPool floor + composition chart
+
+**Decision**: Three-part fix for recurring overnight pool-drought (pool hitting 0 across multiple cron runs):
+
+1. **Seed exclusion**: `cacheToKV` seed-from-DB query now excludes `rss_summary` and `copy_source` modes via `publish_mode=not.in.(rss_summary,copy_source)`. Previously, a KV-empty seed pulled these short-lived articles, which `rankAndEvict` immediately re-evicted (hardTtl=2h, halfLife=0.5h), leaving the pool empty after the first eviction pass.
+
+2. **`minPool: 20` floor**: `rankAndEvict` accepts a new `minPool` option. After normal eviction, if `survived.length < minPool`, it rescues the highest-ranked sub-floor articles to maintain a 20-article minimum. `cacheToKV` always passes `minPool: 20`.
+
+3. **Pool composition time-series**: `cacheToKV` writes a snapshot to `pool_ts:BJK` (KV, TTL 3 days, max 576 entries = 2 days at 5-min cron). Snapshot tracks total and per-type counts (yz, video, template, rss, other). Report page `/admin` now includes a stacked area SVG chart (no external libraries) showing pool composition over time, with 10px/point x-axis density, overflow-x:auto scroll, hover tooltips, and auto-scroll to latest.
+
+4. **Heartbeat alarm threshold**: changed from `< 20` to `<= 20` with message updated to `(≤ 20 — at minimum floor)`.
+
+**Why this one**: The drought was a compounding failure — KV expiry caused seed, seed brought in short-TTL articles, eviction cleared them all, pool stayed empty. The fix closes all three failure modes: seed quality, eviction floor, and observability.
+
+**What would change our mind**: If minPool=20 prevents eviction of genuinely stale content (NVS < 5 but still being served). Monitor pool skew in the composition chart; if yz% drops below 30% consistently, adjust floor logic to be quality-weighted.
+
+**Related**: Pool composition endpoint at `/admin/pool-timeseries`.
+
 ### 2026-04-28 — Story-centric over article-centric architecture
 
 **Decision**: Stories are the primary entity. Articles are generated outputs of stories at specific lifecycle states. Multiple source contributions about the same event aggregate into one story, producing one Kartalix article that evolves with the story state.

@@ -952,7 +952,7 @@ const TIER_SCORES = {
 export function tierToTrustScore(tier) { return TIER_SCORES[tier] || 50; }
 
 export function rankAndEvict(articles, limit = 200, opts = {}) {
-  const { kickoffIso = null, floor = 5 } = opts;
+  const { kickoffIso = null, floor = 5, minPool = 0 } = opts;
   const kickoffMs = kickoffIso ? new Date(kickoffIso).getTime() : null;
   const nowMs = Date.now();
 
@@ -1015,6 +1015,20 @@ export function rankAndEvict(articles, limit = 200, opts = {}) {
     survived.push(a);
   }
   survived.sort((a, b) => b._rank - a._rank);
+
+  // Minimum pool guarantee: if floor-filtering drops pool below minPool, keep the
+  // highest-ranked sub-floor articles (hard-TTL evictions are still permanent).
+  if (minPool > 0 && survived.length < minPool) {
+    const subFloor = scored
+      .filter(a => a._rank > 0 && a._rank < floor)
+      .sort((a, b) => b._rank - a._rank);
+    const needed = Math.min(minPool - survived.length, subFloor.length);
+    if (needed > 0) {
+      survived.push(...subFloor.slice(0, needed));
+      survived.sort((a, b) => b._rank - a._rank);
+    }
+  }
+
   const overflowItems = survived.slice(limit);
   for (const a of overflowItems) {
     const slug = a.slug || null;
@@ -1029,7 +1043,7 @@ export function rankAndEvict(articles, limit = 200, opts = {}) {
 
 export async function cacheToKV(env, siteCode, articles, opts = {}) {
   try {
-    const { articles: ranked, evictedReasonMap } = rankAndEvict(articles, 200, opts);
+    const { articles: ranked, evictedReasonMap } = rankAndEvict(articles, 200, { minPool: 20, ...opts });
     const key = `articles:${siteCode}`;
     const timelineKey = `kv:timeline:${siteCode}`;
     const now = new Date().toISOString();
@@ -1081,6 +1095,24 @@ export async function cacheToKV(env, siteCode, articles, opts = {}) {
       env.PITCHOS_CACHE.put(key, value, { expirationTtl: 7200 }),
       env.PITCHOS_CACHE.put(timelineKey, JSON.stringify(timeline), { expirationTtl: 86400 * 90 }),
     ]);
+    // Pool composition time-series (fire-and-forget)
+    try {
+      const yzModes = new Set(['rewrite','synthesis','original_synthesis','synthesis_generated']);
+      const vidModes = new Set(['youtube_embed','video_embed','rabona_digest']);
+      const snap = { t: Date.now(), total: ranked.length };
+      snap.yz       = ranked.filter(a => yzModes.has(a.publish_mode)).length;
+      snap.video    = ranked.filter(a => vidModes.has(a.publish_mode)).length;
+      snap.template = ranked.filter(a => a.publish_mode && a.publish_mode.startsWith('template')).length;
+      snap.rss      = ranked.filter(a => !a.publish_mode || a.publish_mode === 'rss_summary').length;
+      snap.other    = Math.max(0, ranked.length - snap.yz - snap.video - snap.template - snap.rss);
+      const tsKey = `pool_ts:${siteCode}`;
+      env.PITCHOS_CACHE.get(tsKey).then(raw => {
+        const arr = raw ? JSON.parse(raw) : [];
+        arr.push(snap);
+        if (arr.length > 576) arr.splice(0, arr.length - 576); // keep 48h at 5-min intervals
+        return env.PITCHOS_CACHE.put(tsKey, JSON.stringify(arr), { expirationTtl: 86400 * 3 });
+      }).catch(() => {});
+    } catch(_) {}
     console.log(`KV WRITE SUCCESS: ${key}`);
     return ranked.length;
   } catch(e) {

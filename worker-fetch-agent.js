@@ -2432,6 +2432,13 @@ Sadece JSON döndür:
       }, { headers: { 'Cache-Control': 'no-store', 'Content-Type': 'application/json' } });
     }
 
+    if (url.pathname === '/admin/pool-timeseries' && request.method === 'GET') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const raw = await env.PITCHOS_CACHE.get('pool_ts:BJK').catch(() => null);
+      const data = raw ? JSON.parse(raw) : [];
+      return Response.json({ data }, { headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+    }
+
     if (url.pathname === '/admin/alarms/clear' && request.method === 'POST') {
       const authErr = await requireOps(request, env); if (authErr) return authErr;
       const body = await request.json().catch(() => ({}));
@@ -2493,7 +2500,7 @@ Sadece JSON döndür:
           alarms.push({
             id: 'pool_floor', category: 'major',
             title: 'Pool-size floor',
-            msg: `Article pool has ${state.pool_floor_last} articles (< 20) for ${state.pool_floor_consecutive} consecutive cron runs`,
+            msg: `Article pool has ${state.pool_floor_last} articles (≤ 20 — at minimum floor) for ${state.pool_floor_consecutive} consecutive cron runs`,
             first_seen: state.alarm_first_seen.pool_floor,
           });
         }
@@ -3501,7 +3508,7 @@ async function runAlarmChecks(env) {
     const kvRaw = await env.PITCHOS_CACHE.get('articles:BJK').catch(() => null);
     const poolArr = kvRaw ? JSON.parse(kvRaw) : [];
     const poolSize = Array.isArray(poolArr) ? poolArr.length : 0;
-    if (poolSize < 20) {
+    if (poolSize <= 20) {
       state.pool_floor_consecutive = (state.pool_floor_consecutive || 0) + 1;
       if (state.pool_floor_consecutive >= 2 && !state.alarm_first_seen.pool_floor)
         state.alarm_first_seen.pool_floor = now;
@@ -5311,8 +5318,11 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       if (!latestRaw || latestKV.length < 10) {
         try {
           const seedCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+          // Exclude rss_summary and copy_source — hardTtl 2h/12h means they'd all be
+          // immediately evicted by rankAndEvict, defeating the seed entirely.
+          const seedModeExclude = ['rss_summary','copy_source'];
           const dbRows = await supabase(env, 'GET',
-            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&published_at=not.is.null&published_at=gte.${seedCutoff}&order=published_at.desc&limit=300&select=*`);
+            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&published_at=not.is.null&published_at=gte.${seedCutoff}&publish_mode=not.in.(${seedModeExclude.join(',')})&order=published_at.desc&limit=300&select=*`);
           if (Array.isArray(dbRows) && dbRows.length > 0) {
             latestKV = dbRows.map(r => toKVShape({
               title:        r.title,
@@ -8285,6 +8295,19 @@ ${nav}
   <div id="sankey-wrap" style="display:none"><div class="sankey-title">Pipeline Flow</div><div id="sankey-chart" style="height:200px"></div></div>
   <div id="kpi-strip" class="kpi-strip"><div class="kpi-loading">Loading KPI strip...</div></div>
   <div id="alarm-panel" style="display:none"></div>
+  <div class="section open" id="sec-pool-chart">
+    <div class="sec-head" onclick="toggleSec('sec-pool-chart')">
+      <div class="sec-title">📊 Pool Composition <span id="pc-total-badge" class="badge"></span></div>
+      <div class="chev">▼</div>
+    </div>
+    <div class="sec-body" style="padding:0">
+      <div id="pc-legend" style="display:flex;gap:10px;padding:6px 14px;flex-wrap:wrap;font-size:10px;border-bottom:1px solid #f1f5f9"></div>
+      <div id="pc-scroll" style="overflow-x:auto;width:100%">
+        <div id="pc-inner" style="min-height:190px;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:.8rem">Loading…</div>
+      </div>
+    </div>
+  </div>
+  <div id="pc-tooltip" style="display:none;position:fixed;background:rgba(15,23,42,0.92);color:#e2e8f0;padding:7px 10px;border-radius:5px;font-size:11px;pointer-events:none;z-index:200;line-height:1.6;white-space:nowrap"></div>
   <div class="section open" id="sec-pipelog">
     <div class="sec-head" onclick="toggleSec('sec-pipelog')">
       <div class="sec-title">🔎 Article Pipeline Log <span class="badge" id="pl-badge-count">—</span></div>
@@ -8368,7 +8391,8 @@ ${nav}
   const kpiScript = '<script>\n' + kpiStripJs() + '\n<\/script>';
   const analyticsScript = '<script>\n' + analyticsJs() + '\n<\/script>';
   // Use function form of replace to prevent $' / $& special patterns in script content from being misinterpreted
-  const allScripts = script + '\n' + kpiScript + '\n' + analyticsScript + '\n</body>';
+  const poolScript = '<script>\n' + poolChartJs() + '\n<\/script>';
+  const allScripts = script + '\n' + kpiScript + '\n' + analyticsScript + '\n' + poolScript + '\n</body>';
   return shell.replace('</body>', () => allScripts);
 }
 
@@ -8951,11 +8975,126 @@ function reportDashboardJs() {
     '  }catch(e){console.log("loadAlarms error",e);}',
     '}',
     '',
-    'setInterval(function(){loadReport();loadPipelineLog();if(typeof loadAnalytics==="function")loadAnalytics();loadAlarms();if(typeof loadKpiStrip==="function")loadKpiStrip();}, 5*60*1000);',
+    'setInterval(function(){loadReport();loadPipelineLog();if(typeof loadAnalytics==="function")loadAnalytics();loadAlarms();if(typeof loadKpiStrip==="function")loadKpiStrip();if(typeof loadPoolChart==="function")loadPoolChart();}, 5*60*1000);',
     'setRange("24h");',
     'loadAlarms();',
   ];
   return lines.join('\n');
+}
+
+function poolChartJs() {
+  return `
+(function(){
+  var COLORS={yz:'#3b82f6',video:'#8b5cf6',template:'#f59e0b',rss:'#94a3b8',other:'#64748b'};
+  var LABELS={yz:'YZ Yazısı',video:'Video',template:'Şablon',rss:'RSS',other:'Diğer'};
+  var ORDER=['rss','other','template','video','yz'];
+  var _data=[];
+
+  function fmtTime(ms){
+    var d=new Date(ms);
+    return (d.getMonth()+1)+'/'+(d.getDate())+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  }
+
+  function buildSvg(data){
+    if(!data.length) return '<div style="padding:32px;text-align:center;color:#94a3b8;font-size:.8rem">No data yet — populates after first cron run</div>';
+    var PW=10, CH=170, LH=22, W=data.length*PW, H=CH+LH;
+    var maxY=Math.ceil(Math.max(30,...data.map(function(d){return d.total||0;}))/10)*10;
+    function sy(v){return CH-(v/maxY)*CH;}
+    function sx(i){return i*PW+PW/2;}
+
+    // Compute cumulative stacks
+    var stacked=data.map(function(d){
+      var cum={},prev=0;
+      ORDER.forEach(function(k){prev+=(d[k]||0);cum[k]=prev;});
+      return cum;
+    });
+
+    // Area paths
+    var paths='';
+    ORDER.forEach(function(layer,li){
+      var prev=li>0?ORDER[li-1]:null;
+      var top=data.map(function(d,i){return sx(i)+','+sy(stacked[i][layer]);});
+      var bot=data.map(function(d,i){return sx(i)+','+sy(prev?stacked[i][prev]:0);}).reverse();
+      paths+='<path d="M '+top[0]+' L '+top.slice(1).join(' L ')+' L '+bot[0]+' L '+bot.slice(1).join(' L ')+' Z" fill="'+COLORS[layer]+'" opacity="0.88"/>';
+    });
+
+    // Grid lines + Y labels
+    var grid='';
+    for(var y=0;y<=maxY;y+=10){
+      var gy=sy(y);
+      grid+='<line x1="0" y1="'+gy+'" x2="'+W+'" y2="'+gy+'" stroke="#e2e8f0" stroke-width="0.5"/>';
+      grid+='<text x="3" y="'+(gy-2)+'" font-size="8" fill="#cbd5e1">'+y+'</text>';
+    }
+
+    // X axis labels every 12 points (= 1h)
+    var xlabels='';
+    for(var i=0;i<data.length;i+=12){
+      xlabels+='<text x="'+sx(i)+'" y="'+(CH+LH-3)+'" font-size="8" fill="#94a3b8" text-anchor="middle">'+fmtTime(data[i].t)+'</text>';
+      xlabels+='<line x1="'+sx(i)+'" y1="'+CH+'" x2="'+sx(i)+'" y2="'+(CH+4)+'" stroke="#cbd5e1" stroke-width="0.5"/>';
+    }
+
+    // Hover rects
+    var hovers='';
+    data.forEach(function(d,i){
+      hovers+='<rect x="'+(i*PW)+'" y="0" width="'+PW+'" height="'+CH+'" fill="transparent" class="pc-hover" data-idx="'+i+'"/>';
+    });
+
+    return '<svg width="'+W+'" height="'+H+'" style="display:block;font-family:inherit">'
+      +'<g>'+grid+'</g>'
+      +'<g>'+paths+'</g>'
+      +'<g>'+xlabels+'</g>'
+      +'<g id="pc-hovers">'+hovers+'</g>'
+      +'</svg>';
+  }
+
+  function attachHovers(){
+    var svg=document.querySelector('#pc-inner svg');
+    if(!svg) return;
+    svg.querySelectorAll('.pc-hover').forEach(function(el){
+      el.addEventListener('mousemove',function(e){
+        var idx=parseInt(el.getAttribute('data-idx'),10);
+        var d=_data[idx]; if(!d) return;
+        var tip=document.getElementById('pc-tooltip');
+        var html='<b>'+fmtTime(d.t)+'</b><br>Total: '+d.total;
+        ORDER.slice().reverse().forEach(function(k){ if(d[k]) html+='<br><span style="color:'+COLORS[k]+'">'+LABELS[k]+': '+d[k]+'</span>'; });
+        tip.innerHTML=html;
+        tip.style.display='block';
+        tip.style.left=(e.clientX+14)+'px';
+        tip.style.top=(e.clientY-10)+'px';
+      });
+      el.addEventListener('mouseleave',function(){
+        document.getElementById('pc-tooltip').style.display='none';
+      });
+    });
+  }
+
+  window.loadPoolChart=async function(){
+    try{
+      var res=await fetch('/admin/pool-timeseries');
+      if(!res.ok) return;
+      var json=await res.json();
+      _data=json.data||[];
+      var inner=document.getElementById('pc-inner');
+      if(!inner) return;
+      inner.innerHTML=buildSvg(_data);
+      attachHovers();
+      // Scroll to rightmost (most recent)
+      var scroll=document.getElementById('pc-scroll');
+      if(scroll) scroll.scrollLeft=scroll.scrollWidth;
+      // Badge: latest total
+      var badge=document.getElementById('pc-total-badge');
+      if(badge&&_data.length) badge.textContent=_data[_data.length-1].total+' articles';
+      // Legend
+      var leg=document.getElementById('pc-legend');
+      if(leg) leg.innerHTML=ORDER.slice().reverse().map(function(k){
+        return '<span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:'+COLORS[k]+';display:inline-block"></span>'+LABELS[k]+'</span>';
+      }).join('');
+    }catch(e){console.error('pool chart',e);}
+  };
+
+  window.loadPoolChart();
+})();
+`;
 }
 
 function kpiStripJs() {

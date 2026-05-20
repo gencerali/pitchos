@@ -10,20 +10,23 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 **NEXT**: **Fix B verification, then pipeline calibration decisions.**
 
+**Attribution rendering** ✅ DONE (2026-05-20):  
+All 4 fixes implemented and deployed. `youtube_embed`/`video_embed`/`rabona_digest` modes no longer show "Kartalix Editöryel · Ali Genç" — they render "Video kaynağı: [Source] →". `synthesis` mode now shows multi-source attribution. `attrHtml` moved into `article-meta` block (above fold). Rabona URL preserved in KV card.
+
+**Pool drought fix** ✅ DONE (2026-05-20):  
+- Seed-from-DB excludes `rss_summary`/`copy_source` modes (root cause of overnight droughts)
+- `minPool: 20` floor in `rankAndEvict` prevents eviction below 20 articles
+- Pool composition time-series chart live in `/admin` report page
+- Heartbeat alarm now fires at `<= 20` (not `< 20`)
+
 **Rewrite attribution gap** ✅ DONE (2026-05-20, version `972583f6`):  
-Option A implemented. `serveArticlePage` now falls back to `kvArticle.source_name` when Supabase has 'Kartalix' and mode is 'rewrite'. Verified: "Kaynak temel alınarak … **NTV Spor** →" renders correctly with ntvspor.net href. Caveat: if KV droughts and seeds from DB, reverts to 'Kartalix' until next pipeline run writes a fresh article.
+Option A implemented. `serveArticlePage` falls back to `kvArticle.source_name` when Supabase has 'Kartalix' and mode is 'rewrite'. Verified: "Kaynak temel alınarak … **NTV Spor** →" renders correctly with ntvspor.net href.
 
 **Fix B verification** — after next 2 cron runs, check pipeline_log:
 1. Pick 5 URLs that appeared as `off_topic` in the most recent run before this deploy
 2. Verify they do NOT appear in pipeline_log in runs N+1 and N+2
 3. If they reappear → `seen:off_topic:BJK` KV key not persisting (check KV binding)
 4. If they vanish → Fix B working correctly
-
-**pipeline_log CSV** — export from `/admin/pipeline-log` and verify:
-1. New columns in header: Trust, BodyLen, Detail
-2. `trust_tier` populated on rows where source has a trust tier set
-3. `source_body_len` non-zero for article sources
-4. `drop_detail` = `no_match` on off_topic rows; winner URL on title_dedup; `seen previously` on url_seen
 
 **SYNTH-D2** — monitor Cloudflare logs for `SYNTH-D2: skipping`. If output drops to zero for 48h+ with gate D responsible, relax Gate D to soft warning (see DECISIONS.md 2026-05-19 entry).
 
