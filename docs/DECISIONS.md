@@ -47,6 +47,62 @@ UI: pink badge (`pl-template_transfer_thin`), filter button "Transfer thin", `pl
 
 ---
 
+### 2026-05-21 — Trust-aware dedup pre-sort
+
+**Decision**: Sort `allFetched` by trust_tier ascending rank (T1=0, T2=1, T3=2, T4=3) before `dedupeByTitle` runs inside `preFilter`. Ensures higher-trust sources consistently win title dedup collisions regardless of RSS fetch arrival order.
+
+**Root cause addressed**: `dedupeByTitle` (`src/processor.js:161`) is first-come-first-served — first article for a title in the input array wins, with no trust-tier awareness. Diagnostic (`docs/dedup-deep-dive-2026-05-21.md`) confirmed Duhuliye (T4 after tonight's downgrade, previously T2) was beating Fotomaç (T3) on every shared story because "D" precedes "F" in the alphabetically-ordered source_configs feed list. Duhuliye then failed synthesis (proxy 403), so no article published for those stories.
+
+**Change**: 2 lines inserted at `worker-fetch-agent.js:4683–4684`, after `allFetched` filter, before `preFilter` call. Stable sort preserves within-tier order (arrival order unchanged among same-trust sources).
+
+**Null/unknown trust_tier**: `?? 3` fallback — treated as T4, sorts last. Safe for hardcoded RSS_FEEDS fallback path (trust values 'press'/'broadcast'/'journalist') which is inactive when source_configs is populated.
+
+**Combined with**: Duhuliye trust_tier SQL downgrade T2 → T4 (same session). Both fixes together break the Duhuliye-blocks-Fotomaç chain.
+
+**Per**: `docs/dedup-deep-dive-2026-05-21.md` Finding 3 / Sprint I2 scope.
+
+**Verified-by**: `worker-fetch-agent.js:4683` — `const TRUST_RANK = { T1: 0, T2: 1, T3: 2, T4: 3 };`; `worker-fetch-agent.js:4684` — `allFetched.sort(...)`. Verification SQL in NEXT.md — run after 2 cron cycles (~4h post-deploy `2026-05-21 [deploy time]`).
+
+**Deployed**: version `04ec21f3-333f-4273-9890-f50bf394f54f`
+
+**Rollback**: delete lines 4683–4684 and redeploy. No schema, no data, no dependencies.
+
+---
+
+### 2026-05-21 — PARKED: Transfer Tracker (Sprint M concept)
+
+**Decision**: Concept accepted in principle; parked until AdSense review settles and a 2-day extraction PoC validates LLM quality. Do not start implementation before both conditions are met.
+
+**Concept summary**: A structured transfer claim tracking layer on top of the existing article pipeline. When a scored article (NVS ≥ 50) contains transfer keywords, a focused LLM call extracts a structured claim (player, from_club, to_club, status, fee, source, claim_date, url). Claims are stored in a new `transfer_claims` table and displayed on a public `/transfer-takip` page with multi-source aggregation, lifecycle tracking (rumored → agreed → completed/failed), and eventually journalist accuracy counts. Narrow scope — transfers only, not general fact extraction.
+
+**Why transfer-only beats general fact extraction**:
+- Bounded schema: 8 fields, no general entity normalization required
+- Clear lifecycle with verifiable outcomes: did the transfer happen?
+- Repetition is signal: 10–30 sources on the same rumor → confidence indicator
+- Summer transfer window drives peak reader interest (July–August)
+- No Turkish BJK site currently offers trust-graded structured tracking — unique AdSense-grade content
+
+**Honest concerns (not killers, but must inform v1 scope)**:
+- Attribution chain ambiguity: Turkish papers citing Fabrizio Romano — track publishing source (easy) or originating journalist (hard, requires citation parsing). v1 tracks publishing source only.
+- "Claim" threshold is fuzzy: "interested in Anguissa" vs. "in negotiations" — needs explicit prompt rules defining what qualifies.
+- LLM hallucination risk in extraction: player/club fields must be verified against article text. Strict prompt + manual spot-check required.
+- Sample sizes small for journalist accuracy: 4–6 weeks of data before signals are meaningful. v2.5 is a slow-build feature.
+- Cost: per-article Haiku extraction call. Estimate before committing.
+
+**Schema design constraint**: Sprint I3 (`journalist_claims`, `journalist_outcomes` tables) is already designed in SLICES.md. Transfer Tracker v2.5 journalist accuracy MUST join those tables, not duplicate them. Schema design session for `transfer_claims` should happen after Sprint I3 spec is finalized to avoid overlap. `transfer_claims` = article/source-level (no journalist attribution required in v1); `journalist_claims` = journalist-level (requires byline). They coexist and join at v2.5.
+
+**v2 backlog note**: "Transfer Radar board" in ROADMAP.md v2 backlog and "Kartalix Pro: Transfer Radar Pro €3.99/mo" in SLICES.md v2 are the Pro-tier wrapper for this same feature. Transfer Tracker v1 is the free public version that drives engagement + AdSense. Sprint M builds v1–v1.5; Pro tier comes after v1.0 ships and revenue warrants it.
+
+**Trigger conditions** (both required before starting):
+1. AdSense review outcome known (submitted 2026-05-18; expected ~7-14 days)
+2. 2-day extraction PoC validates LLM quality: run focused extraction on 20–30 recent published transfer articles from Supabase DB; measure % correctly extracted vs hallucinated fields; accept threshold TBD but rough bar: >80% correct on player + from_club + to_club, <10% hallucinated fields
+
+**What would change our mind**: PoC hallucination rate >20% → redesign extraction prompt before committing to schema. Summer transfer window passing without starting (August 31) → defer to January window + post-v1.1 slot.
+
+**Related**: Sprint I3 (journalist_claims), ROADMAP.md v2 "Transfer Radar board", SLICES.md v2 backlog, `temp/16kartalix_transfer_tracker_concept.txt`
+
+---
+
 ### 2026-05-21 — Google News feeds disabled (all 3)
 
 **Decision**: Disabled all three Google News RSS feeds in source_configs after pipeline_log diagnostic confirmed near-zero yield and structural content extraction failure.

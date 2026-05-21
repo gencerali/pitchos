@@ -4680,6 +4680,8 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       const urlHash = simpleHash(a.url || a.original_url || '');
       return !offTopicHashes.has(urlHash) && !synthFailedHashes.has(urlHash);
     });
+  const TRUST_RANK = { T1: 0, T2: 1, T3: 2, T4: 3 };
+  allFetched.sort((a, b) => (TRUST_RANK[a.trust_tier] ?? 3) - (TRUST_RANK[b.trust_tier] ?? 3));
 
   const { articles: afterPreFilter, counts: filterCounts, rejected: preFilterRejected } = preFilter(allFetched, seenHashes, lookbackMs);
 

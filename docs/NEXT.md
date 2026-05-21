@@ -8,7 +8,7 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: **Decide Fotomaç: accept structural low yield (dedup working correctly) or investigate why zero items today.**
+**NEXT**: **Friday morning — run verification SQL for trust-aware dedup deploy (`04ec21f3`). Then About page copy.**
 
 **Five protective fixes** ✅ DONE (2026-05-21, version `a7b84e0e-a008-4745-8477-e39fe2132cd5`):
 - Fix 1: `isSynth` extended to include `template_transfer` — `src/publisher.js:687` — `['rewrite', 'original_synthesis', 'template_transfer']`
@@ -127,7 +127,70 @@ KV fallback + URL-hostname derivation. Verified: "Kaynak temel alınarak … **N
 **Pipeline calibration** (pending data, no code yet):  
 auto_publish_threshold likely too strict (NVS 68 Sabah article needed manual override). Arda Turan dedup false-match. Altay Bayındır keyword gap. Below-threshold re-scoring cost. Diagnose from pipeline_log CSV before changing thresholds.
 
-**Then**: seed sources → title dedup trust-aware refactor → Kartalix title generation → Sprint J.
+**Sprint M — Transfer Tracker** (PARKED — concept accepted, not started):  
+Public `/transfer-takip` page showing structured transfer claims extracted from scored articles. v1 (watch list), v1.5 (multi-source grouping), v2 (outcome tracking), v2.5 (journalist accuracy, joins Sprint I3 `journalist_claims` table).  
+Full concept + honest concerns in `temp/16kartalix_transfer_tracker_concept.txt` + DECISIONS.md parking entry 2026-05-21.
+
+**Trigger to start**: (1) AdSense review settles + (2) 2-day extraction PoC clears >80% correct extraction on player/from_club/to_club from 20–30 real Kartalix articles.
+
+**Roadmap positioning** (3 open questions answered):
+
+1. **Ships before Sprint M** (in order):
+   - About page copy — Ali-only, AdSense P0.3 (highest risk remaining item, no code)
+   - Sprint I2 source seeding — admin UI only, ~2h
+   - Sprint J Match Highlights (v0.96) → Sprint K Situational Awareness (v0.97) → Sprint L Alarms (v0.98) → **v1.0 ship**
+   - THEN Sprint M
+   - Tension: summer transfer window peaks July–August. v1.0 realistically ships ~late June. Tight but achievable: Sprint M v1 by early July, v1.5 by mid-July, v2 by August. Missing this window means waiting for January transfer window.
+   - If AdSense approves before v1.0 is ready, the 2-day PoC can run in parallel while Sprint J/K/L are in flight — no code conflict, offline test only.
+
+2. **2-day extraction PoC** (run before committing to schema):  
+   Pull 20–30 recent published transfer articles from Supabase (`category ILIKE '%transfer%' OR title ILIKE '%transfer%'`, NVS ≥ 50). Run a focused extraction prompt (player, from_club, to_club, status, fee) against the full_body. No deployment needed — direct API call or `/force-transfer-extraction?validate=1` endpoint. Measure: % correct fields, % hallucinated, % ambiguous. Go/no-go threshold: >80% correct on player + clubs.
+
+3. **Architectural conflicts**:
+   - Sprint I3 `journalist_claims` / `journalist_outcomes`: already designed in SLICES.md. Transfer Tracker v2.5 journalist accuracy layer MUST join these — do not build separate journalist tracking tables. Design `transfer_claims` after Sprint I3 spec is finalized.
+   - Squad Intelligence v1.1 (`squad_members` table): Transfer Tracker `transfer_claims` should have a nullable FK to `squad_members.id`. Design these together or leave FK for v1.5.
+   - v2 "Transfer Radar board" + "Kartalix Pro €3.99/mo": Sprint M IS this feature. Pro tier comes after v1.0 + revenue justifies it.
+
+**Trust-aware dedup pre-sort** ✅ DONE (2026-05-21, version `04ec21f3-333f-4273-9890-f50bf394f54f`):
+- `worker-fetch-agent.js:4683–4684` — `TRUST_RANK` constant + `allFetched.sort()` before `preFilter`
+- Combined with Duhuliye T4 SQL downgrade (same session)
+- Full RCA in `docs/dedup-deep-dive-2026-05-21.md`
+
+**Verify deploy `04ec21f3` — run Friday morning (≥4h post-deploy, i.e. after ~2026-05-22 02:00 UTC):**
+
+```sql
+-- Q1: Dedup winners shifted?
+SELECT source_name,
+  COUNT(*) FILTER (WHERE stage = 'title_dedup') as lost_dedup,
+  COUNT(*) FILTER (WHERE stage = 'published') as published,
+  trust_tier
+FROM pipeline_log
+WHERE run_at > '2026-05-21 22:00:00+00'
+GROUP BY source_name, trust_tier
+ORDER BY trust_tier, source_name;
+-- Expected: Fotomaç shows fewer title_dedup losses, new published rows; Duhuliye loses more dedup contests
+
+-- Q2: Overall publish rate
+SELECT
+  COUNT(*) FILTER (WHERE nvs_score >= 50) as eligible,
+  COUNT(*) FILTER (WHERE stage = 'published') as published,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE stage = 'published')
+        / NULLIF(COUNT(*) FILTER (WHERE nvs_score >= 50), 0)) as pct
+FROM pipeline_log
+WHERE run_at > '2026-05-21 22:00:00+00';
+-- Expected: pct above 16% baseline; target 30–40%+
+
+-- Q3: Fotomaç specifically
+SELECT stage, COUNT(*)
+FROM pipeline_log
+WHERE source_name = 'Fotomaç' AND run_at > '2026-05-21 22:00:00+00'
+GROUP BY stage ORDER BY COUNT(*) DESC;
+-- Expected: title_dedup drops sharply; synthesis_failed or published rows appear
+```
+
+After running: update DECISIONS.md entry for `04ec21f3` with verified-by evidence.
+
+**Then**: seed sources → Kartalix title generation → Sprint J.
 
 **Kartalix title generation** (queued, not started):  
 Stop using verbatim RSS titles for rewrite/synthesis articles. After body generation, add a Haiku call to produce a clean Kartalix title from the body. Rules: 50–75 chars, no clickbait words (flaş/bomba/şok/sürpriz unless body justifies), subject name early. Preserve original RSS title as `original_rss_title` in DB for audit. Cost: ~$0.001/day at current volumes. Apply to synthesis + rewrite flows only (not templates, video, official). Details in `temp/title.txt` (now deleted — prompt archived here).
