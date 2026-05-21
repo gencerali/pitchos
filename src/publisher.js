@@ -676,6 +676,7 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
     'talimat ihlal',
   ];
   const MIN_BODY_CHARS = 600; // ~80 words minimum — below this the article is too thin to publish
+  const thinDropped = [];
   let publishable = articles.filter(a => {
     if (a.publish_mode === 'rss_summary') return false;
     const body = (a.full_body || '').toLowerCase();
@@ -686,12 +687,13 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
     // Template cards (event flashes, lineups) are legitimately short — only enforce for synthesis
     const isSynth = ['rewrite', 'original_synthesis', 'template_transfer'].includes(a.publish_mode);
     if (isSynth && (a.full_body || '').length < MIN_BODY_CHARS) {
+      thinDropped.push(a);
       console.warn(`SAVE BLOCKED — body too thin (${(a.full_body || '').length} chars): "${(a.title || '').slice(0, 60)}"`);
       return false;
     }
     return true;
   });
-  if (publishable.length === 0) return { saved: [], failed: [] };
+  if (publishable.length === 0) return { saved: [], failed: [], thinDropped };
 
   // Cross-run story dedup — check recently published articles from DB.
   // Catches the same story published by multiple sources across different cron runs.
@@ -759,7 +761,7 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
     if (result && result.error) {
       const errMsg = JSON.stringify(result.error);
       console.error('SUPABASE INSERT ERROR:', errMsg);
-      return { saved: [], failed: publishable, error: errMsg };
+      return { saved: [], failed: publishable, error: errMsg, thinDropped };
     }
 
     // Map DB-returned IDs back to original article objects by slug
@@ -771,10 +773,10 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
     });
 
     console.log(`SUPABASE INSERT OK: ${publishable.length} articles, ${savedRows.length} returned with IDs`);
-    return { saved: savedWithIds, failed: [] };
+    return { saved: savedWithIds, failed: [], thinDropped };
   } catch (e) {
     console.error('SUPABASE INSERT EXCEPTION:', e.message);
-    return { saved: [], failed: publishable, error: e.message };
+    return { saved: [], failed: publishable, error: e.message, thinDropped };
   }
 }
 

@@ -22,6 +22,28 @@ Update this at the END of every work session. Not the start — the end. Future-
 2. `SELECT url, stage FROM pipeline_log WHERE stage = 'live_blog_source' ORDER BY run_at DESC LIMIT 10;` — may be empty on quiet runs
 3. Visit Muçi article — `# Beşiktaş` should be gone from body
 
+**Synthesis_failed seen-cache + template_transfer_thin pipeline_log** ✅ DONE (2026-05-21, version `9b3ada04-fbd7-4aca-ba39-0b5b9baf8624`):
+- Fix 1: `getSynthesisFailedHashes`/`saveSynthesisFailedHashes` added — `src/processor.js:388,397`; load+filter at `worker-fetch-agent.js:4677`; save at `worker-fetch-agent.js:5315-5323`
+- Fix 2: `thinDropped[]` captured in `saveArticles` — `src/publisher.js:679,690`; threaded through all 3 return paths at `src/publisher.js:696,764,776,779`; mapped to `template_transfer_thin` pipeline_log rows at `worker-fetch-agent.js:5303`; added to allEvents at `worker-fetch-agent.js:5449`
+
+**Verify after 2 cron runs**:
+```sql
+-- Item 1: same synthesis_failed URLs should NOT reappear
+SELECT url, COUNT(*) as attempts FROM pipeline_log
+WHERE stage = 'synthesis_failed' AND run_at > '2026-05-21T12:45:00Z'
+GROUP BY url HAVING COUNT(*) > 1;
+-- Expected: empty
+
+-- Item 2: template_transfer_thin rows visible
+SELECT stage, COUNT(*) FROM pipeline_log
+WHERE run_at > '2026-05-21T12:45:00Z'
+GROUP BY stage ORDER BY COUNT(*) DESC;
+-- Expected: template_transfer_thin appears when applicable
+```
+
+**Duhuliye JSON-LD direct fetch investigation** (new, ~35 min):  
+Test Cloudflare worker direct fetch + JSON-LD parsing for Duhuliye. Hypothesis: Cloudflare worker egress IP is not blocked by Duhuliye (only Render proxy IPs are). If confirmed, implement a Duhuliye-specific fetcher in the worker that fetches the page HTML directly, extracts `articleBody` from the JSON-LD `<script type="application/ld+json">` tag, and passes it to `synthesizeArticle` as `sourceText` — bypassing Render proxy entirely. Estimated: 5 min to test, 30–50 lines to implement if test succeeds. Test: `fetch('https://www.duhuliye.com/futbol/onder-ozen-besiktasta-3639')` from a Cloudflare worker and check HTTP status + whether JSON-LD articleBody is present.
+
 **Investigate template_transfer prompt and source-context handling** (pending, ~2h):  
 Root cause hypothesis: the template_transfer prompt may not pass the full source body text, causing the LLM to hallucinate from the title alone. The Muçi article generated "Beşiktaş acquired Muçi" when the source said "Trabzonspor bought him from Beşiktaş." This is a prompt-quality bug, not a gate bug. Find the template_transfer generation code in `src/firewall.js`, audit what context it passes to the LLM, propose prompt revision. Defer until after the 5 fixes settle.
 

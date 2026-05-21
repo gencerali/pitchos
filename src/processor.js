@@ -381,6 +381,32 @@ export async function saveSeenHashes(env, siteCode, articles) {
   }
 }
 
+// ─── SYNTHESIS-FAILED SEEN CACHE ─────────────────────────────
+// Prevents re-attempting URLs that failed synthesis (proxy 403, thin source, etc.)
+// on every cron run. TTL 6h — longer than lookbackMs to cover multiple cron cycles.
+// Keyed by URL hash (not content hash) — synthesis failure is URL-specific.
+export async function getSynthesisFailedHashes(env, siteCode) {
+  try {
+    const raw = await env.PITCHOS_CACHE.get(`seen:synth_failed:${siteCode}`);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch { return new Set(); }
+}
+
+export async function saveSynthesisFailedHashes(env, siteCode, hashes) {
+  try {
+    const arr = Array.from(hashes).slice(-200);
+    await env.PITCHOS_CACHE.put(
+      `seen:synth_failed:${siteCode}`,
+      JSON.stringify(arr),
+      { expirationTtl: 21600 }
+    );
+  } catch (e) {
+    console.error(`saveSynthesisFailedHashes failed for ${siteCode}:`, e);
+  }
+}
+
 // ─── OFF-TOPIC SEEN CACHE ─────────────────────────────────────
 // Separate from seen:{siteCode} (hash-dedup). off_topic rejection happens
 // at Stage 2 (preFilter); mixing with Stage 3 hash-dedup would corrupt semantics.

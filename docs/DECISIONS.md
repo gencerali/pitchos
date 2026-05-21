@@ -30,6 +30,23 @@
 
 ## ENTRIES
 
+### 2026-05-21 — Synthesis_failed seen-cache + template_transfer_thin pipeline_log
+
+**Decision**: Two additive fixes from Duhuliye synthesis failure RCA (`docs/duhuliye-rca-2026-05-21.md`). Both are monitoring/cost fixes — no behavior changes for articles that pass synthesis.
+
+**Fix 1 — Synthesis_failed seen-cache** (`src/processor.js:388`, `worker-fetch-agent.js:4677`):  
+URLs that fail synthesis are now cached in KV key `seen:synth_failed:{siteCode}` (TTL 6h, 200-entry cap) and filtered before `preFilter` on subsequent cron runs. Same pattern as the off_topic seen-cache (Fix B, 2026-05-20). Prevents the same failing URLs (e.g., Duhuliye 403s) from being re-scored with NVS every 5 minutes indefinitely. Cache is populated after `scoredLowItems` is built — only `synthesis_failed` stage rows contribute (nvs≥50 rss_summary). `scored_low` rows (nvs<50) are not cached — they may score higher in the future if source improves.  
+**Verified-by**: `src/processor.js:388,397` — `getSynthesisFailedHashes`/`saveSynthesisFailedHashes`; `worker-fetch-agent.js:4677` — load + filter; `worker-fetch-agent.js:5315-5323` — save after run
+
+**Fix 2 — template_transfer_thin pipeline_log entries** (`src/publisher.js:679`, `worker-fetch-agent.js:5303`):  
+Closes monitoring gap created by Fix 1 (isSynth gate, 2026-05-21 five-fix session). When `saveArticles` blocks a thin `template_transfer` body (< 600 chars), the article now appears in pipeline_log with `stage='template_transfer_thin'` and `drop_detail=<body_char_count>`. Previously these drops were silent — only a `console.warn` in Cloudflare logs, no DB row, invisible to admin panel. `thinDropped[]` array threaded through all 3 `saveArticles` return paths; mapped to log items in worker.  
+UI: pink badge (`pl-template_transfer_thin`), filter button "Transfer thin", `plStageMeta` label, `PL_STAGE_LABELS` entry.  
+**Verified-by**: `src/publisher.js:679,690,696,764,776,779` — thinDropped capture and threading; `worker-fetch-agent.js:5303-5307` — pipeline_log mapping; `worker-fetch-agent.js:5449` — allEvents spread; `worker-fetch-agent.js:8229,8367,8814` — UI
+
+**Deployed**: version `9b3ada04-fbd7-4aca-ba39-0b5b9baf8624`
+
+---
+
 ### 2026-05-21 — Five protective pipeline fixes (Muçi/NVS audit findings)
 
 **Decision**: Five additive gate/filter fixes deployed in single commit to address issues uncovered by Muçi article forensics, NVS audit (`docs/nvs-decision-points-audit-2026-05-21.md`), and reconciliation audit (`docs/reconciliation-audit-2026-05-20.md`). All changes are additive — no behavior changes for articles that already pass.

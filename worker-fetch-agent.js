@@ -11,7 +11,7 @@
  */
 import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
-import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes } from './src/processor.js';
+import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
@@ -4674,8 +4674,12 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
   // ── PRE-FILTER (pure JS, zero Claude calls) ──────────────────
   const seenHashes = await getSeenHashes(env, site.short_code);
   const offTopicHashes = await getOffTopicHashes(env, site.short_code);
+  const synthFailedHashes = await getSynthesisFailedHashes(env, site.short_code);
   const allFetched = [...rssArticles, ...webArticles, ...beINArticles, ...twitterArticles]
-    .filter(a => !offTopicHashes.has(simpleHash(a.url || a.original_url || '')));
+    .filter(a => {
+      const urlHash = simpleHash(a.url || a.original_url || '');
+      return !offTopicHashes.has(urlHash) && !synthFailedHashes.has(urlHash);
+    });
 
   const { articles: afterPreFilter, counts: filterCounts, rejected: preFilterRejected } = preFilter(allFetched, seenHashes, lookbackMs);
 
@@ -5289,13 +5293,18 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
         a.publish_mode !== 'hot_news_hold');
       stats.queued    = 0;
 
-      const pubResult   = toPublish.length > 0 ? await saveArticles(env, site.id, toPublish, 'published') : { saved: [], failed: [] };
+      const pubResult   = toPublish.length > 0 ? await saveArticles(env, site.id, toPublish, 'published') : { saved: [], failed: [], thinDropped: [] };
       stats.published = pubResult.saved.length;
       publishedLogItems = pubResult.saved
         .map(a => ({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs, publish_mode: a.publish_mode, _stage: 'published',
           trust_tier: a.trust_tier || a.trust || null,
           source_body_len: ((a.summary || '') + (a.full_text || '')).length,
           drop_detail: null }));
+      const thinDropItems = (pubResult.thinDropped || [])
+        .map(a => ({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs, publish_mode: a.publish_mode, _stage: 'template_transfer_thin',
+          trust_tier: a.trust_tier || a.trust || null,
+          source_body_len: (a.full_body || '').length,
+          drop_detail: String((a.full_body || '').length) }));
       const queueResult = { saved: [], failed: [] };
 
       // Surface any DB write failures to the admin panel immediately
@@ -5305,6 +5314,13 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       }
 
       await saveSeenHashes(env, site.short_code, pubResult.saved);
+
+      // Persist synthesis_failed URLs so next cron run skips re-attempt (6h TTL).
+      const newSynthFailedHashes = new Set(synthFailedHashes);
+      for (const r of scoredLowItems) {
+        if (r._stage === 'synthesis_failed') newSynthFailedHashes.add(simpleHash(r.url || ''));
+      }
+      await saveSynthesisFailedHashes(env, site.short_code, newSynthFailedHashes);
 
       // Write to KV — only articles confirmed in Supabase + any template cards already there.
       // Synthesis bodies are patched in here as well, no separate KV write needed.
@@ -5430,6 +5446,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
         ...(preFilterRejected || []),
         ...(urlSeenItems      || []),
         ...(scoredLowItems    || []),
+        ...(thinDropItems     || []),
         ...(publishedLogItems || []),
       ];
       if (allEvents.length > 0) {
@@ -8209,6 +8226,7 @@ main{max-width:1200px;margin:1.5rem auto;padding:0 1.5rem}
 .pl-cap_drop{background:#f1f5f9;color:#475569}
 .pl-synthesis_failed{background:#fde68a;color:#92400e}
 .pl-live_blog_source{background:#dbeafe;color:#1e40af}
+.pl-template_transfer_thin{background:#fce7f3;color:#9d174d}
 .pl-table{width:100%;border-collapse:collapse}
 .pl-table th{font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;text-align:left;padding:.55rem 1rem;border-bottom:1px solid #e2e8f0;font-weight:600;background:#fff;position:sticky;top:0;z-index:1}
 .pl-table td{padding:.5rem 1rem;border-bottom:1px solid #f1f5f9;font-size:.8rem;vertical-align:middle}
@@ -8346,6 +8364,7 @@ ${nav}
         <button class="pl-filter-btn" data-stage="published" onclick="setPlFilter(this)">Published</button>
         <button class="pl-filter-btn" data-stage="scored_low" onclick="setPlFilter(this)">Below threshold</button>
         <button class="pl-filter-btn" data-stage="synthesis_failed" onclick="setPlFilter(this)">Synthesis failed</button>
+        <button class="pl-filter-btn" data-stage="template_transfer_thin" onclick="setPlFilter(this)">Transfer thin</button>
         <button class="pl-filter-btn" data-stage="live_blog_source" onclick="setPlFilter(this)">Live blog</button>
         <button class="pl-filter-btn" data-stage="url_seen" onclick="setPlFilter(this)">Already seen</button>
         <button class="pl-filter-btn" data-stage="off_topic" onclick="setPlFilter(this)">Off-topic</button>
@@ -8792,6 +8811,7 @@ function reportDashboardJs() {
     '    scored_low:{label:"Below threshold",cls:"pl-scored_low"},',
     '    synthesis_failed:{label:"Synthesis failed",cls:"pl-synthesis_failed"},',
     '    live_blog_source:{label:"Live blog (rejected)",cls:"pl-live_blog_source"},',
+    '    template_transfer_thin:{label:"Transfer thin body",cls:"pl-template_transfer_thin"},',
     '    url_seen:{label:"Already seen",cls:"pl-url_seen"},',
     '    off_topic:{label:"Off-topic",cls:"pl-off_topic"},',
     '    date_old:{label:"Too old",cls:"pl-date_old"},',
@@ -8853,7 +8873,7 @@ function reportDashboardJs() {
     '  renderPipelineLog(plAllRows);',
     '}',
     '',
-    'var PL_STAGE_LABELS={"":"All","published":"Published","scored_low":"Below threshold","synthesis_failed":"Synthesis failed","live_blog_source":"Live blog (rejected)","url_seen":"Already seen","off_topic":"Off-topic","date_old":"Too old","too_short":"Too short","title_dedup":"Near-dupe","hash_dedup":"Hash dup"};',
+    'var PL_STAGE_LABELS={"":"All","published":"Published","scored_low":"Below threshold","synthesis_failed":"Synthesis failed","template_transfer_thin":"Transfer thin body","live_blog_source":"Live blog (rejected)","url_seen":"Already seen","off_topic":"Off-topic","date_old":"Too old","too_short":"Too short","title_dedup":"Near-dupe","hash_dedup":"Hash dup"};',
     'function updatePlFilterCounts(rows){',
     '  var counts={};',
     '  rows.forEach(function(r){var s=r.stage||"";counts[s]=(counts[s]||0)+1;});',
