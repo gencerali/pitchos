@@ -23,8 +23,22 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
     return true;
   });
 
+  // Stage 1.5: live-blog URL rejection — before keyword check to avoid wasting NVS budget
+  const LIVE_BLOG_PATTERNS = [/\/canli\//i, /\/live\//i, /\/live-blog\//i];
+  const afterLiveBlog = afterDate.filter(a => {
+    const url = a.url || a.original_url || '';
+    if (LIVE_BLOG_PATTERNS.some(p => p.test(url))) {
+      rejected.push({ url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'live_blog_source',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+        drop_detail: 'live-blog URL pattern' });
+      return false;
+    }
+    return true;
+  });
+
   // Stage 2: BJK keyword + minimum summary length
-  const afterKeyword = afterDate.filter(a => {
+  const afterKeyword = afterLiveBlog.filter(a => {
     const haystack = `${a.title} ${a.summary || ''} ${a.full_text || ''}`.slice(0, 600);
     if (!bjkMatch(haystack)) {
       rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'off_topic',

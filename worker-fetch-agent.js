@@ -2366,7 +2366,7 @@ Sadece JSON döndür:
       for (const r of (todayFunnelRows || [])) {
         const stage = r.stage || '';
         if (stage === 'published') { qualified++; }
-        else if (stage === 'scored_low') { qualified++; rejected_pl++; }
+        else if (stage === 'scored_low' || stage === 'synthesis_failed') { qualified++; rejected_pl++; }
         else { unscored++; }
       }
 
@@ -2657,7 +2657,7 @@ Sadece JSON döndür:
         if (r.nvs_score == null) return;
         const bucket = Math.min(9, Math.floor(r.nvs_score / 10));
         if (r.stage === 'published') pubHist[bucket]++;
-        else if (r.stage === 'scored_low') rejHist[bucket]++;
+        else if (r.stage === 'scored_low' || r.stage === 'synthesis_failed') rejHist[bucket]++;
       });
       const nvs_hist = pubHist.map((p, i) => ({ range: (i*10) + '-' + (i*10+9), published: p, rejected: rejHist[i] }));
       const srcQMap = {};
@@ -5274,12 +5274,15 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
 
       scoredLowItems = allWritten
         .filter(a => a.publish_mode === 'rss_summary')
-        .map(a => ({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs, _stage: 'scored_low',
+        .map(a => ({
+          url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs,
+          _stage: (a.nvs || 0) >= 50 ? 'synthesis_failed' : 'scored_low',
           trust_tier: a.trust_tier || a.trust || null,
           source_body_len: ((a.summary || '') + (a.full_text || '')).length,
-          drop_detail: null }));
+          drop_detail: (a.nvs || 0) >= 50 ? 'synthesis_cap_or_source_unavailable' : null,
+        }));
 
-      const publishThreshold = site.auto_publish_threshold || 30;
+      const publishThreshold = site.auto_publish_threshold || 50;
       // template_official = @Besiktas official tweets — always publish regardless of NVS score
       const toPublish = allWritten.filter(a =>
         (a.nvs >= publishThreshold || a.publish_mode === 'template_official') &&
@@ -6539,7 +6542,10 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null) 
 
   const bodyText  = a.full_body || a.summary || '';
   const bodyHtml  = bodyText.includes('<') ? bodyText :
-    bodyText.split('\n').map(l => l.trim() ? `<p>${escHtml(l)}</p>` : '').join('');
+    bodyText.split('\n').map(l => {
+      const stripped = l.trim().replace(/^#+\s*/, '');
+      return stripped ? `<p>${escHtml(stripped)}</p>` : '';
+    }).join('');
 
   const waText    = encodeURIComponent(`${title} ${pageUrl}`);
   const twParams  = `text=${encodeURIComponent(title)}&url=${encodeURIComponent(pageUrl)}`;
@@ -8201,6 +8207,8 @@ main{max-width:1200px;margin:1.5rem auto;padding:0 1.5rem}
 .pl-hash_dedup{background:#ede9fe;color:#6d28d9}
 .pl-title_dedup{background:#e0e7ff;color:#4338ca}
 .pl-cap_drop{background:#f1f5f9;color:#475569}
+.pl-synthesis_failed{background:#fde68a;color:#92400e}
+.pl-live_blog_source{background:#dbeafe;color:#1e40af}
 .pl-table{width:100%;border-collapse:collapse}
 .pl-table th{font-size:.65rem;letter-spacing:.1em;text-transform:uppercase;color:#94a3b8;text-align:left;padding:.55rem 1rem;border-bottom:1px solid #e2e8f0;font-weight:600;background:#fff;position:sticky;top:0;z-index:1}
 .pl-table td{padding:.5rem 1rem;border-bottom:1px solid #f1f5f9;font-size:.8rem;vertical-align:middle}
@@ -8337,6 +8345,8 @@ ${nav}
         <button class="pl-filter-btn active" data-stage="" onclick="setPlFilter(this)">All</button>
         <button class="pl-filter-btn" data-stage="published" onclick="setPlFilter(this)">Published</button>
         <button class="pl-filter-btn" data-stage="scored_low" onclick="setPlFilter(this)">Below threshold</button>
+        <button class="pl-filter-btn" data-stage="synthesis_failed" onclick="setPlFilter(this)">Synthesis failed</button>
+        <button class="pl-filter-btn" data-stage="live_blog_source" onclick="setPlFilter(this)">Live blog</button>
         <button class="pl-filter-btn" data-stage="url_seen" onclick="setPlFilter(this)">Already seen</button>
         <button class="pl-filter-btn" data-stage="off_topic" onclick="setPlFilter(this)">Off-topic</button>
         <button class="pl-filter-btn" data-stage="date_old" onclick="setPlFilter(this)">Too old</button>
@@ -8780,6 +8790,8 @@ function reportDashboardJs() {
     '  var m={',
     '    published:{label:"Published",cls:"pl-published"},',
     '    scored_low:{label:"Below threshold",cls:"pl-scored_low"},',
+    '    synthesis_failed:{label:"Synthesis failed",cls:"pl-synthesis_failed"},',
+    '    live_blog_source:{label:"Live blog (rejected)",cls:"pl-live_blog_source"},',
     '    url_seen:{label:"Already seen",cls:"pl-url_seen"},',
     '    off_topic:{label:"Off-topic",cls:"pl-off_topic"},',
     '    date_old:{label:"Too old",cls:"pl-date_old"},',
@@ -8841,7 +8853,7 @@ function reportDashboardJs() {
     '  renderPipelineLog(plAllRows);',
     '}',
     '',
-    'var PL_STAGE_LABELS={"":"All","published":"Published","scored_low":"Below threshold","url_seen":"Already seen","off_topic":"Off-topic","date_old":"Too old","too_short":"Too short","title_dedup":"Near-dupe","hash_dedup":"Hash dup"};',
+    'var PL_STAGE_LABELS={"":"All","published":"Published","scored_low":"Below threshold","synthesis_failed":"Synthesis failed","live_blog_source":"Live blog (rejected)","url_seen":"Already seen","off_topic":"Off-topic","date_old":"Too old","too_short":"Too short","title_dedup":"Near-dupe","hash_dedup":"Hash dup"};',
     'function updatePlFilterCounts(rows){',
     '  var counts={};',
     '  rows.forEach(function(r){var s=r.stage||"";counts[s]=(counts[s]||0)+1;});',

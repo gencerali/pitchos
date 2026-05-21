@@ -30,6 +30,59 @@
 
 ## ENTRIES
 
+### 2026-05-21 — Five protective pipeline fixes (Muçi/NVS audit findings)
+
+**Decision**: Five additive gate/filter fixes deployed in single commit to address issues uncovered by Muçi article forensics, NVS audit (`docs/nvs-decision-points-audit-2026-05-21.md`), and reconciliation audit (`docs/reconciliation-audit-2026-05-20.md`). All changes are additive — no behavior changes for articles that already pass.
+
+**Fix 1 — isSynth extended to cover template_transfer** (`src/publisher.js:687`):  
+`template_transfer` added to `['rewrite', 'original_synthesis', 'template_transfer']`. Previously, template_transfer bodies bypassed the `MIN_BODY_CHARS=600` gate. Muçi article (134 chars, body-generating mode) saved and published despite being below floor.  
+`template_injury` not added — it never persists with that mode; `writeArticles` overwrites it to `rss_summary` or `rewrite` before `saveArticles` runs. `synthesis`/`synthesis_generated` not added — saved directly from story-matcher.js, already have their own 600-char gate at `story-matcher.js:532`.  
+**Verified-by**: `src/publisher.js:687` — `['rewrite', 'original_synthesis', 'template_transfer']`
+
+**Fix 2 — publishThreshold default 30 → 50** (`worker-fetch-agent.js:5285`):  
+Default was 30 but effective synthesis floor is 50 (NVS 30–49 would pass auto-publish gate then immediately be filtered as rss_summary by saveArticles). Aligns default with effective behavior. DB-configured per-site value still takes precedence; BJK site has `auto_publish_threshold=30` in DB and is unaffected.  
+**Verified-by**: `worker-fetch-agent.js:5285` — `|| 50`
+
+**Fix 3 — scored_low split into scored_low + synthesis_failed** (`worker-fetch-agent.js:5279`):  
+Articles with `publish_mode=rss_summary` and `nvs >= 50` now log as `synthesis_failed` with `drop_detail=synthesis_cap_or_source_unavailable` instead of `scored_low`. The 50+ band passed the publish gate but synthesis didn't produce a body (cap hit or source unavailable). Previously invisible in pipeline_log — "passed gate then disappeared" pattern. Forward-only: existing rows keep current stage values.  
+UI additions: filter button, plStageMeta label, PL_STAGE_LABELS, CSS badge, funnel+histogram counters updated to include both stages.  
+**Verified-by**: `worker-fetch-agent.js:5279` — `_stage: (a.nvs || 0) >= 50 ? 'synthesis_failed' : 'scored_low'`
+
+**Fix 4 — Live-blog URL pattern rejection** (`src/processor.js:26`):  
+New Stage 1.5 in `preFilter` rejects URLs matching `/\/canli\//i`, `/\/live\//i`, `/\/live-blog\//i` before BJK keyword check. Live-blog URLs contain continuous scoring updates with no stable article body — they'd pass keyword filter and waste NVS scoring budget. Rejected with `_stage: live_blog_source`.  
+UI: plStageMeta label + filter button added.  
+**Verified-by**: `src/processor.js:26` — `LIVE_BLOG_PATTERNS` + `live_blog_source` rejection; `worker-fetch-agent.js:8349` — filter button
+
+**Fix 5 — Strip markdown headers in bodyHtml** (`worker-fetch-agent.js:6546`):  
+`l.trim().replace(/^#+\s*/, '')` applied before `<p>` wrap. LLM-generated bodies (template_transfer, rewrite) sometimes include `# Title` or `## Section` markdown. Previous renderer wrapped line as-is, producing literal `# Title` text in published article HTML.  
+**Verified-by**: `worker-fetch-agent.js:6546` — `stripped = l.trim().replace(/^#+\s*/, '')`
+
+**Deployed**: version `a7b84e0e-a008-4745-8477-e39fe2132cd5`
+
+---
+
+### 2026-05-21 — PARKED: publish_mode taxonomy consolidation
+
+**Decision**: PARKED. Do not implement until AdSense outcome is known. Revisit after About page + byline + DECISIONS.md backfill are done. Likely target: post-v1.0 (v1.1 or Sprint M).
+
+**Current state**: 10+ publish_modes mix three orthogonal concerns (source count, output structure, content category). This causes:
+- Bugs where modes are forgotten in gates (synthesis missing from isSynth, template_transfer missing too — both caught retroactively this week)
+- Inconsistent generation paths (transfer news goes through a template path that hallucinates because the story isn't actually template-shaped — Muçi case)
+- Confusing labels in admin UI and pipeline_log
+
+**Proposed future model**:
+- `generation_strategy` field: `prose | structured | embed_only`
+- `content_category` field: `transfer | match | injury | club | analysis` (display dimension only)
+- Templates reserved for genuinely structured content (KAP statements, score cards, lineups). Prose generation handles all narrative content including transfers and injuries via a single consolidated path.
+
+**Effort**: 1–2 days focused work. Includes DB migration, consolidating prose paths, updating gates, backfilling existing articles with new field.
+
+**What would change our mind**: AdSense approved + v1.0 shipped + another gate-miss bug caused by publish_mode ambiguity.
+
+**Verified-by**: NVS audit 2026-05-21 + Muçi/Aston Villa/Ünder forensics confirmed the symptoms.
+
+---
+
 ### 2026-05-21 — Cache wipeout RCA completed and remediated
 
 **Decision**: Root cause identified and fully fixed. Pool wipeout was a compounding failure across three points; all three addressed plus one defensive follow-up.

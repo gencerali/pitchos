@@ -10,6 +10,21 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 **NEXT**: **About page copy (Ali only) + pipeline calibration decisions.**
 
+**Five protective fixes** ✅ DONE (2026-05-21, version `a7b84e0e-a008-4745-8477-e39fe2132cd5`):
+- Fix 1: `isSynth` extended to include `template_transfer` — `src/publisher.js:687` — `['rewrite', 'original_synthesis', 'template_transfer']`
+- Fix 2: `publishThreshold` default 30 → 50 — `worker-fetch-agent.js:5285` — `|| 50`
+- Fix 3: `scored_low` split into `scored_low` / `synthesis_failed` — `worker-fetch-agent.js:5279` — stage `(a.nvs || 0) >= 50 ? 'synthesis_failed' : 'scored_low'`
+- Fix 4: Live-blog URL rejection at preFilter Stage 1.5 — `src/processor.js:26` — `LIVE_BLOG_PATTERNS` + `_stage: 'live_blog_source'`; UI label at `worker-fetch-agent.js:8349`
+- Fix 5: Markdown header strip in bodyHtml — `worker-fetch-agent.js:6546` — `l.trim().replace(/^#+\s*/, '')`
+
+**Verify after next cron run**:
+1. `SELECT stage, COUNT(*) FROM pipeline_log WHERE run_at > '2026-05-21T12:18:00Z' GROUP BY stage ORDER BY COUNT(*) DESC;` — should show `synthesis_failed` stage
+2. `SELECT url, stage FROM pipeline_log WHERE stage = 'live_blog_source' ORDER BY run_at DESC LIMIT 10;` — may be empty on quiet runs
+3. Visit Muçi article — `# Beşiktaş` should be gone from body
+
+**Investigate template_transfer prompt and source-context handling** (pending, ~2h):  
+Root cause hypothesis: the template_transfer prompt may not pass the full source body text, causing the LLM to hallucinate from the title alone. The Muçi article generated "Beşiktaş acquired Muçi" when the source said "Trabzonspor bought him from Beşiktaş." This is a prompt-quality bug, not a gate bug. Find the template_transfer generation code in `src/firewall.js`, audit what context it passes to the LLM, propose prompt revision. Defer until after the 5 fixes settle.
+
 **Cache wipeout** ✅ DONE (2026-05-21, RCA at `docs/cache-wipeout-rca-2026-05-21.md`):  
 - Root cause: seed path pulled `rss_summary` articles evicted by hardTtl=2h immediately
 - `seedModeExclude` fix at `worker-fetch-agent.js:5323` — no more short-lived seed articles
