@@ -8,31 +8,34 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: **Fix B verification, then pipeline calibration decisions.**
+**NEXT**: **About page copy (Ali only) + pipeline calibration decisions.**
+
+**Cache wipeout** ✅ DONE (2026-05-21, RCA at `docs/cache-wipeout-rca-2026-05-21.md`):  
+- Root cause: seed path pulled `rss_summary` articles evicted by hardTtl=2h immediately
+- `seedModeExclude` fix at `worker-fetch-agent.js:5323` — no more short-lived seed articles
+- `minPool:20` floor permanent — safety net confirmed working, not a workaround
+- `articles:BJK` TTL extended 7200s → 14400s — 2h buffer against single missed cron
+- Alarm at `<= 20` (was `< 20`)
 
 **Attribution rendering** ✅ DONE (2026-05-20):  
-All 4 fixes implemented and deployed. `youtube_embed`/`video_embed`/`rabona_digest` modes no longer show "Kartalix Editöryel · Ali Genç" — they render "Video kaynağı: [Source] →". `synthesis` mode now shows multi-source attribution. `attrHtml` moved into `article-meta` block (above fold). Rabona URL preserved in KV card.
+youtube/video/rabona articles show "Video kaynağı: [Source] →". rewrite articles show real source name derived from URL hostname (not "Kartalix"). synthesis shows "Birden fazla kaynaktan…". All attribution above the fold in `article-meta`.
 
-**Pool drought fix** ✅ DONE (2026-05-20):  
-- Seed-from-DB excludes `rss_summary`/`copy_source` modes (root cause of overnight droughts)
-- `minPool: 20` floor in `rankAndEvict` prevents eviction below 20 articles
-- Pool composition time-series chart live in `/admin` report page
-- Heartbeat alarm now fires at `<= 20` (not `< 20`)
+**Pool composition chart** ✅ DONE (2026-05-20):  
+Stacked area SVG chart in `/admin` report page. Scrollable, 576-entry history (48h at 5-min cron).
 
-**Rewrite attribution gap** ✅ DONE (2026-05-20, version `972583f6`):  
-Option A implemented. `serveArticlePage` falls back to `kvArticle.source_name` when Supabase has 'Kartalix' and mode is 'rewrite'. Verified: "Kaynak temel alınarak … **NTV Spor** →" renders correctly with ntvspor.net href.
+**Rewrite attribution gap** ✅ DONE (2026-05-20):  
+KV fallback + URL-hostname derivation. Verified: "Kaynak temel alınarak … **NTV Spor** →" renders with correct href.
 
-**Fix B verification** — after next 2 cron runs, check pipeline_log:
-1. Pick 5 URLs that appeared as `off_topic` in the most recent run before this deploy
-2. Verify they do NOT appear in pipeline_log in runs N+1 and N+2
-3. If they reappear → `seen:off_topic:BJK` KV key not persisting (check KV binding)
-4. If they vanish → Fix B working correctly
-
-**SYNTH-D2** — monitor Cloudflare logs for `SYNTH-D2: skipping`. If output drops to zero for 48h+ with gate D responsible, relax Gate D to soft warning (see DECISIONS.md 2026-05-19 entry).
+**Fix B verification** — check pipeline_log after next 2 cron runs:
+- Pick 5 URLs marked `off_topic` in the last run before deploy
+- Verify they do NOT appear in runs N+1, N+2 — if they do, `seen:off_topic:BJK` KV key not persisting
 
 **Parallel (Ali only — no code needed):**
 - About page + byline copy — AdSense P0.3 (highest remaining AdSense risk)
 - Read top 20 published articles critically, improve weakest 5 — AdSense P1.1
+
+**Pipeline calibration** (pending data, no code yet):  
+auto_publish_threshold likely too strict (NVS 68 Sabah article needed manual override). Arda Turan dedup false-match. Altay Bayındır keyword gap. Below-threshold re-scoring cost. Diagnose from pipeline_log CSV before changing thresholds.
 
 **Then**: seed sources → title dedup trust-aware refactor → Kartalix title generation → Sprint J.
 

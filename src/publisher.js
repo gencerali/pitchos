@@ -1092,7 +1092,7 @@ export async function cacheToKV(env, siteCode, articles, opts = {}) {
     const value = JSON.stringify(ranked);
     console.log(`KV WRITE: key=${key} in=${articles.length} out=${ranked.length} size=${value.length} chars`);
     await Promise.all([
-      env.PITCHOS_CACHE.put(key, value, { expirationTtl: 7200 }),
+      env.PITCHOS_CACHE.put(key, value, { expirationTtl: 14400 }),
       env.PITCHOS_CACHE.put(timelineKey, JSON.stringify(timeline), { expirationTtl: 86400 * 90 }),
     ]);
     // Pool composition time-series (fire-and-forget)

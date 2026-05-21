@@ -30,6 +30,24 @@
 
 ## ENTRIES
 
+### 2026-05-21 — Cache wipeout RCA completed and remediated
+
+**Decision**: Root cause identified and fully fixed. Pool wipeout was a compounding failure across three points; all three addressed plus one defensive follow-up.
+
+Root cause: emergency seed path (`worker-fetch-agent.js:4735`) pulled `rss_summary` articles from DB. These were 3–6h old at night; `rankAndEvict`'s `hardTtl=2h` immediately evicted them all, leaving pool at 0. The automatic Supabase rebuild ran but silently produced zero survivors.
+
+Fixes deployed (commit `9d046b3`):
+- `worker-fetch-agent.js:5323` — `seedModeExclude = ['rss_summary','copy_source']` so seed only pulls long-lived modes
+- `src/publisher.js:1021` — `minPool:20` floor in `rankAndEvict` rescues highest-ranked sub-floor articles when pool would otherwise go below 20
+- Heartbeat alarm threshold changed from `< 20` to `<= 20` (pool at exactly 20 is already at rescue floor — alarm at that point gives one cron cycle of lead time)
+
+Follow-up (this commit):
+- `src/publisher.js:1095` — `expirationTtl: 7200` → `14400` (2h → 4h). Adds 2h buffer over the 2h cron interval. Protects against single-cron-failure scenarios: worker exception, Claude API outage, deploy interruption. Low risk — stale content serves for up to 4h on a failed cron, vs pool going dark at 2h.
+
+**minPool:20 stays permanent.** RCA confirms it is working as intended now that seeds exclude short-lived modes. It is a safety net, not a workaround — it prevents eviction below floor in any future partial-pool scenario (not just the seed bug).
+
+**Verified-by**: `src/publisher.js:1095`, `worker-fetch-agent.js:5323–5325`, deploy `9d046b3` + follow-up commit. Full RCA at `docs/cache-wipeout-rca-2026-05-21.md`.
+
 ### 2026-05-20 — Attribution rendering corrected for all publish modes
 
 **Decision**: Fixed 4 attribution failures identified in `docs/attribution-audit-2026-05-20.md`. All changes in `renderArticleHTML` (`worker-fetch-agent.js`) and the Rabona KV card builder (`src/publisher.js`).
