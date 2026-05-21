@@ -8,7 +8,7 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: **About page copy (Ali only) + pipeline calibration decisions.**
+**NEXT**: **Decide Fotomaç: accept structural low yield (dedup working correctly) or investigate why zero items today.**
 
 **Five protective fixes** ✅ DONE (2026-05-21, version `a7b84e0e-a008-4745-8477-e39fe2132cd5`):
 - Fix 1: `isSynth` extended to include `template_transfer` — `src/publisher.js:687` — `['rewrite', 'original_synthesis', 'template_transfer']`
@@ -62,6 +62,37 @@ WHERE run_at > '2026-05-21 14:45:00+00';
 ```
 
 After running: update DECISIONS.md entry for `9b3ada04` with verified-by evidence (query results).
+
+**Fotomaç + Google News BJK source diagnostic** ✅ DONE (2026-05-21, doc at `docs/source-config-audit-2026-05-21.md`):
+- Fotomaç: NOT 403-blocked. Proxy works warm (HTTP 200, 1011 chars). RSS has 50+ current articles. Root cause unknown — requires SQL 1.1 (source_configs row) + 1.2 (pipeline stage breakdown) to distinguish config bug from F-D (off_topic/dedup).
+- Google News BJK: Redirect URLs → proxy returns Readability error. Cannot extract article body. Template_transfer (title+description only) may still work — SQL 2.2 determines whether to keep (G-D) or disable (G-C).
+- bjk.com.tr: all RSS paths HTTP 403, homepage Cloudflare JS challenge, allorigins.win error 522. No accessible feed.
+
+**Run these 4 SQL queries in Supabase dashboard before acting on recommendations:**
+
+```sql
+-- 1.1 Fotomaç source config
+SELECT name, url, is_active, trust_tier, bjk_filter, polling_interval_minutes, max_per_run, custom_config, created_at, updated_at
+FROM source_configs WHERE name ILIKE '%fotomac%' OR url ILIKE '%fotomac%';
+
+-- 1.2 Fotomaç pipeline breakdown (48h)
+SELECT stage, COUNT(*), MIN(run_at) as earliest, MAX(run_at) as latest, ROUND(AVG(nvs_score)) as avg_nvs
+FROM pipeline_log WHERE source_name = 'Fotomaç' AND run_at > NOW() - INTERVAL '48 hours'
+GROUP BY stage ORDER BY COUNT(*) DESC;
+
+-- 2.1 Google News source configs
+SELECT name, url, is_active, trust_tier, bjk_filter, polling_interval_minutes, max_per_run, custom_config
+FROM source_configs WHERE name ILIKE '%google news%' OR url ILIKE '%news.google%';
+
+-- 2.2 Google News pipeline breakdown (48h)
+SELECT stage, COUNT(*), ROUND(AVG(nvs_score)) as avg_nvs
+FROM pipeline_log WHERE source_name LIKE '%Google News%' AND run_at > NOW() - INTERVAL '48 hours'
+GROUP BY source_name, stage ORDER BY source_name, COUNT(*) DESC;
+```
+
+SQL results analyzed 2026-05-21. Verdicts:
+- **Google News (G-C)** ✅ DONE — all 3 feeds disabled (Google News T2, Google News BJK Transfer, BJK Resmi T1). 90%+ title_dedup, 1 article published in 48h. T1 on BJK Resmi was actively blocking real articles. DECISIONS.md entry written.
+- **Fotomaç (F-D confirmed, structural)** — `dedupeByTitle` is first-come-first-served (no trust-tier tiebreaking). Fotomaç lost 6 dedup contests because competing articles arrived first in the array, not because of T3 tier. More pressing: **zero Fotomaç items today (2026-05-21)** — source config was last updated 22:15 on 2026-05-20. Unknown if that change broke fetch. Options: (a) accept low yield and leave as-is, (b) investigate what changed at 22:15, (c) implement trust-aware dedup so Fotomaç at least wins when it's first to a story.
 
 **Duhuliye JSON-LD direct fetch investigation** (new, ~35 min):  
 Test Cloudflare worker direct fetch + JSON-LD parsing for Duhuliye. Hypothesis: Cloudflare worker egress IP is not blocked by Duhuliye (only Render proxy IPs are). If confirmed, implement a Duhuliye-specific fetcher in the worker that fetches the page HTML directly, extracts `articleBody` from the JSON-LD `<script type="application/ld+json">` tag, and passes it to `synthesizeArticle` as `sourceText` — bypassing Render proxy entirely. Estimated: 5 min to test, 30–50 lines to implement if test succeeds. Test: `fetch('https://www.duhuliye.com/futbol/onder-ozen-besiktasta-3639')` from a Cloudflare worker and check HTTP status + whether JSON-LD articleBody is present.

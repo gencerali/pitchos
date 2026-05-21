@@ -47,6 +47,35 @@ UI: pink badge (`pl-template_transfer_thin`), filter button "Transfer thin", `pl
 
 ---
 
+### 2026-05-21 — Google News feeds disabled (all 3)
+
+**Decision**: Disabled all three Google News RSS feeds in source_configs after pipeline_log diagnostic confirmed near-zero yield and structural content extraction failure.
+
+**Feeds disabled** (SQL UPDATE, not code change):
+- `"Google News"` — `https://news.google.com/rss/search?q=Besiktas+BJK…` — T2, proxy: true
+- `"Google News BJK Transfer"` — `https://news.google.com/rss/search?q=Besiktas+transfer…` — T3 (partial data; proxy: false in DB vs true in hardcoded — mismatch)
+- `"BJK Resmi (Google News)"` — `https://news.google.com/rss/search?q=site:bjk.com.tr…` — T1, proxy: true
+
+**Diagnostic findings** (`docs/source-config-audit-2026-05-21.md`):
+- 90%+ pipeline_log entries at `title_dedup` for both named feeds: ~200 items / 48h, 1 published article total (~0.5% yield)
+- Proxy returns `{"error":"Readability could not extract content"}` on all Google News redirect URLs — article body extraction structurally impossible
+- "BJK Resmi (Google News)" T1 assignment was actively harmful: a T1 Google News redirect won every title_dedup contest against real T2 sources, blocked the real article, then failed content fetch — net result: story publishes nothing
+
+**Alternatives considered**:
+- G-D (keep as-is): Rejected — 0.5% yield doesn't justify ~200 items processed per 48h. Template_transfer might work on title+description alone, but the 1-article/48h output confirms it doesn't in practice.
+- URL pattern filter: Rejected — redirect chain is broken at the proxy layer regardless of which URLs we filter in/out.
+- Replace with direct bjk.com.tr RSS: Not possible — all bjk.com.tr RSS paths return HTTP 403, homepage is Cloudflare JS challenge.
+
+**Why this one**: Zero net loss — the stories these feeds aggregate (Hürriyet, Fanatik, NTV, bjk.com.tr) are already in the pipeline from direct sources. Disabling removes ~200 wasted pipeline_log rows per 48h.
+
+**What would change our mind**: bjk.com.tr removing datacenter IP block (then use direct feed, not Google News search). Or Google News providing a proxy-accessible article endpoint.
+
+**Verified-by**: `pipeline_log` query 2026-05-21 — `source_name LIKE '%Google News%'`, 48h window, 90%+ `title_dedup`, 1 `published` total. Source config rows confirmed at T1/T2/T3 with Google News URLs.
+
+**Reversal**: `UPDATE source_configs SET is_active = true, updated_at = NOW() WHERE name ILIKE '%google news%' AND url ILIKE '%news.google%';`
+
+---
+
 ### 2026-05-21 — Five protective pipeline fixes (Muçi/NVS audit findings)
 
 **Decision**: Five additive gate/filter fixes deployed in single commit to address issues uncovered by Muçi article forensics, NVS audit (`docs/nvs-decision-points-audit-2026-05-21.md`), and reconciliation audit (`docs/reconciliation-audit-2026-05-20.md`). All changes are additive — no behavior changes for articles that already pass.
