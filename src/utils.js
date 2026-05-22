@@ -52,7 +52,7 @@ export const BJK_KEYWORDS = [
   'kristjan asllani','asllani',
   'salih uçan','salih ucan',
   'kartal kayra yılmaz','kartal kayra',
-  'jean onana','onana',
+  'jean onana',
   // Wingers / attacking mid
   'milot rashica','rashica',
   'junior olaitan','olaitan',
@@ -77,7 +77,7 @@ export const BJK_KEYWORDS = [
   'gedson fernandes','gedson',
   'rachid ghezzal','ghezzal',
   'ciro immobile','immobile',
-  'jackson muleka','muleka',
+
   'vincent aboubakar','aboubakar',
   'arthur masuaku','masuaku',
   'kenan karaman','kenan',
@@ -99,29 +99,51 @@ export const BJK_KEYWORDS = [
 
   // ─── Tier 6 — Recent former management ─────────────────────
   'hasan arat','arat',
-  'fikret orman','orman',
-  'ahmet nur çebi','ahmet nur cebi','çebi','cebi',
+  'fikret orman',
+  'ahmet nur çebi','ahmet nur cebi',
   'süleyman seba', 'suleyman seba',
   'hakki yeten'
 ];
 
+// Tokenises text into a Set of words by splitting on whitespace, apostrophes, and punctuation.
+// Used by bjkMatch to prevent single-word keywords from matching inside longer agglutinated words
+// (e.g. 'orman' must not match 'sormanıza'; 'onana' must not match as substring of 'Onuachu').
+function tokenSet(normalised) {
+  return new Set(normalised.split(/[\s‘’''',\.;:!?()\[\]{}\/"«»]+/).filter(Boolean));
+}
+
 // Checks whether text mentions any BJK keyword.
-// Uses both toLowerCase() and toLocaleLowerCase('tr') to handle Turkish all-caps titles
-// where standard toLowerCase turns İ into i+combining-dot (no match) while tr-locale gives plain i.
-// BESIKTAS (ASCII caps) needs toLowerCase() because tr-locale turns I→ı (dotless) which misses 'besiktas'.
+// Single-word keywords: exact token match (whole word only, prevents agglutination false-positives).
+// Multi-word / hyphenated keywords (e.g. 'siyah-beyaz', 'fikret orman'): substring match on full text
+//   because the phrase is specific enough to not appear inside an unrelated longer phrase.
+// Case handling: both toLowerCase() and toLocaleLowerCase('tr') checked to handle Turkish İ/I/i/ı.
 export function bjkMatch(text, keywords = BJK_KEYWORDS) {
   const lo = text.toLowerCase();
   const tr = text.toLocaleLowerCase('tr');
-  return keywords.some(kw => lo.includes(kw) || tr.includes(kw));
+  const wsLo = tokenSet(lo);
+  const wsTr = tokenSet(tr);
+  return keywords.some(kw => {
+    const kwLo = kw.toLowerCase();
+    const kwTr = kw.toLocaleLowerCase('tr');
+    if (kw.includes(' ') || kw.includes('-')) return lo.includes(kwLo) || tr.includes(kwTr);
+    return wsLo.has(kwLo) || wsTr.has(kwTr);
+  });
 }
 
 // Returns the first matched keyword (or null if none).
-// Used for pipeline_log.drop_detail population — see kartalix_pipeline_log_visibility_prompt.txt.
+// Used for pipeline_log.drop_detail population.
 export function bjkMatchDetail(text, keywords = BJK_KEYWORDS) {
   const lo = text.toLowerCase();
   const tr = text.toLocaleLowerCase('tr');
+  const wsLo = tokenSet(lo);
+  const wsTr = tokenSet(tr);
   for (const kw of keywords) {
-    if (lo.includes(kw) || tr.includes(kw)) return kw;
+    const kwLo = kw.toLowerCase();
+    const kwTr = kw.toLocaleLowerCase('tr');
+    const match = (kw.includes(' ') || kw.includes('-'))
+      ? lo.includes(kwLo) || tr.includes(kwTr)
+      : wsLo.has(kwLo) || wsTr.has(kwTr);
+    if (match) return kw;
   }
   return null;
 }
