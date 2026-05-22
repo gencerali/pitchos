@@ -1,0 +1,181 @@
+{
+  "description": "5 P4 sources about the same Rashica transfer → 1 story, 1 generated Kartalix article. Proves story deduplication: multiple sources build one story instead of spawning five.",
+  "decision": "DECISIONS.md 2026-04-29 — Slice 2 schema and two-stage matching",
+  "contributions": [
+    {
+      "step": 1,
+      "source": "Duhuliye",
+      "trust_tier": "press",
+      "article": {
+        "title": "Milot Rashica Beşiktaş'a transfer oldu",
+        "summary": "Kosovalı kanat oyuncusu Milot Rashica, Werder Bremen'den Beşiktaş'a transfer oldu.",
+        "is_p4": true
+      },
+      "extracted_facts": {
+        "entities": { "players": ["Milot Rashica"], "clubs": ["Beşiktaş", "Werder Bremen"], "competitions": [] },
+        "numbers":  { "transfer_fee": "3.5 milyon euro", "contract_years": null, "other": [] },
+        "dates":    { "announcement": null, "contract_end": null, "other": [] }
+      },
+      "mock_open_stories": [],
+      "mock_judge_response": {
+        "match": "new",
+        "story_type": "transfer",
+        "story_category": "sporting",
+        "title": "Milot Rashica Beşiktaş transferi",
+        "contribution_type": "initial",
+        "confidence_delta": 30,
+        "reason": "No existing story — first article about this transfer"
+      },
+      "expected": {
+        "is_new_story": true,
+        "confidence_after": 30,
+        "state_after": "emerging",
+        "generation_triggered": false
+      }
+    },
+    {
+      "step": 2,
+      "source": "Sabah Spor",
+      "trust_tier": "press",
+      "article": {
+        "title": "Rashica Beşiktaş yolunda, imza yakın",
+        "summary": "Beşiktaş, Milot Rashica için 3.5 milyon euro bonservis bedeli üzerinde anlaştı.",
+        "is_p4": true
+      },
+      "extracted_facts": {
+        "entities": { "players": ["Milot Rashica"], "clubs": ["Beşiktaş", "Werder Bremen"], "competitions": [] },
+        "numbers":  { "transfer_fee": "3.5 milyon euro", "contract_years": null, "other": [] },
+        "dates":    { "announcement": null, "contract_end": null, "other": [] }
+      },
+      "mock_open_stories": [
+        { "id": "story-rashica-001", "state": "emerging", "confidence": 30,
+          "entities": { "players": ["Milot Rashica"], "clubs": ["Beşiktaş", "Werder Bremen"] } }
+      ],
+      "mock_judge_response": {
+        "match": "story-rashica-001",
+        "contribution_type": "confirming",
+        "confidence_delta": 20,
+        "reason": "Same player and transfer fee as story-rashica-001"
+      },
+      "expected": {
+        "is_new_story": false,
+        "matched_story_id": "story-rashica-001",
+        "confidence_after": 50,
+        "state_after": "developing",
+        "generation_triggered": false
+      }
+    },
+    {
+      "step": 3,
+      "source": "A Haber",
+      "trust_tier": "press",
+      "article": {
+        "title": "Beşiktaş Rashica transferini KAP'a bildirdi",
+        "summary": "Beşiktaş Kulübü, Milot Rashica'nın 3 yıllık sözleşme imzaladığını açıkladı.",
+        "is_p4": true
+      },
+      "extracted_facts": {
+        "entities": { "players": ["Milot Rashica"], "clubs": ["Beşiktaş", "Werder Bremen"], "competitions": [] },
+        "numbers":  { "transfer_fee": "3.5 milyon euro", "contract_years": "3", "other": [] },
+        "dates":    { "announcement": null, "contract_end": null, "other": [] }
+      },
+      "mock_open_stories": [
+        { "id": "story-rashica-001", "state": "developing", "confidence": 50,
+          "entities": { "players": ["Milot Rashica"], "clubs": ["Beşiktaş", "Werder Bremen"] } }
+      ],
+      "mock_judge_response": {
+        "match": "story-rashica-001",
+        "contribution_type": "confirming",
+        "confidence_delta": 20,
+        "reason": "Official KAP announcement confirms transfer"
+      },
+      "expected": {
+        "is_new_story": false,
+        "matched_story_id": "story-rashica-001",
+        "confidence_after": 70,
+        "state_after": "confirmed",
+        "generation_triggered": true
+      }
+    },
+    {
+      "step": 4,
+      "source": "NTV Spor",
+      "trust_tier": "broadcast",
+      "article": {
+        "title": "Rashica Beşiktaş'ta: İşte imza töreni",
+        "summary": "Milot Rashica, Beşiktaş forması giydi. Salı günü düzenlenen törenle imzayı attı.",
+        "is_p4": true
+      },
+      "extracted_facts": {
+        "entities": { "players": ["Milot Rashica"], "clubs": ["Beşiktaş", "Werder Bremen"], "competitions": [] },
+        "numbers":  { "transfer_fee": null, "contract_years": "3", "other": [] },
+        "dates":    { "announcement": "Salı", "contract_end": null, "other": [] }
+      },
+      "mock_open_stories": [
+        { "id": "story-rashica-001", "state": "active", "confidence": 70,
+          "entities": { "players": ["Milot Rashica"], "clubs": ["Beşiktaş", "Werder Bremen"] } }
+      ],
+      "mock_judge_response": {
+        "match": "story-rashica-001",
+        "contribution_type": "updating",
+        "confidence_delta": 10,
+        "reason": "Adds signing ceremony details to existing confirmed transfer story"
+      },
+      "expected": {
+        "is_new_story": false,
+        "matched_story_id": "story-rashica-001",
+        "confidence_after": 80,
+        "state_after": "active",
+        "generation_triggered": false
+      }
+    },
+    {
+      "step": 5,
+      "source": "Hürriyet",
+      "trust_tier": "press",
+      "article": {
+        "title": "Rashica transferinde rakamlar belli oldu",
+        "summary": "Beşiktaş'ın Milot Rashica için ödediği 3.5 milyon euro bonservis bedeli ve 3 yıllık sözleşme detayları ortaya çıktı.",
+        "is_p4": true
+      },
+      "extracted_facts": {
+        "entities": { "players": ["Milot Rashica"], "clubs": ["Beşiktaş", "Werder Bremen"], "competitions": [] },
+        "numbers":  { "transfer_fee": "3.5 milyon euro", "contract_years": "3", "other": [] },
+        "dates":    { "announcement": null, "contract_end": null, "other": [] }
+      },
+      "mock_open_stories": [
+        { "id": "story-rashica-001", "state": "active", "confidence": 80,
+          "entities": { "players": ["Milot Rashica"], "clubs": ["Beşiktaş", "Werder Bremen"] } }
+      ],
+      "mock_judge_response": {
+        "match": "story-rashica-001",
+        "contribution_type": "confirming",
+        "confidence_delta": 20,
+        "reason": "Confirms transfer fee and contract length already in story"
+      },
+      "expected": {
+        "is_new_story": false,
+        "matched_story_id": "story-rashica-001",
+        "confidence_after": 100,
+        "state_after": "active",
+        "generation_triggered": false
+      }
+    }
+  ],
+  "invariants": {
+    "stories_created": 1,
+    "kartalix_articles_generated": 1,
+    "generation_step": 3,
+    "final_story_id": "story-rashica-001",
+    "final_confidence": 100,
+    "final_state": "active"
+  },
+  "what_this_test_proves": [
+    "5 P4 source articles about the same transfer produce exactly 1 story, not 5",
+    "Entity fingerprint (shared player Milot Rashica) correctly matches contributions 2-5 to the same story",
+    "Confidence builds correctly: 30 → 50 → 70 → 80 → 100",
+    "Generation fires exactly once at step 3 (emerging→developing→confirmed transition)",
+    "Story transitions to active after generation — subsequent contributions do not re-trigger generation",
+    "This is the Slice 2 done-when criterion"
+  ]
+}

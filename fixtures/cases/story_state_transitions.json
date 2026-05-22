@@ -1,0 +1,123 @@
+{
+  "description": "State machine — proves every valid state transition fires correctly, including the debunked close path.",
+  "decision": "DECISIONS.md 2026-04-29 — Slice 2 schema and two-stage matching",
+  "transitions": [
+    {
+      "label": "emerging → developing at confidence 40",
+      "from_state": "emerging",
+      "from_confidence": 20,
+      "contribution_type": "confirming",
+      "delta": 20,
+      "expected_confidence": 40,
+      "expected_state": "developing"
+    },
+    {
+      "label": "emerging → confirmed directly (cascade, no developing stop) at confidence 60+",
+      "from_state": "emerging",
+      "from_confidence": 30,
+      "contribution_type": "confirming",
+      "delta": 30,
+      "expected_confidence": 60,
+      "expected_state": "confirmed"
+    },
+    {
+      "label": "developing → confirmed at confidence 60",
+      "from_state": "developing",
+      "from_confidence": 50,
+      "contribution_type": "confirming",
+      "delta": 20,
+      "expected_confidence": 70,
+      "expected_state": "confirmed"
+    },
+    {
+      "label": "emerging stays emerging below confidence 40",
+      "from_state": "emerging",
+      "from_confidence": 20,
+      "contribution_type": "updating",
+      "delta": 10,
+      "expected_confidence": 30,
+      "expected_state": "emerging"
+    },
+    {
+      "label": "developing stays developing below confidence 60",
+      "from_state": "developing",
+      "from_confidence": 40,
+      "contribution_type": "updating",
+      "delta": 10,
+      "expected_confidence": 50,
+      "expected_state": "developing"
+    },
+    {
+      "label": "active stays active on confirming contribution",
+      "from_state": "active",
+      "from_confidence": 80,
+      "contribution_type": "confirming",
+      "delta": 20,
+      "expected_confidence": 100,
+      "expected_state": "active"
+    },
+    {
+      "label": "confirmed → developing on contradicting (confidence drops below 60)",
+      "from_state": "confirmed",
+      "from_confidence": 65,
+      "contribution_type": "contradicting",
+      "delta": -10,
+      "expected_confidence": 55,
+      "expected_state": "developing"
+    },
+    {
+      "label": "active → developing on contradicting (confidence drops below 60)",
+      "from_state": "active",
+      "from_confidence": 65,
+      "contribution_type": "contradicting",
+      "delta": -10,
+      "expected_confidence": 55,
+      "expected_state": "developing"
+    },
+    {
+      "label": "confirmed stays confirmed if contradicting keeps confidence >= 60",
+      "from_state": "confirmed",
+      "from_confidence": 80,
+      "contribution_type": "contradicting",
+      "delta": -10,
+      "expected_confidence": 70,
+      "expected_state": "confirmed"
+    },
+    {
+      "label": "emerging → debunked when contradicting drives confidence below 15",
+      "from_state": "emerging",
+      "from_confidence": 20,
+      "contribution_type": "contradicting",
+      "delta": -10,
+      "expected_confidence": 10,
+      "expected_state": "debunked"
+    },
+    {
+      "label": "developing → debunked when contradicting drives confidence below 15",
+      "from_state": "developing",
+      "from_confidence": 20,
+      "contribution_type": "contradicting",
+      "delta": -10,
+      "expected_confidence": 10,
+      "expected_state": "debunked"
+    },
+    {
+      "label": "confidence floor: never drops below 0",
+      "from_state": "emerging",
+      "from_confidence": 10,
+      "contribution_type": "contradicting",
+      "delta": -30,
+      "expected_confidence": 0,
+      "expected_state": "debunked"
+    }
+  ],
+  "what_this_test_proves": [
+    "emerging → developing fires at confidence 40",
+    "emerging → confirmed cascades directly (skips developing) when confidence reaches 60+",
+    "developing → confirmed fires at confidence 60",
+    "confirmed/active → developing when contradicting drops confidence below 60",
+    "confirmed stays confirmed if contradicting leaves confidence >= 60",
+    "any state → debunked when contradicting drives confidence below 15",
+    "confidence is clamped to 0 floor (never goes negative)"
+  ]
+}

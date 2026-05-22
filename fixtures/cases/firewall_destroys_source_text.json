@@ -1,0 +1,46 @@
+{
+  "description": "Legal core test — proves source text is destroyed by the firewall. The Produce Agent output must not contain any verbatim phrases from the P4 source text.",
+  "decision": "DECISIONS.md 2026-04-28 — Facts-extraction firewall is non-negotiable",
+  "input": {
+    "article": {
+      "title": "Milot Rashica Beşiktaş'a transfer oldu",
+      "summary": "Kosovalı kanat oyuncusu Milot Rashica, 3.5 milyon euro bonservis bedeliyle Werder Bremen'den Beşiktaş'a transfer oldu. 28 yaşındaki futbolcu, 3 yıllık sözleşme imzaladı. Anlaşma Salı günü açıklandı.",
+      "is_p4": true,
+      "source_name": "Fotomaç",
+      "url": "https://www.fotomac.com.tr/test",
+      "id": null,
+      "site_id": null
+    },
+    "mock_claude_extraction_response": "{\"entities\":{\"players\":[\"Milot Rashica\"],\"clubs\":[\"Werder Bremen\",\"Beşiktaş\"],\"competitions\":[]},\"numbers\":{\"transfer_fee\":\"3.5 milyon euro\",\"contract_years\":\"3 yıl\",\"release_clause\":null,\"other\":[]},\"dates\":{\"announcement\":\"Salı\",\"contract_end\":null,\"transfer_window\":null,\"other\":[]}}"
+  },
+  "expected_facts": {
+    "entities": {
+      "players": ["Milot Rashica"],
+      "clubs": ["Werder Bremen", "Beşiktaş"],
+      "competitions": []
+    },
+    "numbers": {
+      "transfer_fee": "3.5 milyon euro",
+      "contract_years": "3 yıl",
+      "release_clause": null,
+      "other": []
+    },
+    "dates": {
+      "announcement": "Salı",
+      "contract_end": null,
+      "transfer_window": null,
+      "other": []
+    }
+  },
+  "source_phrases_that_must_not_appear_in_produce_output": [
+    "Kosovalı kanat oyuncusu",
+    "Werder Bremen'den Beşiktaş'a transfer oldu",
+    "28 yaşındaki futbolcu"
+  ],
+  "what_this_test_proves": [
+    "buildExtractionPrompt does not ask Claude to paraphrase or summarize",
+    "parseFirewallResponse returns only entities/numbers/dates — no source sentences",
+    "writeTransfer prompt contains only structured fact lines — never the source text",
+    "writeTransfer is called without the article.summary or article.full_text fields"
+  ]
+}

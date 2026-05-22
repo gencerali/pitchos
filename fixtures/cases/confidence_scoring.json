@@ -1,0 +1,136 @@
+{
+  "description": "Confidence scoring — proves delta math, initial state classification, official-source shortcut, and multi-contribution sequences.",
+  "decision": "DECISIONS.md 2026-04-29 — Slice 2 schema and two-stage matching",
+  "deltas": {
+    "initial": 30,
+    "confirming": 20,
+    "updating": 10,
+    "contradicting": -10,
+    "official_initial": 60
+  },
+  "initial_state_rules": {
+    "gte_60": "confirmed",
+    "gte_40": "developing",
+    "below_40": "emerging"
+  },
+  "single_contribution_cases": [
+    {
+      "label": "standard first contribution: delta 30 → emerging",
+      "trust_tier": "press",
+      "contribution_type": "initial",
+      "from_confidence": 0,
+      "expected_delta": 30,
+      "expected_confidence": 30,
+      "expected_initial_state": "emerging"
+    },
+    {
+      "label": "official source first contribution: delta 60 → confirmed immediately",
+      "trust_tier": "official",
+      "contribution_type": "initial",
+      "from_confidence": 0,
+      "expected_delta": 60,
+      "expected_confidence": 60,
+      "expected_initial_state": "confirmed"
+    },
+    {
+      "label": "confirming contribution adds 20",
+      "contribution_type": "confirming",
+      "from_confidence": 50,
+      "expected_delta": 20,
+      "expected_confidence": 70
+    },
+    {
+      "label": "updating contribution adds 10",
+      "contribution_type": "updating",
+      "from_confidence": 50,
+      "expected_delta": 10,
+      "expected_confidence": 60
+    },
+    {
+      "label": "contradicting contribution subtracts 10",
+      "contribution_type": "contradicting",
+      "from_confidence": 50,
+      "expected_delta": -10,
+      "expected_confidence": 40
+    },
+    {
+      "label": "confidence clamped at 100 — cannot exceed maximum",
+      "contribution_type": "confirming",
+      "from_confidence": 95,
+      "expected_delta": 20,
+      "expected_confidence": 100
+    },
+    {
+      "label": "confidence clamped at 0 — cannot go negative",
+      "contribution_type": "contradicting",
+      "from_confidence": 5,
+      "expected_delta": -10,
+      "expected_confidence": 0
+    }
+  ],
+  "multi_contribution_sequence": {
+    "description": "5 contributions about Rashica transfer — proves confidence builds across sources and story reaches confirmed then active",
+    "story_type": "transfer",
+    "story_category": "sporting",
+    "steps": [
+      {
+        "step": 1,
+        "source": "Duhuliye",
+        "trust_tier": "press",
+        "contribution_type": "initial",
+        "delta": 30,
+        "confidence_after": 30,
+        "state_after": "emerging"
+      },
+      {
+        "step": 2,
+        "source": "A Haber",
+        "trust_tier": "press",
+        "contribution_type": "confirming",
+        "delta": 20,
+        "confidence_after": 50,
+        "state_after": "developing"
+      },
+      {
+        "step": 3,
+        "source": "NTV Spor",
+        "trust_tier": "broadcast",
+        "contribution_type": "confirming",
+        "delta": 20,
+        "confidence_after": 70,
+        "state_after": "confirmed",
+        "generation_triggered": true
+      },
+      {
+        "step": 4,
+        "source": "Sabah Spor",
+        "trust_tier": "press",
+        "contribution_type": "updating",
+        "delta": 10,
+        "confidence_after": 80,
+        "state_after": "active"
+      },
+      {
+        "step": 5,
+        "source": "Hürriyet",
+        "trust_tier": "press",
+        "contribution_type": "confirming",
+        "delta": 20,
+        "confidence_after": 100,
+        "state_after": "active"
+      }
+    ],
+    "generation_triggered_at_step": 3,
+    "final_confidence": 100,
+    "final_state": "active"
+  },
+  "what_this_test_proves": [
+    "Standard initial contribution yields delta 30 and emerging state",
+    "Official source initial contribution yields delta 60 and confirmed state immediately",
+    "confirming/updating/contradicting deltas are applied correctly",
+    "Confidence is clamped to [0, 100]",
+    "Multi-contribution sequence: 5 contributions build from emerging to active",
+    "Generation trigger fires exactly once at step 3 (confirmed transition)",
+    "Story stays active after generation — additional contributions don't re-trigger generation"
+  ]
+}

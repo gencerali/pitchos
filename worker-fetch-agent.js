@@ -4045,6 +4045,8 @@ const P4_SOURCES = new Set([
   'Duhuliye',
 ]);
 const isP4 = a => !!(a.is_p4 || P4_SOURCES.has(a.source_name || a.source || ''));
+// Explicit property whitelist — internal pipeline fields (_siblings, _facts, _used_sibling_source,
+// _rank, etc.) are automatically excluded and never written to KV.
 const toKVShape = a => ({
   title:               a.title        || '',
   summary:             a.summary      || a.description || '',
@@ -4771,7 +4773,43 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
 
   // ── SCORE ARTICLES ────────────────────────────────────────────
   await sleep(500);
-  const { scored, usage: scoreUsage } = await scoreArticles(preFiltered, site, env);
+  let scored, scoreUsage;
+  try {
+    ({ scored, usage: scoreUsage } = await scoreArticles(preFiltered, site, env));
+  } catch(e) {
+    console.error(`SCORING FAILED (Claude unavailable): ${e.message}`);
+    // Claude down — keep KV alive so the pool doesn't go dark
+    const kvRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+    const kvExisting = kvRaw ? JSON.parse(kvRaw) : [];
+    if (kvExisting.length >= 5) {
+      await cacheToKV(env, site.short_code, kvExisting);
+      console.log(`KV REFRESH (scoring fallback): ${kvExisting.length} articles re-ranked`);
+    } else {
+      try {
+        const seedCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const dbRows = await supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&published_at=not.is.null&published_at=gte.${seedCutoff}&publish_mode=not.in.(rss_summary,copy_source)&order=published_at.desc&limit=300&select=*`);
+        if (Array.isArray(dbRows) && dbRows.length > 0) {
+          const seeded = dbRows.map(r => toKVShape({
+            title: r.title, summary: r.summary || '', full_body: r.full_body || r.summary || '',
+            source_name: r.source_name || '', source: r.source_name || '',
+            url: r.original_url || '', original_url: r.original_url || '',
+            category: r.category || 'Haber', nvs: r.nvs_score || 0,
+            golden_score: r.golden_score || null, published_at: r.published_at,
+            is_fresh: false, is_kartalix_content: r.source_type === 'kartalix',
+            publish_mode: r.publish_mode || 'rss_summary', slug: r.slug,
+            template_id: r.template_id || null,
+          }));
+          await cacheToKV(env, site.short_code, seeded);
+          console.log(`KV SEED from DB (scoring fallback): ${seeded.length} articles`);
+        }
+      } catch(seedErr) { console.error('KV seed fallback failed:', seedErr.message); }
+    }
+    funnelStats._error = e.message;
+    await logFetch(env, site.id, 'failed', stats, e.message, funnelStats);
+    if (stats.costEur > 0) await addCost(env, stats.costEur);
+    return stats;
+  }
   const mergedScored = preFiltered.map((orig, i) => ({
     ...orig,
     nvs:          scored[i]?.nvs          || 50,
@@ -5273,6 +5311,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
     // is recorded in KV so the admin panel can surface it immediately.
     let scoredLowItems    = [];
     let publishedLogItems = [];
+    let thinDropItems     = [];
     try {
       const top100forWrite = top100.slice(0, 100);
       const allWritten = await writeArticles(top100forWrite, site, env);
@@ -5302,7 +5341,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
           trust_tier: a.trust_tier || a.trust || null,
           source_body_len: ((a.summary || '') + (a.full_text || '')).length,
           drop_detail: null }));
-      const thinDropItems = (pubResult.thinDropped || [])
+      thinDropItems = (pubResult.thinDropped || [])
         .map(a => ({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs, publish_mode: a.publish_mode, _stage: 'template_transfer_thin',
           trust_tier: a.trust_tier || a.trust || null,
           source_body_len: (a.full_body || '').length,
@@ -5343,7 +5382,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
           // immediately evicted by rankAndEvict, defeating the seed entirely.
           const seedModeExclude = ['rss_summary','copy_source'];
           const dbRows = await supabase(env, 'GET',
-            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&published_at=not.is.null&published_at=gte.${seedCutoff}&publish_mode=not.in.(${seedModeExclude.join(',')})&order=published_at.desc&limit=300&select=*`);
+            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&published_at=gte.${encodeURIComponent(seedCutoff)}&publish_mode=not.in.(${seedModeExclude.join(',')})&order=published_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,nvs_score,publish_mode,published_at,fetched_at,original_url,source_type,template_id,golden_score`);
           if (Array.isArray(dbRows) && dbRows.length > 0) {
             latestKV = dbRows.map(r => toKVShape({
               title:        r.title,
@@ -5357,6 +5396,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
               nvs:          r.nvs_score || 0,
               golden_score: r.golden_score || null,
               published_at: r.published_at,
+              fetched_at:   r.fetched_at || null,
               is_fresh:     false,
               is_kartalix_content: r.source_type === 'kartalix',
               publish_mode: r.publish_mode || 'rss_summary',
@@ -5364,6 +5404,8 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
               template_id:  r.template_id || null,
             }));
             console.log(`KV SEED from DB: ${latestKV.length} published articles (last 30d)`);
+          } else {
+            console.error(`KV SEED from DB: no rows returned — dbRows=${dbRows === null ? 'null (Supabase error)' : '[]'}`);
           }
         } catch(e) { console.error('KV seed from DB failed:', e.message); }
       }

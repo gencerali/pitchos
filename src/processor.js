@@ -72,7 +72,13 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
   });
 
   // Stage 4: title similarity dedup + sort by date + cap 100
-  const { kept: deduped, dupeWinnerMap } = dedupeByTitle(afterHash);
+  const { kept: deduped, dupeWinnerMap, dupeSiblings } = dedupeByTitle(afterHash);
+  // Attach same-story siblings so writeArticles can try alternative sources if primary synthesis fails.
+  // _siblings is stripped by toKVShape's explicit property whitelist and never written to KV.
+  for (const a of deduped) {
+    const key = a.url || a.original_url || a.title;
+    a._siblings = dupeSiblings.get(key) || [];
+  }
   // Find title_dedup rejections by comparing afterHash vs deduped
   const dedupedUrlSet = new Set(deduped.map(a => a.url || a.original_url || a.title));
   for (const a of afterHash) {
@@ -161,6 +167,7 @@ export function titleSimilarity(a, b) {
 export function dedupeByTitle(articles) {
   const kept = [];
   const dupeWinnerMap = new Map();
+  const dupeSiblings = new Map(); // winner URL → [losing articles], used for synthesis sibling fallback
   for (const a of articles) {
     const aNorm = normalizeTitle(a.title);
     const aKeys = extractKeyTokens(a.title);
@@ -174,10 +181,15 @@ export function dedupeByTitle(articles) {
     if (!isDupe) {
       kept.push(a);
     } else {
-      dupeWinnerMap.set(a.url || a.original_url || a.title, winner?.url || winner?.original_url || null);
+      const winKey = winner?.url || winner?.original_url || winner?.title;
+      dupeWinnerMap.set(a.url || a.original_url || a.title, winKey || null);
+      if (winKey) {
+        if (!dupeSiblings.has(winKey)) dupeSiblings.set(winKey, []);
+        dupeSiblings.get(winKey).push(a);
+      }
     }
   }
-  return { kept, dupeWinnerMap };
+  return { kept, dupeWinnerMap, dupeSiblings };
 }
 
 // ─── POST-SCORING STORY DEDUP ─────────────────────────────────
@@ -194,7 +206,7 @@ export function dedupeByStory(articles) {
       if (titleSimilarity(aNorm, normalizeTitle(k.title)) >= 0.25) return true;
       // Same story: 1+ shared meaningful named token (morphology-aware, stopwords excluded)
       const kKeys = extractKeyTokens(k.title);
-      return sharedStoryTokens(aKeys, kKeys) >= 1;
+      return sharedStoryTokens(aKeys, kKeys) >= 2;
     });
     if (!isDupe) kept.push(a);
   }

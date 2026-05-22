@@ -8,7 +8,101 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: **Friday morning — run verification SQL for trust-aware dedup deploy (`04ec21f3`). Then About page copy.**
+**NEXT**: **After 2 cron cycles (~10:30 Istanbul / 07:30 UTC) — run volume recovery verification SQL below. Check sibling fallback logs in Cloudflare. Then About page copy.**
+
+**What 2026-05-22 session established:**
+- P0 incident resolved: KV pool zero from Claude 529 → two protective fixes deployed (`829f2659`, `db1e0092`)
+- SHELF_LIFE doubled across all categories — homepage now shows 8-15 articles from existing KV (`09d54344`)
+- dedupeByStory threshold ≥1 → ≥2 — retention should rise from 47% to 70-80% (`09d54344`)
+- Synthesis sibling fallback live (`211b56f2`) — recovered synthesis articles now try up to 2 same-story alternative sources on primary failure
+- Incident report at `docs/Incidents/incident-2026-05-22-pool-zero.md`
+- Homepage render diagnostic at `docs/homepage-render-2026-05-22.md`
+
+**Volume recovery verification SQL (run after 2 cron cycles post 10:10 Istanbul):**
+
+```sql
+-- 1. dedupeByStory retention rate improved?
+SELECT funnel_stats->>'scored' as scored,
+       funnel_stats->>'after_story_dedup' as after_dedup,
+       ROUND(100.0 * (funnel_stats->>'after_story_dedup')::int
+             / NULLIF((funnel_stats->>'scored')::int, 0)) as retention_pct
+FROM fetch_logs
+WHERE created_at > '2026-05-22 07:00:00+00'
+ORDER BY created_at DESC LIMIT 5;
+-- Expected: retention_pct 70-80% (was ~47%)
+
+-- 2. Sibling fallback triggering? (watch for recovered articles)
+SELECT slug, source_name, original_url, publish_mode, published_at
+FROM content_items
+WHERE publish_mode = 'rewrite'
+  AND published_at > '2026-05-22 07:00:00+00'
+ORDER BY published_at DESC;
+-- Cross-check: source_name hostname should match original_url domain
+
+-- 3. Overall publish rate vs pre-deploy baseline
+SELECT
+  COUNT(*) FILTER (WHERE nvs_score >= 50) as eligible,
+  COUNT(*) FILTER (WHERE stage = 'published') as published,
+  COUNT(*) FILTER (WHERE stage = 'synthesis_failed') as synth_failed,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE stage = 'published')
+        / NULLIF(COUNT(*) FILTER (WHERE nvs_score >= 50), 0)) as publish_pct
+FROM pipeline_log
+WHERE run_at > '2026-05-22 07:00:00+00';
+-- Expected: publish_pct above 16% baseline; sibling recovery = lower synth_failed
+```
+
+**Also check**: Cloudflare Workers logs for "SYNTHESIS RECOVERED via sibling" lines — each one is an article that would have been lost pre-deploy.
+
+---
+
+**Volume recovery (Items 1+2+3)** ✅ DONE (2026-05-22, version `211b56f2-4187-4d90-88fc-076118547ff4`):
+- Item 1: `index.html:1120` — SHELF_LIFE doubled (`Match: 48, Transfer: 96, Injury: 48, Club: 72, European: 72, Other: 48, default: 48`)
+- Item 2: `src/processor.js:197` — dedupeByStory `>= 1` → `>= 2`
+- Item 3a: `src/publisher.js:608` — rewritesSoFar counts SUCCESSES only (verified, no code change)
+- Item 3b: `src/processor.js:167` — `dedupeByTitle` now returns `dupeSiblings` Map (winner → losers)
+- Item 3c: `src/processor.js:78` — `_siblings` attached to each kept article; stripped by `toKVShape` whitelist (`worker-fetch-agent.js:4048`)
+- Item 3d: `src/publisher.js:620–643` — sibling retry block with `.slice(0, 2)` cap + attribution rewrite on success
+
+---
+
+**Morning verification SQL from 2026-05-21 session — still pending:**
+
+```sql
+-- Q1: Dedup winners shifted?
+SELECT source_name,
+  COUNT(*) FILTER (WHERE stage = 'title_dedup') as lost_dedup,
+  COUNT(*) FILTER (WHERE stage = 'published') as published,
+  trust_tier
+FROM pipeline_log
+WHERE run_at > '2026-05-21 22:00:00+00'
+GROUP BY source_name, trust_tier
+ORDER BY trust_tier, source_name;
+
+-- Q2: Overall publish rate
+SELECT
+  COUNT(*) FILTER (WHERE nvs_score >= 50) as eligible,
+  COUNT(*) FILTER (WHERE stage = 'published') as published,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE stage = 'published')
+        / NULLIF(COUNT(*) FILTER (WHERE nvs_score >= 50), 0)) as pct
+FROM pipeline_log
+WHERE run_at > '2026-05-21 22:00:00+00';
+
+-- Q3: Fotomaç specifically
+SELECT stage, COUNT(*)
+FROM pipeline_log
+WHERE source_name = 'Fotomaç' AND run_at > '2026-05-21 22:00:00+00'
+GROUP BY stage ORDER BY COUNT(*) DESC;
+```
+
+---
+
+**pipeline_log silent failure fix** ✅ DONE (2026-05-21, version `4d982404-7134-4a6d-93a6-a0bcb28cc460`):
+- Root cause: `const thinDropItems` declared inside "DB-FIRST SAVE" try block (line 5305) but referenced outside it in the pipeline_log try block (line 5451). `ReferenceError` thrown, caught, swallowed. Pipeline_log had 0 rows for all cron runs since deploy `9b3ada04` (~14:02 UTC).
+- Fix: moved `let thinDropItems = [];` to outer scope (line 5274), removed `const` from inner assignment.
+- Confirmed: debug endpoint POST to pipeline_log returned 201 ok. Table accepts writes from worker.
+- Note: pipeline_log will still show no entries for quiet-period crons (00:00–06:30 Istanbul) and for runs where allEvents is genuinely empty (all articles hash-cached). This is correct behaviour, not a bug.
+
+---
 
 **Five protective fixes** ✅ DONE (2026-05-21, version `a7b84e0e-a008-4745-8477-e39fe2132cd5`):
 - Fix 1: `isSynth` extended to include `template_transfer` — `src/publisher.js:687` — `['rewrite', 'original_synthesis', 'template_transfer']`

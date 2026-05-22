@@ -605,24 +605,56 @@ export async function writeArticles(articles, site, env) {
       if ((article.nvs || 0) >= 50) {
         const rewritesSoFar = results.filter(r => r.publish_mode === 'rewrite').length;
         if (rewritesSoFar < 6) {
+          // Cap counts rewrite SUCCESSES only — publish_mode is set to 'rewrite' only when
+          // body.length > 600 (line ~613). Failed attempts leave publish_mode as 'rss_summary'
+          // and do not increment rewritesSoFar. Verified 2026-05-22, no code change needed.
+          let result = null;
           try {
-            const result = await synthesizeArticle(article, env, site, { proxyWarmed });
-            const body = result?.body;
-            if (body && body.length > 600) {
-              published.full_body           = body;
-              published.publish_mode        = 'rewrite';
-              published.needs_review        = result.needs_review || false;
-              published.verification_result = result.verification_result || null;
-              if (result.title && result.title !== article.title) {
-                published.original_rss_title = article.title;
-                published.title              = result.title;
-              }
-              console.log(`SYNTHESIS OK [${article.nvs}]: "${(result.title || article.title)?.slice(0, 50)}" — ${body.length}ch${result.needs_review ? ' ⚠️ needs_review' : ''}`);
-            } else if (!body) {
-              console.log(`SYNTHESIS SKIPPED [${article.nvs}]: "${article.title?.slice(0, 50)}" — no source, stays rss_summary`);
-            }
+            result = await synthesizeArticle(article, env, site, { proxyWarmed });
           } catch(e) {
             console.error('Synthesis failed:', e.message, '|', article.title?.slice(0, 50));
+          }
+
+          // Primary failed — try up to 2 dedup siblings (same story, different source URL).
+          // Capped at 2 to bound Claude cost on busy days with large story clusters.
+          if ((!result?.body || result.body.length <= 600) && article._siblings?.length > 0) {
+            console.log(`SYNTHESIS RETRY: trying ${Math.min(article._siblings.length, 2)} sibling(s) for "${article.title?.slice(0, 50)}"`);
+            for (const sibling of article._siblings.slice(0, 2)) {
+              try {
+                const retry = await synthesizeArticle(
+                  { ...sibling, nvs: article.nvs, category: article.category },
+                  env, site, { proxyWarmed }
+                );
+                if (retry?.body && retry.body.length > 600) {
+                  result = retry;
+                  // Attribution must point to the source whose content was actually synthesized.
+                  published.source_name  = sibling.source_name || sibling.source || published.source_name;
+                  published.source       = sibling.source_name || sibling.source || published.source;
+                  published.url          = sibling.url          || sibling.original_url || published.url;
+                  published.original_url = sibling.original_url || sibling.url          || published.original_url;
+                  published._used_sibling_source = sibling.source_name || sibling.source;
+                  console.log(`SYNTHESIS RECOVERED via sibling: ${sibling.source_name} | "${article.title?.slice(0, 50)}"`);
+                  break;
+                }
+              } catch(e) {
+                console.error('Sibling synthesis failed:', e.message, '|', sibling.source_name, sibling.url?.slice(0, 60));
+              }
+            }
+          }
+
+          const body = result?.body;
+          if (body && body.length > 600) {
+            published.full_body           = body;
+            published.publish_mode        = 'rewrite';
+            published.needs_review        = result.needs_review || false;
+            published.verification_result = result.verification_result || null;
+            if (result.title && result.title !== article.title) {
+              published.original_rss_title = article.title;
+              published.title              = result.title;
+            }
+            console.log(`SYNTHESIS OK [${article.nvs}]: "${(result.title || article.title)?.slice(0, 50)}" — ${body.length}ch${result.needs_review ? ' ⚠️ needs_review' : ''}`);
+          } else if (!body) {
+            console.log(`SYNTHESIS SKIPPED [${article.nvs}]: "${article.title?.slice(0, 50)}" — no source, stays rss_summary`);
           }
           await new Promise(r => setTimeout(r, 300));
         } else {
@@ -825,7 +857,7 @@ const HALF_LIFE_BY_MODE = {
   'original_synthesis': 24, 'synthesis_generated': 24,
   'copy_source': 3, 'rss_summary': 0.5,
   'manual': 96,
-  'video_embed': 24,
+  'video_embed': 24, 'youtube_embed': 48,
 };
 // Hard TTL caps (hours). Evict unconditionally after this age.
 const HARD_TTL_BY_TEMPLATE = {
@@ -1097,23 +1129,29 @@ export async function cacheToKV(env, siteCode, articles, opts = {}) {
       env.PITCHOS_CACHE.put(key, value, { expirationTtl: 14400 }),
       env.PITCHOS_CACHE.put(timelineKey, JSON.stringify(timeline), { expirationTtl: 86400 * 90 }),
     ]);
-    // Pool composition time-series (fire-and-forget)
+    // Pool composition time-series — awaited so quiet crons (no new articles) also write snapshots.
+    // Fire-and-forget was silently dropped when the scheduled handler returned before the GET→PUT chain completed.
     try {
       const yzModes = new Set(['rewrite','synthesis','original_synthesis','synthesis_generated']);
       const vidModes = new Set(['youtube_embed','video_embed','rabona_digest']);
-      const snap = { t: Date.now(), total: ranked.length };
+      const snap = { t: Date.now() };
       snap.yz       = ranked.filter(a => yzModes.has(a.publish_mode)).length;
       snap.video    = ranked.filter(a => vidModes.has(a.publish_mode)).length;
       snap.template = ranked.filter(a => a.publish_mode && a.publish_mode.startsWith('template')).length;
       snap.rss      = ranked.filter(a => !a.publish_mode || a.publish_mode === 'rss_summary').length;
       snap.other    = Math.max(0, ranked.length - snap.yz - snap.video - snap.template - snap.rss);
+      // total derived from categories so badge and chart stacks always agree
+      snap.total    = snap.yz + snap.video + snap.template + snap.rss + snap.other;
       const tsKey = `pool_ts:${siteCode}`;
-      env.PITCHOS_CACHE.get(tsKey).then(raw => {
-        const arr = raw ? JSON.parse(raw) : [];
+      const tsRaw = await env.PITCHOS_CACHE.get(tsKey).catch(() => null);
+      const arr = tsRaw ? JSON.parse(tsRaw) : [];
+      // One snapshot per 5-min window — skip if last entry was < 4 minutes ago (multiple cacheToKV calls per cron)
+      const lastSnap = arr[arr.length - 1];
+      if (!lastSnap || snap.t - lastSnap.t >= 4 * 60 * 1000) {
         arr.push(snap);
         if (arr.length > 576) arr.splice(0, arr.length - 576); // keep 48h at 5-min intervals
-        return env.PITCHOS_CACHE.put(tsKey, JSON.stringify(arr), { expirationTtl: 86400 * 3 });
-      }).catch(() => {});
+        await env.PITCHOS_CACHE.put(tsKey, JSON.stringify(arr), { expirationTtl: 86400 * 3 });
+      }
     } catch(_) {}
     console.log(`KV WRITE SUCCESS: ${key}`);
     return ranked.length;

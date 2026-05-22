@@ -1,0 +1,28 @@
+{
+  "description": "Resilience test — proves the pipeline handles a P4 proxy source returning HTTP 403 gracefully. No crash, no partial fact_lineage rows created. Also covers network-level errors (fetch throws).",
+  "decision": "DECISIONS.md 2026-04-28 — Facts-extraction firewall is non-negotiable; pipeline must not crash on bad upstream responses",
+  "input": {
+    "fotomac_feed": {
+      "url": "https://www.fotomac.com.tr/rss/Besiktas.xml",
+      "name": "Fotomaç",
+      "trust": "press",
+      "sport": "football",
+      "is_p4": true,
+      "proxy": true
+    },
+    "mock_proxy_http_status": 403
+  },
+  "expected": {
+    "articles_returned": 0,
+    "pipeline_crashes": false,
+    "fact_lineage_rows_created": 0,
+    "by_source_fotomaç_raw": 0
+  },
+  "what_this_test_proves": [
+    "fetchViaRss2Json catches non-2xx proxy response and returns [] — pipeline never crashes",
+    "fetchViaRss2Json catches network-level errors (fetch throws) and returns [] — same guarantee",
+    "fetchRSSArticles bySource stats show 0 for the failed feed — not undefined",
+    "When no articles are returned, extractFacts is architecturally unreachable — no partial fact_lineage rows can be created",
+    "Proxy-fetched Fotomaç articles carry is_p4: true — correctly flagged even via proxy path"
+  ]
+}

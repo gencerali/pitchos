@@ -69,6 +69,81 @@ UI: pink badge (`pl-template_transfer_thin`), filter button "Transfer thin", `pl
 
 ---
 
+### 2026-05-22 — Volume recovery: SHELF_LIFE expansion + dedupeByStory ≥2 + synthesis sibling fallback
+
+**Decision**: Three additive changes to increase published article volume from ~2-3/day to ~8-12/day visible on homepage. Background analysis: `temp/0 . kartalix_volume_deep_analysis.md`. All three independently reversible, no quality gates lowered.
+
+**Item 1 — SHELF_LIFE doubled (`index.html`)**:  
+`Match: 24→48, Transfer: 72→96, Injury: 24→48, Club: 48→72, European: 48→72, Other: 24→48, default: 24→48`. Client-side `isExpired()` was filtering 18/20 KV articles — only 2 Transfer articles (43–44h) survived the 72h shelf life. Homepage showed 2 articles despite 20 live in KV. Football news has longer relevance than 24h; next-day post-match coverage is still the primary story. Bounded by `rankAndEvict` which still drops articles below decay floor regardless of shelf life.  
+**Verified-by**: `index.html:1120` — `SHELF_LIFE` object. Diagnosis in `docs/homepage-render-2026-05-22.md`.
+
+**Item 2 — dedupeByStory threshold ≥1 → ≥2 (`src/processor.js:197`)**:  
+Two articles sharing ONE 4+ char word (after stopword removal) should not be marked same-story. Was killing 53% of scored articles (30 scored → 14 after dedup). Raising to ≥2 shared tokens. Pre-scoring `dedupeByTitle` (Stage 4) still catches genuine title matches at 0.3 similarity or ≥3 shared tokens — worst-case duplicates do not slip through.  
+**Verified-by**: `src/processor.js:197` — `return sharedStoryTokens(aKeys, kKeys) >= 2;`  
+**Verification SQL** (run after 2 cron cycles):
+```sql
+SELECT funnel_stats->>'scored' as scored,
+       funnel_stats->>'after_story_dedup' as after_dedup,
+       ROUND(100.0 * (funnel_stats->>'after_story_dedup')::int
+             / NULLIF((funnel_stats->>'scored')::int, 0)) as retention_pct
+FROM fetch_logs
+WHERE created_at > '2026-05-22 10:00:00+00'
+ORDER BY created_at DESC LIMIT 5;
+```
+Expected: `retention_pct` rises from ~47% baseline to 70–80%.
+
+**Items 1 + 2 deployed**: version `09d54344` (exact ID from wrangler deploy output)
+
+---
+
+**Item 3 — Synthesis sibling fallback (`src/processor.js`, `src/publisher.js`, `worker-fetch-agent.js`)**:  
+When primary source fails synthesis (proxy 403, thin output, refusal), retry with up to 2 dedup-collapsed sibling articles (same story, different source URL). Bounded at 2 sibling attempts per failure to cap Claude cost on days with large story clusters. 
+
+Three sub-components:
+
+**3a — Cap counts successes not attempts (verification only, no code change)**:  
+`rewritesSoFar = results.filter(r => r.publish_mode === 'rewrite').length` counts only SUCCESS outcomes. `publish_mode` is set to `'rewrite'` only when `body.length > 600` (`publisher.js:648`). Failed attempts leave `publish_mode` as `'rss_summary'` and do not consume the 6-per-run cap. Verified 2026-05-22 — logic already correct, no change needed. Cap comment added at `src/publisher.js:608`.
+
+**3b — dupeSiblings map in `dedupeByTitle`** (`src/processor.js:167`):  
+Extended `dedupeByTitle` return value from `{ kept, dupeWinnerMap }` to `{ kept, dupeWinnerMap, dupeSiblings }`. `dupeSiblings` maps winner URL → array of losing articles (same-story dedup losers). No change to dedup logic — same articles win/lose as before; losers are now preserved as data rather than discarded.  
+**Verified-by**: `src/processor.js:170` — `const dupeSiblings = new Map();`; `src/processor.js:192` — returned in tuple
+
+**3c — `_siblings` attached to articles at preFilter** (`src/processor.js:75`):  
+After `dedupeByTitle`, each surviving article gets `a._siblings = dupeSiblings.get(key) || []`. Most articles have `_siblings = []` (the common case — no dedup losers). `_siblings` is an internal pipeline field excluded from KV by `toKVShape`'s explicit property whitelist (confirmed `worker-fetch-agent.js:4048`).  
+**Verified-by**: `src/processor.js:78–81` — siblings attach loop; `worker-fetch-agent.js:4048` — `toKVShape` whitelist comment
+
+**3d — Sibling retry block in `writeArticles`** (`src/publisher.js:618–643`):  
+After primary `synthesizeArticle` call fails (null body or ≤600 chars), loop over `article._siblings.slice(0, 2)`. Each sibling is synthesized with the winner's `nvs` and `category` inherited. On first success: attribution fully rewritten to sibling's source (all four fields: `source_name`, `source`, `url`, `original_url`). `_used_sibling_source` set for log tracing. Loop breaks on first success. If all siblings fail, article stays `rss_summary` as before.  
+Attribution rewrite rationale: reader trust requires attribution to point to the source whose content was actually synthesized, not the story "winner" who failed. Rewriting all four fields ensures both admin display and article page render the correct source.  
+**Verified-by**: `src/publisher.js:620` — guard; `src/publisher.js:622` — `.slice(0, 2)`; `src/publisher.js:631–635` — attribution rewrite block; `src/publisher.js:636` — console log for monitoring
+
+**Deployed**: version `211b56f2-4187-4d90-88fc-076118547ff4` (2026-05-22)
+
+**Verification** (after 2 cron cycles post-deploy):
+- Q1: Cloudflare worker logs — watch for "SYNTHESIS RECOVERED via sibling: [source]"
+- Q2: `SELECT slug, source_name, original_url FROM content_items WHERE publish_mode = 'rewrite' ORDER BY published_at DESC LIMIT 10` — verify source_name matches URL hostname
+- Q3: `synthesis_failed` stage count drops vs pre-deploy baseline
+
+**Rollback**: Items 1+2 — single-line reverts in `index.html:1120` and `processor.js:197`. Item 3 — revert `dedupeByTitle` to return only `{ kept, dupeWinnerMap }`, remove `_siblings` attach loop, revert synthesis block to original form. No schema changes, no KV key changes.
+
+---
+
+### 2026-05-22 — P0 incident: pool zero from Claude 529 + KV TTL drain
+
+**Decision**: Two protective fixes after pool hit 0 due to uncaught Claude 529 → cacheToKV never reached → 4h KV TTL expired. Full incident report: `docs/Incidents/incident-2026-05-22-pool-zero.md`.
+
+**Fix 1 — scoreArticles try-catch** (`worker-fetch-agent.js`, deploy `829f2659`):  
+`scoreArticles` call wrapped in try-catch. On catch: log error, attempt KV re-seed from Supabase as recovery path. Previously, a Claude 529 threw uncaught from `scoreArticles`, aborted the pipeline function entirely, and `cacheToKV` was never reached. KV TTL continued counting down from last successful write. Two consecutive failures (06:01 + 08:01 UTC) → TTL expired → pool zero.
+
+**Fix 2 — DB seed query hardening** (`worker-fetch-agent.js`, deploy `db1e0092`):  
+`supabase()` returns `null` on non-OK HTTP response (does not throw). `Array.isArray(null) = false` → seed silently produced empty array → `cacheToKV([])`. Fix: select specific columns (not `*`), `encodeURIComponent` on date filter, explicit null logging. Also added `youtube_embed: 48` to `HALF_LIFE_BY_MODE` (was missing — defaulted to 8h halfLife, youtube_embed articles decayed too fast).
+
+**Verified-by**: `worker-fetch-agent.js` — deploy `829f2659` + `db1e0092`. Manual pool restore via "Önbelleği Yenile" admin button. `docs/Incidents/incident-2026-05-22-pool-zero.md`.
+
+**Remaining hardening** (not yet done): Add `status=eq.published` filter to `/rebuild-cache` handler (currently returns all statuses). Connect `renderVideos()` to KV youtube_embed articles (currently uses `MOCK_VIDEOS` hardcoded).
+
+---
+
 ### 2026-05-21 — PARKED: Transfer Tracker (Sprint M concept)
 
 **Decision**: Concept accepted in principle; parked until AdSense review settles and a 2-day extraction PoC validates LLM quality. Do not start implementation before both conditions are met.
@@ -129,6 +204,31 @@ UI: pink badge (`pl-template_transfer_thin`), filter button "Transfer thin", `pl
 **Verified-by**: `pipeline_log` query 2026-05-21 — `source_name LIKE '%Google News%'`, 48h window, 90%+ `title_dedup`, 1 `published` total. Source config rows confirmed at T1/T2/T3 with Google News URLs.
 
 **Reversal**: `UPDATE source_configs SET is_active = true, updated_at = NOW() WHERE name ILIKE '%google news%' AND url ILIKE '%news.google%';`
+
+---
+
+### 2026-05-21 — pipeline_log silent failure fix (thinDropItems scope bug)
+
+**Decision**: Fix `thinDropItems` block-scope bug that caused all pipeline_log writes to silently fail since deploy `9b3ada04`.
+
+**Root cause**: `thinDropItems` was declared with `const` inside the "DB-FIRST SAVE + KV WRITE" try block (`worker-fetch-agent.js:5305`), but referenced outside that block at `worker-fetch-agent.js:5451` (the pipeline_log allEvents spread). In JavaScript, `const` is block-scoped — accessing it outside its block throws `ReferenceError: thinDropItems is not defined`. That error was caught by the outer `try/catch` at line 5470 and swallowed with `console.error('pipeline_log block failed:', ...)`. No POST to Supabase ever fired.
+
+**Why silent**: The `if (allEvents.length > 0)` guard never ran (error thrown before it). Fetch_logs wrote 'success' regardless (it's on line 5437, before the pipeline_log block). Manual Supabase INSERT worked (no schema/RLS issue — the problem was pure JS scope).
+
+**Introduced by**: Deploy `9b3ada04` (2026-05-21 template_transfer_thin feature) — `thinDropItems` was a new variable added in that session.
+
+**Fix**: 2-line change. Move declaration to outer scope alongside `scoredLowItems` and `publishedLogItems` (line 5274–5275); remove `const` from inner assignment (line 5305 → bare assignment).
+
+**Deployed**: version `4d982404-7134-4a6d-93a6-a0bcb28cc460`
+
+**Verification SQL** (run after next cron cycle, ~22:05 UTC):
+```sql
+SELECT stage, COUNT(*), MAX(run_at)
+FROM pipeline_log
+WHERE run_at > NOW() - INTERVAL '30 minutes'
+GROUP BY stage ORDER BY stage;
+```
+Expect rows with `run_at` > deploy time. Any row confirms the fix.
 
 ---
 
@@ -1058,6 +1158,26 @@ Gates added:
 **What would change our mind**: If Gate D causes too many false-positive drops on legitimate stories (stories whose title is editorially rewritten by the story matcher away from source titles), we may relax it to a soft warning rather than a hard block.
 
 **Related**: `temp/fix34.txt`, bad article slug `2026-05-19-fenerbahcede-teknik-direktor-arayisi-aziz-yildirimin-3-adayi-analiz` (archived), version `2d3e8a8d-371d-446c-9b03-9c04fab047d4`
+
+---
+
+### 2026-05-22 — Address top 2 volume bottlenecks from volume_deep_analysis.md
+
+**Changes:**
+1. `index.html` — `SHELF_LIFE` doubled across all categories: Match 24→48h, Transfer 72→96h, Injury 24→48h, Club 48→72h, European 48→72h, Other/default 24→48h
+2. `src/processor.js:197` — `sharedStoryTokens` near-dupe threshold raised from `>= 1` to `>= 2`
+
+**Why**: Both changes address top-2 bottlenecks identified in `docs/kartalix_volume_deep_analysis.md`.
+
+- **SHELF_LIFE**: Articles were becoming invisible on the homepage before the next pipeline run could replace them. With a 2h cron and 24h default shelf life, a 25h-old article vanished even when there was nothing newer. The old thresholds were appropriate for a pipeline publishing every 30 minutes; at 2h cadence, doubling shelf life gives articles time to survive until the next successful run. The longer window also prevents the site going visually dark during minor pipeline delays (Claude 429/529 episodes).
+
+- **sharedStoryTokens >= 2**: The `>= 1` threshold caused false-positive near-dupe drops. Any two articles sharing a single meaningful token (e.g. "Beşiktaş", "transfer", a player name) were collapsed. Raising to `>= 2` requires two distinct shared tokens, reducing false collapses while still catching genuine same-story duplicates. `after_story_dedup` in funnelStats expected to rise from ~30% to ~70–80% of `scored`.
+
+**Alternatives considered**:
+- Raise SHELF_LIFE only for Transfer (already highest at 72h): rejected — Match and Club articles also expired before the next cron, causing the same visual thinning.
+- `sharedStoryTokens >= 3`: too permissive — would pass clear same-story pairs that differ only in headline framing.
+
+**Verification**: After next cron — homepage visible count and `after_story_dedup` in fetch_logs.
 
 ---
 

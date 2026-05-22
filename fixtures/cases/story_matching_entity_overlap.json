@@ -1,0 +1,54 @@
+{
+  "description": "Story matching — proves a second source article about the same transfer is matched to the existing story, not spawned as a new one.",
+  "decision": "DECISIONS.md 2026-04-29 — Slice 2 schema and two-stage matching",
+  "input": {
+    "site_id": "2b5cfe49-b69a-4143-8323-ca29fff6502e",
+    "new_article": {
+      "id": null,
+      "title": "Beşiktaş, Rashica transferini KAP'a bildirdi",
+      "summary": "Beşiktaş Kulübü, Milot Rashica'nın transferini resmi olarak açıkladı.",
+      "is_p4": true,
+      "source_name": "Fotomaç"
+    },
+    "new_facts": {
+      "entities": { "players": ["Milot Rashica"], "clubs": ["Beşiktaş"], "competitions": [] },
+      "numbers":  { "transfer_fee": null, "contract_years": null, "release_clause": null, "other": [] },
+      "dates":    { "announcement": null, "contract_end": null, "transfer_window": null, "other": [] }
+    },
+    "open_stories": [
+      {
+        "id": "story-uuid-001",
+        "story_type": "transfer",
+        "story_category": "sporting",
+        "state": "emerging",
+        "entities": { "players": ["Milot Rashica"], "clubs": ["Werder Bremen", "Beşiktaş"], "competitions": [] },
+        "title": "Milot Rashica Beşiktaş transferi",
+        "confidence": 30
+      },
+      {
+        "id": "story-uuid-002",
+        "story_type": "injury",
+        "story_category": "sporting",
+        "state": "active",
+        "entities": { "players": ["Rıdvan Yılmaz"], "clubs": ["Beşiktaş"], "competitions": [] },
+        "title": "Rıdvan Yılmaz sakatlık durumu",
+        "confidence": 70
+      }
+    ],
+    "mock_claude_judge_response": "{\"match\":\"story-uuid-001\",\"contribution_type\":\"confirming\",\"confidence_delta\":20,\"reason\":\"Same player (Milot Rashica) and destination club (Beşiktaş) as story-uuid-001\"}"
+  },
+  "expected": {
+    "match": "story-uuid-001",
+    "is_new_story": false,
+    "contribution_type": "confirming",
+    "confidence_after": 50,
+    "state_after": "developing"
+  },
+  "what_this_test_proves": [
+    "Stage 1 entity fingerprint correctly identifies story-uuid-001 as candidate (shared player Milot Rashica)",
+    "Stage 1 correctly excludes story-uuid-002 (different player, no overlap)",
+    "Stage 2 judge returns correct match ID",
+    "confidence delta applied correctly: 30 + 20 = 50",
+    "State transitions from emerging to developing at confidence >= 40"
+  ]
+}
