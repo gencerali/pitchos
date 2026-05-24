@@ -1181,4 +1181,22 @@ Gates added:
 
 ---
 
+### 2026-05-24 — YouTube thumbnails for youtube_embed articles
+
+**Decision**: Populate `image_url` on all `youtube_embed` articles using `https://img.youtube.com/vi/{VIDEO_ID}/hqdefault.jpg`. Direct link to img.youtube.com — no proxying or caching through Kartalix CDN.
+
+**Alternatives considered**:
+- A: `maxresdefault.jpg` — rejected; only exists if uploader provided HD thumbnail, 404s on many videos
+- B: Proxy/cache thumbnails through Cloudflare — rejected; unnecessary complexity, YouTube CDN already handles this globally
+
+**Why this one**: Zero cost, zero API calls, legally clean (thumbnail display in context of embedded video is within YouTube TOS spirit), immediate visual improvement on homepage.
+
+**Scope**: `generateVideoEmbed` and `generateMatchVideoEmbed` in `src/publisher.js`. Other publish_modes (`rewrite`, `template_transfer`, etc.) still have empty `image_url` — broader image strategy for non-YouTube articles is pending separate decision.
+
+**Backfill**: Run once in Supabase SQL editor to update existing rows (see `docs/duhuliye-diagnosis-2026-05-24.md` for verification SQL pattern).
+
+**What would change our mind**: YouTube changes TOS to prohibit direct thumbnail hotlinking — would then need to cache via Cloudflare Images or similar.
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*

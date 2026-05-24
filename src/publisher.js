@@ -2264,6 +2264,11 @@ Sadece Türkçe haber metnini yaz.`;
   return saved?.[0] || { title, summary, full_body: body, template_id: 'T12', fixture_id: fixture.fixture_id || null, slug, published_at: new Date().toISOString() };
 }
 
+function youtubeThumbnailUrl(videoId) {
+  if (!videoId) return '';
+  return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+}
+
 // ─── T-VID YOUTUBE EMBED ─────────────────────────────────────
 // Embed-only treatment: 1-sentence Haiku intro from video title + YouTube iframe.
 // No captions, no facts, no firewall needed — the video IS the content.
@@ -2292,6 +2297,7 @@ Sadece tanıtım cümlesini yaz.`;
     title,
     summary:      intro,
     full_body,
+    image_url:    youtubeThumbnailUrl(video.video_id),
     category:     'Video',
     content_type: 'youtube_embed',
     sport:        'football',
@@ -2308,7 +2314,8 @@ Sadece tanıtım cümlesini yaz.`;
   if (!saved?.[0]) console.error(`T-VID: Supabase write failed [${video.video_id}] — using fallback shape`);
   console.log(`T-VID: "${title.slice(0, 60)}" [${video.channel_name}]`);
   return saved?.[0] || { title, summary: intro, full_body, template_id: 'T-VID', slug,
-    publish_mode: 'youtube_embed', published_at: video.published_at, source_name: video.channel_name, nvs_score: nvs };
+    publish_mode: 'youtube_embed', published_at: video.published_at, source_name: video.channel_name, nvs_score: nvs,
+    image_url: youtubeThumbnailUrl(video.video_id) };
 }
 
 // ─── MATCH VIDEO TEMPLATES ───────────────────────────────────
@@ -2362,6 +2369,7 @@ export async function generateMatchVideoEmbed(video, videoType, match, site, env
     title,
     summary:      intro,
     full_body,
+    image_url:    youtubeThumbnailUrl(video.video_id),
     category:     'Video',
     content_type: 'youtube_embed',
     sport:        'football',
@@ -2378,7 +2386,8 @@ export async function generateMatchVideoEmbed(video, videoType, match, site, env
   if (!saved?.[0]) console.error(`${cfg.template}: Supabase write failed [${video.video_id}] — using fallback shape`);
   console.log(`${cfg.template}: "${title.slice(0, 60)}" [${video.channel_name}]`);
   return saved?.[0] || { title, summary: intro, full_body, template_id: cfg.template, slug,
-    publish_mode: 'youtube_embed', published_at: video.published_at, source_name: video.channel_name, nvs_score: cfg.nvs };
+    publish_mode: 'youtube_embed', published_at: video.published_at, source_name: video.channel_name, nvs_score: cfg.nvs,
+    image_url: youtubeThumbnailUrl(video.video_id) };
 }
 
 // ─── T-xG DELTA ──────────────────────────────────────────────
