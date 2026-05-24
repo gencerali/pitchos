@@ -2432,6 +2432,29 @@ Sadece JSON döndür:
       }, { headers: { 'Cache-Control': 'no-store', 'Content-Type': 'application/json' } });
     }
 
+    // TEMP: rewrite-db-check — remove after use
+    if (url.pathname === '/admin/rewrite-db-check' && request.method === 'GET') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const sites = await getActiveSites(env);
+      const site = sites?.[0];
+      if (!site) return Response.json({ error: 'no site' });
+      const [allRewrites, nullPub, recent4d, schemaCheck] = await Promise.all([
+        supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=eq.rewrite&select=slug,title,published_at,fetched_at,created_at&order=created_at.desc&limit=20`),
+        supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=eq.rewrite&published_at=is.null&select=slug,title,created_at&limit=5`),
+        supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=eq.rewrite&published_at=gte.${new Date(Date.now()-4*86400*1000).toISOString()}&select=slug,title,published_at&limit=5`),
+        supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${site.id}&select=publish_mode,count()&order=count.desc&limit=10`, null, { 'Prefer': 'count=exact' }),
+      ]);
+      return Response.json({
+        total_rewrites_ever: Array.isArray(allRewrites) ? allRewrites.length : allRewrites,
+        rewrites_sample: Array.isArray(allRewrites) ? allRewrites.slice(0, 5) : null,
+        rewrites_null_published_at: Array.isArray(nullPub) ? nullPub.length : nullPub,
+        rewrites_null_sample: Array.isArray(nullPub) ? nullPub.slice(0, 3) : null,
+        rewrites_last_4d: Array.isArray(recent4d) ? recent4d.length : recent4d,
+        schema_check: schemaCheck,
+      });
+    }
+    // END TEMP
+
     if (url.pathname === '/admin/pool-timeseries' && request.method === 'GET') {
       const authErr = await requireOps(request, env); if (authErr) return authErr;
       const raw = await env.PITCHOS_CACHE.get('pool_ts:BJK').catch(() => null);
@@ -5321,13 +5344,13 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
         .filter(a => a.publish_mode === 'rss_summary')
         .map(a => ({
           url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs,
-          _stage: (a.nvs || 0) >= 50 ? 'synthesis_failed' : 'scored_low',
+          _stage: (a.nvs || 0) >= 30 ? 'synthesis_failed' : 'scored_low',
           trust_tier: a.trust_tier || a.trust || null,
           source_body_len: ((a.summary || '') + (a.full_text || '')).length,
-          drop_detail: (a.nvs || 0) >= 50 ? 'synthesis_cap_or_source_unavailable' : null,
+          drop_detail: (a.nvs || 0) >= 30 ? 'synthesis_cap_or_source_unavailable' : null,
         }));
 
-      const publishThreshold = site.auto_publish_threshold || 50;
+      const publishThreshold = site.auto_publish_threshold || 30;
       // template_official = @Besiktas official tweets — always publish regardless of NVS score
       const toPublish = allWritten.filter(a =>
         (a.nvs >= publishThreshold || a.publish_mode === 'template_official') &&

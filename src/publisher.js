@@ -554,7 +554,7 @@ export async function writeArticles(articles, site, env) {
   // Prevents the first synthesis call from paying both the cold-start cost AND
   // the article fetch timeout simultaneously.
   let proxyWarmed = false;
-  if (articles.some(a => (a.nvs || 0) >= 50 && a.treatment !== 'embed')) {
+  if (articles.some(a => (a.nvs || 0) >= 30 && a.treatment !== 'embed')) {
     const warmStart = Date.now();
     await fetch(PROXY_BASE + '/health', { signal: AbortSignal.timeout(35000) }).catch(() => {});
     if (Date.now() - warmStart > 5000) await new Promise(r => setTimeout(r, 3000));
@@ -602,7 +602,7 @@ export async function writeArticles(articles, site, env) {
 
       // Auto-synthesis: for high-NVS articles, fetch source and write a full Kartalix article.
       // Cap 6 rewrites per run; overflow is queued to rewrite:queue:<siteCode> KV for the next hourly run.
-      if ((article.nvs || 0) >= 50) {
+      if ((article.nvs || 0) >= 30) {
         const rewritesSoFar = results.filter(r => r.publish_mode === 'rewrite').length;
         if (rewritesSoFar < 6) {
           // Cap counts rewrite SUCCESSES only — publish_mode is set to 'rewrite' only when
