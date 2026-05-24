@@ -24,7 +24,7 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
   });
 
   // Stage 1.5: live-blog URL rejection — before keyword check to avoid wasting NVS budget
-  const LIVE_BLOG_PATTERNS = [/\/canli\//i, /\/live\//i, /\/live-blog\//i, /\/foto-galeri\//i];
+  const LIVE_BLOG_PATTERNS = [/\/canli\//i, /\/live\//i, /\/live-blog\//i];
   const afterLiveBlog = afterDate.filter(a => {
     const url = a.url || a.original_url || '';
     if (LIVE_BLOG_PATTERNS.some(p => p.test(url))) {

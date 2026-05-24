@@ -394,26 +394,52 @@ Madde yoksa "Doğrulanmış bilgi yok." yaz.`;
   }
 }
 
-// Sources that block the Render proxy (403) but are directly reachable from Cloudflare Workers.
-const DIRECT_FETCH_HOSTS = new Set(['www.duhuliye.com', 'duhuliye.com']);
-
 export async function synthesizeArticle(article, env, site = null, opts = {}) {
   const srcUrl = article.url || article.original_url || '';
   let sourceText = null; // null = source not fetched; synthesis requires real source text
 
   if (srcUrl && srcUrl !== '#') {
-    let srcHost = '';
-    try { srcHost = new URL(srcUrl).hostname; } catch {}
+    try {
+      if (!opts.proxyWarmed) {
+        // Wake up Render free tier — cold start takes 10-30s; /health responds as soon as it's up
+        const warmStart = Date.now();
+        await fetch(PROXY_BASE + '/health', { signal: AbortSignal.timeout(35000) }).catch(() => {});
+        // Grace period: health endpoint responds early in Render startup; article handler needs a
+        // few more seconds. Only wait if health took >5s (i.e. this was a cold start, not warm).
+        if (Date.now() - warmStart > 5000) {
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 4000));
+          const res = await fetch(PROXY_BASE + '/article?url=' + encodeURIComponent(srcUrl),
+            { signal: AbortSignal.timeout(15000) });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.content && data.content.length > 400) {
+              sourceText = data.content.slice(0, 10000);
+              break;
+            }
+          }
+        } catch(e) {
+          console.log(`synthesizeArticle: proxy attempt ${attempt + 1} failed:`, e.message);
+        }
+      }
+    } catch(e) {
+      console.log('synthesizeArticle: proxy fetch failed:', e.message, '|', srcUrl);
+    }
 
-    if (DIRECT_FETCH_HOSTS.has(srcHost)) {
-      // Bypass Render proxy — these hosts return 403 to the proxy but allow Cloudflare egress IPs.
+    // Direct-fetch fallback: proxy yielded nothing — try Cloudflare egress directly.
+    // Works for any source that blocks the Render proxy but allows Cloudflare IPs.
+    if (!sourceText) {
       try {
-        const res = await fetch(srcUrl, {
+        const dr = await fetch(srcUrl, {
           headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Kartalix/1.0)', 'Accept': 'text/html' },
           signal: AbortSignal.timeout(12000),
         });
-        if (res.ok) {
-          const html = await res.text();
+        if (dr.ok) {
+          const html = await dr.text();
           const stripped = html
             .replace(/<script[\s\S]*?<\/script>/gi, '')
             .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -422,72 +448,11 @@ export async function synthesizeArticle(article, env, site = null, opts = {}) {
             .trim();
           if (stripped.length > 400) {
             sourceText = stripped.slice(0, 10000);
-            console.log(`DIRECT FETCH OK [${article.nvs}]: "${article.title?.slice(0, 50)}" — ${stripped.length}ch from ${srcHost}`);
-          } else {
-            console.log(`DIRECT FETCH THIN [${article.nvs}]: "${article.title?.slice(0, 50)}" — only ${stripped.length}ch from ${srcHost}`);
-          }
-        } else {
-          console.log(`DIRECT FETCH FAIL [${article.nvs}]: ${res.status} from ${srcHost}`);
-        }
-      } catch(e) {
-        console.log(`DIRECT FETCH ERROR [${article.nvs}]: ${e.message} | ${srcHost}`);
-      }
-    } else {
-      try {
-        if (!opts.proxyWarmed) {
-          // Wake up Render free tier — cold start takes 10-30s; /health responds as soon as it's up
-          const warmStart = Date.now();
-          await fetch(PROXY_BASE + '/health', { signal: AbortSignal.timeout(35000) }).catch(() => {});
-          // Grace period: health endpoint responds early in Render startup; article handler needs a
-          // few more seconds. Only wait if health took >5s (i.e. this was a cold start, not warm).
-          if (Date.now() - warmStart > 5000) {
-            await new Promise(r => setTimeout(r, 3000));
-          }
-        }
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            if (attempt > 0) await new Promise(r => setTimeout(r, 4000));
-            const res = await fetch(PROXY_BASE + '/article?url=' + encodeURIComponent(srcUrl),
-              { signal: AbortSignal.timeout(15000) });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.content && data.content.length > 400) {
-                sourceText = data.content.slice(0, 10000);
-                break;
-              }
-            }
-          } catch(e) {
-            console.log(`synthesizeArticle: proxy attempt ${attempt + 1} failed:`, e.message);
+            console.log(`DIRECT FETCH OK [${article.nvs}]: "${article.title?.slice(0, 50)}" — ${stripped.length}ch`);
           }
         }
       } catch(e) {
-        console.log('synthesizeArticle: proxy fetch failed:', e.message, '|', srcUrl);
-      }
-
-      // Direct-fetch fallback: if proxy yielded nothing, try fetching from Cloudflare egress.
-      // Catches sources that intermittently 403 the proxy but allow Cloudflare IPs.
-      if (!sourceText) {
-        try {
-          const dr = await fetch(srcUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Kartalix/1.0)', 'Accept': 'text/html' },
-            signal: AbortSignal.timeout(12000),
-          });
-          if (dr.ok) {
-            const html = await dr.text();
-            const stripped = html
-              .replace(/<script[\s\S]*?<\/script>/gi, '')
-              .replace(/<style[\s\S]*?<\/style>/gi, '')
-              .replace(/<[^>]+>/g, ' ')
-              .replace(/\s+/g, ' ')
-              .trim();
-            if (stripped.length > 400) {
-              sourceText = stripped.slice(0, 10000);
-              console.log(`PROXY FALLBACK DIRECT OK [${article.nvs}]: "${article.title?.slice(0, 50)}" — ${stripped.length}ch`);
-            }
-          }
-        } catch(e) {
-          console.log(`PROXY FALLBACK DIRECT ERROR [${article.nvs}]: ${e.message} | ${srcUrl}`);
-        }
+        console.log(`DIRECT FETCH ERROR [${article.nvs}]: ${e.message} | ${srcUrl}`);
       }
     }
   }
@@ -615,11 +580,7 @@ export async function writeArticles(articles, site, env) {
   // Prevents the first synthesis call from paying both the cold-start cost AND
   // the article fetch timeout simultaneously.
   let proxyWarmed = false;
-  const needsProxy = articles.some(a => {
-    if ((a.nvs || 0) < 30 || a.treatment === 'embed') return false;
-    try { return !DIRECT_FETCH_HOSTS.has(new URL(a.url || a.original_url || '').hostname); } catch { return true; }
-  });
-  if (needsProxy) {
+  if (articles.some(a => (a.nvs || 0) >= 30 && a.treatment !== 'embed')) {
     const warmStart = Date.now();
     await fetch(PROXY_BASE + '/health', { signal: AbortSignal.timeout(35000) }).catch(() => {});
     if (Date.now() - warmStart > 5000) await new Promise(r => setTimeout(r, 3000));
