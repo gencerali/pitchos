@@ -2458,8 +2458,9 @@ Sadece JSON döndür:
     // TEMP: proxy-probe — test article URL through Render proxy, same call shape as synthesizeArticle
     if (url.pathname === '/admin/proxy-probe' && request.method === 'GET') {
       const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const testUrl = url.searchParams.get('url');
-      if (!testUrl) return Response.json({ error: 'url param required' }, { status: 400 });
+      if (!testUrl) return Response.json({ error: 'url param required' }, { status: 400, headers });
       const PROXY_BASE = 'https://pitchos-proxy.onrender.com';
       const result = { url: testUrl, proxy_status: null, proxy_ok: false, content_length: null, content_preview: null, direct_status: null, direct_body_length: null, error: null };
       try {
