@@ -719,8 +719,16 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
     // Template cards (event flashes, lineups) are legitimately short — only enforce for synthesis
     const isSynth = ['rewrite', 'original_synthesis', 'template_transfer'].includes(a.publish_mode);
     if (isSynth && (a.full_body || '').length < MIN_BODY_CHARS) {
+      console.warn(JSON.stringify({
+        event: 'thin_body_blocked',
+        url: a.original_url || a.url,
+        source_name: a.source_name,
+        publish_mode: a.publish_mode,
+        nvs: a.nvs || a.nvs_score,
+        body_length: (a.full_body || '').length,
+        title: (a.title || '').slice(0, 80),
+      }));
       thinDropped.push(a);
-      console.warn(`SAVE BLOCKED — body too thin (${(a.full_body || '').length} chars): "${(a.title || '').slice(0, 60)}"`);
       return false;
     }
     return true;

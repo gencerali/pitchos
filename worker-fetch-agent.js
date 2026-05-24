@@ -2455,6 +2455,40 @@ Sadece JSON döndür:
     }
     // END TEMP
 
+    // TEMP: proxy-probe — test article URL through Render proxy, same call shape as synthesizeArticle
+    if (url.pathname === '/admin/proxy-probe' && request.method === 'GET') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const testUrl = url.searchParams.get('url');
+      if (!testUrl) return Response.json({ error: 'url param required' }, { status: 400 });
+      const PROXY_BASE = 'https://pitchos-proxy.onrender.com';
+      const result = { url: testUrl, proxy_status: null, proxy_ok: false, content_length: null, content_preview: null, direct_status: null, direct_body_length: null, error: null };
+      try {
+        const res = await fetch(PROXY_BASE + '/article?url=' + encodeURIComponent(testUrl), { signal: AbortSignal.timeout(20000) });
+        result.proxy_status = res.status;
+        result.proxy_ok = res.ok;
+        if (res.ok) {
+          const data = await res.json();
+          result.content_length = data.content?.length ?? 0;
+          result.content_preview = (data.content || '').slice(0, 300);
+        } else {
+          result.error = await res.text().catch(() => '(unreadable)');
+        }
+      } catch(e) {
+        result.error = e.message;
+      }
+      if (!result.proxy_ok) {
+        try {
+          const dr = await fetch(testUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Kartalix/1.0)' }, signal: AbortSignal.timeout(10000) });
+          result.direct_status = dr.status;
+          result.direct_body_length = (await dr.text()).length;
+        } catch(e) {
+          result.direct_status = 'error: ' + e.message;
+        }
+      }
+      return Response.json(result, { headers });
+    }
+    // END TEMP proxy-probe
+
     if (url.pathname === '/admin/pool-timeseries' && request.method === 'GET') {
       const authErr = await requireOps(request, env); if (authErr) return authErr;
       const raw = await env.PITCHOS_CACHE.get('pool_ts:BJK').catch(() => null);
