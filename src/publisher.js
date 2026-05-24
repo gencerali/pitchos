@@ -463,6 +463,32 @@ export async function synthesizeArticle(article, env, site = null, opts = {}) {
       } catch(e) {
         console.log('synthesizeArticle: proxy fetch failed:', e.message, '|', srcUrl);
       }
+
+      // Direct-fetch fallback: if proxy yielded nothing, try fetching from Cloudflare egress.
+      // Catches sources that intermittently 403 the proxy but allow Cloudflare IPs.
+      if (!sourceText) {
+        try {
+          const dr = await fetch(srcUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Kartalix/1.0)', 'Accept': 'text/html' },
+            signal: AbortSignal.timeout(12000),
+          });
+          if (dr.ok) {
+            const html = await dr.text();
+            const stripped = html
+              .replace(/<script[\s\S]*?<\/script>/gi, '')
+              .replace(/<style[\s\S]*?<\/style>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim();
+            if (stripped.length > 400) {
+              sourceText = stripped.slice(0, 10000);
+              console.log(`PROXY FALLBACK DIRECT OK [${article.nvs}]: "${article.title?.slice(0, 50)}" — ${stripped.length}ch`);
+            }
+          }
+        } catch(e) {
+          console.log(`PROXY FALLBACK DIRECT ERROR [${article.nvs}]: ${e.message} | ${srcUrl}`);
+        }
+      }
     }
   }
 
