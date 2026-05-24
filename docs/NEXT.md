@@ -8,7 +8,35 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: **After 2 cron cycles (~10:30 Istanbul / 07:30 UTC) — run volume recovery verification SQL below. Check sibling fallback logs in Cloudflare. Then About page copy.**
+**NEXT**: **After 2 cron cycles — check pipeline_log for articles with nvs_score 30–49 now appearing as `published` or `synthesis_failed` (were previously `scored_low`). Verify publish rate increases. Update verification SQL thresholds from 50 → 30 if running fresh queries.**
+
+**What 2026-05-24 session established:**
+- Synthesis + publish threshold lowered from 50 → 30 (`02a5fcd`) — articles scoring NVS 30–49 were being dropped entirely; now synthesis is attempted and successful rewrites are published
+- Changed in `src/publisher.js:557,605` (proxy warm-up gate + per-article synthesis gate) and `worker-fetch-agent.js:5347,5350,5353` (diagnostic stage boundary + publish threshold default)
+- Deployed as version `a283a672-ca6c-4290-b4b4-34ca246761bf`
+
+**Verification SQL (run after 2 cron cycles):**
+```sql
+-- 1. Are NVS 30–49 articles now being published?
+SELECT
+  COUNT(*) FILTER (WHERE nvs_score >= 30 AND nvs_score < 50) as newly_eligible,
+  COUNT(*) FILTER (WHERE nvs_score >= 30 AND nvs_score < 50 AND stage = 'published') as published_30_49,
+  COUNT(*) FILTER (WHERE nvs_score >= 30 AND nvs_score < 50 AND stage = 'synthesis_failed') as synth_failed_30_49,
+  COUNT(*) FILTER (WHERE nvs_score >= 30 AND nvs_score < 50 AND stage = 'scored_low') as still_scored_low
+FROM pipeline_log
+WHERE run_at > NOW() - INTERVAL '3 hours';
+
+-- 2. Overall publish rate vs old baseline
+SELECT
+  COUNT(*) FILTER (WHERE nvs_score >= 30) as eligible,
+  COUNT(*) FILTER (WHERE stage = 'published') as published,
+  ROUND(100.0 * COUNT(*) FILTER (WHERE stage = 'published')
+        / NULLIF(COUNT(*) FILTER (WHERE nvs_score >= 30), 0)) as publish_pct
+FROM pipeline_log
+WHERE run_at > NOW() - INTERVAL '3 hours';
+```
+
+---
 
 **What 2026-05-22 session established:**
 - P0 incident resolved: KV pool zero from Claude 529 → two protective fixes deployed (`829f2659`, `db1e0092`)
@@ -41,11 +69,11 @@ ORDER BY published_at DESC;
 
 -- 3. Overall publish rate vs pre-deploy baseline
 SELECT
-  COUNT(*) FILTER (WHERE nvs_score >= 50) as eligible,
+  COUNT(*) FILTER (WHERE nvs_score >= 30) as eligible,
   COUNT(*) FILTER (WHERE stage = 'published') as published,
   COUNT(*) FILTER (WHERE stage = 'synthesis_failed') as synth_failed,
   ROUND(100.0 * COUNT(*) FILTER (WHERE stage = 'published')
-        / NULLIF(COUNT(*) FILTER (WHERE nvs_score >= 50), 0)) as publish_pct
+        / NULLIF(COUNT(*) FILTER (WHERE nvs_score >= 30), 0)) as publish_pct
 FROM pipeline_log
 WHERE run_at > '2026-05-22 07:00:00+00';
 -- Expected: publish_pct above 16% baseline; sibling recovery = lower synth_failed
@@ -80,10 +108,10 @@ ORDER BY trust_tier, source_name;
 
 -- Q2: Overall publish rate
 SELECT
-  COUNT(*) FILTER (WHERE nvs_score >= 50) as eligible,
+  COUNT(*) FILTER (WHERE nvs_score >= 30) as eligible,
   COUNT(*) FILTER (WHERE stage = 'published') as published,
   ROUND(100.0 * COUNT(*) FILTER (WHERE stage = 'published')
-        / NULLIF(COUNT(*) FILTER (WHERE nvs_score >= 50), 0)) as pct
+        / NULLIF(COUNT(*) FILTER (WHERE nvs_score >= 30), 0)) as pct
 FROM pipeline_log
 WHERE run_at > '2026-05-21 22:00:00+00';
 
@@ -266,10 +294,10 @@ ORDER BY trust_tier, source_name;
 
 -- Q2: Overall publish rate
 SELECT
-  COUNT(*) FILTER (WHERE nvs_score >= 50) as eligible,
+  COUNT(*) FILTER (WHERE nvs_score >= 30) as eligible,
   COUNT(*) FILTER (WHERE stage = 'published') as published,
   ROUND(100.0 * COUNT(*) FILTER (WHERE stage = 'published')
-        / NULLIF(COUNT(*) FILTER (WHERE nvs_score >= 50), 0)) as pct
+        / NULLIF(COUNT(*) FILTER (WHERE nvs_score >= 30), 0)) as pct
 FROM pipeline_log
 WHERE run_at > '2026-05-21 22:00:00+00';
 -- Expected: pct above 16% baseline; target 30–40%+
