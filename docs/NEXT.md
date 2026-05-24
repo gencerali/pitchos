@@ -8,7 +8,25 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: **After 24–48h — grep Cloudflare logs for `thin_body_blocked` events and build body-length distribution. Also check pipeline_log for `DIRECT FETCH OK` lines confirming Duhuliye/hurriyet/haberturk recovery. Check NVS 30–49 articles now appearing as `published`.**
+**NEXT**:
+1. Run YouTube thumbnail backfill SQL in Supabase (see below), then `/rebuild-cache`
+2. After 24–48h — grep Cloudflare logs for `thin_body_blocked` events, build body-length distribution, decide on `MIN_BODY_CHARS` adjustment
+3. Check pipeline_log for `DIRECT FETCH OK` lines confirming Duhuliye/hurriyet/haberturk recovery
+4. Check NVS 30–49 articles appearing as `published`
+
+**YouTube thumbnail backfill SQL (run once in Supabase):**
+```sql
+UPDATE content_items
+SET image_url =
+  'https://img.youtube.com/vi/' ||
+  regexp_replace(original_url, '^https?://www\.youtube\.com/watch\?v=', '') ||
+  '/hqdefault.jpg'
+WHERE site_id = '2b5cfe49-b69a-4143-8323-ca29fff6502e'
+  AND publish_mode = 'youtube_embed'
+  AND (image_url IS NULL OR image_url = '')
+  AND original_url LIKE 'https://www.youtube.com/watch?v=%';
+```
+Then hit `/rebuild-cache` to push updated rows to KV.
 
 **What 2026-05-24 session established:**
 - Synthesis + publish threshold lowered 50 → 30 (`02a5fcd`, version `a283a672`) — NVS 30–49 articles were silently dropped; now synthesis-eligible
@@ -16,6 +34,7 @@ Update this at the END of every work session. Not the start — the end. Future-
 - Universal direct-fetch fallback added (`d5c7424`, version `a7290f66`): proxy → if nothing → Cloudflare direct fetch + HTML strip, for every source; no per-source exceptions
 - `thin_body_blocked` structured JSON logging added at `saveArticles` thin-body gate — 24–48h of data needed before deciding on `MIN_BODY_CHARS` adjustment
 - TEMP endpoint `/admin/proxy-probe?url=<url>` live for future source diagnostics
+- YouTube thumbnails (`hqdefault.jpg`) now saved to `image_url` for all `youtube_embed` articles (`5ced906`, version `6d891ecd`) — backfill SQL above needed for existing rows
 
 **Verification SQL (run after 2 cron cycles):**
 ```sql
