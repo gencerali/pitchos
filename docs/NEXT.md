@@ -8,12 +8,14 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**: **After 2 cron cycles — check pipeline_log for articles with nvs_score 30–49 now appearing as `published` or `synthesis_failed` (were previously `scored_low`). Verify publish rate increases. Update verification SQL thresholds from 50 → 30 if running fresh queries.**
+**NEXT**: **After 24–48h — grep Cloudflare logs for `thin_body_blocked` events and build body-length distribution. Also check pipeline_log for `DIRECT FETCH OK` lines confirming Duhuliye/hurriyet/haberturk recovery. Check NVS 30–49 articles now appearing as `published`.**
 
 **What 2026-05-24 session established:**
-- Synthesis + publish threshold lowered from 50 → 30 (`02a5fcd`) — articles scoring NVS 30–49 were being dropped entirely; now synthesis is attempted and successful rewrites are published
-- Changed in `src/publisher.js:557,605` (proxy warm-up gate + per-article synthesis gate) and `worker-fetch-agent.js:5347,5350,5353` (diagnostic stage boundary + publish threshold default)
-- Deployed as version `a283a672-ca6c-4290-b4b4-34ca246761bf`
+- Synthesis + publish threshold lowered 50 → 30 (`02a5fcd`, version `a283a672`) — NVS 30–49 articles were silently dropped; now synthesis-eligible
+- Duhuliye synthesis failures diagnosed: Render proxy gets 403, Cloudflare direct fetch returns 200 + 45KB (`docs/duhuliye-diagnosis-2026-05-24.md`)
+- Universal direct-fetch fallback added (`d5c7424`, version `a7290f66`): proxy → if nothing → Cloudflare direct fetch + HTML strip, for every source; no per-source exceptions
+- `thin_body_blocked` structured JSON logging added at `saveArticles` thin-body gate — 24–48h of data needed before deciding on `MIN_BODY_CHARS` adjustment
+- TEMP endpoint `/admin/proxy-probe?url=<url>` live for future source diagnostics
 
 **Verification SQL (run after 2 cron cycles):**
 ```sql
