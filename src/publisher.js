@@ -813,6 +813,7 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
     status,
     reviewed_by:         'auto',
     fetched_at:   a.published_at || a.fetched_at || new Date().toISOString(),
+    published_at: a.published_at || a.fetched_at || new Date().toISOString(),
     reviewed_at:  new Date().toISOString(),
     slug:               a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
     original_rss_title: a.original_rss_title || null,
