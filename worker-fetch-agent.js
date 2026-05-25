@@ -524,6 +524,7 @@ export default {
             is_kartalix_content: r.source_type === 'kartalix',
             sport:               r.sport        || 'football',
             publish_mode:        r.publish_mode || 'rss_summary',
+            image_url:           r.image_url    || '',
             slug:                r.slug,
             template_id:         r.template_id  || null,
           }));
@@ -4126,7 +4127,7 @@ const toKVShape = a => ({
   is_p4:               isP4(a),
   sport:               a.sport        || 'football',
   publish_mode:        a.publish_mode || 'rss_summary',
-  image_url:           '',
+  image_url:           a.image_url    || '',
   template_id:         a.template_id  || null,
   fixture_id:          a.fixture_id   || null,
   slug:                a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
