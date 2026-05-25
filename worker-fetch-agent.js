@@ -4122,6 +4122,7 @@ const toKVShape = a => ({
   trust_score:         a.trust_score  || tierToTrustScore(a.trust_tier || a.trust),
   golden_score:        a.golden_score || null,
   published_at:        a.published_at || a.fetched_at  || new Date().toISOString(),
+  fetched_at:          a.fetched_at   || null,
   is_fresh:            a.is_fresh     ?? true,
   is_kartalix_content: a.is_kartalix_content || false,
   is_p4:               isP4(a),
@@ -5432,8 +5433,8 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
       let latestKV = latestRaw ? JSON.parse(latestRaw) : [];
       // KV cache miss OR near-empty (drought recovery) — seed from DB.
-      // Restricted to last 30 days with non-null published_at to prevent old/orphaned DB records
-      // (especially copy_source articles with null slugs) from reappearing as fresh content.
+      // Filter by created_at (server-generated, never null) — published_at was unreliable
+      // (null for all articles before commit d864504). created_at is the Supabase insertion timestamp.
       if (!latestRaw || latestKV.length < 10) {
         try {
           const seedCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -5441,7 +5442,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
           // immediately evicted by rankAndEvict, defeating the seed entirely.
           const seedModeExclude = ['rss_summary','copy_source'];
           const dbRows = await supabase(env, 'GET',
-            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&published_at=gte.${encodeURIComponent(seedCutoff)}&publish_mode=not.in.(${seedModeExclude.join(',')})&order=published_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,nvs_score,publish_mode,published_at,fetched_at,original_url,source_type,template_id,golden_score`);
+            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&created_at=gte.${encodeURIComponent(seedCutoff)}&publish_mode=not.in.(${seedModeExclude.join(',')})&order=created_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,nvs_score,publish_mode,published_at,fetched_at,created_at,image_url,original_url,source_type,template_id,golden_score`);
           if (Array.isArray(dbRows) && dbRows.length > 0) {
             latestKV = dbRows.map(r => toKVShape({
               title:        r.title,
@@ -5454,11 +5455,12 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
               category:     r.category || 'Haber',
               nvs:          r.nvs_score || 0,
               golden_score: r.golden_score || null,
-              published_at: r.published_at,
-              fetched_at:   r.fetched_at || null,
+              published_at: r.published_at || r.created_at,
+              fetched_at:   r.created_at || r.fetched_at || null,
               is_fresh:     false,
               is_kartalix_content: r.source_type === 'kartalix',
               publish_mode: r.publish_mode || 'rss_summary',
+              image_url:    r.image_url   || '',
               slug:         r.slug,
               template_id:  r.template_id || null,
             }));
@@ -5468,9 +5470,11 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
           }
         } catch(e) { console.error('KV seed from DB failed:', e.message); }
       }
+      const processedAt = new Date().toISOString();
       const newKVItems = confirmedArticles.map(a => {
         const syn = synthesisUrlMap.get(a.url || a.original_url);
-        return toKVShape(syn ? { ...a, full_body: syn.full_body, publish_mode: 'rewrite' } : a);
+        const base = syn ? { ...a, full_body: syn.full_body, publish_mode: 'rewrite' } : a;
+        return toKVShape({ ...base, fetched_at: base.fetched_at || processedAt });
       });
       const finalKVCount = await cacheToKV(env, site.short_code, [...newKVItems, ...latestKV]);
       console.log(`KV WRITE (DB-confirmed): ${newKVItems.length} new + ${latestKV.length} existing → ${finalKVCount} ranked`);
