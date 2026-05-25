@@ -2267,7 +2267,7 @@ Sadece Türkçe haber metnini yaz.`;
 
 function youtubeThumbnailUrl(videoId) {
   if (!videoId) return '';
-  return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+  return `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`;
 }
 
 // ─── T-VID YOUTUBE EMBED ─────────────────────────────────────

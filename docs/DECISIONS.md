@@ -1199,6 +1199,32 @@ Gates added:
 
 ---
 
+### 2026-05-25 — YouTube thumbnail resolution: hqdefault → maxresdefault
+
+**Decision**: Switch `youtubeThumbnailUrl()` in `src/publisher.js` from `hqdefault` (480×360) to `maxresdefault` (1280×720). Applied globally to all `youtube_embed` articles via `generateVideoEmbed` and `generateMatchVideoEmbed`. Supersedes the 2026-05-24 entry which selected `hqdefault`.
+
+**Why this reverses the 2026-05-24 decision**: The prior entry rejected `maxresdefault` as "only exists if uploader provided HD thumbnail, 404s on many videos." That assumption was based on general YouTube behaviour, not measured data. A 133-video probe across all 8 active YouTube channels (14-day window) showed 100% maxresdefault availability with zero 404s. The rejection premise was wrong.
+
+**Data** (`docs/youtube-thumbnail-quality-analysis-2026-05-25.md`):
+- 133 videos probed: A Spor (100), Vole (17), beIN SPORTS TR YT (7), Kartalix (3), Beşiktaş JK (2), Rabona Digital (2), TRT Spor (1), beIN SPORTS TR (1)
+- maxresdefault: 133/133 (100%) — zero failures across all channels
+- sddefault: 133/133 (100%)
+- hqdefault: technically 100%, but 8/100 A Spor thumbnails under 10KB (blurry on retina displays); all 8 had healthy maxresdefault (45–69 KB)
+- avg size: maxres 152 KB, sd 62 KB, hq 18 KB — 8.4× quality improvement
+
+**Alternatives considered**:
+- A: Keep hqdefault — rejected; 8% of A Spor thumbnails visually degraded (under 10KB)
+- B: Per-video probe at save time with fallback — rejected; 100% coverage makes probe overhead unnecessary
+- C: Switch to sddefault — valid safe option (100% coverage, 3.5× quality gain), but maxres available at zero extra cost
+
+**Backfill**: `UPDATE content_items SET image_url = REPLACE(image_url, 'hqdefault.jpg', 'maxresdefault.jpg') WHERE site_id = '2b5cfe49-b69a-4143-8323-ca29fff6502e' AND publish_mode = 'youtube_embed' AND image_url LIKE '%hqdefault.jpg%'` — run in Supabase after deploy.
+
+**Deployed**: version `b0e29cc1-46f4-453d-85a0-85ef845152ab`, `src/publisher.js:2270`
+
+**What would change our mind**: Probe showing <95% maxresdefault coverage for a newly added channel, or YouTube TOS change prohibiting direct thumbnail hotlinking.
+
+---
+
 ### 2026-05-25 — KV frozen at May 9: full diagnostic chain + four-part fix
 
 **Decision**: Four targeted changes to `worker-fetch-agent.js` to restore live article flow from Supabase into KV. No behavior changes for correctly-functioning pipeline runs.
