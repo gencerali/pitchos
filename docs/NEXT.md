@@ -9,12 +9,21 @@ Update this at the END of every work session. Not the start — the end. Future-
 ## NEXT ACTION
 
 **NEXT**:
-1. Run YouTube thumbnail backfill SQL in Supabase (see below), then `/rebuild-cache`
+1. Run BOTH backfill SQLs below in Supabase, then `/rebuild-cache`
 2. After 24–48h — grep Cloudflare logs for `thin_body_blocked` events, build body-length distribution, decide on `MIN_BODY_CHARS` adjustment
 3. Check pipeline_log for `DIRECT FETCH OK` lines confirming Duhuliye/hurriyet/haberturk recovery
-4. Check NVS 30–49 articles appearing as `published`
+4. Check NVS 30–49 articles now appearing as `published`
 
-**YouTube thumbnail backfill SQL (run once in Supabase):**
+**BACKFILL 1 — published_at NULL fix (CRITICAL — run first):**
+```sql
+UPDATE content_items
+SET published_at = COALESCE(fetched_at, created_at)
+WHERE site_id = '2b5cfe49-b69a-4143-8323-ca29fff6502e'
+  AND published_at IS NULL
+  AND created_at > NOW() - INTERVAL '14 days';
+```
+
+**BACKFILL 2 — YouTube thumbnails:**
 ```sql
 UPDATE content_items
 SET image_url =
@@ -26,7 +35,8 @@ WHERE site_id = '2b5cfe49-b69a-4143-8323-ca29fff6502e'
   AND (image_url IS NULL OR image_url = '')
   AND original_url LIKE 'https://www.youtube.com/watch?v=%';
 ```
-Then hit `/rebuild-cache` to push updated rows to KV.
+
+Then hit `/rebuild-cache` to push both fixes into KV.
 
 **What 2026-05-24 session established:**
 - Synthesis + publish threshold lowered 50 → 30 (`02a5fcd`, version `a283a672`) — NVS 30–49 articles were silently dropped; now synthesis-eligible
@@ -35,6 +45,9 @@ Then hit `/rebuild-cache` to push updated rows to KV.
 - `thin_body_blocked` structured JSON logging added at `saveArticles` thin-body gate — 24–48h of data needed before deciding on `MIN_BODY_CHARS` adjustment
 - TEMP endpoint `/admin/proxy-probe?url=<url>` live for future source diagnostics
 - YouTube thumbnails (`hqdefault.jpg`) now saved to `image_url` for all `youtube_embed` articles (`5ced906`, version `6d891ecd`) — backfill SQL above needed for existing rows
+- `toKVShape` hardcoded `image_url:''` — fixed to pass through `a.image_url` (`8286b1b`, version `961f2dbb`)
+- KV TTL increased 4h→12h (`f30c7bc`, version `c60356e7`) — 4h TTL expired during 00:00–06:30 Istanbul quiet period leaving 3.5h blackout; 12h covers full overnight gap
+- `published_at` was missing from `saveArticles` row construction — all non-YouTube articles had `NULL` in Supabase (`d864504`, version `b3034a44`); breaks homepage sort, cross-run dedup query, and `rankAndEvict` age calc — **backfill SQL 1 above is critical**
 
 **Verification SQL (run after 2 cron cycles):**
 ```sql
