@@ -1199,4 +1199,63 @@ Gates added:
 
 ---
 
+### 2026-05-25 — KV frozen at May 9: full diagnostic chain + four-part fix
+
+**Decision**: Four targeted changes to `worker-fetch-agent.js` to restore live article flow from Supabase into KV. No behavior changes for correctly-functioning pipeline runs.
+
+**Root cause chain** (each necessary, none individually sufficient):
+
+1. **`published_at` missing from `saveArticles`** (fixed earlier in session, commit `d864504`): The Supabase row builder in `src/publisher.js:815` wrote `fetched_at` but omitted `published_at`. Every article inserted May 10–24 landed with `published_at = NULL` in Supabase.
+
+2. **Drought recovery seed query filtered on `published_at`** (`worker-fetch-agent.js:5444`): When KV dropped below 10 articles (or expired overnight), drought recovery queried `published_at=gte.${cutoff}`. PostgreSQL silently excludes NULL rows on inequality filters. All 124 May 10–24 articles returned 0 rows. `latestKV` was never replaced — cron continued writing back the same stale May-9 articles via `minPool=20`.
+
+3. **Age decay from RSS pubDate** (`worker-fetch-agent.js:4124`, `src/publisher.js:911`): `fetcher.js` never sets `fetched_at` on in-memory article objects. `saveArticles` writes `fetched_at = a.published_at` (RSS pubDate). `toKVShape` also falls back to `a.published_at`. So KV entries carry the original RSS publication date as their age reference. An article from a May 10 RSS feed processed today has age = 15 days → `rank = NVS × exp(-360/8) ≈ 0` → evicted by `rankAndEvict`. New in-memory articles were being added to KV but immediately decaying out.
+
+4. **KV TTL (4h) shorter than overnight quiet period gap (8h)** (fixed earlier, commit `f30c7bc`): Preserved the broken state across the overnight gap. Fixed 4h → 12h, but this alone left KV frozen because the drought seed and age decay issues remained.
+
+**Why earlier fixes were necessary but not sufficient**:
+- TTL fix (f30c7bc): prevented nightly KV expiry, but drought seed still returned 0 rows → stale articles persisted via minPool.
+- `published_at` field fix (d864504): fixed future Supabase inserts but drought seed still filtered on `published_at`; existing NULL rows still excluded.
+- SQL backfill (`published_at = COALESCE(fetched_at, created_at)`): ran in an earlier session; confirmed with COUNT=0 before this deploy. Moot for the KV fix because `fetched_at` in Supabase = RSS pubDate anyway (same old date, still too old for rankAndEvict).
+
+**Four changes deployed (commit `50eb017`, version `436fc6fd-ef70-4052-856a-66c1b495e1da`)**:
+
+**Change 1 — Drought seed filter + order + select** (`worker-fetch-agent.js:5444`):  
+`published_at=gte.${cutoff}` → `created_at=gte.${cutoff}`. `created_at` is the Supabase server-generated insertion timestamp, never null. Order changed to `created_at.desc` for consistent ordering. `created_at` and `image_url` added to select list.  
+**Verified-by**: `worker-fetch-agent.js:5444-5445`
+
+**Change 2 — Drought seed mapping** (`worker-fetch-agent.js:5458-5459`):  
+`fetched_at: r.fetched_at || null` → `fetched_at: r.created_at || r.fetched_at || null`.  
+`published_at: r.published_at` → `published_at: r.published_at || r.created_at`.  
+Seeds `fetched_at` with Supabase insertion time so `getArticleAge` decays from when Kartalix processed the article, not when the source published. A May 10 RSS article inserted into Supabase on May 10 is 15 days old by RSS date; by Supabase insertion time it is also 15 days old — but articles inserted today by the current cron are 0h old and rank at the top.  
+**Verified-by**: `worker-fetch-agent.js:5458-5459`
+
+**Change 3 — `toKVShape` carries `fetched_at`** (`worker-fetch-agent.js:4125`):  
+Added `fetched_at: a.fetched_at || null` to the KV shape output. Previously `fetched_at` was excluded (implicit whitelist). Without this, `fetched_at` stamped in Change 4 would be lost after the first write/read cycle. `getArticleAge` (`src/publisher.js:912`) checks `fetched_at` before `published_at` — this field must survive in the KV blob.  
+**Verified-by**: `worker-fetch-agent.js:4125`
+
+**Change 4 — Stamp Kartalix processing time on `newKVItems`** (`worker-fetch-agent.js:5472-5477`):  
+`const processedAt = new Date().toISOString()` captured once per cron run. Each article in `confirmedArticles` gets `fetched_at: base.fetched_at || processedAt` before `toKVShape`. Since `fetcher.js` never sets `fetched_at`, `base.fetched_at` is always undefined → `processedAt` fires. Result: new articles enter KV with age = 0 and decay from processing time, not RSS pubDate. Sibling-recovered articles: `_used_sibling_source` is set but `fetched_at` is not → `processedAt` applies correctly.  
+**Verified-by**: `worker-fetch-agent.js:5472-5477`
+
+**Dual semantic of `fetched_at`** (non-obvious invariant):  
+In **Supabase `content_items`**: `fetched_at` = RSS pubDate (the source's publication timestamp), written by `saveArticles` as `a.published_at || a.fetched_at || now`. This is by design — `fetched_at` in DB tracks when the story broke, used by `getRecentPublishedTitles` for title dedup lookback.  
+In **KV articles**: `fetched_at` = Kartalix processing time (when this cron run wrote the article to KV). Used exclusively by `getArticleAge` for decay scoring. These two semantics diverge after Change 4.
+
+**What would change our mind**: If we want display ordering in the article page to use source publication time rather than Kartalix processing time, the KV `fetched_at` field should be renamed to avoid confusion with the DB column. Acceptable debt until a field-naming audit is warranted.
+
+**SQL backfill** (ran before this deploy, not part of this commit):  
+`UPDATE content_items SET published_at = COALESCE(fetched_at, created_at) WHERE published_at IS NULL` — backfill confirmed COUNT=0 rows remaining before deploy. Supabase `published_at` is now correctly set for all articles; used by `/rebuild-cache` ordering and article page display.
+
+**Deployed**: version `436fc6fd-ef70-4052-856a-66c1b495e1da`, commit `50eb017`
+
+**Verification** (after `/rebuild-cache`):
+- KV article count: expect 50+ (up from 18)
+- Newest `fetched_at` in KV: expect near-current time (within last few hours)
+- `/cache` endpoint: no articles with age > 30 days dominating the pool
+
+**Rollback**: Revert `worker-fetch-agent.js` at lines 4125, 5444-5445, 5458-5459, 5472-5477 to prior state and redeploy. No schema changes, no KV key changes.
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*
