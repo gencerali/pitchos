@@ -25,6 +25,27 @@ function stripHTML(str) {
   return decodeEntities((str || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
 }
 
+// Reads an RSS/XML response body respecting the encoding declared in the XML prolog.
+// res.text() defaults to UTF-8 (or Content-Type charset), ignoring the XML encoding
+// declaration — which breaks Turkish sources that serve windows-1254 content.
+async function decodeRSSBody(res) {
+  const buf = await res.arrayBuffer();
+  // Probe the prolog as Latin-1 — all XML declaration bytes are ASCII-safe.
+  const probe = new TextDecoder('latin1').decode(new Uint8Array(buf, 0, Math.min(512, buf.byteLength)));
+  const declared = probe.match(/<\?xml[^?]*encoding=["']([^"']+)["']/i)?.[1]
+                     ?.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (declared && declared !== 'utf8') {
+    try { return new TextDecoder(declared).decode(buf); } catch {}
+  }
+  // Fall back to Content-Type charset if present and non-UTF-8.
+  const ct = res.headers.get('content-type') || '';
+  const ctCharset = ct.match(/charset=([^\s;]+)/i)?.[1]?.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (ctCharset && ctCharset !== 'utf8') {
+    try { return new TextDecoder(ctCharset).decode(buf); } catch {}
+  }
+  return new TextDecoder('utf-8').decode(buf);
+}
+
 // ─── RSS FEEDS ────────────────────────────────────────────────
 // trust values: official, broadcast, press, journalist, international, aggregator
 // journalist/international: filtered by BJK_KEYWORDS (title + description)
@@ -115,7 +136,7 @@ export async function fetchViaRss2Json(feed) {
   try {
     const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(15000) });
     if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
-    const text = await res.text();
+    const text = await decodeRSSBody(res);
     console.log(`PROXY [${feed.name}]: ${text.length} chars`);
 
     // Support both RSS <item> and Atom <entry> (Reddit uses Atom)
@@ -242,7 +263,7 @@ async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS, lookbackMs = DE
     return emptyResult();
   }
 
-  const xml = await res.text();
+  const xml = await decodeRSSBody(res);
   const cutoff = Date.now() - lookbackMs;
   // Support both RSS (<item>) and Atom (<entry>) formats
   const items = xml.match(/<item[\s\S]*?<\/item>/g)
