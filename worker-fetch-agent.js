@@ -6485,7 +6485,7 @@ async function renderVideoHubPage(tip, env) {
     .vh-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
     .vh-play::after{content:'▶';font-size:1.4rem;color:#fff;background:rgba(0,0,0,.5);width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;padding-left:3px}
     .vh-meta{padding:.55rem .65rem .65rem}
-    .vh-title{font-size:.82rem;font-weight:600;line-height:1.4;color:#e5e5e5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.3rem}
+    .vh-title{font-size:.82rem;font-weight:600;line-height:1.4;color:#e5e5e5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.3rem;min-width:0;word-break:break-word;overflow-wrap:anywhere}
     .vh-source{font-size:.7rem;color:#666}
     .ad-slot{background:transparent}
     .ad-leaderboard{min-height:100px;width:100%;max-width:320px;margin:0 auto;display:block}
