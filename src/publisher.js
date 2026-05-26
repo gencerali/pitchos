@@ -193,6 +193,9 @@ Sorun varsa: {"passed":false,"issues":["iddia X ama gerçek Y"]}`;
 export { buildGroundingContext, verifyArticle, classifyVideoType };
 
 // ─── VIDEO TYPE CLASSIFIER ────────────────────────────────────
+// 7 types: match_highlight, generic_highlight, coach_interview,
+//          president_interview, player_interview, generic_interview, news
+
 function normalizeForMatch(s) {
   return (s || '')
     .toLowerCase()
@@ -206,49 +209,89 @@ function normalizeForMatch(s) {
     .replace(/ö/g, 'o');
 }
 
-const HIGHLIGHT_PATTERNS = [
-  /\bmac ozeti\b/,
-  /\bmacin ozeti\b/,
-  /\bgenis ozet\b/,
-  /\bozet ve goller\b/,
-  /\bgoller ve ozet\b/,
-  /\d+-\d+\s+ozet/,
-  /\bhighlights\b/,
-  /\bgoller\b/,
-  /\bgol pozisyon/,
-  /\bbitiricilik/,
+// Empty until new coach officially appointed. Add e.g. 'razvan lucescu','lucescu' when signed.
+const CURRENT_COACH_NAMES = [];
+
+const CURRENT_PRESIDENT_NAMES = [
+  'serdal adali', 'adali', 'serdal',
+];
+
+const CURRENT_PLAYER_NAMES = [
+  // Goalkeepers
+  'ersin destanoglu', 'ersin', 'devis vasquez', 'vasquez',
+  // Defenders
+  'amir murillo', 'murillo', 'emmanuel agbadou', 'agbadou',
+  'tiago djalo', 'djalo', 'felix uduokhai', 'uduokhai',
+  'emirhan topcu', 'emirhan', 'ridvan yilmaz', 'ridvan',
+  'taylan bulut', 'taylan', 'gokhan sazdagi',
+  // Midfielders
+  'orkun kokcu', 'orkun', 'wilfred ndidi', 'ndidi',
+  'kristjan asllani', 'asllani', 'salih ucan',
+  'kartal kayra yilmaz', 'kartal kayra', 'jean onana', 'onana',
+  // Wingers / attacking mid
+  'milot rashica', 'rashica', 'junior olaitan', 'olaitan',
+  'vaclav cerny', 'cerny', 'jota silva', 'jota',
+  'cengiz under', 'cengiz',
+  // Forwards
+  'tammy abraham', 'abraham', 'el bilal toure', 'el bilal',
+  'hyeon-gyu oh', 'hyeon gyu oh', 'oh hyeon',
+  'mustafa hekimoglu', 'hekimoglu', 'semih kilicsoy', 'semih',
+  // Tier 4 — recent former, still in news
+  'rafa silva', 'rafa', 'ernest muci', 'muci',
+];
+
+const _NORM_COACH     = CURRENT_COACH_NAMES.map(normalizeForMatch);
+const _NORM_PRESIDENT = CURRENT_PRESIDENT_NAMES.map(normalizeForMatch);
+const _NORM_PLAYERS   = CURRENT_PLAYER_NAMES.map(normalizeForMatch);
+
+function _containsAny(t, names) {
+  return names.some(name => {
+    if (name.length <= 6) return new RegExp(`\\b${name}\\b`).test(t);
+    return t.includes(name);
+  });
+}
+
+const MATCH_HIGHLIGHT_PATTERNS = [
+  /\bmac ozeti\b/, /\bmacin ozeti\b/, /\bgenis ozet\b/,
+  /\bozet ve goller\b/, /\bgoller ve ozet\b/,
+  /\d+-\d+\s+ozet/, /\bhighlights\b/,
+];
+
+const GENERIC_HIGHLIGHT_PATTERNS = [
+  /\bgoller\b/, /\bgol pozisyon/, /\bbitiricilik/,
 ];
 
 const HIGHLIGHT_EXCLUDE = [
-  /\bgol krali\b/,
-  /\bsezon\w* ozeti\b/,
-  /\bsezonun ozeti\b/,
+  /\bgol krali\b/, /\bsezon\w* ozeti\b/, /\bsezonun ozeti\b/,
 ];
 
 const INTERVIEW_PATTERNS = [
-  /\bbasin toplantisi\b/,
-  /\bozel roportaj\b/,
-  /\baciklamasi\b/,
-  /\baciklamalari\b/,
-  /\b(konustu|konusti)\b/,
-  /\b(demec|demeci)\b/,
-  /\bmac sonu (aciklama|konusm|roportaj)/,
-  /\broportaj\b/,
+  /\bbasin toplantisi\b/, /\bozel roportaj\b/,
+  /\basin aciklamasi\b/, /\baciklamasi\b/, /\baciklamalari\b/,
+  /\b(konustu|konusti)\b/, /\b(demec|demeci)\b/,
+  /\bmac sonu (aciklama|konusm|roportaj)/, /\broportaj\b/,
 ];
 
 const INTERVIEW_EXCLUDE = [
-  /\byorumu\b/,
-  /\byorumlari\b/,
-  /\bdegerlendirme\b/,
-  /\banaliz\b/,
+  /\byorumu\b/, /\byorumlari\b/, /\bdegerlendirme\b/, /\banaliz\b/,
 ];
 
 function classifyVideoType(title) {
   const t = normalizeForMatch(title);
-  const blockInterview = INTERVIEW_EXCLUDE.some(re => re.test(t));
   const blockHighlight = HIGHLIGHT_EXCLUDE.some(re => re.test(t));
-  if (!blockInterview && INTERVIEW_PATTERNS.some(re => re.test(t))) return 'interview';
-  if (!blockHighlight && HIGHLIGHT_PATTERNS.some(re => re.test(t))) return 'highlight';
+  const blockInterview = INTERVIEW_EXCLUDE.some(re => re.test(t));
+
+  if (!blockHighlight && MATCH_HIGHLIGHT_PATTERNS.some(re => re.test(t))) return 'match_highlight';
+
+  if (!blockInterview && INTERVIEW_PATTERNS.some(re => re.test(t))) {
+    if (_NORM_COACH.length > 0 && _containsAny(t, _NORM_COACH))  return 'coach_interview';
+    if (_containsAny(t, _NORM_PRESIDENT))                         return 'president_interview';
+    if (_containsAny(t, _NORM_PLAYERS))                           return 'player_interview';
+    return 'generic_interview';
+  }
+
+  if (!blockHighlight && GENERIC_HIGHLIGHT_PATTERNS.some(re => re.test(t))) return 'generic_highlight';
+
   return 'news';
 }
 

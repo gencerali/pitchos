@@ -6403,18 +6403,21 @@ async function renderVideoHubPage(tip, env) {
     `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&status=eq.published&order=published_at.desc&limit=300`
   ) || [];
 
+  const _VH_INTERVIEW_TYPES = new Set(['coach_interview','president_interview','player_interview','generic_interview']);
+  const _VH_HIGHLIGHT_TYPES = new Set(['match_highlight','generic_highlight']);
+
   const now = Date.now();
   const videos = rows.filter(v => {
     const age = now - new Date(v.published_at).getTime();
-    if (v.video_type === 'interview') return age < 90 * _VH_DAY;
-    if (v.video_type === 'highlight') return age < 180 * _VH_DAY;
+    if (_VH_INTERVIEW_TYPES.has(v.video_type)) return age < 90 * _VH_DAY;
+    if (_VH_HIGHLIGHT_TYPES.has(v.video_type)) return age < 180 * _VH_DAY;
     return age < 30 * _VH_DAY;
   });
 
   const byType = {
     haber:    videos.filter(v => v.video_type === 'news'),
-    mac:      videos.filter(v => v.video_type === 'highlight'),
-    roportaj: videos.filter(v => v.video_type === 'interview'),
+    mac:      videos.filter(v => _VH_HIGHLIGHT_TYPES.has(v.video_type)),
+    roportaj: videos.filter(v => _VH_INTERVIEW_TYPES.has(v.video_type)),
   };
 
   const sectionDefs = [
