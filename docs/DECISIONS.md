@@ -1489,4 +1489,44 @@ WHERE site_id = '2b5cfe49-b69a-4143-8323-ca29fff6502e'
 
 ---
 
+### 2026-05-27 — Video Hub Fix Pack 2: duplicate thumbnail + two-template architecture
+
+**Decision**: For `youtube_embed` articles, suppress the static hero/thumbnail image in both the server-side template (`renderArticleHTML`) and the SPA template (`renderArticleView`). The video iframe is the visual anchor; showing the static image above it duplicates the thumbnail.
+
+**Root cause of symptom**: Two independent templates render article detail:
+1. **SPA** (`index.html:renderArticleView`) — client-side, used when clicking from the homepage. Renders a full-bleed `.av-hero` div with `background:url(image)` + title overlay.
+2. **Worker** (`worker-fetch-agent.js:renderArticleHTML`) — server-side, used for all direct URL navigations including from `/konu/videolar`. Renders `<img class="article-img">` above the body.
+
+Both templates show `image_url` unconditionally. For `youtube_embed` articles, `full_body` contains a YouTube iframe whose default poster is the same image → visible twice before play.
+
+**Fixes**:
+- Worker (`worker-fetch-agent.js:6959`): `${image && a.publish_mode !== 'youtube_embed' ? <img...> : ''}`
+- SPA (`index.html:1282`): `const isVideoEmbed = a.publish_mode === 'youtube_embed'`; hero background image skipped when `isVideoEmbed` is true; falls back to `catGrad(a)` gradient
+
+**`og:image` preserved**: The `<meta property="og:image">` in `renderArticleHTML` (line 6882) uses `image` directly and is NOT gated by `publish_mode` — social sharing previews still show the YouTube thumbnail.
+
+**The two-template divergence is intentional and permanent**: SPA gives a richer in-app experience (hero, related articles, NVS bar, slide-in animations). Worker template is lean for direct URL access and SEO. Unifying them would add significant complexity for marginal gain.
+
+**Deployed**: commits `22e5415` + `ea1331a`, CF version `3d2f73f1-92d3-49d8-b417-9f0648b3bb58`
+
+---
+
+### 2026-05-27 — Video Hub Fix Pack 2: grid track floor for native ad slots
+
+**Decision**: Change `grid-template-columns` from `repeat(N,1fr)` to `repeat(N,minmax(0,1fr))` in `.vh-grid`, and add `min-width:0` to `.ad-native`.
+
+**Root cause**: CSS Grid `1fr` = `minmax(auto, 1fr)`. The `auto` floor means each track is at least as wide as its widest item's minimum content size. In the `?tip=haber` tab, `injectAds=true` causes one `.ad-native` grid item injected every 10 cards (14 native ads for 143 Haber videos). `.ad-native` has `aspect-ratio:16/9` with no `min-width:0`. Despite `min-width:0` on `.vh-card`, the native ad slots' `aspect-ratio` constraint contributes a non-zero automatic minimum to the track, widening all 4 columns proportionally. Maç tab has 4 cards and 0 native ads → no bloat, correct 4-column layout.
+
+**Why the earlier `.vh-title overflow-wrap:anywhere` fix (commit `ea1331a`) didn't help**: That fix targeted `-webkit-line-clamp` title text as the suspected bloat source. The actual source was the native ad grid items with `aspect-ratio:16/9`. The title fix is still worth keeping as belt-and-suspenders for other browsers.
+
+**Fix**: `minmax(0,1fr)` hard-floors each track at exactly 0, bypassing all content-based minimum size contributions regardless of what's inside the grid item.
+
+**Alternatives considered**:
+- A: Remove `aspect-ratio:16/9` from `.ad-native` — rejected; the 16:9 placeholder is needed for when AdSense fills the slot (native video ad units are 16:9)
+- B: Add `min-width:0` only to `.ad-native` — insufficient; `1fr` = `minmax(auto,1fr)` still drives from the auto floor even with `min-width:0` on items in some browsers; `minmax(0,1fr)` is the definitive fix
+
+**Deployed**: commit `608db58`, CF version `15a8655d-dc53-45be-8dd4-8da3be8bbb37`
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*
