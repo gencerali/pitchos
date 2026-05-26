@@ -1275,8 +1275,9 @@
     const nvsPct = Math.min(100, nvs);
     const nvsColor = nvs >= 70 ? '#10B981' : nvs >= 40 ? '#F59E0B' : '#6B7280';
 
-    // Hero: image or gradient
-    const heroStyle = image
+    // Hero: video articles use gradient only — iframe in body is the visual anchor
+    const isVideoEmbed = a.publish_mode === 'youtube_embed';
+    const heroStyle = (image && !isVideoEmbed)
       ? `background:linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.78) 100%), url('${esc(image)}') top center/cover no-repeat`
       : `background:${catGrad(a)}`;
 

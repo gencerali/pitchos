@@ -6956,7 +6956,7 @@ ${siteHeader('/haber/')}
       <span style="color:#555;font-size:0.68rem">YZ destekli</span>
       ${attrHtml}
     </div>
-    ${image ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
+    ${image && a.publish_mode !== 'youtube_embed' ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
     <div class="article-body">${bodyHtml}</div>
     ${opponentId && templateId === 'T02' ? `<div id="h2hWidget" style="margin:2rem 0">
       <api-sports-widget data-type="h2h" data-team1="549" data-team2="${opponentId}" data-season="2025"></api-sports-widget>
