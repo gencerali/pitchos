@@ -190,7 +190,67 @@ Sorun varsa: {"passed":false,"issues":["iddia X ama gerçek Y"]}`;
   }
 }
 
-export { buildGroundingContext, verifyArticle };
+export { buildGroundingContext, verifyArticle, classifyVideoType };
+
+// ─── VIDEO TYPE CLASSIFIER ────────────────────────────────────
+function normalizeForMatch(s) {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/ı/g, 'i')
+    .replace(/ğ/g, 'g')
+    .replace(/ş/g, 's')
+    .replace(/ç/g, 'c')
+    .replace(/ü/g, 'u')
+    .replace(/ö/g, 'o');
+}
+
+const HIGHLIGHT_PATTERNS = [
+  /\bmac ozeti\b/,
+  /\bmacin ozeti\b/,
+  /\bgenis ozet\b/,
+  /\bozet ve goller\b/,
+  /\bgoller ve ozet\b/,
+  /\d+-\d+\s+ozet/,
+  /\bhighlights\b/,
+  /\bgoller\b/,
+  /\bgol pozisyon/,
+  /\bbitiricilik/,
+];
+
+const HIGHLIGHT_EXCLUDE = [
+  /\bgol krali\b/,
+  /\bsezon\w* ozeti\b/,
+  /\bsezonun ozeti\b/,
+];
+
+const INTERVIEW_PATTERNS = [
+  /\bbasin toplantisi\b/,
+  /\bozel roportaj\b/,
+  /\baciklamasi\b/,
+  /\baciklamalari\b/,
+  /\b(konustu|konusti)\b/,
+  /\b(demec|demeci)\b/,
+  /\bmac sonu (aciklama|konusm|roportaj)/,
+  /\broportaj\b/,
+];
+
+const INTERVIEW_EXCLUDE = [
+  /\byorumu\b/,
+  /\byorumlari\b/,
+  /\bdegerlendirme\b/,
+  /\banaliz\b/,
+];
+
+function classifyVideoType(title) {
+  const t = normalizeForMatch(title);
+  const blockInterview = INTERVIEW_EXCLUDE.some(re => re.test(t));
+  const blockHighlight = HIGHLIGHT_EXCLUDE.some(re => re.test(t));
+  if (!blockInterview && INTERVIEW_PATTERNS.some(re => re.test(t))) return 'interview';
+  if (!blockHighlight && HIGHLIGHT_PATTERNS.some(re => re.test(t))) return 'highlight';
+  return 'news';
+}
 
 // ─── OG IMAGE EXTRACTION ─────────────────────────────────────
 function extractOGImage(html) {
@@ -2310,13 +2370,14 @@ Sadece tanıtım cümlesini yaz.`;
     published_at: video.published_at,
     reviewed_at:  new Date().toISOString(),
     reviewed_by:  'auto',
+    video_type:   classifyVideoType(title),
   });
 
   if (!saved?.[0]) console.error(`T-VID: Supabase write failed [${video.video_id}] — using fallback shape`);
   console.log(`T-VID: "${title.slice(0, 60)}" [${video.channel_name}]`);
   return saved?.[0] || { title, summary: intro, full_body, template_id: 'T-VID', slug,
     publish_mode: 'youtube_embed', published_at: video.published_at, source_name: video.channel_name, nvs_score: nvs,
-    image_url: youtubeThumbnailUrl(video.video_id) };
+    image_url: youtubeThumbnailUrl(video.video_id), video_type: classifyVideoType(title) };
 }
 
 // ─── MATCH VIDEO TEMPLATES ───────────────────────────────────

@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
@@ -3516,6 +3516,10 @@ Sadece JSON döndür:
     if (url.pathname === '/editoryal-politika' || url.pathname === '/editoryal-politika/') {
       return new Response(renderEditorialPolicyPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
     }
+    if (url.pathname === '/konu/videolar' || url.pathname === '/konu/videolar/') {
+      const tip = url.searchParams.get('tip') || '';
+      return new Response(await renderVideoHubPage(tip, env), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
+    }
     if (url.pathname.startsWith('/konu/')) {
       const topicSlug = url.pathname.replace('/konu/', '').replace(/\/$/, '').toLowerCase();
       return new Response(renderTopicPage(topicSlug), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=300' } });
@@ -6336,6 +6340,180 @@ async function runTemplate(id) {
 }
 
 loadFixtures();
+</script>
+</body>
+</html>`;
+}
+
+// ─── VIDEO HUB PAGE ──────────────────────────────────────────
+const _VH_SITE_ID = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
+const _VH_DAY = 864e5;
+
+function _vhRelDate(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins || 1} dakika önce`;
+  const hrs = Math.floor(diff / 3600000);
+  if (hrs < 24) return `${hrs} saat önce`;
+  if (diff < 2 * _VH_DAY) return 'Dün';
+  const days = Math.floor(diff / _VH_DAY);
+  if (days < 7) return `${days} gün önce`;
+  if (diff < 30 * _VH_DAY) return `${Math.floor(days / 7)} hafta önce`;
+  return new Date(iso).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function _vhEsc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function _vhAdSlot(type, id) {
+  return `<div class="ad-slot ad-${type}" data-ad-slot="${type}-${id}"><!-- AdSense code injected after approval --></div>`;
+}
+
+function _vhCard(v) {
+  const href  = v.slug ? `/haber/${_vhEsc(v.slug)}` : '#';
+  const img   = _vhEsc(v.image_url || '');
+  const title = _vhEsc(v.title || '');
+  const src   = _vhEsc(v.source_name || '');
+  const date  = v.published_at ? _vhRelDate(v.published_at) : '';
+  return `<a class="vh-card" href="${href}"><div class="vh-thumb"><img src="${img}" loading="lazy" alt="${title}"><div class="vh-play">▶</div></div><div class="vh-meta"><h3 class="vh-title">${title}</h3><div class="vh-source">${src} · ${date}</div></div></a>`;
+}
+
+function _vhGrid(videos, injectAds) {
+  let html = '<div class="vh-grid">';
+  videos.forEach((v, i) => {
+    html += _vhCard(v);
+    if (injectAds && (i + 1) % 10 === 0) html += _vhAdSlot('native', i);
+  });
+  return html + '</div>';
+}
+
+function _vhSection(label, icon, videos, activeTip) {
+  if (activeTip && !videos.length) {
+    return `<section class="vh-section"><div class="vh-sec-head"><span class="vh-sec-icon">${icon}</span><span class="vh-sec-label">${label}</span></div><div class="vh-empty"><p>Şu anda yeni içerik yok.</p><a href="/konu/videolar">← Tüm videolar</a></div></section>`;
+  }
+  return `<section class="vh-section"><div class="vh-sec-head"><span class="vh-sec-icon">${icon}</span><span class="vh-sec-label">${label}</span></div>${_vhGrid(videos, !!activeTip)}</section>`;
+}
+
+async function renderVideoHubPage(tip, env) {
+  const validTips = ['haber', 'mac', 'roportaj'];
+  const activeTip = validTips.includes(tip) ? tip : '';
+
+  const rows = await supabase(env, 'GET',
+    `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&status=eq.published&order=published_at.desc&limit=300`
+  ) || [];
+
+  const now = Date.now();
+  const videos = rows.filter(v => {
+    const age = now - new Date(v.published_at).getTime();
+    if (v.video_type === 'interview') return age < 90 * _VH_DAY;
+    if (v.video_type === 'highlight') return age < 180 * _VH_DAY;
+    return age < 30 * _VH_DAY;
+  });
+
+  const byType = {
+    haber:    videos.filter(v => v.video_type === 'news'),
+    mac:      videos.filter(v => v.video_type === 'highlight'),
+    roportaj: videos.filter(v => v.video_type === 'interview'),
+  };
+
+  const sectionDefs = [
+    { key: 'haber',    label: 'Haber Videoları', icon: '📰' },
+    { key: 'mac',      label: 'Maç Özetleri',    icon: '⚽' },
+    { key: 'roportaj', label: 'Röportajlar',      icon: '🎙️' },
+  ];
+
+  let sectionsHtml = '';
+  let rendered = 0;
+  for (const def of sectionDefs) {
+    const vids = byType[def.key];
+    if (!activeTip && !vids.length) continue;
+    if (activeTip && activeTip !== def.key) continue;
+    if (rendered > 0 && !activeTip) sectionsHtml += _vhAdSlot('banner', `between-${def.key}`);
+    const shown = activeTip ? vids : vids.slice(0, 8);
+    sectionsHtml += _vhSection(def.label, def.icon, shown, activeTip);
+    rendered++;
+  }
+  if (!sectionsHtml) sectionsHtml = '<div style="padding:3rem;text-align:center;color:#555">Bu dönemde video bulunamadı.</div>';
+
+  const pageTitle = activeTip === 'haber' ? 'Haber Videoları' : activeTip === 'mac' ? 'Maç Özetleri' : activeTip === 'roportaj' ? 'Röportajlar' : 'Videolar';
+  const canonical = activeTip ? `/konu/videolar?tip=${activeTip}` : '/konu/videolar';
+
+  const tabs = [
+    { key: '', label: 'Tümü' },
+    { key: 'haber', label: 'Haber' },
+    { key: 'mac', label: 'Maç Özetleri' },
+    { key: 'roportaj', label: 'Röportajlar' },
+  ].map(t => {
+    const href = t.key ? `/konu/videolar?tip=${t.key}` : '/konu/videolar';
+    return `<a class="vh-tab${t.key === activeTip ? ' vh-tab-active' : ''}" href="${href}">${t.label}</a>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${_vhEsc(pageTitle)} | Kartalix</title>
+  <meta name="description" content="Beşiktaş YouTube videoları — haberler, maç özetleri ve röportajlar." />
+  <meta name="robots" content="index, follow" />
+  <link rel="canonical" href="https://kartalix.com${canonical}" />
+  ${siteSharedFonts()}
+  <style>
+    ${siteSharedCSS()}
+    :root{--accent:#E30A17;--bg:#1a1a1a;--surface:#0f0f0f;--text-on-dark:#fff;--border:#222}
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+    body{background:var(--bg);color:var(--text-on-dark);font-family:'Inter',sans-serif;min-height:100vh}
+    .vh-tabs{display:flex;overflow-x:auto;scrollbar-width:none;background:#111;border-bottom:1px solid var(--border);padding:0 1rem;gap:.1rem}
+    .vh-tabs::-webkit-scrollbar{display:none}
+    .vh-tab{font-family:'Barlow Condensed',sans-serif;font-size:.8rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;color:#666;padding:.65rem 1rem;border-bottom:2px solid transparent;white-space:nowrap;transition:color .15s,border-color .15s}
+    .vh-tab:hover{color:#ccc}
+    .vh-tab-active{color:#fff;border-bottom-color:var(--accent)}
+    .vh-ad-top{padding:.75rem 1.25rem}
+    .vh-section{padding:1.25rem 1.25rem .75rem;overflow-x:hidden}
+    .vh-sec-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem;border-left:3px solid var(--accent);padding-left:.75rem}
+    .vh-sec-icon{font-size:1.05rem}
+    .vh-sec-label{font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase}
+    .vh-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.75rem;width:100%;max-width:100%}
+    .vh-card{display:block;text-decoration:none;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color .2s;min-width:0}
+    .vh-card:hover{border-color:var(--accent)}
+    .vh-thumb{position:relative;aspect-ratio:16/9;overflow:hidden;background:#000}
+    .vh-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+    .vh-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
+    .vh-play::after{content:'▶';font-size:1.4rem;color:#fff;background:rgba(0,0,0,.5);width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;padding-left:3px}
+    .vh-meta{padding:.55rem .65rem .65rem}
+    .vh-title{font-size:.82rem;font-weight:600;line-height:1.4;color:#e5e5e5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.3rem}
+    .vh-source{font-size:.7rem;color:#666}
+    .ad-slot{background:transparent}
+    .ad-leaderboard{min-height:100px;width:100%;max-width:320px;margin:0 auto;display:block}
+    .ad-banner{min-height:100px;width:100%;max-width:320px;margin:.5rem auto;display:block}
+    .ad-native{aspect-ratio:16/9;background:var(--surface);border:1px dashed var(--border);border-radius:8px}
+    .vh-empty{padding:2rem 1rem;text-align:center;color:#555;font-size:.88rem}
+    .vh-empty a{color:var(--accent);text-decoration:none;display:inline-block;margin-top:.5rem}
+    @media(min-width:768px){
+      .vh-grid{grid-template-columns:repeat(4,1fr);gap:1rem}
+      .vh-section{padding:1.75rem 2rem 1rem}
+      .vh-ad-top{padding:1rem 2rem}
+      .ad-leaderboard,.ad-banner{max-width:728px;min-height:90px}
+      .vh-title{font-size:.88rem}
+    }
+  </style>
+</head>
+<body>
+${siteHeader('/konu/videolar')}
+<nav class="vh-tabs">${tabs}</nav>
+<div class="vh-ad-top">${_vhAdSlot('leaderboard', 'top')}</div>
+${sectionsHtml}
+${siteFooter()}
+<script>
+document.querySelectorAll('.vh-tab').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    history.pushState({}, '', a.href);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.location = a.href;
+  });
+});
 </script>
 </body>
 </html>`;

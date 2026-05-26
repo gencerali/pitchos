@@ -1350,4 +1350,107 @@ In **KV articles**: `fetched_at` = Kartalix processing time (when this cron run 
 
 ---
 
+### 2026-05-26 — Video Hub Phase 1: video_type classification + DB column
+
+**Decision**: Add `video_type TEXT` column to `content_items`, classify every `youtube_embed` article as `news`, `highlight`, or `interview` at save time using a keyword classifier in `src/publisher.js`.
+
+**Classifier logic** (`src/publisher.js` — `classifyVideoType()`):
+- Turkish title normalized via NFD decomposition + manual char map (`ı→i`, `ğ→g`, etc.)
+- Order: interview check first (more specific), then highlight, then default `news`
+- Interview keywords: `aciklamasi`, `mac sonu`
+- Highlight keywords (word boundary): `gol`, `golu`; (substring): `highlights`, `ozet`, `bitiricilik`
+
+**DB changes**:
+- `ALTER TABLE content_items ADD COLUMN IF NOT EXISTS video_type TEXT`
+- Index: `content_items_video_type_idx ON content_items (site_id, video_type, published_at DESC) WHERE publish_mode = 'youtube_embed'`
+- Constraint: `CHECK (video_type IS NULL OR video_type IN ('highlight','interview','news'))`
+
+**Backfill** (SQL, ran 2026-05-26): 153 rows classified — news: 136 (88.9%), highlight: 9 (5.9%), interview: 8 (5.2%). Within expected ranges.
+
+**Integration**: `generateVideoEmbed()` (`src/publisher.js`) — `video_type` added to Supabase insert and fallback return shape.
+
+**Alternatives considered**:
+- A: Claude-based classification at save time — rejected; latency + cost per video not justified when keyword rules achieve sufficient accuracy
+- B: Manual tagging via admin UI — rejected; 153 existing rows + ongoing backlog makes manual untenable
+
+**Why this one**: Fast, deterministic, zero-cost per article. Accuracy sufficient for a display-filtering use case (occasional misclassification = minor UX issue, not data integrity risk).
+
+**What would change our mind**: False positive rate >10% after monitoring real traffic; would trigger model-based fallback for borderline titles.
+
+**Deployed**: version `7b2e7868-5fa6-4b7f-8b3b-9cd1486b2c58`
+
+---
+
+### 2026-05-26 — Video Hub Phase 2: /konu/videolar frontend redesign
+
+**Decision**: Replace the client-rendered `/konu/videolar` topic page (which fetched from `/cache` and had no `video_type` awareness) with a server-rendered Video Hub: 3 sections (Haber Videoları, Maç Özetleri, Röportajlar), 4 filter tabs (Tümü/Haber/Maç Özetleri/Röportajlar), 2-col mobile / 4-col desktop grid, ad slot placeholders.
+
+**Architecture**:
+- Server-side render in `worker-fetch-agent.js` — new `renderVideoHubPage(tip, env)` async function
+- Intercepts `/konu/videolar` before the generic `/konu/:slug` handler
+- Fetches from Supabase directly (not from `/cache` KV), filters retention windows in JS
+- Retention: news 30d, interview 90d, highlight 180d
+- URL routing: `?tip=haber|mac|roportaj` — each tab = real server request = real pageview for ad impressions
+- Empty section in Tümü view → section hidden entirely (off-season UX)
+- CSS: inline `<style>` in template, consistent with rest of project
+
+**Ad slots**: Empty placeholder `<div class="ad-slot">` elements sized to expected AdSense dimensions (320×100 mobile, 728×90 desktop). No actual ad code — waiting for AdSense approval.
+
+**Alternatives considered**:
+- A: Client-side rendering from `/cache` — rejected; `/cache` KV doesn't carry `video_type`, would require separate API endpoint; also no real pageviews per tab (bad for ad impressions)
+- B: New `/api/videos` endpoint + client JS — rejected; two-request page load, worse SEO, no URL per tab
+
+**Why this one**: Server render gives real URLs per tab (SEO + ad impression multiplier), uses the Phase 1 index for sub-10ms Supabase queries, and is consistent with how article pages are rendered.
+
+**What would change our mind**: Supabase query latency >200ms at scale would push toward a KV-cached video list with `video_type` included.
+
+**Deployed**: version `d7fdaa8e-6f89-497f-9e46-a8b814faf625`
+
+---
+
+### 2026-05-26 — Video Hub Fix Pack 1: classifier refinement + grid overflow fix
+
+**Decision**: Two targeted fixes — (1) replace simple keyword classifier with pattern + exclusion classifier to eliminate known false positives, (2) add `min-width:0` and `overflow-x:hidden` to grid CSS to fix horizontal scroll on Haber Videoları section.
+
+**Classifier changes** (`src/publisher.js`):
+- Replaced flat keyword arrays with `HIGHLIGHT_PATTERNS`, `HIGHLIGHT_EXCLUDE`, `INTERVIEW_PATTERNS`, `INTERVIEW_EXCLUDE` regex arrays
+- Key false positive fixes:
+  - "Gol Kralı" (TV show) was matching highlight via `gol` word-boundary — now excluded by `HIGHLIGHT_EXCLUDE: /\bgol krali\b/`
+  - "Maç Sonu Yorumu" (commentary, not interview) was matching interview via `mac sonu` — now blocked by `INTERVIEW_EXCLUDE: /\byorumu\b/`
+- New patterns added: `basin toplantisi`, `roportaj`, `genis ozet`, `goller ve ozet`, `mac ozeti`, score pattern (`\d+-\d+\s+ozet`)
+- Exclusions checked first; if excluded, falls through to next category or news
+
+**CSS fix** (`worker-fetch-agent.js` — `renderVideoHubPage`):
+- `.vh-card`: added `min-width:0` — prevents grid item from overflowing its column (grid items default to `min-width:auto` which allows content to force expansion)
+- `.vh-grid`: added `width:100%;max-width:100%`
+- `.vh-section`: added `overflow-x:hidden` as belt-and-suspenders
+
+**Backfill SQL** (run in Supabase after deploy to reclassify existing rows with new logic):
+```sql
+UPDATE content_items SET video_type = CASE
+  WHEN LOWER(TRANSLATE(title,'ığşçüöİĞŞÇÜÖ','igscuoIGSCUO')) !~ '\y(yorumu|yorumlari|degerlendirme|analiz)\y'
+       AND LOWER(TRANSLATE(title,'ığşçüöİĞŞÇÜÖ','igscuoIGSCUO')) ~ '\y(aciklamasi|aciklamalari|basin toplantisi|ozel roportaj|konustu|demeci?|roportaj)\y'
+  THEN 'interview'
+  WHEN LOWER(TRANSLATE(title,'ığşçüöİĞŞÇÜÖ','igscuoIGSCUO')) !~ '\y(gol krali|sezon\w* ozeti|sezonun ozeti)\y'
+       AND LOWER(TRANSLATE(title,'ığşçüöİĞŞÇÜÖ','igscuoIGSCUO')) ~ '\y(mac ozeti|macin ozeti|genis ozet|ozet ve goller|goller ve ozet|highlights|goller|gol pozisyon|bitiricilik)\y'
+  THEN 'highlight'
+  WHEN LOWER(TRANSLATE(title,'ığşçüöİĞŞÇÜÖ','igscuoIGSCUO')) !~ '\y(gol krali|sezon\w* ozeti|sezonun ozeti)\y'
+       AND LOWER(TRANSLATE(title,'ığşçüöİĞŞÇÜÖ','igscuoIGSCUO')) ~ '\d+-\d+\s+ozet'
+  THEN 'highlight'
+  ELSE 'news'
+END
+WHERE site_id = '2b5cfe49-b69a-4143-8323-ca29fff6502e'
+  AND publish_mode = 'youtube_embed';
+```
+
+**Alternatives considered**:
+- A: Model-based classification — rejected; overkill for TV show name exclusion, adds latency + cost
+- B: Manual correction of known bad rows — rejected; classifier runs on new articles too, so the fix must be in code
+
+**What would change our mind**: If exclusion lists grow beyond 10 entries or accuracy drops below 90%, move to a scored/weighted approach or small classifier model.
+
+**Deployed**: version `51d562ef-9d84-4775-93f7-dffe21a14970`
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*
