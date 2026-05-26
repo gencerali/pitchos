@@ -9926,6 +9926,9 @@ h1{font-size:22px;font-weight:800;margin-bottom:4px;color:#fff}
 .feat{background:#1d4ed818;color:#4488ff;border:1px solid #1d4ed850}
 .fix{background:#c8f13518;color:#c8f135;border:1px solid #c8f13550}
 .perf{background:#ffaa0018;color:#ffaa00;border:1px solid #ffaa0050}
+.next{background:#7c3aed18;color:#a78bfa;border:1px solid #7c3aed50}
+.defer{background:#37415118;color:#6b7280;border:1px solid #37415150}
+.note{background:#0f766e18;color:#2dd4bf;border:1px solid #0f766e50}
 .criteria{background:#0f0f18;border:1px solid #2a2a3a;padding:12px 16px;margin-top:12px}
 .criteria h5{font-size:11px;font-weight:700;color:#8877ff;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
 .criteria li{font-size:12px;color:#aaa;margin-bottom:3px}
@@ -10066,6 +10069,28 @@ ${nav}
         <li><span class="rtag fix">done</span> <strong>P1-2</strong> Sprint I DB migrations run: <code>trust_tier</code>, <code>source_family</code>, <code>trust_score</code></li>
         <li><span class="rtag fix">done</span> <strong>P2-5</strong> pitchos-proxy auto-enrich cron confirmed disabled</li>
         <li><span class="rtag fix">done</span> <strong>P1-1</strong> Session cookie: <code>crypto.randomUUID()</code> on login, KV-stored token (7-day TTL), <code>HttpOnly; Secure; SameSite=Lax</code> flags — done 2026-05-16</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <div class="section-title">Parallel Workstreams</div>
+  <div class="rlist">
+
+    <div class="rrow" onclick="toggle('rvh')">
+      <span class="vtag shipped">Video Hub</span>
+      <div><div class="rrow-title">Video Hub — Classifier + /konu/videolar Redesign</div><div class="rrow-sub">7-type classifier · Server-rendered video page · 4 filter tabs · Featured ranking (next)</div></div>
+      <div class="rrow-date">May 2026</div>
+    </div>
+    <div id="rvh" class="detail">
+      <ul>
+        <li><span class="rtag feat">done</span> <strong>VH1</strong> <code>video_type</code> column + 3-type classifier (highlight / interview / news) — CF version 3e87c5e3</li>
+        <li><span class="rtag feat">done</span> <strong>VH2</strong> /konu/videolar server-rendered redesign — 4 tabs (Tümü / Haber / Maç Özetleri / Röportajlar), 3 sections, retention filters — CF version 5b3f89a1</li>
+        <li><span class="rtag feat">done</span> <strong>VH3</strong> Fix Pack 1 Revised — 7-type classifier (match_highlight, generic_highlight, coach_interview, president_interview, player_interview, generic_interview, news), CSS grid fix — CF version 7938b66</li>
+        <li><span class="rtag note">note</span> <code>CURRENT_COACH_NAMES</code> is empty — populate when new coach officially signed</li>
+        <li><span class="rtag next">next</span> <strong>VH4</strong> Featured Ranking Logic — tier hierarchy + time-decay <code>featured_rank</code>, compute at query time</li>
+        <li><span class="rtag next">next</span> <strong>VH5</strong> Homepage Video Filter — top 3 youtube_embed by featured_rank</li>
+        <li><span class="rtag defer">defer</span> <strong>VH6</strong> Admin override (<code>featured_until</code> / <code>featured_blocked</code>) — after auto-logic proven</li>
       </ul>
     </div>
 
