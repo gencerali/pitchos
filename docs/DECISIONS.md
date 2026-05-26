@@ -1199,6 +1199,45 @@ Gates added:
 
 ---
 
+### 2026-05-26 — /rebuild-cache age-decay fix + codebase audit of fetched_at pattern
+
+**Decision**: Fix `/rebuild-cache` Strategy 1 mapping to use `r.created_at` (Supabase insertion time) as `fetched_at` rather than `r.fetched_at` (RSS pubDate). Also audited the full codebase for the same broken pattern — 3 additional instances found and documented for a follow-up fix.
+
+**What happened tonight**:
+The user triggered `/rebuild-cache` after the `hqdefault → maxresdefault` image backfill to propagate new URLs into KV. `/rebuild-cache` ran Strategy 1 (Supabase read), mapping `fetched_at: r.fetched_at || r.created_at`. Because `r.fetched_at` in Supabase stores RSS pubDate (a legacy column misnomer documented in the 2026-05-25 KV diagnostic entry), articles pulled from Supabase carried old RSS dates as their age reference. `rankAndEvict` decayed everything: a May 10 article has age ≥ 15 days at halfLife=8h → score ≈ 0. KV reverted to the 18 pre-fix May 3–9 articles (the only non-rss_summary rows in Supabase's top-100 at the time). The cron self-healed KV within ~30 min by writing fresh processedAt-stamped articles; no manual intervention was needed.
+
+**Root cause**: Same misordering as Change 2 of commit `50eb017` (drought seed mapping). Both bugs: `fetched_at: r.fetched_at || r.created_at` should be `fetched_at: r.created_at || r.fetched_at`.
+
+**Fix** (`worker-fetch-agent.js:521-522`, commit after this entry):
+```
+// Before
+published_at: r.published_at || r.fetched_at || r.created_at,
+fetched_at:   r.fetched_at   || r.created_at,
+
+// After
+published_at: r.published_at || r.created_at || r.fetched_at,
+fetched_at:   r.created_at   || r.fetched_at,
+```
+`r.created_at` = Supabase server-generated insertion timestamp (Kartalix processing time). `r.fetched_at` = RSS pubDate (legacy DB semantic). KV age decay must use processing time, not RSS pubDate.
+
+**Natural recovery**: the cron (every 5 min) prepends `newKVItems` (stamped with `processedAt = new Date()`, age=0) to `latestKV` and calls `rankAndEvict`. New articles outrank the old ones and fill KV. No manual `/rebuild-cache` retrigger was needed after the 4-part fix deployed.
+
+**Codebase audit** — additional instances of the broken `fetched_at: r.fetched_at || r.created_at` pattern (NOT yet fixed, pending a separate session):
+
+| line | handler | risk |
+|------|---------|------|
+| `worker-fetch-agent.js:1590-1591` | `/admin/rewrite-article` (POST) — single-article manual rewrite | Low: one article at a time, not a bulk rebuild |
+| `worker-fetch-agent.js:3344-3345` | `/admin/seed-kv` (POST) — explicit bulk KV seed from Supabase | **High**: same footgun as /rebuild-cache; will evict recent content if triggered |
+| `worker-fetch-agent.js:4813-4814` | Inline auto-seed (fires when `kvCheck` is empty inside an unnamed GET handler) | **High**: same footgun; triggers automatically on empty KV, not just via admin |
+
+`src/publisher.js:912` (`getArticleAge`: `article.fetched_at || article.published_at || article.created_at`) is **correct** — it reads from KV article objects where `fetched_at` = Kartalix processing time after the 4-part fix. Not a bug.
+
+**What would change our mind**: If `fetched_at` in Supabase is ever corrected to store actual ingestion time (not RSS pubDate), the priority order would need to revert. Until then: always prefer `created_at` over `fetched_at` when mapping Supabase rows to KV age references.
+
+**Deployed**: version `0d57a8c4-a5a5-4a13-90b3-73684bf93163`, `worker-fetch-agent.js:521-522`
+
+---
+
 ### 2026-05-25 — YouTube thumbnail resolution: hqdefault → maxresdefault
 
 **Decision**: Switch `youtubeThumbnailUrl()` in `src/publisher.js` from `hqdefault` (480×360) to `maxresdefault` (1280×720). Applied globally to all `youtube_embed` articles via `generateVideoEmbed` and `generateMatchVideoEmbed`. Supersedes the 2026-05-24 entry which selected `hqdefault`.
