@@ -1238,6 +1238,33 @@ fetched_at:   r.created_at   || r.fetched_at,
 
 ---
 
+### 2026-05-26 — fetched_at priority sweep: all Supabase→KV mappings patched
+
+**Decision**: Applied the `r.created_at || r.fetched_at` fix to the 3 remaining instances of the broken `r.fetched_at || r.created_at` pattern found in the audit from the previous entry. All Supabase→KV mappings in the codebase now consistently use `created_at` (Kartalix insertion time) before `fetched_at` (RSS pubDate) as the age reference for KV decay.
+
+**Locations fixed** (single commit, single deploy):
+
+| line | handler | risk before fix |
+|------|---------|----------------|
+| `worker-fetch-agent.js:1590-1591` | `/admin/rewrite-article` POST | Low |
+| `worker-fetch-agent.js:3344-3345` | `/admin/seed-kv` POST | High |
+| `worker-fetch-agent.js:4813-4814` | Inline auto-seed (on empty KV) | High |
+
+**Audit methodology**: `grep -n "r\.fetched_at\s*\|\|\s*r\.created_at" worker-fetch-agent.js src/publisher.js`. Post-fix grep returns zero matches. `src/publisher.js:912` (`getArticleAge`) uses `article.fetched_at || article.published_at` — correct, operates on KV article objects where `fetched_at` = Kartalix processing time, not Supabase DB rows.
+
+**Complete fix inventory** — all 4 locations where `fetched_at` priority was corrected:
+1. `worker-fetch-agent.js:521-522` — `/rebuild-cache` Strategy 1 (commit `4671d91`)
+2. `worker-fetch-agent.js:1590-1591` — `/admin/rewrite-article` (this commit)
+3. `worker-fetch-agent.js:3344-3345` — `/admin/seed-kv` (this commit)
+4. `worker-fetch-agent.js:4813-4814` — inline auto-seed (this commit)
+5. `worker-fetch-agent.js:5458-5459` — drought seed (commit `50eb017`, Change 2) — was already correct
+
+**Deployed**: version `2007339d-242d-412f-bc3b-1a50ff157a8a`
+
+**Post-deploy KV verification**: 32 articles, newest `2026-05-26T11:35:06Z`, 27 rewrite + 5 youtube_embed, 5 with `maxresdefault.jpg` image_url. KV unchanged by the deploy as expected (handler-only fix).
+
+---
+
 ### 2026-05-25 — YouTube thumbnail resolution: hqdefault → maxresdefault
 
 **Decision**: Switch `youtubeThumbnailUrl()` in `src/publisher.js` from `hqdefault` (480×360) to `maxresdefault` (1280×720). Applied globally to all `youtube_embed` articles via `generateVideoEmbed` and `generateMatchVideoEmbed`. Supersedes the 2026-05-24 entry which selected `hqdefault`.
