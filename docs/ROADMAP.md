@@ -34,7 +34,7 @@ Goal: improve from estimated 60-70% to 85%+ approval probability before reviewer
 
 **P0 — must land in first week of review window:**
 - [x] **P0.1** Audit thin-content indexing: `noindex` on T10/T11 flash cards, `rss_summary` articles excluded from ads and sitemap; `shouldShowAds()` blocks ad rendering on flash templates
-- [x] **P0.2** Rewrite trust pages with real substance: Editorial Policy live at `/editoryal-politika`, About/Contact/Privacy all live — **copy must be Ali's own writing**
+- [x] **P0.2** Rewrite trust pages with real substance: Editorial Policy live at `/editoryal-politika`, About/Contact/Privacy all live — **copy must be Ali's own writing** *(About page content reviewed and approved 2026-05-26)*
 - [ ] **P0.3** Add consistent byline on every article: "Kartalix Editorial · Ali [Surname]" or equivalent; add visible publication date
 
 **P1 — within 2 weeks:**
@@ -75,6 +75,41 @@ Goal: break `worker-fetch-agent.js` (10k lines) into focused ESM modules. Benefi
 - [ ] Static pages, nav, article HTML, topic page → `render/`
 
 **Phase 5 — Stop.** Other admin pages (sources, cost, content) extract opportunistically only.
+
+---
+
+### Video Hub *(active — foundation shipped 2026-05-26)*
+
+Goal: `/konu/videolar` redesigned as a classified video hub with tabbed sections, retention filtering, and ad slot structure. Foundation (Phase 1+2) shipped; featured ranking is the next active item.
+
+| # | Item | Status | Effort | Notes |
+|---|------|--------|--------|-------|
+| VH1 | Phase 1: `video_type` DB column + 7-type classifier | ✅ Done | S | `match_highlight`, `generic_highlight`, `coach_interview`, `president_interview`, `player_interview`, `generic_interview`, `news` |
+| VH2 | Phase 2: `/konu/videolar` redesign (tabs, sections, grid, ad slots) | ✅ Done | L | Server-rendered; 4 tabs + ?tip= URL routing; retention windows; 2-col mobile / 4-col desktop |
+| VH3 | Fix Pack 1: CSS grid overflow + classifier refinement | ✅ Done | S | `min-width:0` on cards; pattern+exclusion classifier replacing simple keywords |
+| VH4 | Featured Ranking Logic | 🔲 Not started | M | Tier hierarchy scoring: match_highlight 100 → news 50×NVS; 24h decay for premium types; `featured_rank` numeric column; compute at query time |
+| VH5 | Homepage Video Filter | 🔲 Not started | S | Top 3 youtube_embed by `featured_rank` on homepage; non-video articles unaffected. *Depends on VH4* |
+| VH6 | Admin override for featured | 🔲 Deferred | S | `featured_until` + `featured_blocked` columns for manual pin/hide. *Defer until VH4 auto-logic proven* |
+
+**Decision needed:** Coach name list (`CURRENT_COACH_NAMES` in `src/publisher.js`) is empty — populate when new coach officially signed.
+
+**Future:** `squad_members` table (v1.1) replaces hardcoded `CURRENT_PLAYER_NAMES` in classifier. See Post-Launch Backlog.
+
+---
+
+### Volume Optimization *(observational — NVS 30 shipped 2026-05-26)*
+
+Goal: increase daily publish volume to ~10 articles/day without quality regression. Observational window ongoing; decisions gated on data.
+
+| # | Item | Status | Effort | Notes |
+|---|------|--------|--------|-------|
+| VO1 | NVS threshold 50→30 impact monitoring | 🟡 Observational | — | Window: 5–7 days. Verify volume ↑ without quality regression |
+| VO2 | `thin_body_blocked` data analysis | 🟡 Observational | XS | 48h of logs needed. Output: length distribution by source. Informs MIN_BODY_CHARS |
+| VO3 | MIN_BODY_CHARS decision (keep 600 / lower to 500 / lower to 400) | 🔲 Awaiting VO2 | XS | **Decision: Ali** based on VO2 data |
+| VO4 | Facts extraction cap 5 → 16 | 🔲 Not started | XS | +€0.07/day. Low risk. Likely improves story dedup quality |
+| VO5 | Rewrite drain batch 8 → 16 | 🔲 Not started | XS | Cost could rise 2–5×. **Wait for VO1 data first** |
+| VO6 | `light_news` mode for NVS 30–49 | 🔲 Designed, not started | M | Only build if VO1 + VO5 don't reach ~10/day volume target. *Depends on VO1 data* |
+| VO7 | KV health monitoring post-deploys | 🟡 Ongoing | — | Daily check: homepage shows fresh articles. Watch 4 fixed KV locations |
 
 ---
 
@@ -362,15 +397,30 @@ Ordered by value/dependency. Do not start until v1.0 ships.
 
 | # | Release | Scope | Est. |
 |---|---------|-------|------|
-| v1.1 | Squad Intelligence | squad_members DB, dynamic keywords, auto-rebuild on squad change | 1–2 wks |
+| v1.1 | Squad Intelligence | squad_members DB, dynamic keywords, auto-rebuild on squad change. Also replaces hardcoded `CURRENT_PLAYER_NAMES` in video classifier. | 1–2 wks |
 | v1.1b | API-Football Webhooks | Register webhook URL with API-Football; `POST /api-football-event` route receives goal/card/HT/FT payloads and fires templates immediately — replaces 5-min poll latency with ~2–4 min end-to-end. Keep cron watcher as fallback. | ½ day |
 | v1.2 | Distribution | Distribute Agent, push notifications (NVS≥80), distribution_log | 1–2 wks |
-| v1.3 | Visual Assets | Visual Asset Agent, IT6 templates, image pipeline | 2–3 wks |
+| v1.3 | Visual Assets | Visual Asset Agent, IT6 templates, image pipeline. Includes placeholder pool for non-YouTube articles (12–15 CC0 images, hash-based assignment, flash pool for template_official/NVS≥75). **Blocked on lawyer consultation** for Wikimedia + AI-generated images. | 2–3 wks |
 | v1.4 | Editorial QA | Editorial QA Agent, guest submissions, Telegram author channel | 2–3 wks |
 | v1.5 | Governance | CLO (FSEK rule engine), CFO full (per-agent cost attribution, weekly report) | 2 wks |
 | v1.6 | Self-Learning | Engagement signals → scoring; source performance table; journalist accuracy tracker (I3/I4 — needs Twitter + YT transcript data first) | 3–4 wks |
 | v1.7 | Multi-Dimensional Trust | Full trust model — 4 dimensions wired together (see below) | 3–4 wks |
-| v2.0 | Multi-team | Pitchos onboarding for Team 2; cross-team learning propagation | TBD |
+| v2.0 | Multi-team | Pitchos onboarding for Team 2; cross-team learning propagation. **Decision: business priority + timing — Beşiktaş site success first.** | TBD |
+
+### Decisions blocking Post-Launch items
+
+| Decision | Blocks | Owner |
+|---|---|---|
+| Lawyer consultation (~€300–500, 1h) — Wikimedia Commons, personality rights, attribution | v1.3 Wikimedia photos + AI-generated images | Ali |
+| Multi-team business priority + timing | v2.0 | Ali |
+| Placeholder image sourcing (12–15 CC0 images from Unsplash/Pixabay) | v1.3 placeholder pool | Ali |
+
+### Cleanup backlog *(do opportunistically, not blocking)*
+
+- [ ] `fetchBeIN` stub returns empty array — delete or implement
+- [ ] `fetchTwitterSources` early-returns — delete or restore when X API budget available (~$100/mo)
+- [ ] Codebase audit: additional `fetched_at` semantic edge cases (4 found + fixed 2026-05-24 — verify no more)
+- [ ] Related articles widget at bottom of article pages (multiplies pageviews per session, higher ad revenue impact than placement optimisation) — Effort M
 
 ---
 
