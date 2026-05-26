@@ -1453,4 +1453,40 @@ WHERE site_id = '2b5cfe49-b69a-4143-8323-ca29fff6502e'
 
 ---
 
+### 2026-05-26 — Video Hub: 7-type classifier (supersedes 3-type from same date)
+
+**Decision**: Expand `video_type` from 3 values (`highlight`, `interview`, `news`) to 7: `match_highlight`, `generic_highlight`, `coach_interview`, `president_interview`, `player_interview`, `generic_interview`, `news`. Supersedes the Fix Pack 1 3-type classifier deployed earlier today.
+
+**Why**: 3 types were too coarse to support future featured ranking logic — knowing a video is "an interview" is less useful than knowing it's a president announcement or a player interview. The subtype split costs nothing at classify time and enables per-type prioritisation later without a schema change.
+
+**Type definitions**:
+- `match_highlight` — actual match coverage: geniş özet, score+özet, highlights keyword
+- `generic_highlight` — goal compilations, skill clips, bitiricilik (not match-specific)
+- `coach_interview` — current coach by name (list intentionally empty — no active coach)
+- `president_interview` — Serdal Adalı detected by name
+- `player_interview` — current squad player detected by name (Tier 2 + recent Tier 4)
+- `generic_interview` — interview pattern matched but speaker not identified
+- `news` — default fallback
+
+**Name detection**: Pre-normalised name lists checked at module load. Short names (≤6 chars, e.g. `cerny`, `jota`) use `\b` word boundary to prevent agglutination false-matches. `CURRENT_COACH_NAMES` is empty until new coach officially appointed — prevents premature coach classification during negotiation period.
+
+**Frontend mapping** (`renderVideoHubPage`):
+- Maç Özetleri tab: `match_highlight` ∪ `generic_highlight`
+- Röportajlar tab: all four `*_interview` types
+- Retention windows unchanged: highlight types 180d, interview types 90d, news 30d
+
+**DB**: `video_type_check` constraint updated to 7 allowed values. Old constraint dropped separately (Supabase SQL editor wraps multi-statement blocks in a transaction — DROP + ADD must be run as separate statements to avoid rollback on ADD failure).
+
+**Backfill**: 12/155 rows reclassified — 4 `highlight` → `match_highlight`/`generic_highlight`, 8 `interview` → `generic_interview`/`president_interview`.
+
+**Alternatives considered**:
+- A: Keep 3 types, add subtype as a separate column — rejected; two columns for the same semantic is unnecessary complexity
+- B: Model-based speaker identification — rejected; name list lookup is deterministic and zero-cost; model adds latency and can hallucinate names
+
+**What would change our mind**: Name list maintenance burden exceeds ~30 min/season (unlikely given squad size); would move to a `squad_members` table with automatic classifier sync (planned v1.1).
+
+**Deployed**: version `5533e461-66fe-4248-8762-a3b4c4962217`, commit `946fbc4`
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*
