@@ -3104,28 +3104,67 @@ Sadece JSON döndür:
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const authed = await checkAdminAuth(request, env);
       if (!authed) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: h });
-      const raw = await env.PITCHOS_CACHE.get('curated:videos').catch(() => null);
-      const list = raw ? JSON.parse(raw) : [];
+
+      const validSections = new Set(_VH_CURATED_SECTIONS.map(s => s.value));
+
       if (request.method === 'GET') {
+        const list = await supabase(env, 'GET',
+          `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type,original_url&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&video_type=in.(${[..._VH_CURATED_SECTIONS.map(s => s.value)].join(',')})&status=eq.published&order=published_at.desc&limit=200`
+        ) || [];
         return new Response(renderCuratedVideoPage(list), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       }
+
       if (request.method === 'POST') {
-        const { video_id, section, title, source_name } = await request.json().catch(() => ({}));
-        if (!video_id || !section || !title) return Response.json({ error: 'video_id, section, title required' }, { status: 400, headers: h });
-        if (!['belgeseller', 'unutulmaz'].includes(section)) return Response.json({ error: 'section must be belgeseller or unutulmaz' }, { status: 400, headers: h });
-        if (list.find(v => v.video_id === video_id)) return Response.json({ error: 'already exists' }, { status: 409, headers: h });
-        const entry = { video_id, section, title, source_name: source_name || 'YouTube', published_at: new Date().toISOString() };
-        list.unshift(entry);
-        await env.PITCHOS_CACHE.put('curated:videos', JSON.stringify(list));
-        return Response.json({ ok: true, entry }, { headers: h });
+        const { youtube_url, section, title: bodyTitle } = await request.json().catch(() => ({}));
+        if (!youtube_url || !section) return Response.json({ error: 'youtube_url and section required' }, { status: 400, headers: h });
+        if (!validSections.has(section)) return Response.json({ error: `section must be one of: ${[...validSections].join(', ')}` }, { status: 400, headers: h });
+        const vidMatch = youtube_url.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+        const videoId = vidMatch?.[1];
+        if (!videoId) return Response.json({ error: 'could not extract YouTube video ID' }, { status: 400, headers: h });
+        let title = bodyTitle;
+        let sourceName = 'YouTube';
+        if (!title) {
+          const oembed = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`).then(r => r.ok ? r.json() : null).catch(() => null);
+          title = oembed?.title || videoId;
+          sourceName = oembed?.author_name || 'YouTube';
+        }
+        const slug = generateSlug(title, null);
+        const now = new Date().toISOString();
+        const saved = await supabase(env, 'POST', '/rest/v1/content_items', [{
+          site_id: _VH_SITE_ID, source_type: 'youtube', source_name: sourceName,
+          original_url: `https://www.youtube.com/watch?v=${videoId}`,
+          title, summary: title, full_body: title,
+          image_url: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+          category: 'Video', content_type: 'youtube_embed', sport: 'football',
+          nvs_score: 75, publish_mode: 'youtube_embed', status: 'published',
+          template_id: 'T-VID', slug, published_at: now, reviewed_at: now,
+          reviewed_by: 'admin', video_type: section, is_kartalix_content: false,
+        }]);
+        if (!saved?.[0]) return Response.json({ error: 'Supabase insert failed' }, { status: 500, headers: h });
+        return Response.json({ ok: true, slug: saved[0].slug }, { headers: h });
       }
+
+      if (request.method === 'PATCH') {
+        const { slug, section, title } = await request.json().catch(() => ({}));
+        if (!slug) return Response.json({ error: 'slug required' }, { status: 400, headers: h });
+        const patch = {};
+        if (section) {
+          if (!validSections.has(section)) return Response.json({ error: 'invalid section' }, { status: 400, headers: h });
+          patch.video_type = section;
+        }
+        if (title) patch.title = title;
+        if (!Object.keys(patch).length) return Response.json({ error: 'nothing to update' }, { status: 400, headers: h });
+        await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&site_id=eq.${_VH_SITE_ID}`, patch);
+        return Response.json({ ok: true }, { headers: h });
+      }
+
       if (request.method === 'DELETE') {
-        const { video_id } = await request.json().catch(() => ({}));
-        if (!video_id) return Response.json({ error: 'video_id required' }, { status: 400, headers: h });
-        const next = list.filter(v => v.video_id !== video_id);
-        await env.PITCHOS_CACHE.put('curated:videos', JSON.stringify(next));
-        return Response.json({ ok: true, removed: list.length - next.length }, { headers: h });
+        const { slug } = await request.json().catch(() => ({}));
+        if (!slug) return Response.json({ error: 'slug required' }, { status: 400, headers: h });
+        await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&site_id=eq.${_VH_SITE_ID}`, { status: 'archived' });
+        return Response.json({ ok: true }, { headers: h });
       }
+
       return Response.json({ error: 'method not allowed' }, { status: 405, headers: h });
     }
 
@@ -6409,6 +6448,10 @@ loadFixtures();
 // ─── VIDEO HUB PAGE ──────────────────────────────────────────
 const _VH_SITE_ID = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
 const _VH_DAY = 864e5;
+const _VH_CURATED_SECTIONS = [
+  { value: 'belgeseller', label: 'Belgeseller', icon: '🎬' },
+  { value: 'unutulmaz',   label: 'Unutulmazlar', icon: '⭐' },
+];
 
 function _vhRelDate(iso) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -6471,58 +6514,46 @@ function _vhSection(label, icon, videos, activeTip) {
 }
 
 async function renderVideoHubPage(tip, env) {
-  const validTips = ['haber', 'mac', 'roportaj', 'belgeseller', 'unutulmaz'];
-  const activeTip = validTips.includes(tip) ? tip : '';
-
   const _VH_INTERVIEW_TYPES = new Set(['coach_interview','president_interview','player_interview','generic_interview']);
   const _VH_HIGHLIGHT_TYPES = new Set(['match_highlight','generic_highlight']);
+  const _VH_CURATED_TYPES   = new Set(_VH_CURATED_SECTIONS.map(s => s.value));
 
-  const [rows, curatedRaw] = await Promise.all([
-    supabase(env, 'GET',
-      `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&status=eq.published&order=published_at.desc&limit=500`
-    ).then(r => r || []),
-    env.PITCHOS_CACHE.get('curated:videos').catch(() => null),
-  ]);
+  const validTips = ['haber', 'mac', 'roportaj', ..._VH_CURATED_SECTIONS.map(s => s.value)];
+  const activeTip = validTips.includes(tip) ? tip : '';
 
-  const curated = curatedRaw ? JSON.parse(curatedRaw) : [];
+  const rows = await supabase(env, 'GET',
+    `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&status=eq.published&order=published_at.desc&limit=500`
+  ) || [];
 
   const now = Date.now();
   const videos = rows.filter(v => {
     const age = now - new Date(v.published_at).getTime();
-    if (_VH_HIGHLIGHT_TYPES.has(v.video_type)) return true;
+    if (_VH_HIGHLIGHT_TYPES.has(v.video_type) || _VH_CURATED_TYPES.has(v.video_type)) return true;
     if (_VH_INTERVIEW_TYPES.has(v.video_type)) return age < 7 * _VH_DAY;
     return age < 7 * _VH_DAY;
   });
 
-  const toCuratedCard = v => ({
-    title:        v.title,
-    source_name:  v.source_name || 'YouTube',
-    published_at: v.published_at,
-    image_url:    `https://img.youtube.com/vi/${v.video_id}/hqdefault.jpg`,
-    href:         `https://www.youtube.com/watch?v=${v.video_id}`,
-  });
-
   const byType = {
-    haber:       videos.filter(v => v.video_type === 'news'),
-    mac:         videos.filter(v => _VH_HIGHLIGHT_TYPES.has(v.video_type)),
-    roportaj:    videos.filter(v => _VH_INTERVIEW_TYPES.has(v.video_type)),
-    belgeseller: curated.filter(v => v.section === 'belgeseller').map(toCuratedCard),
-    unutulmaz:   curated.filter(v => v.section === 'unutulmaz').map(toCuratedCard),
+    haber:    videos.filter(v => v.video_type === 'news'),
+    mac:      videos.filter(v => _VH_HIGHLIGHT_TYPES.has(v.video_type)),
+    roportaj: videos.filter(v => _VH_INTERVIEW_TYPES.has(v.video_type)),
   };
+  for (const s of _VH_CURATED_SECTIONS) {
+    byType[s.value] = videos.filter(v => v.video_type === s.value);
+  }
 
   const sectionDefs = [
-    { key: 'haber',       label: 'Haber Videoları', icon: '📰' },
-    { key: 'mac',         label: 'Maç Özetleri',    icon: '⚽' },
-    { key: 'roportaj',    label: 'Röportajlar',      icon: '🎙️' },
-    { key: 'belgeseller', label: 'Belgeseller',      icon: '🎬' },
-    { key: 'unutulmaz',   label: 'Unutulmazlar',     icon: '⭐' },
+    { key: 'haber',    label: 'Haber Videoları', icon: '📰' },
+    { key: 'mac',      label: 'Maç Özetleri',    icon: '⚽' },
+    { key: 'roportaj', label: 'Röportajlar',      icon: '🎙️' },
+    ..._VH_CURATED_SECTIONS.map(s => ({ key: s.value, label: s.label, icon: s.icon })),
   ];
 
   let sectionsHtml = '';
   let rendered = 0;
   for (const def of sectionDefs) {
     const vids = byType[def.key];
-    const isCurated = def.key === 'belgeseller' || def.key === 'unutulmaz';
+    const isCurated = _VH_CURATED_TYPES.has(def.key);
     if (!activeTip && isCurated) continue;
     if (!activeTip && !vids.length) continue;
     if (activeTip && activeTip !== def.key) continue;
@@ -6533,7 +6564,8 @@ async function renderVideoHubPage(tip, env) {
   }
   if (!sectionsHtml) sectionsHtml = '<div style="padding:3rem;text-align:center;color:#555">Bu dönemde video bulunamadı.</div>';
 
-  const pageTitleMap = { haber: 'Haber Videoları', mac: 'Maç Özetleri', roportaj: 'Röportajlar', belgeseller: 'Belgeseller', unutulmaz: 'Unutulmazlar' };
+  const pageTitleMap = { haber: 'Haber Videoları', mac: 'Maç Özetleri', roportaj: 'Röportajlar' };
+  for (const s of _VH_CURATED_SECTIONS) pageTitleMap[s.value] = s.label;
   const pageTitle = pageTitleMap[activeTip] || 'Videolar';
   const canonical = activeTip ? `/konu/videolar?tip=${activeTip}` : '/konu/videolar';
 
@@ -6542,8 +6574,7 @@ async function renderVideoHubPage(tip, env) {
     { key: 'haber', label: 'Haber' },
     { key: 'mac', label: 'Maç Özetleri' },
     { key: 'roportaj', label: 'Röportajlar' },
-    { key: 'belgeseller', label: 'Belgeseller' },
-    { key: 'unutulmaz', label: 'Unutulmazlar' },
+    ..._VH_CURATED_SECTIONS.map(s => ({ key: s.value, label: s.label })),
   ].map(t => {
     const href = t.key ? `/konu/videolar?tip=${t.key}` : '/konu/videolar';
     return `<a class="vh-tab${t.key === activeTip ? ' vh-tab-active' : ''}" href="${href}">${t.label}</a>`;
@@ -7845,23 +7876,46 @@ function adminNav(active) {
 }
 
 function renderCuratedVideoPage(list) {
-  const SECTIONS = [
-    { value: 'belgeseller', label: 'Belgeseller' },
-    { value: 'unutulmaz',   label: 'Unutulmazlar' },
-  ];
-  const sectionOpts = SECTIONS.map(s => `<option value="${s.value}">${s.label}</option>`).join('');
-  const sectionLabel = { belgeseller: 'Belgesel', unutulmaz: 'Unutulmaz' };
+  const sectionOpts = _VH_CURATED_SECTIONS.map(s => `<option value="${s.value}">${s.label}</option>`).join('');
+  const sectionsJson = JSON.stringify(_VH_CURATED_SECTIONS);
 
   const rows = list.map(v => {
-    const thumb = `https://img.youtube.com/vi/${v.video_id}/hqdefault.jpg`;
-    const yt = `https://www.youtube.com/watch?v=${v.video_id}`;
-    const sec = sectionLabel[v.section] || v.section;
+    const thumb = v.image_url || '';
+    const articleHref = `/haber/${v.slug}`;
+    const ytHref = v.original_url || '#';
+    const secLabel = _VH_CURATED_SECTIONS.find(s => s.value === v.video_type)?.label || v.video_type;
     const date = v.published_at ? new Date(v.published_at).toLocaleDateString('tr-TR') : '';
-    return `<tr>
-      <td style="padding:.55rem .75rem;width:100px"><a href="${yt}" target="_blank" rel="noopener"><img src="${thumb}" style="width:96px;height:54px;object-fit:cover;border-radius:4px;display:block" loading="lazy"></a></td>
-      <td style="padding:.55rem .75rem"><a href="${yt}" target="_blank" rel="noopener" style="color:#ddd;text-decoration:none;font-size:.82rem;line-height:1.4">${v.title}</a><div style="margin-top:.25rem;font-size:.68rem;color:#555">${v.source_name || ''} · ${date}</div></td>
-      <td style="padding:.55rem .75rem;white-space:nowrap"><span style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:3px;background:#1a2a3a;color:#4a7aaa">${sec}</span></td>
-      <td style="padding:.55rem .75rem;text-align:right"><button class="btn btn-danger btn-sm" onclick="del('${v.video_id}')">Sil</button></td>
+    const slug = (v.slug || '').replace(/'/g, "\\'");
+    const titleEsc = (v.title || '').replace(/"/g, '&quot;').replace(/'/g, "\\'");
+    const editOpts = _VH_CURATED_SECTIONS.map(s =>
+      `<option value="${s.value}"${s.value === v.video_type ? ' selected' : ''}>${s.label}</option>`
+    ).join('');
+    return `<tr id="row-${slug}">
+      <td style="padding:.55rem .75rem;width:108px">
+        <a href="${ytHref}" target="_blank" rel="noopener"><img src="${thumb}" style="width:96px;height:54px;object-fit:cover;border-radius:4px;display:block" loading="lazy"></a>
+      </td>
+      <td style="padding:.55rem .75rem">
+        <a href="${articleHref}" style="color:#ddd;text-decoration:none;font-size:.82rem;line-height:1.4">${v.title || ''}</a>
+        <div style="margin-top:.25rem;font-size:.68rem;color:#555">${v.source_name || ''} · ${date}</div>
+      </td>
+      <td style="padding:.55rem .75rem;white-space:nowrap">
+        <span style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:3px;background:#1a2a3a;color:#4a7aaa">${secLabel}</span>
+      </td>
+      <td style="padding:.55rem .75rem;white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="toggleEdit('${slug}','${titleEsc}')">Düzenle</button>
+        <button class="btn btn-danger btn-sm" onclick="del('${slug}')" style="margin-left:.3rem">Sil</button>
+      </td>
+    </tr>
+    <tr id="edit-${slug}" style="display:none;background:#0d1117">
+      <td colspan="4" style="padding:.75rem 1rem">
+        <div style="display:grid;grid-template-columns:1fr 180px auto auto;gap:.6rem;align-items:end">
+          <div><label>Başlık</label><input type="text" id="et-${slug}" value="${titleEsc}" style="width:100%;height:32px"></div>
+          <div><label>Bölüm</label><select id="es-${slug}" style="width:100%;height:32px">${editOpts}</select></div>
+          <button class="btn btn-primary btn-sm" onclick="saveEdit('${slug}')" style="height:32px;align-self:end">Kaydet</button>
+          <button class="btn btn-secondary btn-sm" onclick="cancelEdit('${slug}')" style="height:32px;align-self:end">İptal</button>
+        </div>
+        <div id="edit-status-${slug}" style="display:none;margin-top:.4rem;font-size:.72rem"></div>
+      </td>
     </tr>`;
   }).join('');
 
@@ -7882,7 +7936,7 @@ body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-seri
 input[type=text],input[type=url],select{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;font-family:inherit;font-size:.83rem;outline:none;padding:.35rem .6rem}
 input[type=text]:focus,input[type=url]:focus,select:focus{border-color:#444}
 label{font-size:.65rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.3rem}
-.page{max-width:860px;margin:2rem auto;padding:0 1.25rem}
+.page{max-width:900px;margin:2rem auto;padding:0 1.25rem}
 .card{background:#111;border:1px solid #222;border-radius:8px;padding:1.25rem;margin-bottom:1.5rem}
 .card-title{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:1rem}
 .form-row{display:grid;grid-template-columns:1fr auto;gap:.75rem;align-items:end;margin-bottom:.75rem}
@@ -7894,7 +7948,7 @@ label{font-size:.65rem;font-weight:700;color:#666;text-transform:uppercase;lette
 table{width:100%;border-collapse:collapse}
 thead th{padding:.5rem .75rem;text-align:left;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#555;border-bottom:1px solid #222}
 tbody tr{border-bottom:1px solid #1e1e1e}
-tbody tr:hover{background:#161616}
+tbody tr:hover:not([id^="edit-"]){background:#161616}
 .empty{padding:2rem;text-align:center;color:#444;font-size:.85rem}
 </style>
 </head>
@@ -7932,74 +7986,91 @@ ${adminNav('curated-video')}
     <div class="card-title">Küratör Liste (${list.length})</div>
     ${list.length === 0 ? '<div class="empty">Henüz video eklenmedi.</div>' : `
     <table>
-      <thead><tr><th></th><th>Başlık</th><th>Bölüm</th><th></th></tr></thead>
-      <tbody id="videoTable">${rows}</tbody>
+      <thead><tr><th style="width:108px"></th><th>Başlık</th><th>Bölüm</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
     </table>`}
   </div>
 </div>
 <script>
-function extractVideoId(url) {
-  try {
-    const u = new URL(url);
-    if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0];
-    if (u.searchParams.get('v')) return u.searchParams.get('v');
-    const m = u.pathname.match(/\\/shorts\\/([^/?]+)/);
-    if (m) return m[1];
-  } catch {}
-  return null;
-}
+const SECTIONS = ${sectionsJson};
 
 function onUrlInput() {
-  const vid = extractVideoId(document.getElementById('ytUrl').value.trim());
-  document.getElementById('fetchBtn').disabled = !vid;
+  document.getElementById('fetchBtn').disabled = !document.getElementById('ytUrl').value.trim();
 }
 
 async function fetchMeta() {
   const url = document.getElementById('ytUrl').value.trim();
-  const vid = extractVideoId(url);
-  if (!vid) return;
+  if (!url) return;
   showStatus('Bilgi alınıyor…', '');
+  const m = url.match(/(?:youtu\\.be\\/|[?&]v=|\\/shorts\\/)([a-zA-Z0-9_-]{11})/);
+  const vid = m?.[1];
+  if (!vid) { showStatus('Video ID bulunamadı', 'err'); return; }
   try {
-    const r = await fetch('https://www.youtube.com/oembed?url=' + encodeURIComponent('https://www.youtube.com/watch?v=' + vid) + '&format=json');
-    if (!r.ok) throw new Error('oEmbed başarısız');
+    const r = await fetch('https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=' + vid + '&format=json');
+    if (!r.ok) throw new Error();
     const d = await r.json();
     document.getElementById('ytTitle').value = d.title || '';
-    showStatus('Başlık alındı ✓', 'ok');
-  } catch {
-    showStatus('Başlık alınamadı — lütfen manuel girin', 'err');
-  }
+    showStatus('Başlık alındı ✓ — Eklemek için Video+ butonuna bas', 'ok');
+  } catch { showStatus('Başlık alınamadı — lütfen manuel girin', 'err'); }
 }
 
 async function addVideo() {
-  const url = document.getElementById('ytUrl').value.trim();
-  const video_id = extractVideoId(url);
+  const youtube_url = document.getElementById('ytUrl').value.trim();
   const title = document.getElementById('ytTitle').value.trim();
   const section = document.getElementById('ytSection').value;
-  if (!video_id) { showStatus('Geçersiz YouTube URL', 'err'); return; }
-  if (!title) { showStatus('Başlık gerekli', 'err'); return; }
+  if (!youtube_url) { showStatus('YouTube URL gerekli', 'err'); return; }
   document.getElementById('addBtn').disabled = true;
+  showStatus('Ekleniyor…', '');
   try {
     const r = await fetch('/admin/curated-video', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ video_id, section, title }),
+      body: JSON.stringify({ youtube_url, section, title: title || undefined }),
     });
     const d = await r.json();
     if (!r.ok) { showStatus(d.error || 'Hata', 'err'); return; }
     showStatus('Eklendi ✓', 'ok');
     document.getElementById('ytUrl').value = '';
     document.getElementById('ytTitle').value = '';
-    setTimeout(() => location.reload(), 800);
+    setTimeout(() => location.reload(), 900);
   } catch { showStatus('Bağlantı hatası', 'err'); }
   finally { document.getElementById('addBtn').disabled = false; }
 }
 
-async function del(video_id) {
+function toggleEdit(slug, title) {
+  const row = document.getElementById('edit-' + slug);
+  row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+  if (row.style.display !== 'none') document.getElementById('et-' + slug).focus();
+}
+
+function cancelEdit(slug) {
+  document.getElementById('edit-' + slug).style.display = 'none';
+}
+
+async function saveEdit(slug) {
+  const title = document.getElementById('et-' + slug).value.trim();
+  const section = document.getElementById('es-' + slug).value;
+  const statusEl = document.getElementById('edit-status-' + slug);
+  statusEl.style.display = 'block'; statusEl.style.color = '#aaa'; statusEl.textContent = 'Kaydediliyor…';
+  try {
+    const r = await fetch('/admin/curated-video', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slug, title, section }),
+    });
+    const d = await r.json();
+    if (!r.ok) { statusEl.style.color = '#fca5a5'; statusEl.textContent = d.error || 'Hata'; return; }
+    statusEl.style.color = '#4ade80'; statusEl.textContent = 'Kaydedildi ✓';
+    setTimeout(() => location.reload(), 600);
+  } catch { statusEl.style.color = '#fca5a5'; statusEl.textContent = 'Bağlantı hatası'; }
+}
+
+async function del(slug) {
   if (!confirm('Bu videoyu küratör listesinden kaldır?')) return;
   const r = await fetch('/admin/curated-video', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ video_id }),
+    body: JSON.stringify({ slug }),
   });
   if (r.ok) location.reload();
   else alert('Silinemedi');
