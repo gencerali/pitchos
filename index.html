@@ -1288,6 +1288,35 @@
     // Key quote (first sentence)
     const quote = firstSentence(bodyRaw);
 
+    // Kartalix-origin detection (mirrors worker logic)
+    const isKartalix = !source || source === 'Kartalix' ||
+      ['rewrite','original_synthesis','manual'].includes(a.publish_mode) ||
+      (a.publish_mode && a.publish_mode.startsWith('template'));
+
+    // Template-aware badge (mirrors worker BADGE_MAP)
+    const templateId = a.template_id || null;
+    const AV_BADGE_MAP = {
+      'T01':['Maç Önü','#1d4ed8'],'T02':['Maç Günü','#1d4ed8'],
+      'T03':['Maç Raporu','#1d4ed8'],'T08':['Olası 11','#1d4ed8'],
+      'T08b':['Olası 11','#1d4ed8'],'T09':['İlk 11','#1d4ed8'],
+      'T10':['Gol','#f59e0b'],'T11':['Sonuç','#f59e0b'],
+      'T12':['Maç Sonu','#1d4ed8'],'T13':['Analiz','#0d9488'],
+      'T-XG':['xG Analizi','#0d9488'],'T-REF':['Referans','#0d9488'],
+      'T-RED':['Kırmızı Kart','#f59e0b'],'T-VAR':['VAR','#f59e0b'],
+      'T-OG':['Kendi Kalesine','#f59e0b'],'T-PEN':['Penaltı','#f59e0b'],
+      'T-HT':['Devre Arası','#f59e0b'],
+    };
+    const [badgeLabel, badgeBg] = (() => {
+      if (templateId) {
+        if (templateId.startsWith('T-VID')) return ['Video', '#374151'];
+        return AV_BADGE_MAP[templateId] || [cat, cc];
+      }
+      if (a.publish_mode === 'original_synthesis') return ['Analiz', '#0d9488'];
+      if ((cat || '').toLowerCase().includes('transfer')) return ['Transfer', '#d97706'];
+      return [cat || 'Haber', cc];
+    })();
+    const badgeTextColor = (badgeBg === '#f59e0b' || badgeBg === '#d97706') ? '#000' : '#fff';
+
     // Related articles (same category, exclude self)
     const related = (_articles || [])
       .filter(x => x.category === cat && x.slug !== slug)
@@ -1368,14 +1397,16 @@
       <div class="av-hero av-slide-in" style="${heroStyle}">
         ${!image ? `<div class="av-hero-icon">${icon}</div>` : ''}
         <div class="av-hero-content">
-          <div class="av-cat-pill" style="background:${cc};color:#fff">${esc(cat)}</div>
+          <div class="av-cat-pill" style="background:${badgeBg};color:${badgeTextColor}">${esc(badgeLabel)}</div>
           <div class="av-title">${esc(title)}</div>
         </div>
       </div>
 
       <div class="av-meta-strip av-slide-in" style="animation-delay:0.05s">
         <span class="av-src-dot" style="background:${tc}"></span>
-        <span>${esc(source)}</span>
+        ${isKartalix
+          ? `<span style="color:#888;font-size:0.72rem;font-weight:600">Kartalix Editöryel · Ali Gencer</span>`
+          : `<span>${esc(source)}</span>`}
         <span style="color:#444">·</span>
         <span>${dateStr}</span>
         ${trustLabel ? `<span class="av-trust-badge" style="color:${tc}">${esc(trustLabel)}</span>` : ''}
@@ -1394,12 +1425,20 @@
         ${quote ? `<blockquote class="av-quote">${esc(quote)}</blockquote>` : ''}
         <div class="av-body" id="avBodyContent">${bodyHtml}</div>
         ${['T-HT','T11','T12','T13','T-XG'].includes(a.template_id) ? `<div id="avMatchStats" style="margin:1.5rem 0"></div>` : ''}
+        ${a.template_id === 'T02' && a.opponent_id ? `<div id="avH2hWidget" style="margin:2rem 0"></div>` : ''}
       </div>
 
       <div class="av-attr av-slide-in">
         <span class="av-src-dot" style="background:${tc}"></span>
-        <span>Bu içerik <strong style="color:#888">${esc(source)}</strong> kaynağından derlendi.</span>
-        ${srcUrl ? `<a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#E30A17;margin-left:0.25rem">Kaynağa git →</a>` : ''}
+        ${['youtube_embed','video_embed','rabona_digest'].includes(a.publish_mode) && srcUrl
+          ? `<span>Video kaynağı: <a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#E30A17"><strong>${esc(source||'Kaynak')}</strong> →</a></span>`
+          : !isKartalix && srcUrl
+          ? `<span>Kaynak: <a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#E30A17"><strong>${esc(source)}</strong> →</a></span>`
+          : a.publish_mode === 'rewrite' && srcUrl
+          ? `<span>Kaynak temel alınarak Kartalix editörleri tarafından üretildi: <a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#E30A17"><strong>${esc(source||'Kaynak')}</strong> →</a></span>`
+          : ['synthesis','original_synthesis'].includes(a.publish_mode)
+          ? `<span>Birden fazla kaynaktan derlenerek Kartalix editörleri tarafından üretildi.</span>`
+          : `<span>Bu içerik <strong style="color:#888">${esc(source||'Kartalix')}</strong> tarafından üretildi.</span>`}
       </div>
 
       ${pageUrl ? `
@@ -1557,6 +1596,38 @@
               <table style="width:100%;border-collapse:collapse">${rows}</table>
             </div>`;
           });
+      }
+    }
+
+    // H2H widget for T02 (Maç Günü) pre-match articles
+    if (a.template_id === 'T02' && a.opponent_id) {
+      const h2hBox = document.getElementById('avH2hWidget');
+      if (h2hBox) {
+        fetch('/widgets/config').then(r => r.ok ? r.json() : null).catch(() => null).then(cfg => {
+          if (!cfg || !cfg.apiKey) return;
+          new Promise((res, rej) => {
+            const s = document.createElement('script');
+            s.type = 'module';
+            s.src = 'https://widgets.api-sports.io/3.1.0/widgets.js';
+            s.onload = res; s.onerror = rej;
+            document.head.appendChild(s);
+          }).then(() => {
+            const config = document.createElement('api-sports-widget');
+            config.setAttribute('data-type','config');
+            config.setAttribute('data-key', cfg.apiKey);
+            config.setAttribute('data-sport','football');
+            config.setAttribute('data-theme','dark');
+            config.setAttribute('data-lang','en');
+            config.setAttribute('data-custom-lang','https://app.kartalix.com/widgets/tr.json');
+            document.body.appendChild(config);
+            const widget = document.createElement('api-sports-widget');
+            widget.setAttribute('data-type','h2h');
+            widget.setAttribute('data-team1','549');
+            widget.setAttribute('data-team2', String(a.opponent_id));
+            widget.setAttribute('data-season','2025');
+            h2hBox.appendChild(widget);
+          }).catch(() => {});
+        });
       }
     }
   }
