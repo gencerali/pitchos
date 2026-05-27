@@ -3100,6 +3100,35 @@ Sadece JSON döndür:
       return Response.json({ ok: true }, { headers: h });
     }
 
+    if (url.pathname === '/admin/curated-video') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: h });
+      const raw = await env.PITCHOS_CACHE.get('curated:videos').catch(() => null);
+      const list = raw ? JSON.parse(raw) : [];
+      if (request.method === 'GET') {
+        return Response.json(list, { headers: h });
+      }
+      if (request.method === 'POST') {
+        const { video_id, section, title, source_name } = await request.json().catch(() => ({}));
+        if (!video_id || !section || !title) return Response.json({ error: 'video_id, section, title required' }, { status: 400, headers: h });
+        if (!['belgeseller', 'unutulmaz'].includes(section)) return Response.json({ error: 'section must be belgeseller or unutulmaz' }, { status: 400, headers: h });
+        if (list.find(v => v.video_id === video_id)) return Response.json({ error: 'already exists' }, { status: 409, headers: h });
+        const entry = { video_id, section, title, source_name: source_name || 'YouTube', published_at: new Date().toISOString() };
+        list.unshift(entry);
+        await env.PITCHOS_CACHE.put('curated:videos', JSON.stringify(list));
+        return Response.json({ ok: true, entry }, { headers: h });
+      }
+      if (request.method === 'DELETE') {
+        const { video_id } = await request.json().catch(() => ({}));
+        if (!video_id) return Response.json({ error: 'video_id required' }, { status: 400, headers: h });
+        const next = list.filter(v => v.video_id !== video_id);
+        await env.PITCHOS_CACHE.put('curated:videos', JSON.stringify(next));
+        return Response.json({ ok: true, removed: list.length - next.length }, { headers: h });
+      }
+      return Response.json({ error: 'method not allowed' }, { status: 405, headers: h });
+    }
+
     if (url.pathname === '/admin/live-slugs' && request.method === 'GET') {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const kv = await env.PITCHOS_CACHE.get('articles:BJK');
@@ -6402,13 +6431,15 @@ function _vhAdSlot(type, id) {
   return `<div class="ad-slot ad-${type}" data-ad-slot="${type}-${id}"><!-- AdSense code injected after approval --></div>`;
 }
 
-function _vhCard(v) {
-  const href  = v.slug ? `/haber/${_vhEsc(v.slug)}` : '#';
+function _vhCard(v, extraClass = '') {
+  const cls   = 'vh-card' + (extraClass ? ' ' + extraClass : '');
+  const href  = v.href || (v.slug ? `/haber/${_vhEsc(v.slug)}` : '#');
+  const tgt   = v.href ? ' target="_blank" rel="noopener"' : '';
   const img   = _vhEsc(v.image_url || '');
   const title = _vhEsc(v.title || '');
   const src   = _vhEsc(v.source_name || '');
   const date  = v.published_at ? _vhRelDate(v.published_at) : '';
-  return `<a class="vh-card" href="${href}"><div class="vh-thumb"><img src="${img}" loading="lazy" alt="${title}"><div class="vh-play">▶</div></div><div class="vh-meta"><h3 class="vh-title">${title}</h3><div class="vh-source">${src} · ${date}</div></div></a>`;
+  return `<a class="${cls}" href="${href}"${tgt}><div class="vh-thumb"><img src="${img}" loading="lazy" alt="${title}"><div class="vh-play">▶</div></div><div class="vh-meta"><h3 class="vh-title">${title}</h3><div class="vh-source">${src} · ${date}</div></div></a>`;
 }
 
 function _vhGrid(videos, injectAds) {
@@ -6420,48 +6451,79 @@ function _vhGrid(videos, injectAds) {
   return html + '</div>';
 }
 
+function _vhGridReveal(videos, injectAds) {
+  let html = '<div class="vh-grid">';
+  videos.forEach((v, i) => {
+    html += _vhCard(v, i >= 12 ? 'vh-hidden' : '');
+    if (injectAds && (i + 1) % 10 === 0) html += _vhAdSlot('native', i);
+  });
+  html += '</div>';
+  if (videos.length > 12) html += `<button class="vh-reveal-btn" type="button">Devamını Göster (12)</button>`;
+  return html;
+}
+
 function _vhSection(label, icon, videos, activeTip) {
   if (activeTip && !videos.length) {
     return `<section class="vh-section"><div class="vh-sec-head"><span class="vh-sec-icon">${icon}</span><span class="vh-sec-label">${label}</span></div><div class="vh-empty"><p>Şu anda yeni içerik yok.</p><a href="/konu/videolar">← Tüm videolar</a></div></section>`;
   }
-  return `<section class="vh-section"><div class="vh-sec-head"><span class="vh-sec-icon">${icon}</span><span class="vh-sec-label">${label}</span></div>${_vhGrid(videos, !!activeTip)}</section>`;
+  const grid = activeTip ? _vhGridReveal(videos, true) : _vhGrid(videos, false);
+  return `<section class="vh-section"><div class="vh-sec-head"><span class="vh-sec-icon">${icon}</span><span class="vh-sec-label">${label}</span></div>${grid}</section>`;
 }
 
 async function renderVideoHubPage(tip, env) {
-  const validTips = ['haber', 'mac', 'roportaj'];
+  const validTips = ['haber', 'mac', 'roportaj', 'belgeseller', 'unutulmaz'];
   const activeTip = validTips.includes(tip) ? tip : '';
-
-  const rows = await supabase(env, 'GET',
-    `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&status=eq.published&order=published_at.desc&limit=300`
-  ) || [];
 
   const _VH_INTERVIEW_TYPES = new Set(['coach_interview','president_interview','player_interview','generic_interview']);
   const _VH_HIGHLIGHT_TYPES = new Set(['match_highlight','generic_highlight']);
 
+  const [rows, curatedRaw] = await Promise.all([
+    supabase(env, 'GET',
+      `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&status=eq.published&order=published_at.desc&limit=500`
+    ).then(r => r || []),
+    env.PITCHOS_CACHE.get('curated:videos').catch(() => null),
+  ]);
+
+  const curated = curatedRaw ? JSON.parse(curatedRaw) : [];
+
   const now = Date.now();
   const videos = rows.filter(v => {
     const age = now - new Date(v.published_at).getTime();
-    if (_VH_INTERVIEW_TYPES.has(v.video_type)) return age < 90 * _VH_DAY;
-    if (_VH_HIGHLIGHT_TYPES.has(v.video_type)) return age < 180 * _VH_DAY;
-    return age < 30 * _VH_DAY;
+    if (_VH_HIGHLIGHT_TYPES.has(v.video_type)) return true;
+    if (_VH_INTERVIEW_TYPES.has(v.video_type)) return age < 7 * _VH_DAY;
+    return age < 7 * _VH_DAY;
+  });
+
+  const toCuratedCard = v => ({
+    title:        v.title,
+    source_name:  v.source_name || 'YouTube',
+    published_at: v.published_at,
+    image_url:    `https://img.youtube.com/vi/${v.video_id}/hqdefault.jpg`,
+    href:         `https://www.youtube.com/watch?v=${v.video_id}`,
   });
 
   const byType = {
-    haber:    videos.filter(v => v.video_type === 'news'),
-    mac:      videos.filter(v => _VH_HIGHLIGHT_TYPES.has(v.video_type)),
-    roportaj: videos.filter(v => _VH_INTERVIEW_TYPES.has(v.video_type)),
+    haber:       videos.filter(v => v.video_type === 'news'),
+    mac:         videos.filter(v => _VH_HIGHLIGHT_TYPES.has(v.video_type)),
+    roportaj:    videos.filter(v => _VH_INTERVIEW_TYPES.has(v.video_type)),
+    belgeseller: curated.filter(v => v.section === 'belgeseller').map(toCuratedCard),
+    unutulmaz:   curated.filter(v => v.section === 'unutulmaz').map(toCuratedCard),
   };
 
   const sectionDefs = [
-    { key: 'haber',    label: 'Haber Videoları', icon: '📰' },
-    { key: 'mac',      label: 'Maç Özetleri',    icon: '⚽' },
-    { key: 'roportaj', label: 'Röportajlar',      icon: '🎙️' },
+    { key: 'haber',       label: 'Haber Videoları', icon: '📰' },
+    { key: 'mac',         label: 'Maç Özetleri',    icon: '⚽' },
+    { key: 'roportaj',    label: 'Röportajlar',      icon: '🎙️' },
+    { key: 'belgeseller', label: 'Belgeseller',      icon: '🎬' },
+    { key: 'unutulmaz',   label: 'Unutulmazlar',     icon: '⭐' },
   ];
 
   let sectionsHtml = '';
   let rendered = 0;
   for (const def of sectionDefs) {
     const vids = byType[def.key];
+    const isCurated = def.key === 'belgeseller' || def.key === 'unutulmaz';
+    if (!activeTip && isCurated) continue;
     if (!activeTip && !vids.length) continue;
     if (activeTip && activeTip !== def.key) continue;
     if (rendered > 0 && !activeTip) sectionsHtml += _vhAdSlot('banner', `between-${def.key}`);
@@ -6471,7 +6533,8 @@ async function renderVideoHubPage(tip, env) {
   }
   if (!sectionsHtml) sectionsHtml = '<div style="padding:3rem;text-align:center;color:#555">Bu dönemde video bulunamadı.</div>';
 
-  const pageTitle = activeTip === 'haber' ? 'Haber Videoları' : activeTip === 'mac' ? 'Maç Özetleri' : activeTip === 'roportaj' ? 'Röportajlar' : 'Videolar';
+  const pageTitleMap = { haber: 'Haber Videoları', mac: 'Maç Özetleri', roportaj: 'Röportajlar', belgeseller: 'Belgeseller', unutulmaz: 'Unutulmazlar' };
+  const pageTitle = pageTitleMap[activeTip] || 'Videolar';
   const canonical = activeTip ? `/konu/videolar?tip=${activeTip}` : '/konu/videolar';
 
   const tabs = [
@@ -6479,6 +6542,8 @@ async function renderVideoHubPage(tip, env) {
     { key: 'haber', label: 'Haber' },
     { key: 'mac', label: 'Maç Özetleri' },
     { key: 'roportaj', label: 'Röportajlar' },
+    { key: 'belgeseller', label: 'Belgeseller' },
+    { key: 'unutulmaz', label: 'Unutulmazlar' },
   ].map(t => {
     const href = t.key ? `/konu/videolar?tip=${t.key}` : '/konu/videolar';
     return `<a class="vh-tab${t.key === activeTip ? ' vh-tab-active' : ''}" href="${href}">${t.label}</a>`;
@@ -6525,6 +6590,9 @@ async function renderVideoHubPage(tip, env) {
     .ad-native{aspect-ratio:16/9;background:var(--surface);border:1px dashed var(--border);border-radius:8px;min-width:0}
     .vh-empty{padding:2rem 1rem;text-align:center;color:#555;font-size:.88rem}
     .vh-empty a{color:var(--accent);text-decoration:none;display:inline-block;margin-top:.5rem}
+    .vh-card.vh-hidden{display:none}
+    .vh-reveal-btn{display:block;margin:1.25rem auto .5rem;padding:.6rem 1.75rem;background:var(--accent);color:#fff;border:none;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:.95rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;cursor:pointer}
+    .vh-reveal-btn:hover{opacity:.85}
     @media(min-width:768px){
       .vh-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem}
       .vh-section{padding:1.75rem 2rem 1rem}
@@ -6547,6 +6615,14 @@ document.querySelectorAll('.vh-tab').forEach(a => {
     history.pushState({}, '', a.href);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     window.location = a.href;
+  });
+});
+document.querySelectorAll('.vh-reveal-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const grid = btn.previousElementSibling;
+    const hidden = [...grid.querySelectorAll('.vh-card.vh-hidden')];
+    hidden.slice(0, 12).forEach(c => c.classList.remove('vh-hidden'));
+    if (!grid.querySelectorAll('.vh-card.vh-hidden').length) btn.style.display = 'none';
   });
 });
 </script>
