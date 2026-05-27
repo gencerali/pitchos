@@ -3105,13 +3105,28 @@ Sadece JSON döndür:
       const authed = await checkAdminAuth(request, env);
       if (!authed) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: h });
 
-      const validSections = new Set(_VH_CURATED_SECTIONS.map(s => s.value));
+      const validSections = new Set(Object.keys(_VH_ALL_SECTION_MAP));
 
       if (request.method === 'GET') {
-        const list = await supabase(env, 'GET',
-          `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,category,original_url&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&category=in.(${_VH_CURATED_SECTIONS.map(s => s.value).join(',')})&status=eq.published&order=published_at.desc&limit=200`
-        ) || [];
-        return new Response(renderCuratedVideoPage(list), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+        const [list, orderRaw] = await Promise.all([
+          supabase(env, 'GET',
+            `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,category,original_url&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&category=in.(${Object.keys(_VH_ALL_SECTION_MAP).join(',')})&status=eq.published&order=published_at.desc&limit=200`
+          ),
+          env.PITCHOS_CACHE.get('curated:order'),
+        ]);
+        const items = list || [];
+        if (orderRaw) {
+          const orderMap = Object.fromEntries(JSON.parse(orderRaw).map((s, i) => [s, i]));
+          items.sort((a, b) => (orderMap[a.slug] ?? 99999) - (orderMap[b.slug] ?? 99999));
+        }
+        return new Response(renderCuratedVideoPage(items), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      }
+
+      if (request.method === 'PUT') {
+        const { order } = await request.json().catch(() => ({}));
+        if (!Array.isArray(order)) return Response.json({ error: 'order array required' }, { status: 400, headers: h });
+        await env.PITCHOS_CACHE.put('curated:order', JSON.stringify(order));
+        return Response.json({ ok: true }, { headers: h });
       }
 
       if (request.method === 'POST') {
@@ -3130,15 +3145,16 @@ Sadece JSON döndür:
         }
         const slug = generateSlug(title, null);
         const now = new Date().toISOString();
+        const secDef = _VH_ALL_SECTION_MAP[section];
         const saved = await supabase(env, 'POST', '/rest/v1/content_items', [{
           site_id: _VH_SITE_ID, source_type: 'youtube', source_name: sourceName,
           original_url: `https://www.youtube.com/watch?v=${videoId}`,
           title, summary: title, full_body: title,
           image_url: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-          category: section, content_type: 'youtube_embed', sport: 'football',
+          category: secDef.category, content_type: 'youtube_embed', sport: 'football',
           nvs_score: 75, publish_mode: 'youtube_embed', status: 'published',
           template_id: 'T-VID', slug, published_at: now, reviewed_at: now,
-          reviewed_by: 'admin', video_type: 'news',
+          reviewed_by: 'admin', video_type: secDef.video_type,
         }]);
         if (!saved?.[0]) return Response.json({ error: 'Supabase insert failed' }, { status: 500, headers: h });
         return Response.json({ ok: true, slug: saved[0].slug }, { headers: h });
@@ -3150,7 +3166,9 @@ Sadece JSON döndür:
         const patch = {};
         if (section) {
           if (!validSections.has(section)) return Response.json({ error: 'invalid section' }, { status: 400, headers: h });
-          patch.category = section;
+          const secDef = _VH_ALL_SECTION_MAP[section];
+          patch.category = secDef.category;
+          patch.video_type = secDef.video_type;
         }
         if (title) patch.title = title;
         if (!Object.keys(patch).length) return Response.json({ error: 'nothing to update' }, { status: 400, headers: h });
@@ -3166,47 +3184,6 @@ Sadece JSON döndür:
       }
 
       return Response.json({ error: 'method not allowed' }, { status: 405, headers: h });
-    }
-
-    if (url.pathname === '/admin/curated-seed' && request.method === 'POST') {
-      const hj = { 'Content-Type': 'application/json' };
-      const token = request.headers.get('X-Seed-Token');
-      const stored = await env.PITCHOS_CACHE.get('curated:seed:token');
-      if (!token || !stored || token !== stored) return Response.json({ error: 'Invalid token' }, { status: 401, headers: hj });
-      await env.PITCHOS_CACHE.delete('curated:seed:token');
-      const { videos } = await request.json();
-      const results = [];
-      for (const v of videos) {
-        const m = (v.url || '').match(/(?:youtu\.be\/|[?&]v=|\/shorts\/)([a-zA-Z0-9_-]{11})/);
-        const videoId = m?.[1];
-        if (!videoId) { results.push({ url: v.url, ok: false, error: 'bad url' }); continue; }
-        try {
-          const oembed = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`).then(r => r.ok ? r.json() : null).catch(() => null);
-          const title = oembed?.title || videoId;
-          const sourceName = oembed?.author_name || 'YouTube';
-          const slug = generateSlug(title + ' ' + videoId.slice(-6), null);
-          const now = new Date().toISOString();
-          const row = {
-            site_id: _VH_SITE_ID, source_type: 'youtube', source_name: sourceName,
-            original_url: `https://www.youtube.com/watch?v=${videoId}`,
-            title, summary: title, full_body: title,
-            image_url: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-            category: 'Video', content_type: 'youtube_embed', sport: 'football',
-            nvs_score: 75, publish_mode: 'youtube_embed', status: 'published',
-            template_id: 'T-VID', slug, published_at: now, reviewed_at: now,
-            reviewed_by: 'admin', video_type: 'news', category: v.section,
-          };
-          const sbRes = await fetch(`${env.SUPABASE_URL}/rest/v1/content_items`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`, 'Prefer': 'return=representation' },
-            body: JSON.stringify([row]),
-          });
-          const sbText = await sbRes.text();
-          let parsed = null; try { parsed = JSON.parse(sbText); } catch {}
-          results.push({ videoId, section: v.section, title, slug, ok: !!parsed?.[0], sbStatus: sbRes.status, sbError: parsed?.[0] ? undefined : sbText });
-        } catch (e) { results.push({ videoId, ok: false, error: e.message }); }
-      }
-      return Response.json({ ok: true, inserted: results.filter(r => r.ok).length, results }, { headers: hj });
     }
 
     if (url.pathname === '/admin/live-slugs' && request.method === 'GET') {
@@ -6088,7 +6065,20 @@ async function serveArticlePage(slug, env, ctx) {
     }
   }
 
-  return new Response(renderArticleHTML(article, env.API_FOOTBALL_KEY || '', fixtureId, opponentId), {
+  let related = [];
+  if (article.publish_mode === 'youtube_embed') {
+    const pureCurated = new Set(_VH_CURATED_SECTIONS.map(s => s.value));
+    const cat = article.category;
+    const isCurated = pureCurated.has(cat);
+    const catFilter = isCurated
+      ? `category=eq.${encodeURIComponent(cat)}`
+      : `category=not.in.(${[...pureCurated].join(',')})`;
+    related = await supabase(env, 'GET',
+      `/rest/v1/content_items?site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&status=eq.published&${catFilter}&slug=neq.${encodeURIComponent(slug)}&select=slug,title,image_url&order=published_at.desc&limit=3`
+    ) || [];
+  }
+
+  return new Response(renderArticleHTML(article, env.API_FOOTBALL_KEY || '', fixtureId, opponentId, related), {
     headers: {
       'Content-Type': 'text/html;charset=UTF-8',
       'Cache-Control': 'private, max-age=120',
@@ -6493,6 +6483,13 @@ const _VH_CURATED_SECTIONS = [
   { value: 'belgeseller', label: 'Belgeseller', icon: '🎬' },
   { value: 'unutulmaz',   label: 'Unutulmazlar', icon: '⭐' },
 ];
+const _VH_ALL_SECTION_MAP = {
+  haber:       { label: 'Haber',         video_type: 'news',              category: 'haber' },
+  mac:         { label: 'Maç Özeti',     video_type: 'generic_highlight', category: 'mac' },
+  roportaj:    { label: 'Röportaj',      video_type: 'generic_interview', category: 'roportaj' },
+  belgeseller: { label: 'Belgeseller',   video_type: 'news',              category: 'belgeseller' },
+  unutulmaz:   { label: 'Unutulmazlar',  video_type: 'news',              category: 'unutulmaz' },
+};
 
 function _vhRelDate(iso) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -6539,7 +6536,7 @@ function _vhGridReveal(videos, injectAds) {
   let html = '<div class="vh-grid">';
   videos.forEach((v, i) => {
     html += _vhCard(v, i >= 12 ? 'vh-hidden' : '');
-    if (injectAds && (i + 1) % 10 === 0) html += _vhAdSlot('native', i);
+    if (injectAds && (i + 1) % 10 === 0) html += `<div class="vh-ad-slot-wrap" style="display:none">${_vhAdSlot('native', i)}</div>`;
   });
   html += '</div>';
   if (videos.length > 12) html += `<button class="vh-reveal-btn" type="button">Devamını Göster (12)</button>`;
@@ -6558,29 +6555,50 @@ async function renderVideoHubPage(tip, env) {
   const _VH_INTERVIEW_TYPES = new Set(['coach_interview','president_interview','player_interview','generic_interview']);
   const _VH_HIGHLIGHT_TYPES = new Set(['match_highlight','generic_highlight']);
   const _VH_CURATED_TYPES   = new Set(_VH_CURATED_SECTIONS.map(s => s.value));
+  const _VH_CURATED_CATS    = new Set(Object.keys(_VH_ALL_SECTION_MAP));
 
   const validTips = ['haber', 'mac', 'roportaj', ..._VH_CURATED_SECTIONS.map(s => s.value)];
   const activeTip = validTips.includes(tip) ? tip : '';
 
-  const rows = await supabase(env, 'GET',
-    `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type,category&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&status=eq.published&order=published_at.desc&limit=500`
-  ) || [];
+  const [rows, curatedOrderRaw] = await Promise.all([
+    supabase(env, 'GET',
+      `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type,category&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&status=eq.published&order=published_at.desc&limit=500`
+    ),
+    env.PITCHOS_CACHE.get('curated:order'),
+  ]);
+  const curatedOrderMap = curatedOrderRaw ? Object.fromEntries(JSON.parse(curatedOrderRaw).map((s, i) => [s, i])) : null;
 
   const now = Date.now();
   const videos = rows.filter(v => {
     const age = now - new Date(v.published_at).getTime();
-    if (_VH_HIGHLIGHT_TYPES.has(v.video_type) || _VH_CURATED_TYPES.has(v.video_type)) return true;
+    if (_VH_HIGHLIGHT_TYPES.has(v.video_type) || _VH_CURATED_CATS.has(v.category)) return true;
     if (_VH_INTERVIEW_TYPES.has(v.video_type)) return age < 7 * _VH_DAY;
     return age < 7 * _VH_DAY;
   });
 
+  const _VH_PURE_CURATED_CATS = new Set(_VH_CURATED_SECTIONS.map(s => s.value));
+  const allRows = rows || [];
+
+  function _vhWithMin(ageFiltered, typeFilter, min = 12) {
+    if (ageFiltered.length >= min) return ageFiltered;
+    const seen = new Set(ageFiltered.map(v => v.slug));
+    const extra = allRows.filter(v => typeFilter(v) && !seen.has(v.slug));
+    return [...ageFiltered, ...extra.slice(0, min - ageFiltered.length)];
+  }
+
+  const haberFilter    = v => v.video_type === 'news' && !_VH_PURE_CURATED_CATS.has(v.category);
+  const macFilter      = v => _VH_HIGHLIGHT_TYPES.has(v.video_type) && !_VH_PURE_CURATED_CATS.has(v.category);
+  const roportajFilter = v => _VH_INTERVIEW_TYPES.has(v.video_type) && !_VH_PURE_CURATED_CATS.has(v.category);
+
   const byType = {
-    haber:    videos.filter(v => v.video_type === 'news'),
-    mac:      videos.filter(v => _VH_HIGHLIGHT_TYPES.has(v.video_type)),
-    roportaj: videos.filter(v => _VH_INTERVIEW_TYPES.has(v.video_type)),
+    haber:    _vhWithMin(videos.filter(haberFilter),    haberFilter),
+    mac:      _vhWithMin(videos.filter(macFilter),      macFilter),
+    roportaj: _vhWithMin(videos.filter(roportajFilter), roportajFilter),
   };
   for (const s of _VH_CURATED_SECTIONS) {
-    byType[s.value] = videos.filter(v => v.category === s.value);
+    let vids = videos.filter(v => v.category === s.value);
+    if (curatedOrderMap) vids.sort((a, b) => (curatedOrderMap[a.slug] ?? 99999) - (curatedOrderMap[b.slug] ?? 99999));
+    byType[s.value] = vids;
   }
 
   const sectionDefs = [
@@ -6594,8 +6612,6 @@ async function renderVideoHubPage(tip, env) {
   let rendered = 0;
   for (const def of sectionDefs) {
     const vids = byType[def.key];
-    const isCurated = _VH_CURATED_TYPES.has(def.key);
-    if (!activeTip && isCurated) continue;
     if (!activeTip && !vids.length) continue;
     if (activeTip && activeTip !== def.key) continue;
     if (rendered > 0 && !activeTip) sectionsHtml += _vhAdSlot('banner', `between-${def.key}`);
@@ -6694,6 +6710,7 @@ document.querySelectorAll('.vh-reveal-btn').forEach(btn => {
     const grid = btn.previousElementSibling;
     const hidden = [...grid.querySelectorAll('.vh-card.vh-hidden')];
     hidden.slice(0, 12).forEach(c => c.classList.remove('vh-hidden'));
+    grid.querySelectorAll('.vh-ad-slot-wrap').forEach(w => w.style.display = '');
     if (!grid.querySelectorAll('.vh-card.vh-hidden').length) btn.style.display = 'none';
   });
 });
@@ -7014,7 +7031,7 @@ function siteFooter() {
 }
 
 // ─── ARTICLE PAGE HTML ────────────────────────────────────────
-function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null) {
+function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, related = []) {
   const slug      = a.slug || '';
   const title     = a.title || 'Haber';
   const desc      = (a.summary || a.full_body || '').replace(/<[^>]+>/g, ' ').slice(0, 200).trim();
@@ -7104,6 +7121,20 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null) 
       return stripped ? `<p>${escHtml(stripped)}</p>` : '';
     }).join('');
 
+  const ytEmbedId = a.publish_mode === 'youtube_embed' && srcUrl
+    ? (srcUrl.match(/(?:youtu\.be\/|[?&]v=)([a-zA-Z0-9_-]{11})/)?.[1] || null)
+    : null;
+  const videoHtml = ytEmbedId && !bodyHtml.includes('<iframe')
+    ? `<div class="yt-embed"><iframe src="https://www.youtube.com/embed/${ytEmbedId}" allowfullscreen loading="lazy" frameborder="0" title="${escHtml(a.title || '')}"></iframe></div>`
+    : '';
+
+  const relatedHtml = related.length ? `<div class="related-vids">
+  <div class="related-vids-label">İlgili Videolar</div>
+  <div class="related-vids-grid">${related.map(v => `<a class="related-card" href="/haber/${escHtml(v.slug || '')}">
+    <div class="related-card-thumb"><img src="${escHtml(v.image_url || '')}" loading="lazy" alt=""><div class="related-card-play"><div class="related-card-play-icon">▶</div></div></div>
+    <div class="related-card-title">${escHtml(v.title || '')}</div>
+  </a>`).join('')}</div></div>` : '';
+
   const waText    = encodeURIComponent(`${title} ${pageUrl}`);
   const twParams  = `text=${encodeURIComponent(title)}&url=${encodeURIComponent(pageUrl)}`;
 
@@ -7175,6 +7206,20 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
 .article-body blockquote{border-left:3px solid #E30A17;padding:0.75rem 1rem;background:#161616;margin:1.5rem 0;border-radius:0 4px 4px 0;color:#aaa}
 .source-attr{font-size:0.75rem;color:#666;margin-top:2rem;padding-top:1rem;border-top:1px solid #222}
 .article-meta .source-attr{display:block;width:100%;margin-top:0.4rem;padding-top:0;border-top:none}
+.yt-embed{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:6px;margin-bottom:1.5rem;background:#000}
+.yt-embed iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
+.related-vids{margin:2rem 0 1.5rem}
+.related-vids-label{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#555;margin-bottom:.85rem;border-left:3px solid #E30A17;padding-left:.65rem}
+.related-vids-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem}
+@media(max-width:540px){.related-vids-grid{grid-template-columns:1fr}}
+.related-card{display:block;text-decoration:none;color:inherit}
+.related-card:hover .related-card-title{color:#E30A17}
+.related-card-thumb{position:relative;padding-bottom:56.25%;background:#111;border-radius:4px;overflow:hidden;margin-bottom:.45rem}
+.related-card-thumb img{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+.related-card-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);opacity:0;transition:opacity .15s}
+.related-card:hover .related-card-play{opacity:1}
+.related-card-play-icon{width:36px;height:36px;background:rgba(227,10,23,.9);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.85rem;color:#fff;padding-left:2px}
+.related-card-title{font-size:.78rem;line-height:1.35;color:#ccc;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .source-link{color:#888;font-size:0.75rem;display:inline-block;margin-top:0.5rem}
 .share-box{margin-top:2.5rem;padding:1.5rem;background:#141414;border:1px solid #222;border-radius:6px}
 .share-title{font-size:0.7rem;letter-spacing:0.12em;text-transform:uppercase;color:#888;margin-bottom:1rem}
@@ -7208,7 +7253,9 @@ ${siteHeader('/haber/')}
       ${attrHtml}
     </div>
     ${image && a.publish_mode !== 'youtube_embed' ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
+    ${videoHtml}
     <div class="article-body">${bodyHtml}</div>
+    ${relatedHtml}
     ${opponentId && templateId === 'T02' ? `<div id="h2hWidget" style="margin:2rem 0">
       <api-sports-widget data-type="h2h" data-team1="549" data-team2="${opponentId}" data-season="2025"></api-sports-widget>
     </div>
@@ -7917,21 +7964,22 @@ function adminNav(active) {
 }
 
 function renderCuratedVideoPage(list) {
-  const sectionOpts = _VH_CURATED_SECTIONS.map(s => `<option value="${s.value}">${s.label}</option>`).join('');
-  const sectionsJson = JSON.stringify(_VH_CURATED_SECTIONS);
+  const sectionOpts = Object.entries(_VH_ALL_SECTION_MAP).map(([k, d]) => `<option value="${k}">${d.label}</option>`).join('');
+  const sectionsJson = JSON.stringify(Object.entries(_VH_ALL_SECTION_MAP).map(([value, d]) => ({ value, label: d.label })));
 
   const rows = list.map(v => {
     const thumb = v.image_url || '';
     const articleHref = `/haber/${v.slug}`;
     const ytHref = v.original_url || '#';
-    const secLabel = _VH_CURATED_SECTIONS.find(s => s.value === v.category)?.label || v.category;
+    const secLabel = _VH_ALL_SECTION_MAP[v.category]?.label || v.category;
     const date = v.published_at ? new Date(v.published_at).toLocaleDateString('tr-TR') : '';
     const slug = (v.slug || '').replace(/'/g, "\\'");
     const titleEsc = (v.title || '').replace(/"/g, '&quot;').replace(/'/g, "\\'");
-    const editOpts = _VH_CURATED_SECTIONS.map(s =>
-      `<option value="${s.value}"${s.value === v.video_type ? ' selected' : ''}>${s.label}</option>`
+    const editOpts = Object.entries(_VH_ALL_SECTION_MAP).map(([k, d]) =>
+      `<option value="${k}"${k === v.category ? ' selected' : ''}>${d.label}</option>`
     ).join('');
-    return `<tr id="row-${slug}">
+    return `<tr id="row-${slug}" data-slug="${slug}" draggable="true">
+      <td class="drag-handle" style="padding:.55rem .5rem;width:24px;text-align:center;cursor:grab;color:#444;font-size:1rem;user-select:none">⠿</td>
       <td style="padding:.55rem .75rem;width:108px">
         <a href="${ytHref}" target="_blank" rel="noopener"><img src="${thumb}" style="width:96px;height:54px;object-fit:cover;border-radius:4px;display:block" loading="lazy"></a>
       </td>
@@ -7948,7 +7996,7 @@ function renderCuratedVideoPage(list) {
       </td>
     </tr>
     <tr id="edit-${slug}" style="display:none;background:#0d1117">
-      <td colspan="4" style="padding:.75rem 1rem">
+      <td colspan="5" style="padding:.75rem 1rem">
         <div style="display:grid;grid-template-columns:1fr 180px auto auto;gap:.6rem;align-items:end">
           <div><label>Başlık</label><input type="text" id="et-${slug}" value="${titleEsc}" style="width:100%;height:32px"></div>
           <div><label>Bölüm</label><select id="es-${slug}" style="width:100%;height:32px">${editOpts}</select></div>
@@ -7990,6 +8038,7 @@ table{width:100%;border-collapse:collapse}
 thead th{padding:.5rem .75rem;text-align:left;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#555;border-bottom:1px solid #222}
 tbody tr{border-bottom:1px solid #1e1e1e}
 tbody tr:hover:not([id^="edit-"]){background:#161616}
+tbody tr.drag-over{outline:2px solid #E30A17}
 .empty{padding:2rem;text-align:center;color:#444;font-size:.85rem}
 </style>
 </head>
@@ -8024,11 +8073,14 @@ ${adminNav('curated-video')}
   </div>
 
   <div class="card">
-    <div class="card-title">Küratör Liste (${list.length})</div>
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+      <span>Küratör Liste (${list.length})</span>
+      ${list.length > 1 ? `<button class="btn btn-secondary btn-sm" id="saveOrderBtn" onclick="saveOrder()" style="display:none">Sıralamayı Kaydet</button>` : ''}
+    </div>
     ${list.length === 0 ? '<div class="empty">Henüz video eklenmedi.</div>' : `
-    <table>
-      <thead><tr><th style="width:108px"></th><th>Başlık</th><th>Bölüm</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
+    <table id="curatedTable">
+      <thead><tr><th style="width:24px"></th><th style="width:108px"></th><th>Başlık</th><th>Bölüm</th><th></th></tr></thead>
+      <tbody id="curatedTbody">${rows}</tbody>
     </table>`}
   </div>
 </div>
@@ -8122,6 +8174,85 @@ function showStatus(msg, type) {
   el.style.display = 'block';
   el.className = 'status' + (type === 'ok' ? ' status-ok' : type === 'err' ? ' status-err' : '');
   el.textContent = msg;
+}
+
+// Drag-and-drop ordering
+(function() {
+  const tbody = document.getElementById('curatedTbody');
+  const saveBtn = document.getElementById('saveOrderBtn');
+  if (!tbody || !saveBtn) return;
+
+  let dragSlug = null;
+
+  tbody.addEventListener('dragstart', e => {
+    const tr = e.target.closest('tr[data-slug]');
+    if (!tr) { e.preventDefault(); return; }
+    dragSlug = tr.dataset.slug;
+    e.dataTransfer.effectAllowed = 'move';
+    setTimeout(() => tr.style.opacity = '.4', 0);
+  });
+
+  tbody.addEventListener('dragend', e => {
+    const tr = e.target.closest('tr[data-slug]');
+    if (tr) tr.style.opacity = '';
+    tbody.querySelectorAll('tr.drag-over').forEach(r => r.classList.remove('drag-over'));
+  });
+
+  tbody.addEventListener('dragover', e => {
+    e.preventDefault();
+    const tr = e.target.closest('tr[data-slug]');
+    if (!tr || tr.dataset.slug === dragSlug) return;
+    tbody.querySelectorAll('tr.drag-over').forEach(r => r.classList.remove('drag-over'));
+    tr.classList.add('drag-over');
+  });
+
+  tbody.addEventListener('dragleave', e => {
+    if (!tbody.contains(e.relatedTarget)) {
+      tbody.querySelectorAll('tr.drag-over').forEach(r => r.classList.remove('drag-over'));
+    }
+  });
+
+  tbody.addEventListener('drop', e => {
+    e.preventDefault();
+    tbody.querySelectorAll('tr.drag-over').forEach(r => r.classList.remove('drag-over'));
+    const tgt = e.target.closest('tr[data-slug]');
+    if (!tgt || !dragSlug || tgt.dataset.slug === dragSlug) return;
+    const srcMain = document.getElementById('row-' + dragSlug);
+    const srcEdit = document.getElementById('edit-' + dragSlug);
+    const tgtMain = document.getElementById('row-' + tgt.dataset.slug);
+    if (!srcMain || !tgtMain) return;
+    tbody.insertBefore(srcMain, tgtMain);
+    tbody.insertBefore(srcEdit, tgtMain);
+    srcMain.style.opacity = '';
+    saveBtn.style.display = 'inline-block';
+  });
+})();
+
+async function saveOrder() {
+  const tbody = document.getElementById('curatedTbody');
+  const saveBtn = document.getElementById('saveOrderBtn');
+  if (!tbody || !saveBtn) return;
+  const order = [...tbody.querySelectorAll('tr[data-slug]')].map(r => r.dataset.slug);
+  saveBtn.disabled = true; saveBtn.textContent = 'Kaydediliyor…';
+  try {
+    const r = await fetch('/admin/curated-video', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order }),
+    });
+    if (!r.ok) throw new Error();
+    saveBtn.textContent = 'Kaydedildi ✓';
+    saveBtn.style.background = '#14532d'; saveBtn.style.color = '#4ade80';
+    setTimeout(() => {
+      saveBtn.textContent = 'Sıralamayı Kaydet';
+      saveBtn.style.background = ''; saveBtn.style.color = '';
+      saveBtn.style.display = 'none';
+      saveBtn.disabled = false;
+    }, 1800);
+  } catch {
+    saveBtn.textContent = 'Hata — tekrar dene';
+    saveBtn.disabled = false;
+  }
 }
 </script>
 </body>
