@@ -82,6 +82,14 @@ pattern = "kartalix.com/gizlilik/"
 zone_name = "kartalix.com"
 
 [[routes]]
+pattern = "kartalix.com/kosullar"
+zone_name = "kartalix.com"
+
+[[routes]]
+pattern = "kartalix.com/kosullar/"
+zone_name = "kartalix.com"
+
+[[routes]]
 pattern = "kartalix.com/kaynak-atif"
 zone_name = "kartalix.com"
 
