@@ -427,7 +427,7 @@ Ordered by value/dependency. Do not start until v1.0 ships.
 - [ ] `fetchTwitterSources` early-returns — delete or restore when X API budget available (~$100/mo)
 - [x] `fetched_at` semantic audit — 4 locations of `r.fetched_at || r.created_at` priority inversion fixed 2026-05-24 (worker lines 521, 1590, 3344, 4813 + `src/publisher.js` in-memory path); verify no further instances
 - [ ] Related articles widget at bottom of article pages (multiplies pageviews per session, higher ad revenue impact than placement optimisation) — Effort M
-- [ ] Architectural: unify SPA (`index.html renderArticleView`) + worker server-rendered (`renderArticleHTML`) article templates — two independent templates currently; affects SEO (crawlers see server version, users see SPA). Identified 2026-05-26 by Pack 2 diagnostic. Not urgent, but a known long-term concern
+- [ ] Architectural: unify SPA (`index.html renderArticleView`) + worker server-rendered (`renderArticleHTML`) article templates — two independent templates currently; affects SEO (crawlers see server version, users see SPA). Identified 2026-05-26 by Pack 2 diagnostic. Not urgent, but a known long-term concern. *Partial mitigation: match stats widget whitelist now in sync across both paths (2026-05-27)*
 - [ ] DECISIONS.md ongoing entries — keep adding entries for: KV bug fixes (done), classifier work (done), YouTube maxresdefault (done), Pack 2 visual fixes (done), grid root-cause (done)
 
 ---

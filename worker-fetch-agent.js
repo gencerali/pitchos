@@ -10244,6 +10244,10 @@ ${nav}
         <li><span class="rtag fix">fix</span> <code>siteFooter()</code>: added Kullanım Koşulları link</li>
         <li><span class="rtag fix">fix</span> <code>/kosullar</code> routing — added to <code>wrangler.toml</code> routes + <code>_routes.json</code> exclude; git <code>3b5a5cb</code>, CF version <code>e448c745</code></li>
       </ul>
+      <h4>Pack 3 — git <code>4b4500d</code> · CF <code>dea1d768</code></h4>
+      <ul>
+        <li><span class="rtag fix">fix</span> Match stats widget tightened — whitelist <code>['T-HT','T11','T12','T13','T-XG']</code> in both SPA and worker; removes spurious stats on news/analysis articles. Previously SPA fired for any <code>template_id</code>, silently falling back to <code>current-match-stats</code>.</li>
+      </ul>
       <h4>AdSense readiness open items</h4>
       <ul>
         <li><span class="rtag next">next</span> P0.3 Consistent byline on every article: "Kartalix Editorial · Ali Gencer" + visible publication date</li>

@@ -1564,4 +1564,29 @@ Both templates show `image_url` unconditionally. For `youtube_embed` articles, `
 
 ---
 
+### 2026-05-27 — Match stats widget: tighten to halftime + post-match templates only
+
+**Decision**: Replace the loose `if (a.template_id)` widget gate in the SPA and the too-broad `['T10','T11','T12','T-XG','T-HT','T-RED','T-VAR','T-PEN']` list in the worker with a single shared whitelist: `['T-HT','T11','T12','T13','T-XG']`.
+
+**Root cause**: Two separate rendering paths existed with inconsistent conditions. The SPA (`renderArticleView` in `index.html`) fired the widget for any article with a non-null `template_id`, falling back to `current-match-stats` (most-recently-cached match) when the article had no own `fixture_id`. This caused analysis articles (e.g. T13 MOTM, synthesis articles with template IDs) to silently receive an unrelated match stats table from a completely different game. The worker path was stricter but included during-game event flash templates (T10, T-RED, T-VAR, T-OG, T-PEN) where a stats table is cluttered and out of place.
+
+**New whitelist rationale**:
+- `T-HT` (halftime report): stats mid-game are directly relevant to the article's content
+- `T11` (result flash): FT score card — final stats confirm the result
+- `T12` (match report): full post-match article — stats are a core component
+- `T13` (MOTM analysis): post-match player analysis — stats ground the argument
+- `T-XG` (xG delta): the article *is* a stats analysis — stats widget is essential
+
+**Removed**:
+- `T10` (goal flash): short live card; stats during play are partial and distracting
+- `T-RED`, `T-VAR`, `T-OG`, `T-PEN`: single-event flashes; stats context is noise
+
+**Files changed**: `index.html:1396,1489` (SPA), `worker-fetch-agent.js:7085` (worker)
+
+**Deployed**: CF version `dea1d768-56cd-4a5f-bc1e-fa2054794d36`
+
+**What would change our mind**: If user feedback shows readers want live stats during event flashes — add T10 back (but not the others). T-RED/VAR/OG/PEN are too short-lived to justify a stats table.
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*
