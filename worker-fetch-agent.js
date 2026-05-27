@@ -3109,7 +3109,7 @@ Sadece JSON döndür:
 
       if (request.method === 'GET') {
         const list = await supabase(env, 'GET',
-          `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type,original_url&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&video_type=in.(${[..._VH_CURATED_SECTIONS.map(s => s.value)].join(',')})&status=eq.published&order=published_at.desc&limit=200`
+          `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,category,original_url&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&category=in.(${_VH_CURATED_SECTIONS.map(s => s.value).join(',')})&status=eq.published&order=published_at.desc&limit=200`
         ) || [];
         return new Response(renderCuratedVideoPage(list), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       }
@@ -3135,10 +3135,10 @@ Sadece JSON döndür:
           original_url: `https://www.youtube.com/watch?v=${videoId}`,
           title, summary: title, full_body: title,
           image_url: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-          category: 'Video', content_type: 'youtube_embed', sport: 'football',
+          category: section, content_type: 'youtube_embed', sport: 'football',
           nvs_score: 75, publish_mode: 'youtube_embed', status: 'published',
           template_id: 'T-VID', slug, published_at: now, reviewed_at: now,
-          reviewed_by: 'admin', video_type: section, is_kartalix_content: false,
+          reviewed_by: 'admin', video_type: 'news',
         }]);
         if (!saved?.[0]) return Response.json({ error: 'Supabase insert failed' }, { status: 500, headers: h });
         return Response.json({ ok: true, slug: saved[0].slug }, { headers: h });
@@ -3150,7 +3150,7 @@ Sadece JSON döndür:
         const patch = {};
         if (section) {
           if (!validSections.has(section)) return Response.json({ error: 'invalid section' }, { status: 400, headers: h });
-          patch.video_type = section;
+          patch.category = section;
         }
         if (title) patch.title = title;
         if (!Object.keys(patch).length) return Response.json({ error: 'nothing to update' }, { status: 400, headers: h });
@@ -3166,6 +3166,47 @@ Sadece JSON döndür:
       }
 
       return Response.json({ error: 'method not allowed' }, { status: 405, headers: h });
+    }
+
+    if (url.pathname === '/admin/curated-seed' && request.method === 'POST') {
+      const hj = { 'Content-Type': 'application/json' };
+      const token = request.headers.get('X-Seed-Token');
+      const stored = await env.PITCHOS_CACHE.get('curated:seed:token');
+      if (!token || !stored || token !== stored) return Response.json({ error: 'Invalid token' }, { status: 401, headers: hj });
+      await env.PITCHOS_CACHE.delete('curated:seed:token');
+      const { videos } = await request.json();
+      const results = [];
+      for (const v of videos) {
+        const m = (v.url || '').match(/(?:youtu\.be\/|[?&]v=|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+        const videoId = m?.[1];
+        if (!videoId) { results.push({ url: v.url, ok: false, error: 'bad url' }); continue; }
+        try {
+          const oembed = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`).then(r => r.ok ? r.json() : null).catch(() => null);
+          const title = oembed?.title || videoId;
+          const sourceName = oembed?.author_name || 'YouTube';
+          const slug = generateSlug(title + ' ' + videoId.slice(-6), null);
+          const now = new Date().toISOString();
+          const row = {
+            site_id: _VH_SITE_ID, source_type: 'youtube', source_name: sourceName,
+            original_url: `https://www.youtube.com/watch?v=${videoId}`,
+            title, summary: title, full_body: title,
+            image_url: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+            category: 'Video', content_type: 'youtube_embed', sport: 'football',
+            nvs_score: 75, publish_mode: 'youtube_embed', status: 'published',
+            template_id: 'T-VID', slug, published_at: now, reviewed_at: now,
+            reviewed_by: 'admin', video_type: 'news', category: v.section,
+          };
+          const sbRes = await fetch(`${env.SUPABASE_URL}/rest/v1/content_items`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`, 'Prefer': 'return=representation' },
+            body: JSON.stringify([row]),
+          });
+          const sbText = await sbRes.text();
+          let parsed = null; try { parsed = JSON.parse(sbText); } catch {}
+          results.push({ videoId, section: v.section, title, slug, ok: !!parsed?.[0], sbStatus: sbRes.status, sbError: parsed?.[0] ? undefined : sbText });
+        } catch (e) { results.push({ videoId, ok: false, error: e.message }); }
+      }
+      return Response.json({ ok: true, inserted: results.filter(r => r.ok).length, results }, { headers: hj });
     }
 
     if (url.pathname === '/admin/live-slugs' && request.method === 'GET') {
@@ -6522,7 +6563,7 @@ async function renderVideoHubPage(tip, env) {
   const activeTip = validTips.includes(tip) ? tip : '';
 
   const rows = await supabase(env, 'GET',
-    `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&status=eq.published&order=published_at.desc&limit=500`
+    `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,video_type,category&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&status=eq.published&order=published_at.desc&limit=500`
   ) || [];
 
   const now = Date.now();
@@ -6539,7 +6580,7 @@ async function renderVideoHubPage(tip, env) {
     roportaj: videos.filter(v => _VH_INTERVIEW_TYPES.has(v.video_type)),
   };
   for (const s of _VH_CURATED_SECTIONS) {
-    byType[s.value] = videos.filter(v => v.video_type === s.value);
+    byType[s.value] = videos.filter(v => v.category === s.value);
   }
 
   const sectionDefs = [
@@ -7883,7 +7924,7 @@ function renderCuratedVideoPage(list) {
     const thumb = v.image_url || '';
     const articleHref = `/haber/${v.slug}`;
     const ytHref = v.original_url || '#';
-    const secLabel = _VH_CURATED_SECTIONS.find(s => s.value === v.video_type)?.label || v.video_type;
+    const secLabel = _VH_CURATED_SECTIONS.find(s => s.value === v.category)?.label || v.category;
     const date = v.published_at ? new Date(v.published_at).toLocaleDateString('tr-TR') : '';
     const slug = (v.slug || '').replace(/'/g, "\\'");
     const titleEsc = (v.title || '').replace(/"/g, '&quot;').replace(/'/g, "\\'");
