@@ -3510,6 +3510,9 @@ Sadece JSON döndür:
     if (url.pathname === '/gizlilik' || url.pathname === '/gizlilik/') {
       return new Response(renderPrivacyPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
     }
+    if (url.pathname === '/kosullar' || url.pathname === '/kosullar/') {
+      return new Response(renderTermsPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
+    }
     if (url.pathname === '/kaynak-atif' || url.pathname === '/kaynak-atif/') {
       return new Response(renderAttributionPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public,max-age=86400' } });
     }
@@ -6043,6 +6046,7 @@ async function serveSitemap(env) {
   <url><loc>${BASE_URL}/iletisim</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
   <url><loc>${BASE_URL}/editoryal-politika</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
   <url><loc>${BASE_URL}/gizlilik</loc><changefreq>yearly</changefreq><priority>0.2</priority></url>
+  <url><loc>${BASE_URL}/kosullar</loc><changefreq>yearly</changefreq><priority>0.2</priority></url>
 ${articleUrls}
 </urlset>`;
 
@@ -6064,15 +6068,38 @@ function shouldShowAds({ templateId, publishMode, bodyLength }) {
   return (bodyLength || 0) >= 1200;
 }
 
+// ─── COOKIE BANNER ───────────────────────────────────────────
+function siteCookieBanner() {
+  return `<div id="cookie-banner" style="position:fixed;bottom:0;left:0;right:0;background:#111;border-top:2px solid #E30A17;padding:1rem 1.5rem;z-index:999;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;display:none">
+  <p style="color:#ccc;font-size:0.8rem;margin:0;flex:1">Bu site deneyiminizi iyileştirmek için çerezler kullanmaktadır. Siteyi kullanmaya devam ederek çerez politikamızı kabul etmiş olursunuz. <a href="/gizlilik" style="color:#E30A17;text-decoration:none">Gizlilik Politikası</a></p>
+  <button onclick="acceptCookies()" style="background:#E30A17;color:white;border:none;padding:0.5rem 1.25rem;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;cursor:pointer;white-space:nowrap">KABUL ET</button>
+</div>
+<script>
+function acceptCookies(){localStorage.setItem('cookies_accepted','1');document.getElementById('cookie-banner').style.display='none'}
+if(!localStorage.getItem('cookies_accepted'))document.getElementById('cookie-banner').style.display='flex';
+</script>`;
+}
+
 // ─── STATIC PAGE SHELL ───────────────────────────────────────
-function renderStaticPage(title, bodyHtml) {
+function renderStaticPage(title, bodyHtml, { path = '/', metaDescription = '' } = {}) {
+  const desc = escHtml(metaDescription);
+  const pageUrl = `${BASE_URL}${path}`;
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>${escHtml(title)} | Kartalix</title>
-<link rel="canonical" href="${BASE_URL}"/>
+${desc ? `<meta name="description" content="${desc}"/>` : ''}
+${desc ? `<meta property="og:title" content="${escHtml(title)} | Kartalix"/>
+<meta property="og:description" content="${desc}"/>
+<meta property="og:type" content="website"/>
+<meta property="og:url" content="${pageUrl}"/>
+<meta property="og:site_name" content="Kartalix"/>
+<meta name="twitter:card" content="summary"/>
+<meta name="twitter:title" content="${escHtml(title)} | Kartalix"/>
+<meta name="twitter:description" content="${desc}"/>` : ''}
+<link rel="canonical" href="${pageUrl}"/>
 <link rel="alternate" type="application/rss+xml" title="Kartalix RSS" href="${BASE_URL}/rss"/>
 ${siteSharedFonts()}
 <style>
@@ -6086,6 +6113,7 @@ h2{font-size:1.1rem;font-weight:700;color:#fff;margin:2rem 0 0.6rem}
 p{color:#c8c6c0;margin-bottom:1.2rem}
 ul{padding-left:1.5rem;margin-bottom:1.2rem}
 li{color:#c8c6c0;margin-bottom:0.4rem}
+hr{border:none;border-top:1px solid #333;margin:1.5rem 0}
 @media(max-width:600px){main{padding:1.5rem 1rem 3rem}h1{font-size:1.3rem}}
 </style>
 </head>
@@ -6093,6 +6121,7 @@ li{color:#c8c6c0;margin-bottom:0.4rem}
 ${siteHeader()}
 <main>${bodyHtml}</main>
 ${siteFooter()}
+${siteCookieBanner()}
 </body>
 </html>`;
 }
@@ -6518,6 +6547,7 @@ document.querySelectorAll('.vh-tab').forEach(a => {
   });
 });
 </script>
+${siteCookieBanner()}
 </body>
 </html>`;
 }
@@ -6603,6 +6633,7 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 init();
 </script>
 ${siteFooter()}
+${siteCookieBanner()}
 </body>
 </html>`;
 }
@@ -6619,7 +6650,7 @@ function renderAboutPage() {
 <p>Kartalix, Beşiktaş JK ile resmi bir bağlantısı bulunmayan tamamen bağımsız bir yayın organıdır. Kulüp, sponsor veya herhangi bir yatırımcı tarafından yönlendirilmiyoruz. Editoryal kararlarımız yalnızca okuyuculara karşı sorumluluk anlayışıyla alınır.</p>
 <h2>İletişim</h2>
 <p>Haber düzeltmeleri, öneriler ve geri bildiriminiz için: <a href="/iletisim">iletişim sayfamız</a>.</p>
-`);
+`, { path: '/hakkimizda', metaDescription: 'Kartalix, Beşiktaş futbol haberlerini yapay zekâ destekli editöryal süreçle sunan bağımsız bir kişisel projedir. Misyonumuzu ve yaklaşımımızı keşfedin.' });
 }
 
 function renderContactPage() {
@@ -6637,7 +6668,7 @@ function renderContactPage() {
   <li>Reklam ve iş birliği teklifleri</li>
   <li>Teknik sorunlar</li>
 </ul>
-`);
+`, { path: '/iletisim', metaDescription: 'Kartalix ile iletişime geçin. Geri bildirim, hata bildirimi, telif hakkı veya içerik talepleri için iletisim@kartalix.com adresini kullanabilirsiniz.' });
 }
 
 function renderAttributionPage() {
@@ -6652,7 +6683,7 @@ function renderAttributionPage() {
 <p>Sitemizde yer alan YouTube videolarının tüm hakları ilgili kanallara aittir. Kartalix bu videoları yayımlamaz; yalnızca resmi YouTube kanalları üzerinden gömülü (embed) olarak sunar.</p>
 <h2>Hata Bildirimi</h2>
 <p>Bir haber hatasını veya yanlış bilgiyi bildirmek için <a href="/iletisim">iletişim sayfamızı</a> kullanabilirsiniz. Doğrulanmış düzeltmeleri en kısa sürede yayımlarız.</p>
-`);
+`, { path: '/kaynak-atif', metaDescription: 'Kartalix kaynak atıf yaklaşımı: sentezlenmiş haberlerin nasıl hazırlandığı, kaynak gösterimi ve YouTube gömme politikası hakkında açıklamalar.' });
 }
 
 function renderEditorialPolicyPage() {
@@ -6672,7 +6703,7 @@ function renderEditorialPolicyPage() {
 <p>Yayımlanmış bir haberde hata tespit edildiğinde makale güncellenir ve değişiklik belirtilir. Düzeltme taleplerinizi <a href="/iletisim">iletişim sayfamız</a> aracılığıyla iletebilirsiniz; doğrulanan düzeltmeler en kısa sürede yayımlanır.</p>
 <h2>Editoryal İletişim</h2>
 <p>İçeriklerimize ilişkin sorularınız için: <a href="mailto:iletisim@kartalix.com">iletisim@kartalix.com</a> — Ali Gencer, Kurucu Editör.</p>
-`);
+`, { path: '/editoryal-politika', metaDescription: 'Kartalix editöryal politikası: yapay zekâ destekli içerik üretimi, kaynak seçimi, doğrulama süreçleri ve düzeltme prensipleri.' });
 }
 
 function renderPrivacyPage() {
@@ -6696,7 +6727,76 @@ function renderPrivacyPage() {
 <p>Bu politikayı zaman zaman güncelleyebiliriz. Değişiklikler bu sayfada yayımlandığı tarihten itibaren geçerlidir.</p>
 <h2>İletişim</h2>
 <p>Gizlilik politikamızla ilgili sorularınız için: <a href="mailto:iletisim@kartalix.com">iletisim@kartalix.com</a></p>
-`);
+`, { path: '/gizlilik', metaDescription: 'Kartalix Gizlilik Politikası: çerez kullanımı, üçüncü taraf reklam hizmetleri, veri toplama uygulamaları ve kullanıcı haklarına ilişkin detaylar.' });
+}
+
+function renderTermsPage() {
+  return renderStaticPage('Kullanım Koşulları', `
+<h1>Kartalix Kullanım Koşulları</h1>
+<p><strong>Son güncelleme:</strong> 27 Mayıs 2026</p>
+<p>Kartalix'e (kartalix.com) hoş geldiniz. Bu Kullanım Koşulları ("Koşullar"), siteyi kullanımınızı düzenler. Siteye erişerek veya içeriği kullanarak bu Koşulları kabul etmiş sayılırsınız. Koşulları kabul etmiyorsanız lütfen siteyi kullanmayınız.</p>
+<hr>
+<h2>1. Hizmet Kapsamı</h2>
+<p>Kartalix, Beşiktaş Jimnastik Kulübü ile ilgili futbol haberlerini derleyen, sentezleyen ve sunan bağımsız bir içerik platformudur. Site, çeşitli kaynaklardan elde edilen bilgileri yapay zekâ destekli editöryal süreçlerle yeniden işler ve okuyuculara erişilebilir bir biçimde sunar.</p>
+<p>Kartalix:</p>
+<ul>
+  <li>Beşiktaş Jimnastik Kulübü'nün resmî kulübü, iştiraki veya temsilcisi <strong>değildir</strong></li>
+  <li>Resmî bir spor veya haber kuruluşu olarak yetkilendirilmemiştir</li>
+  <li>Kişisel bir proje olarak işletilir</li>
+  <li>İçerikleri kâr amacı gözetmeksizin bilgilendirme amacıyla sunar</li>
+</ul>
+<hr>
+<h2>2. İçerik ve Telif Hakkı</h2>
+<h2>2.1 Kartalix İçeriği</h2>
+<p>Kartalix üzerindeki içerik birden fazla yöntemle hazırlanır:</p>
+<ul>
+  <li><strong>Sentezlenmiş haberler:</strong> Birden çok kaynağın yapay zekâ destekli olarak yeniden yazılmasıyla oluşturulur</li>
+  <li><strong>Şablon haberler:</strong> Maç günü, transfer, sakatlık gibi yapılandırılmış kısa içerikler</li>
+  <li><strong>Özet kartlar:</strong> Kaynak özetinin kısa biçimi (bu kartlar arama motorlarına kapalıdır)</li>
+  <li><strong>Video makaleler:</strong> YouTube videolarının açıklayıcı metinlerle birlikte sunumu</li>
+</ul>
+<p>Her haberde kaynak ismi ve URL'si açıkça belirtilir; yapay zekâ desteğiyle hazırlanan içerikler "YZ destekli" rozetiyle gösterilir.</p>
+<p>Bu içeriklerin telif hakları Kartalix'e aittir. Bireysel okuma serbesttir; ticari kullanım veya yeniden yayın için yazılı izin gerekir.</p>
+<h2>2.2 Üçüncü Taraf İçerikleri</h2>
+<p><strong>YouTube Videoları:</strong> Kartalix, YouTube'un sağladığı standart gömme (embed) protokolü ile içerik gösterir. Yalnızca yayıncının gömmeye açık olarak işaretlediği videolar gömülür.</p>
+<p><strong>Kaynak Haberler:</strong> Sentezlenmiş haberlerde kaynak haberin URL'si açıkça belirtilir. Bu bağlantılar yalnızca atıf amaçlıdır; bağlantı verilen sitelerin içerik veya kullanım politikaları Kartalix'in sorumluluğunda değildir.</p>
+<h2>2.3 Görseller</h2>
+<p>Video makaleler için YouTube'un standart thumbnail servisi (img.youtube.com) kullanılır. Diğer makalelerde ilgili kaynağın og:image meta verisi referans alınır; görsel doğrudan kaynak siteden yüklenir.</p>
+<p>Bir görselin kaldırılmasını talep eden hak sahipleri <a href="mailto:iletisim@kartalix.com">iletisim@kartalix.com</a> adresinden başvurabilir. Geçerli talepler 48 saat içinde değerlendirilir.</p>
+<hr>
+<h2>3. Kullanıcı Davranış Kuralları</h2>
+<p>Kartalix'i kullanırken aşağıdaki kurallara uymayı kabul edersiniz:</p>
+<ul>
+  <li>Siteye erişimi engelleyecek otomatik araçlar (bot, scraper) kullanmamak</li>
+  <li>Site içeriğini izinsiz olarak büyük ölçekte indirip yeniden yayınlamamak</li>
+  <li>Sitenin teknik altyapısına zarar verecek girişimlerde bulunmamak</li>
+  <li>Yanıltıcı veya yasadışı amaçlarla site içeriğine atıfta bulunmamak</li>
+</ul>
+<hr>
+<h2>4. Sorumluluk Sınırlamaları</h2>
+<h2>4.1 Bilgi Doğruluğu</h2>
+<p>Kartalix, içeriklerin doğruluğu için makul özen gösterir; ancak içerikler birden fazla kaynaktan derlenir ve kaynaklardaki hatalar yansıyabilir. Spor haberleri hızla değişebilir; yayın anındaki bilgi sonradan güncellenmiş olabilir. Hata bildirimleri için <a href="mailto:iletisim@kartalix.com">iletisim@kartalix.com</a> adresini kullanabilirsiniz.</p>
+<h2>4.2 Genel Sorumluluk Reddi</h2>
+<p>Kartalix, sunulan içeriğin kullanımından doğabilecek herhangi bir zarardan sorumlu tutulamaz. İçerikler "olduğu gibi" sunulur; herhangi bir garanti içermez.</p>
+<h2>4.3 Üçüncü Taraf Bağlantıları</h2>
+<p>Kaynak sitelere veya YouTube videolarına verilen bağlantılar, kullanıcının kendi sorumluluğunda erişimine sunulur. Bağlantı verilen sitelerin içerik veya kullanım politikaları Kartalix'in sorumluluğunda değildir.</p>
+<hr>
+<h2>5. Reklamlar ve Üçüncü Taraf Hizmetleri</h2>
+<p>Site, Google AdSense gibi reklam hizmetleri aracılığıyla reklam gösterebilir. Bu hizmetler kullanıcı bilgilerini kendi politikaları çerçevesinde işler. Detaylar için <a href="/gizlilik">Gizlilik Politikası</a> sayfamıza bakınız.</p>
+<hr>
+<h2>6. Hizmet Sürekliliği</h2>
+<p>Kartalix, herhangi bir bildirim yapmaksızın site içeriğini güncellemek veya silmek, hizmeti geçici veya kalıcı olarak durdurmak, site özelliklerini değiştirmek haklarını saklı tutar.</p>
+<hr>
+<h2>7. Değişiklikler</h2>
+<p>Kartalix bu Koşulları gerektiğinde güncelleyebilir. Önemli değişiklikler olduğunda sayfanın üst kısmındaki "Son güncelleme" tarihi yenilenir. Değişikliklerden sonra siteyi kullanmaya devam etmeniz, güncel Koşulları kabul ettiğiniz anlamına gelir.</p>
+<hr>
+<h2>8. Uygulanacak Hukuk ve Yetki</h2>
+<p>Bu Koşullar Türkiye Cumhuriyeti yasalarına tabidir. Koşullardan kaynaklanan uyuşmazlıklarda İstanbul mahkemeleri yetkilidir.</p>
+<hr>
+<h2>9. İletişim</h2>
+<p>Bu Koşullar hakkında soru, görüş veya itirazlarınız için: <a href="mailto:iletisim@kartalix.com">iletisim@kartalix.com</a></p>
+<p style="margin-top:2rem;font-size:0.82rem;color:#666">İlgili sayfalar: <a href="/hakkimizda">Hakkımızda</a> · <a href="/editoryal-politika">Editoryal Politika</a> · <a href="/gizlilik">Gizlilik Politikası</a> · <a href="/kaynak-atif">Kaynak Atıf</a></p>
+`, { path: '/kosullar', metaDescription: 'Kartalix Kullanım Koşulları: site kullanımına ilişkin kurallar, içerik telif hakkı, sorumluluk sınırlamaları ve iletişim bilgileri.' });
 }
 
 // ─── SHARED SITE CHROME ──────────────────────────────────────
@@ -6756,6 +6856,7 @@ function siteFooter() {
   <a href="/iletisim">İletişim</a>
   <a href="/editoryal-politika">Editoryal Politika</a>
   <a href="/gizlilik">Gizlilik</a>
+  <a href="/kosullar">Kullanım Koşulları</a>
   <a href="/kaynak-atif">Kaynak Atıf</a>
   <a href="/rss">RSS</a>
 </footer>`;
@@ -7120,6 +7221,7 @@ async function submitFb(){
 loadReactions();
 </script>
 ${siteFooter()}
+${siteCookieBanner()}
 </body>
 </html>`;
 }

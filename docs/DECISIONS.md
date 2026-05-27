@@ -1546,4 +1546,22 @@ Both templates show `image_url` unconditionally. For `youtube_embed` articles, `
 
 ---
 
+### 2026-05-27 — AdSense Audit Pack 2: Terms page, cookie banner, static page meta/canonicals
+
+**Decision**: Ship four remaining AdSense audit findings as a single deploy while the Google review is in progress (submitted 2026-05-18).
+
+**Changes**:
+1. `/kosullar` (Terms of Service) — new route + `renderTermsPage()`. Full Turkish ToS covering service scope, content/copyright, user conduct, liability disclaimers, third-party services, governing law. Added to footer (worker + SPA), sitemap, and `_routes.json`.
+2. Cookie banner on all worker-rendered pages — extracted `siteCookieBanner()` function from `index.html`. Injected into `renderStaticPage()`, `renderArticleHTML()`, `/konu/videolar` template, and `renderTopicPage()`. Uses same `localStorage.cookies_accepted` key as SPA → cross-template consent persistence.
+3. Meta descriptions and og:/twitter: tags on static pages — `renderStaticPage()` signature extended to accept `{ path, metaDescription }`. All 6 static pages (About, Contact, Privacy, Editorial, Attribution, Terms) now have unique 150-char Turkish meta descriptions and full og: tag set.
+4. Canonical fix — static pages previously canonicalized to `BASE_URL` (homepage). Now canonicalize to `${BASE_URL}${path}` (own URL). Prevents Google treating all static pages as homepage duplicates.
+
+**Audit reference**: `docs/adsense-readiness-audit-2026-05-27.md`
+- B2 (Terms of Service): ✅ Resolved
+- Q1 (Cookie banner on worker pages): ✅ Resolved
+- Q2 (Static page meta descriptions): ✅ Resolved
+- Q3 (Static page canonicals): ✅ Resolved
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*
