@@ -1589,4 +1589,22 @@ Both templates show `image_url` unconditionally. For `youtube_embed` articles, `
 
 ---
 
+### 2026-05-27 — SPA article view sync: byline, badges, attribution, H2H widget
+
+**Decision**: Align `renderArticleView()` in `index.html` with `renderArticleHTML()` in the worker across four areas that had drifted.
+
+**Changes**:
+1. **Author byline** — SPA now shows `"Kartalix Editöryel · Ali Gencer"` for Kartalix-origin articles (same `isKartalix` logic as worker). Previously showed raw `source` field or nothing. Closes AdSense P0.3 for homepage-path reads. (`index.html:1407`)
+2. **Template badges** — Added `AV_BADGE_MAP` mirroring worker's `BADGE_MAP`. Hero pill now shows `Maç Önü`, `Gol`, `Sonuç`, `Maç Sonu`, `Analiz`, `Devre Arası`, `xG Analizi` etc. with matching colours (`#1d4ed8` match, `#f59e0b` live, `#0d9488` analysis). Previously showed raw category string. (`index.html:1298`)
+3. **Source attribution** — 4-mode logic matching worker: video source, external source, rewrite ("Kaynak temel alınarak ... üretildi"), synthesis ("Birden fazla kaynaktan ... üretildi"). Previously one generic line regardless of publish_mode. (`index.html:1433`)
+4. **H2H widget** — T02 (Maç Günü) articles now load the `api-sports` H2H widget via `/widgets/config` key + dynamic script injection. Previously absent from SPA path; only worker path showed it. (`index.html:1428, 1604`)
+
+**Why these drifted**: The SPA was built as a lightweight homepage feed viewer. Worker article rendering was added later and grew richer over multiple sprints (badges in v0.95, attribution in v0.7, H2H in v0.4) without back-porting to the SPA. The root cause of the divergence is documented in ROADMAP.md cleanup backlog (SPA/worker template unification).
+
+**Deployed**: Cloudflare Pages (git push `c7418ea`)
+
+**Related**: See 2026-05-27 match stats widget whitelist entry (same discovery session).
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*
