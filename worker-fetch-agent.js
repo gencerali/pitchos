@@ -3107,7 +3107,7 @@ Sadece JSON döndür:
       const raw = await env.PITCHOS_CACHE.get('curated:videos').catch(() => null);
       const list = raw ? JSON.parse(raw) : [];
       if (request.method === 'GET') {
-        return Response.json(list, { headers: h });
+        return new Response(renderCuratedVideoPage(list), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       }
       if (request.method === 'POST') {
         const { video_id, section, title, source_name } = await request.json().catch(() => ({}));
@@ -7822,15 +7822,16 @@ loadCounts();
 
 function adminNav(active) {
   const links = [
-    { href: '/admin/content',     label: 'İçerik',     key: 'content'    },
-    { href: '/admin',             label: 'Editör',     key: 'news'       },
-    { href: '/admin/sources/ui',  label: 'Kaynaklar',  key: 'sources'    },
-    { href: '/admin/financials',  label: 'Maliyet',    key: 'financials' },
-    { href: '/admin/report',          label: 'Rapor',        key: 'report'     },
-    { href: '/admin/test-templates',  label: 'Şablon Test',  key: 'test'       },
-    { href: '/admin/tools',       label: 'Araçlar',    key: 'tools'      },
-    { href: '/admin/releases',    label: 'Sürümler',   key: 'releases'   },
-    { href: '/admin/qa',          label: 'QA',          key: 'qa'         },
+    { href: '/admin/content',        label: 'İçerik',      key: 'content'        },
+    { href: '/admin/curated-video',  label: 'Küratör',     key: 'curated-video'  },
+    { href: '/admin',                label: 'Editör',      key: 'news'           },
+    { href: '/admin/sources/ui',     label: 'Kaynaklar',   key: 'sources'        },
+    { href: '/admin/financials',     label: 'Maliyet',     key: 'financials'     },
+    { href: '/admin/report',         label: 'Rapor',       key: 'report'         },
+    { href: '/admin/test-templates', label: 'Şablon Test', key: 'test'           },
+    { href: '/admin/tools',          label: 'Araçlar',     key: 'tools'          },
+    { href: '/admin/releases',       label: 'Sürümler',    key: 'releases'       },
+    { href: '/admin/qa',             label: 'QA',          key: 'qa'             },
   ];
   const navLinks = links.map(l => {
     const isActive = active === l.key;
@@ -7841,6 +7842,178 @@ function adminNav(active) {
   <nav style="display:flex;height:100%">${navLinks}</nav>
   <a href="/" style="color:#555;font-size:.72rem;text-decoration:none;margin-left:auto">← Site</a>
 </header>`;
+}
+
+function renderCuratedVideoPage(list) {
+  const SECTIONS = [
+    { value: 'belgeseller', label: 'Belgeseller' },
+    { value: 'unutulmaz',   label: 'Unutulmazlar' },
+  ];
+  const sectionOpts = SECTIONS.map(s => `<option value="${s.value}">${s.label}</option>`).join('');
+  const sectionLabel = { belgeseller: 'Belgesel', unutulmaz: 'Unutulmaz' };
+
+  const rows = list.map(v => {
+    const thumb = `https://img.youtube.com/vi/${v.video_id}/hqdefault.jpg`;
+    const yt = `https://www.youtube.com/watch?v=${v.video_id}`;
+    const sec = sectionLabel[v.section] || v.section;
+    const date = v.published_at ? new Date(v.published_at).toLocaleDateString('tr-TR') : '';
+    return `<tr>
+      <td style="padding:.55rem .75rem;width:100px"><a href="${yt}" target="_blank" rel="noopener"><img src="${thumb}" style="width:96px;height:54px;object-fit:cover;border-radius:4px;display:block" loading="lazy"></a></td>
+      <td style="padding:.55rem .75rem"><a href="${yt}" target="_blank" rel="noopener" style="color:#ddd;text-decoration:none;font-size:.82rem;line-height:1.4">${v.title}</a><div style="margin-top:.25rem;font-size:.68rem;color:#555">${v.source_name || ''} · ${date}</div></td>
+      <td style="padding:.55rem .75rem;white-space:nowrap"><span style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:3px;background:#1a2a3a;color:#4a7aaa">${sec}</span></td>
+      <td style="padding:.55rem .75rem;text-align:right"><button class="btn btn-danger btn-sm" onclick="del('${v.video_id}')">Sil</button></td>
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kartalix — Küratör Video</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5}
+.btn{border:none;border-radius:4px;font-size:.75rem;font-weight:700;padding:.35rem .85rem;cursor:pointer;white-space:nowrap}
+.btn-primary{background:#E30A17;color:#fff}.btn-primary:hover{opacity:.85}
+.btn-secondary{background:#2a2a2a;color:#ccc;border:1px solid #333}.btn-secondary:hover{background:#333}
+.btn-danger{background:transparent;color:#c0392b;border:1px solid #c0392b}.btn-danger:hover{background:#c0392b;color:#fff}
+.btn-sm{padding:.25rem .6rem;font-size:.7rem}
+input[type=text],input[type=url],select{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;font-family:inherit;font-size:.83rem;outline:none;padding:.35rem .6rem}
+input[type=text]:focus,input[type=url]:focus,select:focus{border-color:#444}
+label{font-size:.65rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.3rem}
+.page{max-width:860px;margin:2rem auto;padding:0 1.25rem}
+.card{background:#111;border:1px solid #222;border-radius:8px;padding:1.25rem;margin-bottom:1.5rem}
+.card-title{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:1rem}
+.form-row{display:grid;grid-template-columns:1fr auto;gap:.75rem;align-items:end;margin-bottom:.75rem}
+.form-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:.75rem;align-items:end}
+.field{display:flex;flex-direction:column}
+.field input,.field select{height:34px;width:100%}
+.status{font-size:.75rem;padding:.3rem .6rem;border-radius:4px;margin-top:.5rem}
+.status-ok{background:#14532d;color:#4ade80}.status-err{background:#7f1d1d;color:#fca5a5}
+table{width:100%;border-collapse:collapse}
+thead th{padding:.5rem .75rem;text-align:left;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#555;border-bottom:1px solid #222}
+tbody tr{border-bottom:1px solid #1e1e1e}
+tbody tr:hover{background:#161616}
+.empty{padding:2rem;text-align:center;color:#444;font-size:.85rem}
+</style>
+</head>
+<body>
+${adminNav('curated-video')}
+<div class="page">
+  <div class="card">
+    <div class="card-title">Video Ekle</div>
+    <div class="form-row">
+      <div class="field">
+        <label>YouTube URL</label>
+        <input type="url" id="ytUrl" placeholder="https://youtu.be/… veya youtube.com/watch?v=…" oninput="onUrlInput()" style="height:34px;width:100%">
+      </div>
+      <div style="padding-bottom:0">
+        <button class="btn btn-secondary btn-sm" onclick="fetchMeta()" id="fetchBtn" style="height:34px">Getir</button>
+      </div>
+    </div>
+    <div class="form-grid">
+      <div class="field">
+        <label>Başlık</label>
+        <input type="text" id="ytTitle" placeholder="Otomatik veya manuel">
+      </div>
+      <div class="field">
+        <label>Bölüm</label>
+        <select id="ytSection">${sectionOpts}</select>
+      </div>
+      <div style="padding-bottom:0">
+        <button class="btn btn-primary" id="addBtn" onclick="addVideo()" style="height:34px">Video+</button>
+      </div>
+    </div>
+    <div id="formStatus" style="display:none"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Küratör Liste (${list.length})</div>
+    ${list.length === 0 ? '<div class="empty">Henüz video eklenmedi.</div>' : `
+    <table>
+      <thead><tr><th></th><th>Başlık</th><th>Bölüm</th><th></th></tr></thead>
+      <tbody id="videoTable">${rows}</tbody>
+    </table>`}
+  </div>
+</div>
+<script>
+function extractVideoId(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('?')[0];
+    if (u.searchParams.get('v')) return u.searchParams.get('v');
+    const m = u.pathname.match(/\\/shorts\\/([^/?]+)/);
+    if (m) return m[1];
+  } catch {}
+  return null;
+}
+
+function onUrlInput() {
+  const vid = extractVideoId(document.getElementById('ytUrl').value.trim());
+  document.getElementById('fetchBtn').disabled = !vid;
+}
+
+async function fetchMeta() {
+  const url = document.getElementById('ytUrl').value.trim();
+  const vid = extractVideoId(url);
+  if (!vid) return;
+  showStatus('Bilgi alınıyor…', '');
+  try {
+    const r = await fetch('https://www.youtube.com/oembed?url=' + encodeURIComponent('https://www.youtube.com/watch?v=' + vid) + '&format=json');
+    if (!r.ok) throw new Error('oEmbed başarısız');
+    const d = await r.json();
+    document.getElementById('ytTitle').value = d.title || '';
+    showStatus('Başlık alındı ✓', 'ok');
+  } catch {
+    showStatus('Başlık alınamadı — lütfen manuel girin', 'err');
+  }
+}
+
+async function addVideo() {
+  const url = document.getElementById('ytUrl').value.trim();
+  const video_id = extractVideoId(url);
+  const title = document.getElementById('ytTitle').value.trim();
+  const section = document.getElementById('ytSection').value;
+  if (!video_id) { showStatus('Geçersiz YouTube URL', 'err'); return; }
+  if (!title) { showStatus('Başlık gerekli', 'err'); return; }
+  document.getElementById('addBtn').disabled = true;
+  try {
+    const r = await fetch('/admin/curated-video', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ video_id, section, title }),
+    });
+    const d = await r.json();
+    if (!r.ok) { showStatus(d.error || 'Hata', 'err'); return; }
+    showStatus('Eklendi ✓', 'ok');
+    document.getElementById('ytUrl').value = '';
+    document.getElementById('ytTitle').value = '';
+    setTimeout(() => location.reload(), 800);
+  } catch { showStatus('Bağlantı hatası', 'err'); }
+  finally { document.getElementById('addBtn').disabled = false; }
+}
+
+async function del(video_id) {
+  if (!confirm('Bu videoyu küratör listesinden kaldır?')) return;
+  const r = await fetch('/admin/curated-video', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ video_id }),
+  });
+  if (r.ok) location.reload();
+  else alert('Silinemedi');
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById('formStatus');
+  el.style.display = 'block';
+  el.className = 'status' + (type === 'ok' ? ' status-ok' : type === 'err' ? ' status-err' : '');
+  el.textContent = msg;
+}
+</script>
+</body>
+</html>`;
 }
 
 function renderCostPage(data) {
