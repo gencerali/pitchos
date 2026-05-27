@@ -5481,7 +5481,10 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       const newKVItems = confirmedArticles.map(a => {
         const syn = synthesisUrlMap.get(a.url || a.original_url);
         const base = syn ? { ...a, full_body: syn.full_body, publish_mode: 'rewrite' } : a;
-        return toKVShape({ ...base, fetched_at: base.fetched_at || processedAt });
+        const isKartalix = base.is_kartalix_content ||
+          ['rewrite','original_synthesis','youtube_embed','video_embed'].includes(base.publish_mode) ||
+          (base.publish_mode && base.publish_mode.startsWith('template'));
+        return toKVShape({ ...base, fetched_at: base.fetched_at || processedAt, is_kartalix_content: isKartalix });
       });
       const finalKVCount = await cacheToKV(env, site.short_code, [...newKVItems, ...latestKV]);
       console.log(`KV WRITE (DB-confirmed): ${newKVItems.length} new + ${latestKV.length} existing → ${finalKVCount} ranked`);
