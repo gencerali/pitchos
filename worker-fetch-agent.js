@@ -10119,6 +10119,32 @@ ${nav}
       </div>
     </div>
 
+    <div class="rrow" onclick="toggle('rsd')">
+      <span class="vtag planned">v1.3</span>
+      <div><div class="rrow-title">Special Day Templates</div><div class="rrow-sub">30 Ağustos · 19 Mayıs · 23 Nisan · 10 Kasım · 24 Kasım · Kurban · Ramazan Bayramı — auto-fires at midnight TRT</div></div>
+      <div class="rrow-date">Post-launch</div>
+    </div>
+    <div id="rsd" class="detail">
+      <h4>Goal</h4>
+      <p style="font-size:12px;color:#aaa;margin-bottom:12px">Date-aware commemorative templates that fire automatically when the calendar date arrives — no manual trigger needed. Covers Turkish national days and Islamic bayrams (Hijri dates computed annually).</p>
+      <h4>Days covered</h4>
+      <ul>
+        <li><strong>30 Ağustos</strong> — Zafer Bayramı (Victory Day)</li>
+        <li><strong>19 Mayıs</strong> — Atatürk'ü Anma, Gençlik ve Spor Bayramı</li>
+        <li><strong>23 Nisan</strong> — Ulusal Egemenlik ve Çocuk Bayramı</li>
+        <li><strong>10 Kasım</strong> — Atatürk'ü Anma günü</li>
+        <li><strong>24 Kasım</strong> — Öğretmenler Günü</li>
+        <li><strong>Kurban Bayramı</strong> — 4 days; Hijri date lookup required</li>
+        <li><strong>Ramazan Bayramı</strong> — 3 days; Hijri date lookup required</li>
+      </ul>
+      <h4>Implementation</h4>
+      <ul>
+        <li>Midnight TRT cron checks Gregorian + Hijri calendar; fires pipeline trigger if today matches</li>
+        <li>Dedicated template per occasion with curated commemorative content</li>
+        <li>No manual intervention — same trigger pipeline as match watcher</li>
+      </ul>
+    </div>
+
     <div class="rrow" onclick="toggle('r096')">
       <span class="vtag planned">v0.96</span>
       <div><div class="rrow-title">Match Highlights — Sprint J</div><div class="rrow-sub">Highlight clips auto-fetched · Embedded around BJK fixtures · Match article quality++</div></div>
@@ -10192,6 +10218,38 @@ ${nav}
         <li><span class="rtag next">next</span> <strong>VH4</strong> Featured Ranking Logic — tier hierarchy + time-decay <code>featured_rank</code>, compute at query time</li>
         <li><span class="rtag next">next</span> <strong>VH5</strong> Homepage Video Filter — top 3 youtube_embed by featured_rank</li>
         <li><span class="rtag defer">defer</span> <strong>VH6</strong> Admin override (<code>featured_until</code> / <code>featured_blocked</code>) — after auto-logic proven</li>
+        <li><span class="rtag next">next</span> <strong>VH7</strong> Curated video sections (Unutulmaz + Belgeseller) — <code>manual_section</code> column; <code>/admin/curated-video</code> endpoint; skips classifier; new tabs in /konu/videolar</li>
+        <li><span class="rtag next">next</span> <strong>VH8</strong> Video search — server-side ILIKE search box in /konu/videolar header; respects active tab filter</li>
+      </ul>
+    </div>
+
+    <div class="rrow" onclick="toggle('rads')">
+      <span class="vtag shipped">AdSense</span>
+      <div><div class="rrow-title">AdSense Readiness — Pack 1 + Pack 2</div><div class="rrow-sub">robots.txt · author unification · /kosullar Terms · cookie banner · meta tags · canonical fix · routing fix</div></div>
+      <div class="rrow-date">May 27, 2026</div>
+    </div>
+    <div id="rads" class="detail">
+      <h4>Pack 1 — git <code>c489881</code></h4>
+      <ul>
+        <li><span class="rtag feat">feat</span> <code>robots.txt</code> added — <code>Allow: /</code>, <code>Disallow: /api/</code>, Sitemap pointer</li>
+        <li><span class="rtag fix">fix</span> Author name unified — <code>"Ali Genç"</code> → <code>"Ali Gencer"</code> in JSON-LD + article byline</li>
+        <li><span class="rtag fix">fix</span> Removed <code>&lt;meta name="ai-generated" content="true"/&gt;</code> from all article pages</li>
+      </ul>
+      <h4>Pack 2 — git <code>fd73c05</code></h4>
+      <ul>
+        <li><span class="rtag feat">feat</span> <code>/kosullar</code> Terms of Service page — full Turkish ToS, worker-rendered, footer-linked</li>
+        <li><span class="rtag feat">feat</span> Cookie consent banner (<code>siteCookieBanner()</code>) on all worker-rendered pages — localStorage-backed, matches SPA consent key</li>
+        <li><span class="rtag feat">feat</span> Meta descriptions + <code>og:</code> + <code>twitter:</code> tags on all 5 static pages (hakkimizda, iletisim, gizlilik, kaynak-atif, editoryal-politika)</li>
+        <li><span class="rtag fix">fix</span> Canonical URL corrected on all static pages — was hardcoded <code>/</code>, now page-specific path</li>
+        <li><span class="rtag fix">fix</span> <code>siteFooter()</code>: added Kullanım Koşulları link</li>
+        <li><span class="rtag fix">fix</span> <code>/kosullar</code> routing — added to <code>wrangler.toml</code> routes + <code>_routes.json</code> exclude; git <code>3b5a5cb</code>, CF version <code>e448c745</code></li>
+      </ul>
+      <h4>AdSense readiness open items</h4>
+      <ul>
+        <li><span class="rtag next">next</span> P0.3 Consistent byline on every article: "Kartalix Editorial · Ali Gencer" + visible publication date</li>
+        <li><span class="rtag next">next</span> P1.1 Read top 20 articles; improve weakest 5 for substance (Ali)</li>
+        <li><span class="rtag defer">defer</span> P2.1 Sitemap: exclude rss_summary + T10/T11 cards older than 24h</li>
+        <li><span class="rtag defer">defer</span> P2.3–2.4 Lighthouse perf + mobile usability pass</li>
       </ul>
     </div>
 

@@ -90,8 +90,13 @@ Goal: `/konu/videolar` redesigned as a classified video hub with tabbed sections
 | VH4 | Featured Ranking Logic | 🔲 Not started | M | Tier hierarchy scoring: match_highlight 100 → news 50×NVS; 24h decay for premium types; `featured_rank` numeric column; compute at query time |
 | VH5 | Homepage Video Filter | 🔲 Not started | S | Top 3 youtube_embed by `featured_rank` on homepage; non-video articles unaffected. *Depends on VH4* |
 | VH6 | Admin override for featured | 🔲 Deferred | S | `featured_until` + `featured_blocked` columns for manual pin/hide. *Defer until VH4 auto-logic proven* |
+| VH7 | Curated video sections (Unutulmaz + Belgeseller) | 🔲 Not started | M | `manual_section` column on content_items; admin endpoint `/admin/curated-video`; skips classifier (manual overrides auto type); new tabs in /konu/videolar. *Depends on VH2 tab structure (done)* |
+| VH8 | Video search + filtering | 🔲 Not started | M | Search box in /konu/videolar header; server-side `ILIKE '%query%'` across title; respects active tab filter; mobile-friendly with clear button. Can ship independently of VH4 |
 
-**Decision needed:** Coach name list (`CURRENT_COACH_NAMES` in `src/publisher.js`) is empty — populate when new coach officially signed.
+**Decisions needed:**
+- Coach name list (`CURRENT_COACH_NAMES` in `src/publisher.js`) is empty — populate when new coach officially signed.
+- VH7 tab names: **Unutulmaz or Efsane Anlar?** (curated highlights section name)
+- VH7 tab names: **Belgeseller or Hikayeler?** (documentary/story section name)
 
 **Future:** `squad_members` table (v1.1) replaces hardcoded `CURRENT_PLAYER_NAMES` in classifier. See Post-Launch Backlog.
 
@@ -400,7 +405,8 @@ Ordered by value/dependency. Do not start until v1.0 ships.
 | v1.1 | Squad Intelligence | squad_members DB, dynamic keywords, auto-rebuild on squad change. Also replaces hardcoded `CURRENT_PLAYER_NAMES` in video classifier. | 1–2 wks |
 | v1.1b | API-Football Webhooks | Register webhook URL with API-Football; `POST /api-football-event` route receives goal/card/HT/FT payloads and fires templates immediately — replaces 5-min poll latency with ~2–4 min end-to-end. Keep cron watcher as fallback. | ½ day |
 | v1.2 | Distribution | Distribute Agent, push notifications (NVS≥80), distribution_log | 1–2 wks |
-| v1.3 | Visual Assets | Visual Asset Agent, IT6 templates, image pipeline. Includes placeholder pool for non-YouTube articles (12–15 CC0 images, hash-based assignment, flash pool for template_official/NVS≥75). **Blocked on lawyer consultation** for Wikimedia + AI-generated images. | 2–3 wks |
+| v1.3 | Visual Assets | Visual Asset Agent, IT6 templates, image pipeline. Includes placeholder pool for non-YouTube articles (12–15 CC0 images, hash-based assignment). Flash pool trigger: fires when `publish_mode=template_official` OR `NVS≥75` AND urgent title keywords (XS effort, design ready). **Blocked on lawyer consultation** for Wikimedia + AI-generated images. | 2–3 wks |
+| v1.3 | Special Day Templates | Auto-firing date-aware homepage overlays for Turkish national days (30 Ağustos Zafer Bayramı, 19 Mayıs Atatürk'ü Anma, 23 Nisan Ulusal Egemenlik, 10 Kasım Atatürk'ü Anma, 24 Kasım Öğretmenler Günü) and Bayrams (Kurban Bayramı, Ramazan Bayramı — Hijri dates computed annually). Midnight TRT cron checks calendar date; fires a dedicated template with curated commemorative content. Implemented as a new pipeline trigger alongside match watcher; no manual intervention needed. | S |
 | v1.4 | Editorial QA | Editorial QA Agent, guest submissions, Telegram author channel | 2–3 wks |
 | v1.5 | Governance | CLO (FSEK rule engine), CFO full (per-agent cost attribution, weekly report) | 2 wks |
 | v1.6 | Self-Learning | Engagement signals → scoring; source performance table; journalist accuracy tracker (I3/I4 — needs Twitter + YT transcript data first) | 3–4 wks |
@@ -419,8 +425,10 @@ Ordered by value/dependency. Do not start until v1.0 ships.
 
 - [ ] `fetchBeIN` stub returns empty array — delete or implement
 - [ ] `fetchTwitterSources` early-returns — delete or restore when X API budget available (~$100/mo)
-- [ ] Codebase audit: additional `fetched_at` semantic edge cases (4 found + fixed 2026-05-24 — verify no more)
+- [x] `fetched_at` semantic audit — 4 locations of `r.fetched_at || r.created_at` priority inversion fixed 2026-05-24 (worker lines 521, 1590, 3344, 4813 + `src/publisher.js` in-memory path); verify no further instances
 - [ ] Related articles widget at bottom of article pages (multiplies pageviews per session, higher ad revenue impact than placement optimisation) — Effort M
+- [ ] Architectural: unify SPA (`index.html renderArticleView`) + worker server-rendered (`renderArticleHTML`) article templates — two independent templates currently; affects SEO (crawlers see server version, users see SPA). Identified 2026-05-26 by Pack 2 diagnostic. Not urgent, but a known long-term concern
+- [ ] DECISIONS.md ongoing entries — keep adding entries for: KV bug fixes (done), classifier work (done), YouTube maxresdefault (done), Pack 2 visual fixes (done), grid root-cause (done)
 
 ---
 
