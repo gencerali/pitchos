@@ -1529,4 +1529,21 @@ Both templates show `image_url` unconditionally. For `youtube_embed` articles, `
 
 ---
 
+### 2026-05-27 — AdSense audit P0 fixes: robots.txt, author name, remove ai-generated meta
+
+**Decision**: Ship three low-risk housekeeping fixes identified by the AdSense readiness audit (2026-05-27) while the Google review is in progress.
+
+**Changes**:
+1. `robots.txt` at project root — `_routes.json` excluded `/robots.txt` from the worker (expecting a static file), but no file existed there (only in `landing/`). Ali copied it to project root. Fix prevents 404 that Search Console flags.
+2. Author name unified to "Ali Gencer" — JSON-LD structured data had `"Ali Genç"` (two occurrences: author field and article byline); About/Contact/Editorial Policy pages all say "Ali Gencer". Unified to the longer form for consistency across all surfaces.
+3. Removed `<meta name="ai-generated" content="true"/>` from every article page — non-standard tag that explicitly flagged all content as AI-generated to crawlers. Editorial Policy and YZ badge already disclose AI assistance; the meta tag added unnecessary scrutiny with no benefit.
+
+**Why not wait**: Review submitted 2026-05-18. Fixing while review is live reduces rejection probability without restarting the clock.
+
+**Alternatives considered**:
+- A: Wait until review completes before fixing — rejected; if reviewer encounters robots.txt 404 or notices author inconsistency, these are avoidable rejection signals
+- B: Keep `ai-generated` meta — rejected; no upside, non-standard, no published spec for this attribute
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*

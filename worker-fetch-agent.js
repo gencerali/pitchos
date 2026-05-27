@@ -6865,7 +6865,7 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null) 
     dateModified: isoDate,
     image: image || undefined,
     publisher: { '@type': 'Organization', name: 'Kartalix', url: BASE_URL },
-    author: { '@type': 'Person', name: 'Ali Genç' },
+    author: { '@type': 'Person', name: 'Ali Gencer' },
     inLanguage: 'tr',
     about: { '@type': 'SportsTeam', name: 'Beşiktaş JK' },
   });
@@ -6889,7 +6889,6 @@ ${image ? `<meta property="og:image" content="${escHtml(image)}"/>` : ''}
 ${image ? `<meta name="twitter:image" content="${escHtml(image)}"/>` : ''}
 <link rel="canonical" href="${escHtml(pageUrl)}"/>
 <meta name="robots" content="${isNoIndex ? 'noindex,nofollow' : 'index,follow'}"/>
-<meta name="ai-generated" content="true"/>
 <link rel="alternate" type="application/rss+xml" title="Kartalix RSS" href="${BASE_URL}/rss"/>
 <script type="application/ld+json">${jsonLd}</script>
 ${siteSharedFonts()}
@@ -6950,7 +6949,7 @@ ${siteHeader('/haber/')}
     <div class="cat-tag ${badgeClass}">${escHtml(badgeLabel)}</div>
     <h1>${escHtml(title)}</h1>
     <div class="article-meta">
-      ${isKartalix ? '<span style="color:#888;font-size:0.72rem;font-weight:600">Kartalix Editöryel · Ali Genç</span>' : `<span>📰 ${escHtml(source)}</span>`}
+      ${isKartalix ? '<span style="color:#888;font-size:0.72rem;font-weight:600">Kartalix Editöryel · Ali Gencer</span>' : `<span>📰 ${escHtml(source)}</span>`}
       <time datetime="${isoDate}">${dateStr}</time>
       ${nvs >= 40 ? `<span class="nvs-pill">NVS ${nvs}</span>` : ''}
       <span style="color:#555;font-size:0.68rem">YZ destekli</span>
