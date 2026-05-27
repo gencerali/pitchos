@@ -1393,7 +1393,7 @@
       <div class="av-body-wrap av-slide-in" style="animation-delay:0.1s">
         ${quote ? `<blockquote class="av-quote">${esc(quote)}</blockquote>` : ''}
         <div class="av-body" id="avBodyContent">${bodyHtml}</div>
-        ${a.template_id ? `<div id="avMatchStats" style="margin:1.5rem 0"></div>` : ''}
+        ${['T-HT','T11','T12','T13','T-XG'].includes(a.template_id) ? `<div id="avMatchStats" style="margin:1.5rem 0"></div>` : ''}
       </div>
 
       <div class="av-attr av-slide-in">
@@ -1485,8 +1485,8 @@
       av.querySelectorAll('.av-slide-in').forEach(el => el.classList.add('av-visible'));
     }));
 
-    // Match stats widget for T11/T12 match articles
-    if (a.template_id) {
+    // Match stats widget for halftime + post-match templates only
+    if (['T-HT','T11','T12','T13','T-XG'].includes(a.template_id)) {
       const statsBox = document.getElementById('avMatchStats');
       if (statsBox) {
         const statsUrl = a.fixture_id

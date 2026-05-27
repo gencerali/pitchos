@@ -7082,7 +7082,7 @@ ${siteHeader('/haber/')}
       } catch(e){}
     })();
     </script>` : ''}
-    ${fixtureId && templateId && ['T10','T11','T12','T-XG','T-HT','T-RED','T-VAR','T-PEN'].includes(templateId) ? `<div id="matchStatsBox" style="margin:1.5rem 0"></div>
+    ${fixtureId && templateId && ['T-HT','T11','T12','T13','T-XG'].includes(templateId) ? `<div id="matchStatsBox" style="margin:1.5rem 0"></div>
     <script>
     (async function(){
       try {
