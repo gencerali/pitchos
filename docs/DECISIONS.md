@@ -30,6 +30,55 @@
 
 ## ENTRIES
 
+### 2026-05-28 — VH curated sections: category column as section discriminator
+
+**Decision**: Use `category` column (free-text, no constraint) to tag curated videos into belgeseller/unutulmaz/haber/mac/roportaj sections; store `video_type: 'news'` as a safe placeholder regardless of section.
+
+**Alternatives considered**:
+- A: Add 'belgeseller'/'unutulmaz' to the `video_type` CHECK constraint — rejected; schema migration requires Supabase dashboard access, adds values that carry classifier meaning to a field used by the pipeline; risk of constraint pollution.
+- B: Separate `curated_items` table — rejected; overkill for a handful of manually-curated videos; loses all existing article-page infrastructure (slug routing, renderArticleHTML, RSS, sitemap) for free.
+
+**Why this one**: `category` is already a free-text column with no constraint. Setting `category = 'belgeseller'` and `video_type = 'news'` lets the VH page filter curated tabs by `v.category === s.value` while standard tabs (haber/mac/roportaj) exclude them via `!_VH_PURE_CURATED_CATS.has(v.category)`. Zero schema changes; fully reversible.
+
+**What would change our mind**: If `category` gains a CHECK constraint in a future migration, or if curated videos need a fundamentally different content pipeline (e.g. separate editorial workflow), a dedicated table would be warranted.
+
+**Related**: `_VH_CURATED_SECTIONS`, `_VH_ALL_SECTION_MAP`, `_VH_PURE_CURATED_CATS` constants in `worker-fetch-agent.js`; ROADMAP VH7.
+
+---
+
+### 2026-05-28 — VH curated sort order: KV slug array
+
+**Decision**: Store manual sort order as a JSON array of slugs in KV key `curated:order`; apply at query time in both admin page and VH public tabs.
+
+**Alternatives considered**:
+- A: `sort_order` integer column on `content_items` — requires schema migration; PATCH on every reorder is N DB writes; ordering state belongs to editorial UX, not source data.
+- B: Client-side-only sort (not persisted) — reorder lost on page reload; useless for controlling public VH tab order.
+
+**Why this one**: KV write is one atomic PUT of the full ordered slug array. Read cost is one KV GET per page load (already paying for `curated:order` alongside the Supabase fetch). Drag-and-drop UI is self-contained; save button gives explicit confirmation. Public VH page applies same order with no extra Supabase query.
+
+**What would change our mind**: If curated sections grow to hundreds of videos per section, a per-section sort (e.g. `curated:order:belgeseller`) would reduce payload size.
+
+**Related**: `PUT /admin/curated-video` handler; `renderCuratedVideoPage` drag-and-drop JS; `renderVideoHubPage` curated sort application.
+
+---
+
+### 2026-05-28 — Related videos on article pages: same-section Supabase query
+
+**Decision**: On `youtube_embed` article pages, show up to 3 related video cards fetched from Supabase filtered by same `category` (for curated) or excluding curated categories (for standard embeds); sorted by `published_at desc`.
+
+**Alternatives considered**:
+- A: Same section + recency from KV `articles:BJK` — rejected; KV cache doesn't reliably contain curated articles (category-tagged videos may fall outside the top-100 pipeline window); zero related videos shown for belgeseller/unutulmaz pages.
+- B: Title keyword overlap — rejected at design time; Turkish stopword list adds maintenance burden; short titles give weak signal; value-add uncertain vs implementation cost.
+- C: No related videos — missed opportunity; session depth drops, ad impressions/visit lower.
+
+**Why this one**: One additional Supabase SELECT (3-row limit) on article page load — negligible cost, reliable results regardless of KV state. Curated articles correctly get same-bucket suggestions; regular youtube_embeds get recent non-curated embeds.
+
+**What would change our mind**: If article-page load time becomes a concern (currently two Supabase calls), could cache related results in KV per slug with short TTL.
+
+**Related**: `serveArticlePage()` related query; `renderArticleHTML()` `relatedHtml` block; `.related-vids` CSS.
+
+---
+
 ### 2026-05-21 — Synthesis_failed seen-cache + template_transfer_thin pipeline_log
 
 **Decision**: Two additive fixes from Duhuliye synthesis failure RCA (`docs/duhuliye-rca-2026-05-21.md`). Both are monitoring/cost fixes — no behavior changes for articles that pass synthesis.

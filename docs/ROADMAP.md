@@ -78,25 +78,23 @@ Goal: break `worker-fetch-agent.js` (10k lines) into focused ESM modules. Benefi
 
 ---
 
-### Video Hub *(active — foundation shipped 2026-05-26)*
+### Video Hub *(active — VH7 shipped 2026-05-28)*
 
-Goal: `/konu/videolar` redesigned as a classified video hub with tabbed sections, retention filtering, and ad slot structure. Foundation (Phase 1+2) shipped; featured ranking is the next active item.
+Goal: `/konu/videolar` redesigned as a classified video hub with tabbed sections, retention filtering, and ad slot structure. Curated sections (Belgeseller + Unutulmazlar) now fully operational; featured ranking is the next active item.
 
 | # | Item | Status | Effort | Notes |
 |---|------|--------|--------|-------|
 | VH1 | Phase 1: `video_type` DB column + 7-type classifier | ✅ Done | S | `match_highlight`, `generic_highlight`, `coach_interview`, `president_interview`, `player_interview`, `generic_interview`, `news` |
 | VH2 | Phase 2: `/konu/videolar` redesign (tabs, sections, grid, ad slots) | ✅ Done | L | Server-rendered; 4 tabs + ?tip= URL routing; retention windows; 2-col mobile / 4-col desktop |
 | VH3 | Fix Pack 1: CSS grid overflow + classifier refinement | ✅ Done | S | `min-width:0` on cards; pattern+exclusion classifier replacing simple keywords |
+| VH7 | Curated video sections (Belgeseller + Unutulmazlar) | ✅ Done | M | `category` column as discriminator (no schema migration); `/admin/curated-video` with oEmbed, inline edit, drag-and-drop sort (KV order), all 5 sections in dropdown; reveal-next-12; Tümü includes curated; min-12 backfill per tab; ads hidden until reveal; YouTube iframe auto-injected on article pages; İlgili Videolar via Supabase |
 | VH4 | Featured Ranking Logic | 🔲 Not started | M | Tier hierarchy scoring: match_highlight 100 → news 50×NVS; 24h decay for premium types; `featured_rank` numeric column; compute at query time |
 | VH5 | Homepage Video Filter | 🔲 Not started | S | Top 3 youtube_embed by `featured_rank` on homepage; non-video articles unaffected. *Depends on VH4* |
 | VH6 | Admin override for featured | 🔲 Deferred | S | `featured_until` + `featured_blocked` columns for manual pin/hide. *Defer until VH4 auto-logic proven* |
-| VH7 | Curated video sections (Unutulmaz + Belgeseller) | 🔲 Not started | M | `manual_section` column on content_items; admin endpoint `/admin/curated-video`; skips classifier (manual overrides auto type); new tabs in /konu/videolar. *Depends on VH2 tab structure (done)* |
 | VH8 | Video search + filtering | 🔲 Not started | M | Search box in /konu/videolar header; server-side `ILIKE '%query%'` across title; respects active tab filter; mobile-friendly with clear button. Can ship independently of VH4 |
 
 **Decisions needed:**
 - Coach name list (`CURRENT_COACH_NAMES` in `src/publisher.js`) is empty — populate when new coach officially signed.
-- VH7 tab names: **Unutulmaz or Efsane Anlar?** (curated highlights section name)
-- VH7 tab names: **Belgeseller or Hikayeler?** (documentary/story section name)
 
 **Future:** `squad_members` table (v1.1) replaces hardcoded `CURRENT_PLAYER_NAMES` in classifier. See Post-Launch Backlog.
 
@@ -426,7 +424,7 @@ Ordered by value/dependency. Do not start until v1.0 ships.
 - [ ] `fetchBeIN` stub returns empty array — delete or implement
 - [ ] `fetchTwitterSources` early-returns — delete or restore when X API budget available (~$100/mo)
 - [x] `fetched_at` semantic audit — 4 locations of `r.fetched_at || r.created_at` priority inversion fixed 2026-05-24 (worker lines 521, 1590, 3344, 4813 + `src/publisher.js` in-memory path); verify no further instances
-- [ ] Related articles widget at bottom of article pages (multiplies pageviews per session, higher ad revenue impact than placement optimisation) — Effort M
+- [x] Related articles widget at bottom of article pages — shipped 2026-05-28; same-section Supabase query, 3 cards, applies to all youtube_embed articles including curated
 - [ ] Architectural: unify SPA (`index.html renderArticleView`) + worker server-rendered (`renderArticleHTML`) article templates — two independent templates currently; affects SEO (crawlers see server version, users see SPA). Identified 2026-05-26 by Pack 2 diagnostic. Not urgent, but a known long-term concern. *Partial mitigation: match stats widget whitelist now in sync across both paths (2026-05-27)*
 - [ ] DECISIONS.md ongoing entries — keep adding entries for: KV bug fixes (done), classifier work (done), YouTube maxresdefault (done), Pack 2 visual fixes (done), grid root-cause (done)
 

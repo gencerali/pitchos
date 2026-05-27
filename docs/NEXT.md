@@ -9,10 +9,17 @@ Update this at the END of every work session. Not the start — the end. Future-
 ## NEXT ACTION
 
 **NEXT**:
-1. Run BOTH backfill SQLs below in Supabase, then `/rebuild-cache`
-2. After 24–48h — grep Cloudflare logs for `thin_body_blocked` events, build body-length distribution, decide on `MIN_BODY_CHARS` adjustment
-3. Check pipeline_log for `DIRECT FETCH OK` lines confirming Duhuliye/hurriyet/haberturk recovery
-4. Check NVS 30–49 articles now appearing as `published`
+1. VH4 — Featured Ranking Logic: tier-weighted scoring for VH tab ordering (match_highlight > interview > news; 24h decay). No schema change needed — compute at query time in `renderVideoHubPage`. See ROADMAP VH4.
+2. Run BOTH backfill SQLs below in Supabase, then `/rebuild-cache` (still pending from 2026-05-24)
+3. After 24–48h — grep Cloudflare logs for `thin_body_blocked` events, decide `MIN_BODY_CHARS`
+
+**What 2026-05-28 session established:**
+- VH7 fully shipped: Küratör admin page (`/admin/curated-video`) with drag-and-drop sort (KV `curated:order`), 5-section dropdown, oEmbed auto-fetch, inline edit/delete
+- All VH tab bugs resolved: curated videos excluded from haber/mac/roportaj byType filters; min-12 backfill from unfiltered rows; Tümü includes curated sections; ads hidden until "Devamını Göster" click
+- YouTube iframe auto-injected on article pages (reads `srcUrl`/`a.url`, skips if `bodyHtml` already contains `<iframe>` to prevent double embed on pipeline articles)
+- İlgili Videolar section on all youtube_embed article pages (Supabase query, not KV — ensures curated articles get suggestions; 3 cards, same-section logic)
+- `/admin/curated-seed` one-time endpoint removed
+- Commit: `f6d5469`; Cloudflare version `d3c0b11f-8bce-4c12-a1c1-cab0977f2662`
 
 **BACKFILL 1 — published_at NULL fix (CRITICAL — run first):**
 ```sql
