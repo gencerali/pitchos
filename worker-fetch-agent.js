@@ -8911,6 +8911,18 @@ ${adminNav('sources', siteCode, allSites)}
   </table>
 </main>
 <script>
+const ADMIN_SITE = '${siteCode}';
+const _origFetch = window.fetch.bind(window);
+window.fetch = (input, opts) => {
+  if (typeof input === 'string' && input.startsWith('/admin/')) {
+    try {
+      const u = new URL(input, location.origin);
+      if (!u.searchParams.get('site')) u.searchParams.set('site', ADMIN_SITE);
+      input = u.pathname + u.search;
+    } catch(e) {}
+  }
+  return _origFetch(input, opts);
+};
 const TIERS      = ['T1','T2','T3','T4'];
 const TREATMENTS = ['publish','embed','synthesize','embed_and_synthesize','signal_only'];
 
