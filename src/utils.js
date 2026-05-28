@@ -196,7 +196,7 @@ export async function supabase(env, method, path, body, extraHeaders = {}) {
 }
 
 export async function getActiveSites(env) {
-  const res = await supabase(env, 'GET', '/rest/v1/sites?status=eq.live&select=*');
+  const res = await supabase(env, 'GET', '/rest/v1/sites?status=eq.live&order=created_at.asc&select=*');
   return res || [];
 }
 
