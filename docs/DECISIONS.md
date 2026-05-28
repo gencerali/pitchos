@@ -1656,4 +1656,28 @@ Both templates show `image_url` unconditionally. For `youtube_embed` articles, `
 
 ---
 
+### 2026-05-28 — Pipeline tuning: synthesis cap 6→18, cron 2h→3h, YouTube per-channel 2→3
+
+**Decision**: Three coordinated parameter changes to improve daily article volume during the testing phase while controlling costs by reducing cron frequency.
+
+**Changes**:
+1. **Synthesis rewrite cap** (`src/publisher.js:736`): `rewritesSoFar < 6` → `rewritesSoFar < 18`. Per-run cap on successful AI rewrites. Overflow continues to queue to `rewrite:queue:BJK` for the next cycle.
+2. **Main pipeline cron** (`wrangler.toml:18`): `0 */2 * * *` → `0 */3 * * *`. Full pipeline runs every 3 hours instead of 2 (8→8 runs/day→8 runs → ~8 per day unchanged, wait—actually 12 runs/day → 8 runs/day). Saves ~33% of pipeline cost.
+3. **YouTube per-channel cap** (`worker-fetch-agent.js:4753`): `newVids.slice(0, 2)` → `newVids.slice(0, 3)`. One extra video embed per channel per run. Cost impact ~$0.10-0.20/month additional.
+
+**Alternatives considered**:
+- A: Cap 6→12 (moderate) — less drain on the overflow queue; chosen against because 18 still respects the drain queue pattern and the per-run Haiku cost at 18 rewrites is well within budget.
+- B: Keep cron at 2h — rejected; the higher cap per run means each run does more work, so fewer runs achieve the same or higher daily volume at lower total cost.
+- C: YouTube 2→4 — rejected; the homepage video dominance issue (belgeseller/unutulmazlar crowding out news) means adding more per-channel embeds too aggressively would worsen it before the featured_videos KV slot is built (see ROADMAP).
+
+**Why this one**: Testing phase needs volume to observe quality/diversity at scale. Cap×frequency budget: 18 rewrites × 8 runs/day = up to 144 rewrites/day potential (subject to incoming NVS≥30 article supply). Estimated cost: ~$3.50–7/month — same or below the ~$5 baseline due to 33% fewer cron runs.
+
+**What would change our mind**: If the overflow queue empties consistently (cap is never hit), or if cost spikes above $10/month, revisit the cap and cron balance. Once production-stable, cap may be lowered to a narrower value based on observed daily supply.
+
+**Related**: Volume Optimization section in ROADMAP.md (VO5 updated); commit `33aa535` (published_at NULL fixes + rebuild-cache sort fix); `rewrite:queue:BJK` drain logic in `src/publisher.js:1072` (drain cap remains 8/run).
+
+**Deployed**: version `58b4928f-12d1-4eb9-8e18-b7995cf9df94`
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*

@@ -730,10 +730,10 @@ export async function writeArticles(articles, site, env) {
       published.publish_mode = 'rss_summary';
 
       // Auto-synthesis: for high-NVS articles, fetch source and write a full Kartalix article.
-      // Cap 6 rewrites per run; overflow is queued to rewrite:queue:<siteCode> KV for the next hourly run.
+      // Cap 18 rewrites per run; overflow is queued to rewrite:queue:<siteCode> KV for the next run.
       if ((article.nvs || 0) >= 30) {
         const rewritesSoFar = results.filter(r => r.publish_mode === 'rewrite').length;
-        if (rewritesSoFar < 6) {
+        if (rewritesSoFar < 18) {
           // Cap counts rewrite SUCCESSES only — publish_mode is set to 'rewrite' only when
           // body.length > 600 (line ~613). Failed attempts leave publish_mode as 'rss_summary'
           // and do not increment rewritesSoFar. Verified 2026-05-22, no code change needed.

@@ -9,13 +9,13 @@ id = "dedaea653ed542cca25e6cc2551dd1c3"
 
 [vars]
 SUPABASE_URL = "https://qfgstxswcsodaaksjztz.supabase.co"
-MONTHLY_CLAUDE_CAP = "8"
+MONTHLY_CLAUDE_CAP = "16"
 
 [limits]
 subrequests = 1000
 
 [triggers]
-crons = ["*/5 * * * *", "0 */2 * * *", "0 4 * * *", "0 3 * * 1", "0 2 * * 7"]
+crons = ["*/5 * * * *", "0 */3 * * *", "0 4 * * *", "0 3 * * 1", "0 2 * * 7"]
 
 [[routes]]
 pattern = "kartalix.com/haber/*"

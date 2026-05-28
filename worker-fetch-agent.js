@@ -4750,7 +4750,7 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null)
     });
     console.log(`YT ${channel.name}: ${videos.length} fetched → ${newVids.length} qualified`);
 
-    for (const video of newVids.slice(0, 2)) {
+    for (const video of newVids.slice(0, 3)) {
       // Transcript-only channels go to digest queue, not embed
       if (video.transcript_qualify && !video.embed_qualify) {
         rabonaQueue.push(video);

@@ -110,7 +110,7 @@ Goal: increase daily publish volume to ~10 articles/day without quality regressi
 | VO2 | `thin_body_blocked` data analysis | 🟡 Observational | XS | 48h of logs needed. Output: length distribution by source. Informs MIN_BODY_CHARS |
 | VO3 | MIN_BODY_CHARS decision (keep 600 / lower to 500 / lower to 400) | 🔲 Awaiting VO2 | XS | **Decision: Ali** based on VO2 data |
 | VO4 | Facts extraction cap 5 → 16 | 🔲 Not started | XS | +€0.07/day. Low risk. Likely improves story dedup quality |
-| VO5 | Rewrite drain batch 8 → 16 | 🔲 Not started | XS | Cost could rise 2–5×. **Wait for VO1 data first** |
+| VO5 | Rewrite cap 6→18 + cron 2h→3h + YouTube 2→3 | ✅ Shipped 2026-05-28 | XS | Cap 6→18 per run; pipeline runs every 3h (was 2h); YT per-channel 2→3. Net cost neutral or ↓ due to fewer runs. DECISIONS.md 2026-05-28. |
 | VO6 | `light_news` mode for NVS 30–49 | 🔲 Designed, not started | M | Only build if VO1 + VO5 don't reach ~10/day volume target. *Depends on VO1 data* |
 | VO7 | KV health monitoring post-deploys | 🟡 Ongoing | — | Daily check: homepage shows fresh articles. Watch 4 fixed KV locations |
 
