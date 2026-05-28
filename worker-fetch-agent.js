@@ -3170,11 +3170,13 @@ Sadece JSON döndür:
       if (!authed) return Response.json({ error: 'Unauthorized' }, { status: 401, headers: h });
 
       const validSections = new Set(Object.keys(_VH_ALL_SECTION_MAP));
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
 
       if (request.method === 'GET') {
         const [list, orderRaw] = await Promise.all([
           supabase(env, 'GET',
-            `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,category,original_url&site_id=eq.${_VH_SITE_ID}&publish_mode=eq.youtube_embed&category=in.(${Object.keys(_VH_ALL_SECTION_MAP).join(',')})&status=eq.published&order=published_at.desc&limit=200`
+            `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,category,original_url&site_id=eq.${currentSite.id}&publish_mode=eq.youtube_embed&category=in.(${Object.keys(_VH_ALL_SECTION_MAP).join(',')})&status=eq.published&order=published_at.desc&limit=200`
           ),
           env.PITCHOS_CACHE.get('curated:order'),
         ]);
@@ -3183,8 +3185,6 @@ Sadece JSON döndür:
           const orderMap = Object.fromEntries(JSON.parse(orderRaw).map((s, i) => [s, i]));
           items.sort((a, b) => (orderMap[a.slug] ?? 99999) - (orderMap[b.slug] ?? 99999));
         }
-        const allSites = await getActiveSites(env);
-        const currentSite = resolveSite(url, allSites);
         return new Response(renderCuratedVideoPage(items, currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       }
 
@@ -3213,7 +3213,7 @@ Sadece JSON döndür:
         const now = new Date().toISOString();
         const secDef = _VH_ALL_SECTION_MAP[section];
         const saved = await supabase(env, 'POST', '/rest/v1/content_items', [{
-          site_id: _VH_SITE_ID, source_type: 'youtube', source_name: sourceName,
+          site_id: currentSite.id, source_type: 'youtube', source_name: sourceName,
           original_url: `https://www.youtube.com/watch?v=${videoId}`,
           title, summary: title, full_body: title,
           image_url: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
@@ -3238,14 +3238,14 @@ Sadece JSON döndür:
         }
         if (title) patch.title = title;
         if (!Object.keys(patch).length) return Response.json({ error: 'nothing to update' }, { status: 400, headers: h });
-        await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&site_id=eq.${_VH_SITE_ID}`, patch);
+        await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&site_id=eq.${currentSite.id}`, patch);
         return Response.json({ ok: true }, { headers: h });
       }
 
       if (request.method === 'DELETE') {
         const { slug } = await request.json().catch(() => ({}));
         if (!slug) return Response.json({ error: 'slug required' }, { status: 400, headers: h });
-        await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&site_id=eq.${_VH_SITE_ID}`, { status: 'archived' });
+        await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&site_id=eq.${currentSite.id}`, { status: 'archived' });
         return Response.json({ ok: true }, { headers: h });
       }
 
