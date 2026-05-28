@@ -1794,9 +1794,8 @@ export default {
       const alarms = { 80: alarm80, 90: alarm90, 100: alarm100 };
       const data = { current_month: monthKey, current_usd: +current.toFixed(4), cap_usd: cap, cap_is_override: !!capOverride, pct_used: pct, blocked: current >= cap, history, alarms };
       if (url.searchParams.get('json') === '1') return Response.json(data, { headers: { 'Content-Type': 'application/json' } });
-      const allSites = await getActiveSites(env);
-      const currentSite = resolveSite(url, allSites);
-      return new Response(renderCostPage(data, currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const dest = `/admin/financials?tab=cost${url.searchParams.get('site') ? '&site='+url.searchParams.get('site') : ''}`;
+      return Response.redirect(`https://${url.hostname}${dest}`, 302);
     }
 
     // ── FINANCIALS PAGE ───────────────────────────────────────
@@ -1863,10 +1862,27 @@ export default {
         return { month: m, fixed: FIXED_TOTAL, claude, manual, revenue: snap.revenue ?? 0 };
       });
 
+      const now2 = new Date();
+      const monthKey2 = now2.toISOString().slice(0, 7);
+      const [costRaw, costCap, a80, a90, a100] = await Promise.all([
+        env.PITCHOS_CACHE.get(`cost:${monthKey2}`),
+        env.PITCHOS_CACHE.get('cost:cap'),
+        env.PITCHOS_CACHE.get(`cost:alarm:80:${monthKey2}`),
+        env.PITCHOS_CACHE.get(`cost:alarm:90:${monthKey2}`),
+        env.PITCHOS_CACHE.get(`cost:alarm:100:${monthKey2}`),
+      ]);
+      const costCur = parseFloat(costRaw || '0');
+      const costCapV = parseFloat(costCap || env.MONTHLY_CLAUDE_CAP || '8');
+      const costPct = costCapV > 0 ? (costCur / costCapV * 100).toFixed(1) : '0';
+      const costMonths = [monthKey2];
+      for (let i = 1; i <= 2; i++) { const d2 = new Date(now2); d2.setMonth(d2.getMonth()-i); costMonths.push(d2.toISOString().slice(0,7)); }
+      const costHistory = await Promise.all(costMonths.map(async m => ({ month: m, usd: parseFloat((await env.PITCHOS_CACHE.get(`cost:${m}`)) || '0') })));
+      const costData = { current_month: monthKey2, current_usd: +costCur.toFixed(4), cap_usd: costCapV, cap_is_override: !!costCap, pct_used: costPct, blocked: costCur >= costCapV, history: costHistory, alarms: { 80: a80, 90: a90, 100: a100 } };
+      const activeTab = url.searchParams.get('tab') === 'cost' ? 'cost' : 'fin';
       const allSites = await getActiveSites(env);
       const currentSite = resolveSite(url, allSites);
       return new Response(
-        renderFinancialsPage(monthsData, FIXED_ITEMS, currentSite.short_code, allSites),
+        renderFinancialsPage(monthsData, FIXED_ITEMS, costData, activeTab, currentSite.short_code, allSites),
         { headers: { 'Content-Type': 'text/html;charset=UTF-8' } }
       );
     }
@@ -8490,11 +8506,19 @@ async function doReset() {
 </html>`;
 }
 
-function renderFinancialsPage(monthsData, fixedItems, siteCode, allSites) {
+function renderFinancialsPage(monthsData, fixedItems, costData, activeTab, siteCode, allSites) {
   const allMonths    = monthsData.map(d => d.month);
   const currentMonth = allMonths[allMonths.length - 1] || '';
-  // All manual entries tagged with their start month (for rendering the table)
   const allManual = monthsData.flatMap(d => d.manual.map(c => ({ ...c, startMonth: d.month })));
+
+  // Cost panel data
+  const { current_usd, cap_usd, cap_is_override, pct_used, blocked, history: costHistory, alarms, current_month: costMonth } = costData;
+  const barPct = Math.min(parseFloat(pct_used || 0), 100);
+  const barColor = barPct >= 100 ? '#E30A17' : barPct >= 80 ? '#f0a500' : '#3a9a3a';
+  const statusCls = blocked ? 'status-blocked' : barPct >= 80 ? 'status-warn' : 'status-ok';
+  const statusTxt = blocked ? 'BLOCKED' : barPct >= 80 ? 'WARNING' : 'OK';
+  function fmtTs(iso) { if (!iso) return null; const d = new Date(iso); return d.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+  const alarm80ts = fmtTs(alarms[80]), alarm90ts = fmtTs(alarms[90]), alarm100ts = fmtTs(alarms[100]);
 
   return `<!DOCTYPE html>
 <html lang="tr">
@@ -8546,12 +8570,52 @@ td{padding:6px 8px;border-bottom:1px solid #161616;vertical-align:middle;font-si
 .btn-del:hover{border-color:#E30A17;color:#E30A17}
 .st{font-size:.7rem;color:#3a9a3a;align-self:center;min-width:50px}
 .page-note{font-size:.65rem;color:#333;text-align:center;margin-top:1.25rem}
+.tabs{display:flex;gap:0;border-bottom:1px solid #2a2a2a;margin-bottom:1.5rem}
+.tab-btn{padding:.55rem 1.25rem;cursor:pointer;font-size:.75rem;color:#666;border:none;background:none;border-bottom:2px solid transparent;font-family:inherit}
+.tab-btn.active{color:#fff;border-bottom-color:#E30A17}
+.tab-btn:hover{color:#ccc}
+#costPanel .cost-card{background:#111;border:1px solid #222;border-radius:6px;padding:1.25rem 1.5rem;margin-bottom:1.25rem}
+#costPanel .ch2{font-size:.78rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:1rem}
+#costPanel .big-num{font-size:2.6rem;font-weight:900;color:#fff;line-height:1}
+#costPanel .pct-badge{display:inline-block;font-size:1.2rem;font-weight:800;margin-left:.6rem;vertical-align:middle;color:${barColor}}
+#costPanel .big-sub{font-size:.75rem;color:#666;margin-top:.3rem}
+#costPanel .bar-wrap{background:#1a1a1a;border-radius:4px;height:10px;margin:1rem 0 .5rem;overflow:hidden}
+#costPanel .bar-fill{height:100%;border-radius:4px}
+#costPanel .bar-label{font-size:.72rem;color:#888;display:flex;justify-content:space-between}
+#costPanel .status-ok{color:#3a9a3a;font-weight:700}
+#costPanel .status-warn{color:#f0a500;font-weight:700}
+#costPanel .status-blocked{color:#E30A17;font-weight:700}
+#costPanel .alarm-row{display:flex;align-items:center;gap:.75rem;padding:.55rem 0;border-bottom:1px solid #1a1a1a}
+#costPanel .alarm-row:last-child{border-bottom:none}
+#costPanel .alarm-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+#costPanel .alarm-label{font-size:.82rem;font-weight:600;min-width:3.5rem}
+#costPanel .alarm-ts{font-size:.73rem;color:#777;flex:1}
+#costPanel .alarm-ts.hit{color:#f0a500}
+#costPanel .row-btns{display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap}
+#costPanel .cbtn{background:#1a1a1a;border:1px solid #333;color:#ccc;padding:.45rem 1rem;border-radius:4px;font-size:.78rem;cursor:pointer;font-family:inherit}
+#costPanel .cbtn:hover{border-color:#555;color:#fff}
+#costPanel .cbtn.danger{border-color:#5a1a1a;color:#e07070}
+#costPanel .cbtn.danger:hover{border-color:#E30A17;color:#E30A17}
+#costPanel .cbtn.primary{border-color:#335;color:#aad;background:#1a1a2a}
+#costPanel .cbtn.primary:hover{border-color:#44f;color:#ccf}
+#costPanel .cap-edit{display:none;align-items:center;gap:.5rem;margin-top:.75rem;flex-wrap:wrap}
+#costPanel .cap-edit input{background:#1a1a1a;border:1px solid #333;color:#e8e6e0;padding:.4rem .6rem;border-radius:4px;font-size:.82rem;font-family:inherit;width:90px}
+#costPanel .cap-source{font-size:.7rem;color:#555;margin-top:.3rem}
+#costPanel table{width:100%;border-collapse:collapse}
+#costPanel th{text-align:left;font-size:.7rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:4px 0;border-bottom:1px solid #222}
+#costPanel td{padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:.85rem}
+#costPanel td:last-child{text-align:right;color:#888}
+#toast{position:fixed;bottom:1.5rem;right:1.5rem;background:#222;border:1px solid #444;color:#e8e6e0;padding:.6rem 1rem;border-radius:5px;font-size:.8rem;display:none;z-index:999}
 </style>
 </head>
 <body>
 ${adminNav('financials', siteCode, allSites)}
 <main>
-
+<div class="tabs">
+  <button class="tab-btn${activeTab==='fin'?' active':''}" onclick="showTab('fin')">Finansal Özet</button>
+  <button class="tab-btn${activeTab==='cost'?' active':''}" onclick="showTab('cost')">Claude Maliyeti</button>
+</div>
+<div id="finPanel" style="display:${activeTab==='fin'?'block':'none'}">
 <div class="range-bar">
   <button class="rbtn active" onclick="setRange('month',this)">This Month</button>
   <button class="rbtn" onclick="setRange('ytd',this)">YTD</button>
@@ -8618,10 +8682,69 @@ ${adminNav('financials', siteCode, allSites)}
 </div>
 
 <p class="page-note">Fixed costs hardcoded — ask Claude to update when plans change. Recurring manual entries propagate forward from their start month.</p>
-</main>
+</div><!-- /finPanel -->
 
+<div id="costPanel" style="display:${activeTab==='cost'?'block':'none'};max-width:640px;margin:0 auto">
+  <div class="cost-card">
+    <div class="ch2">This Month — ${costMonth}</div>
+    <div>
+      <span class="big-num">$${current_usd.toFixed(4)}</span>
+      <span class="pct-badge">${barPct.toFixed(1)}%</span>
+    </div>
+    <div class="big-sub">of $${cap_usd.toFixed(2)} cap — <span class="${statusCls}">${statusTxt}</span></div>
+    <div class="bar-wrap"><div class="bar-fill" style="width:${barPct}%;background:${barColor}"></div></div>
+    <div class="bar-label"><span>${barPct.toFixed(1)}% used</span><span>$${Math.max(0, cap_usd - current_usd).toFixed(4)} remaining</span></div>
+    <div class="row-btns">
+      <button class="cbtn primary" onclick="toggleCapEdit()">Edit Cap</button>
+      <button class="cbtn danger" onclick="doReset()">Reset Counter</button>
+    </div>
+    <div class="cap-edit" id="capEditRow">
+      <span style="font-size:.78rem;color:#888">New cap ($):</span>
+      <input type="number" id="capInput" min="1" max="9999" step="0.5" value="${cap_usd.toFixed(2)}"/>
+      <button class="cbtn primary" onclick="saveCap()">Save</button>
+      <button class="cbtn" onclick="toggleCapEdit()">Cancel</button>
+    </div>
+    <div class="cap-source">${cap_is_override ? 'Cap: KV override (cost:cap key)' : 'Cap: MONTHLY_CLAUDE_CAP env var — use Edit Cap to override at runtime'}</div>
+  </div>
+  <div class="cost-card">
+    <div class="ch2">Alarms</div>
+    <div class="alarm-row"><div class="alarm-dot" style="background:${alarms[80]?'#f0a500':'#333'}"></div><span class="alarm-label">80%</span><span class="alarm-ts ${alarm80ts?'hit':''}">${alarm80ts?'Triggered: '+alarm80ts:'Not triggered'}</span></div>
+    <div class="alarm-row"><div class="alarm-dot" style="background:${alarms[90]?'#f0a500':'#333'}"></div><span class="alarm-label">90%</span><span class="alarm-ts ${alarm90ts?'hit':''}">${alarm90ts?'Triggered: '+alarm90ts:'Not triggered'}</span></div>
+    <div class="alarm-row"><div class="alarm-dot" style="background:${alarms[100]?'#E30A17':'#333'}"></div><span class="alarm-label">100%</span><span class="alarm-ts ${alarm100ts?'hit':''}">${alarm100ts?'Triggered: '+alarm100ts:'Not triggered'}</span></div>
+    <p style="font-size:.7rem;color:#555;margin-top:.75rem">Alarm timestamps are recorded once per month — first crossing only. Reset counter to clear.</p>
+  </div>
+  <div class="cost-card">
+    <div class="ch2">History</div>
+    <table><thead><tr><th>Month</th><th>Spend (USD)</th></tr></thead>
+    <tbody>${costHistory.map(h=>`<tr><td>${h.month}</td><td>$${h.usd.toFixed(4)}</td></tr>`).join('')}</tbody></table>
+  </div>
+</div><!-- /costPanel -->
+
+</main>
+<div id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script>
+const ADMIN_SITE = '${siteCode}';
+const _origFetch = window.fetch.bind(window);
+window.fetch = (input, opts) => {
+  if (typeof input === 'string' && input.startsWith('/admin/')) {
+    try {
+      const u = new URL(input, location.origin);
+      if (!u.searchParams.get('site')) u.searchParams.set('site', ADMIN_SITE);
+      input = u.pathname + u.search;
+    } catch(e) {}
+  }
+  return _origFetch(input, opts);
+};
+function showTab(t) {
+  document.getElementById('finPanel').style.display = t==='fin'?'block':'none';
+  document.getElementById('costPanel').style.display = t==='cost'?'block':'none';
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.textContent.includes(t==='fin'?'Finansal':'Claude')));
+}
+function toast(msg) { const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>{t.style.display='none';},2500); }
+function toggleCapEdit() { const r=document.getElementById('capEditRow'); r.style.display=r.style.display==='flex'?'none':'flex'; }
+async function saveCap() { const cap=parseFloat(document.getElementById('capInput').value); if(!cap||cap<=0){toast('Invalid cap');return;} const r=await fetch('/admin/cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'set-cap',cap})}); if(r.ok){toast('Cap updated — reloading…');setTimeout(()=>location.reload(),800);}else{toast('Error saving cap');} }
+async function doReset() { if(!confirm('Reset current month counter and all alarm timestamps?'))return; const r=await fetch('/admin/cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'reset'})}); if(r.ok){toast('Counter reset — reloading…');setTimeout(()=>location.reload(),800);}else{toast('Error resetting');} }
 const ALL_DATA    = ${JSON.stringify(monthsData)};
 const FIXED_ITEMS = ${JSON.stringify(fixedItems)};
 const ALL_MANUAL  = ${JSON.stringify(allManual)};
@@ -11295,6 +11418,18 @@ ${nav}
 </div>
 
 <script>
+const ADMIN_SITE = '${siteCode}';
+const _origFetch = window.fetch.bind(window);
+window.fetch = (input, opts) => {
+  if (typeof input === 'string' && input.startsWith('/admin/')) {
+    try {
+      const u = new URL(input, location.origin);
+      if (!u.searchParams.get('site')) u.searchParams.set('site', ADMIN_SITE);
+      input = u.pathname + u.search;
+    } catch(e) {}
+  }
+  return _origFetch(input, opts);
+};
 const results = ${JSON.stringify(saved)};
 
 function mark(id) {
