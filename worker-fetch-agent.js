@@ -2831,10 +2831,10 @@ Sadece JSON döndür:
       if (!authed) {
         return new Response(renderPinPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       }
-      const cached = await env.PITCHOS_CACHE.get('articles:BJK');
-      const articles = cached ? JSON.parse(cached) : [];
       const allSites = await getActiveSites(env);
       const currentSite = resolveSite(url, allSites);
+      const cached = await env.PITCHOS_CACHE.get(`articles:${currentSite.short_code}`);
+      const articles = cached ? JSON.parse(cached) : [];
       return new Response(renderAdminPage(articles, currentSite.short_code, allSites), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
