@@ -11352,6 +11352,13 @@ ${nav}
 <div class="page">
 
   <div class="card">
+    <h2>Pipeline Çalıştır</h2>
+    <p style="font-size:.8rem;color:#888;margin-bottom:1rem">Tüm aktif siteler için RSS çekme, puanlama ve yeniden yazma pipeline'ını tetikler. İstek KV'ye yazılır; sonraki 5 dakikalık cron ile çalışır (~5 dk bekleyin).</p>
+    <button class="btn" id="run-btn" onclick="runPipeline()">▶ Pipeline Çalıştır</button>
+    <div id="run-status" class="status"></div>
+  </div>
+
+  <div class="card">
     <h2>Sonraki Maç Konfigürasyonu</h2>
     <div class="row"><label>Kodda sabit</label><span class="val stale">${fmt(hardcoded)}</span></div>
     <div class="row"><label>KV cache</label><span class="val ${cached ? 'live' : 'stale'}">${cached ? fmt(cached) : '— boş, henüz çekilmedi'}</span></div>
@@ -11448,6 +11455,29 @@ function runSynth() {
   post('/force-story-synthesis?story_id=' + encodeURIComponent(id),
     d => d.published ? \`Yayınlandı: \${d.title}\` : 'Sentezlendi (yayın yok)',
     'synth-status');
+}
+async function runPipeline() {
+  const btn = document.getElementById('run-btn');
+  const el  = document.getElementById('run-status');
+  btn.disabled = true;
+  el.textContent = 'İstek gönderiliyor...'; el.className = 'status'; el.style.display = 'block';
+  try {
+    const r = await fetch('/run');
+    const d = await r.json();
+    if (d.status === 'blocked') {
+      const reason = d.preflight?.cost_blocked ? \`Maliyet limiti aşıldı (\$\${d.preflight.cost_current?.toFixed(2)} / \$\${d.preflight.cost_cap})\` : (d.reason || 'bilinmeyen sebep');
+      el.textContent = 'Engellendi: ' + reason; el.className = 'status err';
+    } else if (d.status === 'queued') {
+      const sites = (d.preflight?.site_codes || []).join(', ');
+      el.textContent = \`Kuyruğa alındı — siteler: \${sites} · ~5 dk sonra kontrol edin\`; el.className = 'status';
+    } else {
+      el.textContent = JSON.stringify(d); el.className = 'status';
+    }
+  } catch(e) {
+    el.textContent = 'Hata: ' + e.message; el.className = 'status err';
+  } finally {
+    setTimeout(() => { btn.disabled = false; }, 10000);
+  }
 }
 <\/script>
 </body>
