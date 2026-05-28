@@ -1656,8 +1656,13 @@
     }
 
     // Shelf-life filter
-    const visible = articles.filter(a => !isExpired(a));
+    let visible = articles.filter(a => !isExpired(a));
     const expired = articles.filter(a => isExpired(a));
+
+    // Stale-cache fallback: if every article is expired (pipeline drought), show all anyway
+    // so the homepage doesn't go blank. Sorted by date descending.
+    const usingStaleCache = visible.length === 0 && expired.length > 0;
+    if (usingStaleCache) visible = [...expired];
 
     // Time-decayed sort (templates pin at 999)
     visible.sort((a, b) => effectiveNvs(b) - effectiveNvs(a));

@@ -393,15 +393,31 @@ export function addUsagePhase(stats, usage, model, phase) {
 // Rates in COST table use USD pricing despite the 'costEur' variable name.
 export async function addCost(env, usd) {
   if (!usd || usd <= 0) return;
-  const key = `cost:${new Date().toISOString().slice(0, 7)}`;
+  const month = new Date().toISOString().slice(0, 7);
+  const key = `cost:${month}`;
+  const capRaw = await env.PITCHOS_CACHE.get('cost:cap');
+  const cap = parseFloat(capRaw || env.MONTHLY_CLAUDE_CAP || '8');
   const cur = parseFloat((await env.PITCHOS_CACHE.get(key)) || '0');
-  await env.PITCHOS_CACHE.put(key, String((cur + usd).toFixed(6)));
+  const next = cur + usd;
+  await env.PITCHOS_CACHE.put(key, String(next.toFixed(6)));
+  if (cap > 0) {
+    const pct = next / cap * 100;
+    const now = new Date().toISOString();
+    for (const threshold of [80, 90, 100]) {
+      if (pct >= threshold) {
+        const alarmKey = `cost:alarm:${threshold}:${month}`;
+        const existing = await env.PITCHOS_CACHE.get(alarmKey);
+        if (!existing) await env.PITCHOS_CACHE.put(alarmKey, now);
+      }
+    }
+  }
 }
 
 export async function checkCostCap(env) {
   const key = `cost:${new Date().toISOString().slice(0, 7)}`;
   const current = parseFloat((await env.PITCHOS_CACHE.get(key)) || '0');
-  const cap = parseFloat(env.MONTHLY_CLAUDE_CAP || '8');
+  const capRaw = await env.PITCHOS_CACHE.get('cost:cap');
+  const cap = parseFloat(capRaw || env.MONTHLY_CLAUDE_CAP || '8');
   if (current >= cap) {
     console.warn(`COST CAP: $${current.toFixed(4)} of $${cap.toFixed(2)} used — AI calls blocked`);
   } else if (current >= cap * 0.8) {

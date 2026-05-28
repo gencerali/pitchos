@@ -241,8 +241,11 @@ export default {
       if (capStatus.blocked) {
         return Response.json({ status: 'blocked', reason: 'cost_cap', preflight });
       }
-      ctx.waitUntil(runAllSites(env, ctx, { forceRun: true }));
-      return Response.json({ status: 'started', preflight, message: 'Running in background — check /cache in ~60s' });
+      const lookbackHours = parseInt(url.searchParams.get('lookback_hours') || '0');
+      const runOpts = { forceRun: true };
+      if (lookbackHours > 0) runOpts.lookbackMs = lookbackHours * 3600 * 1000;
+      ctx.waitUntil(runAllSites(env, ctx, runOpts));
+      return Response.json({ status: 'started', preflight, lookback_hours: lookbackHours || 24, message: 'Running in background — check /cache in ~60s' });
     }
     if (url.pathname === '/widgets/config') {
       return Response.json(
@@ -495,18 +498,20 @@ export default {
       const authErr = await requireOps(request, env); if (authErr) return authErr;
       // Restores KV display cache after a wipe.
       // Strategy 1: pull from Supabase content_items (any status).
-      // Strategy 2: if Supabase is empty, fetch RSS feeds directly, skip url-dedup.
+      // Strategy 2: fetch RSS feeds directly, skip url-dedup. Forced with ?rss=1.
       try {
         const sites = await getActiveSites(env);
         const site = sites?.[0];
         if (!site) return Response.json({ error: 'no active site' }, { status: 500 });
 
-        // Strategy 1 — Supabase
-        const rows = await supabase(env, 'GET',
+        const forceRss = url.searchParams.get('rss') === '1';
+
+        // Strategy 1 — Supabase (skipped if ?rss=1)
+        const rows = forceRss ? null : await supabase(env, 'GET',
           `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=neq.rss_summary&order=published_at.desc&limit=100&select=title,summary,full_body,source_name,source_type,original_url,category,nvs_score,golden_score,published_at,fetched_at,created_at,sport,publish_mode,image_url,slug,template_id`
         );
 
-        if (rows && rows.length > 0) {
+        if (!forceRss && rows && rows.length > 0) {
           const articles = rows.filter(r => r.slug).map(r => toKVShape({
             title:               r.title        || '',
             summary:             r.summary      || '',
@@ -1744,13 +1749,42 @@ export default {
     }
     // ── COST MONITOR ─────────────────────────────────────────
     if (url.pathname === '/admin/cost') {
-      const cookie = request.headers.get('cookie') || '';
       const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+
+      if (request.method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+        if (body.action === 'reset') {
+          const monthKey2 = new Date().toISOString().slice(0, 7);
+          await Promise.all([
+            env.PITCHOS_CACHE.put(`cost:${monthKey2}`, '0'),
+            env.PITCHOS_CACHE.delete(`cost:alarm:80:${monthKey2}`),
+            env.PITCHOS_CACHE.delete(`cost:alarm:90:${monthKey2}`),
+            env.PITCHOS_CACHE.delete(`cost:alarm:100:${monthKey2}`),
+          ]);
+          return Response.json({ ok: true }, { headers: h });
+        }
+        if (body.action === 'set-cap') {
+          const val = parseFloat(body.cap);
+          if (!val || val <= 0) return Response.json({ error: 'invalid cap' }, { status: 400, headers: h });
+          await env.PITCHOS_CACHE.put('cost:cap', String(val.toFixed(2)));
+          return Response.json({ ok: true }, { headers: h });
+        }
+        return Response.json({ error: 'unknown action' }, { status: 400, headers: h });
+      }
+
       const now = new Date();
       const monthKey = now.toISOString().slice(0, 7);
-      const current = parseFloat((await env.PITCHOS_CACHE.get(`cost:${monthKey}`)) || '0');
-      const cap = parseFloat(env.MONTHLY_CLAUDE_CAP || '8');
+      const [currentRaw, capOverride, alarm80, alarm90, alarm100] = await Promise.all([
+        env.PITCHOS_CACHE.get(`cost:${monthKey}`),
+        env.PITCHOS_CACHE.get('cost:cap'),
+        env.PITCHOS_CACHE.get(`cost:alarm:80:${monthKey}`),
+        env.PITCHOS_CACHE.get(`cost:alarm:90:${monthKey}`),
+        env.PITCHOS_CACHE.get(`cost:alarm:100:${monthKey}`),
+      ]);
+      const current = parseFloat(currentRaw || '0');
+      const cap = parseFloat(capOverride || env.MONTHLY_CLAUDE_CAP || '8');
       const pct = cap > 0 ? (current / cap * 100).toFixed(1) : '0';
       const months = [monthKey];
       for (let i = 1; i <= 2; i++) {
@@ -1762,7 +1796,8 @@ export default {
         month: m,
         usd: parseFloat((await env.PITCHOS_CACHE.get(`cost:${m}`)) || '0'),
       })));
-      const data = { current_month: monthKey, current_usd: +current.toFixed(4), cap_usd: cap, pct_used: pct, blocked: current >= cap, history };
+      const alarms = { 80: alarm80, 90: alarm90, 100: alarm100 };
+      const data = { current_month: monthKey, current_usd: +current.toFixed(4), cap_usd: cap, cap_is_override: !!capOverride, pct_used: pct, blocked: current >= cap, history, alarms };
       if (url.searchParams.get('json') === '1') return Response.json(data, { headers: { 'Content-Type': 'application/json' } });
       return new Response(renderCostPage(data), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
@@ -8260,9 +8295,19 @@ async function saveOrder() {
 }
 
 function renderCostPage(data) {
-  const { current_usd, cap_usd, pct_used, blocked, history } = data;
+  const { current_usd, cap_usd, cap_is_override, pct_used, blocked, history, alarms, current_month } = data;
   const barPct = Math.min(parseFloat(pct_used || 0), 100);
   const barColor = barPct >= 100 ? '#E30A17' : barPct >= 80 ? '#f0a500' : '#3a9a3a';
+  const statusCls = blocked ? 'status-blocked' : barPct >= 80 ? 'status-warn' : 'status-ok';
+  const statusTxt = blocked ? 'BLOCKED' : barPct >= 80 ? 'WARNING' : 'OK';
+  function fmtTs(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return d.toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+  const alarm80ts  = fmtTs(alarms[80]);
+  const alarm90ts  = fmtTs(alarms[90]);
+  const alarm100ts = fmtTs(alarms[100]);
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -8275,30 +8320,88 @@ body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-seri
 main{max-width:640px;margin:2rem auto;padding:0 1.5rem}
 .card{background:#111;border:1px solid #222;border-radius:6px;padding:1.25rem 1.5rem;margin-bottom:1.25rem}
 h2{font-size:.78rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:1rem}
-.big-num{font-size:2.2rem;font-weight:900;color:#fff;line-height:1}
+.big-num{font-size:2.6rem;font-weight:900;color:#fff;line-height:1}
+.pct-badge{display:inline-block;font-size:1.2rem;font-weight:800;margin-left:.6rem;vertical-align:middle;color:${barColor}}
 .big-sub{font-size:.75rem;color:#666;margin-top:.3rem}
-.bar-wrap{background:#1a1a1a;border-radius:4px;height:8px;margin:1rem 0 .5rem;overflow:hidden}
+.bar-wrap{background:#1a1a1a;border-radius:4px;height:10px;margin:1rem 0 .5rem;overflow:hidden}
 .bar-fill{height:100%;border-radius:4px;transition:width .3s}
 .bar-label{font-size:.72rem;color:#888;display:flex;justify-content:space-between}
 .status-ok{color:#3a9a3a;font-weight:700}
 .status-warn{color:#f0a500;font-weight:700}
 .status-blocked{color:#E30A17;font-weight:700}
+.alarm-row{display:flex;align-items:center;gap:.75rem;padding:.55rem 0;border-bottom:1px solid #1a1a1a}
+.alarm-row:last-child{border-bottom:none}
+.alarm-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.alarm-dot.triggered{background:${barPct>=100?'#E30A17':barPct>=90?'#f0a500':barPct>=80?'#f0a500':'#333'}}
+.alarm-dot.ok{background:#3a9a3a}
+.alarm-label{font-size:.82rem;font-weight:600;min-width:3.5rem}
+.alarm-ts{font-size:.73rem;color:#777;flex:1}
+.alarm-ts.hit{color:#f0a500}
+.alarm-dot[data-lvl="80"].on{background:${alarms[80]?'#f0a500':'#333'}}
+.alarm-dot[data-lvl="90"].on{background:${alarms[90]?'#f0a500':'#333'}}
+.alarm-dot[data-lvl="100"].on{background:${alarms[100]?'#E30A17':'#333'}}
+.row-btns{display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap}
+.btn{background:#1a1a1a;border:1px solid #333;color:#ccc;padding:.45rem 1rem;border-radius:4px;font-size:.78rem;cursor:pointer;font-family:inherit}
+.btn:hover{border-color:#555;color:#fff}
+.btn.danger{border-color:#5a1a1a;color:#e07070}
+.btn.danger:hover{border-color:#E30A17;color:#E30A17}
+.btn.primary{border-color:#335;color:#aad;background:#1a1a2a}
+.btn.primary:hover{border-color:#44f;color:#ccf}
+.cap-edit{display:none;align-items:center;gap:.5rem;margin-top:.75rem;flex-wrap:wrap}
+.cap-edit input{background:#1a1a1a;border:1px solid #333;color:#e8e6e0;padding:.4rem .6rem;border-radius:4px;font-size:.82rem;font-family:inherit;width:90px}
+.cap-source{font-size:.7rem;color:#555;margin-top:.3rem}
 table{width:100%;border-collapse:collapse}
 th{text-align:left;font-size:.7rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:4px 0;border-bottom:1px solid #222}
 td{padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:.85rem}
 td:last-child{text-align:right;color:#888}
+#toast{position:fixed;bottom:1.5rem;right:1.5rem;background:#222;border:1px solid #444;color:#e8e6e0;padding:.6rem 1rem;border-radius:5px;font-size:.8rem;display:none;z-index:999}
 </style>
 </head>
 <body>
 ${adminNav('cost')}
 <main>
   <div class="card">
-    <h2>This Month</h2>
-    <div class="big-num">$${current_usd.toFixed(4)}</div>
-    <div class="big-sub">of $${cap_usd.toFixed(2)} cap — <span class="${blocked ? 'status-blocked' : barPct >= 80 ? 'status-warn' : 'status-ok'}">${blocked ? 'BLOCKED' : barPct >= 80 ? 'WARNING' : 'OK'}</span></div>
+    <h2>This Month — ${current_month}</h2>
+    <div>
+      <span class="big-num">$${current_usd.toFixed(4)}</span>
+      <span class="pct-badge">${barPct.toFixed(1)}%</span>
+    </div>
+    <div class="big-sub">of $${cap_usd.toFixed(2)} cap — <span class="${statusCls}">${statusTxt}</span></div>
     <div class="bar-wrap"><div class="bar-fill" style="width:${barPct}%;background:${barColor}"></div></div>
-    <div class="bar-label"><span>${barPct.toFixed(1)}% used</span><span>$${(cap_usd - current_usd).toFixed(4)} remaining</span></div>
+    <div class="bar-label"><span>${barPct.toFixed(1)}% used</span><span>$${Math.max(0, cap_usd - current_usd).toFixed(4)} remaining</span></div>
+    <div class="row-btns">
+      <button class="btn primary" onclick="toggleCapEdit()">Edit Cap</button>
+      <button class="btn danger" onclick="doReset()">Reset Counter</button>
+    </div>
+    <div class="cap-edit" id="capEditRow">
+      <span style="font-size:.78rem;color:#888">New cap ($):</span>
+      <input type="number" id="capInput" min="1" max="9999" step="0.5" value="${cap_usd.toFixed(2)}"/>
+      <button class="btn primary" onclick="saveCap()">Save</button>
+      <button class="btn" onclick="toggleCapEdit()">Cancel</button>
+    </div>
+    <div class="cap-source">${cap_is_override ? 'Cap: KV override (cost:cap key)' : 'Cap: MONTHLY_CLAUDE_CAP env var — use Edit Cap to override at runtime'}</div>
   </div>
+
+  <div class="card">
+    <h2>Alarms</h2>
+    <div class="alarm-row">
+      <div class="alarm-dot" data-lvl="80" style="background:${alarms[80]?'#f0a500':'#333'}"></div>
+      <span class="alarm-label">80%</span>
+      <span class="alarm-ts ${alarm80ts?'hit':''}">${alarm80ts ? 'Triggered: ' + alarm80ts : 'Not triggered'}</span>
+    </div>
+    <div class="alarm-row">
+      <div class="alarm-dot" data-lvl="90" style="background:${alarms[90]?'#f0a500':'#333'}"></div>
+      <span class="alarm-label">90%</span>
+      <span class="alarm-ts ${alarm90ts?'hit':''}">${alarm90ts ? 'Triggered: ' + alarm90ts : 'Not triggered'}</span>
+    </div>
+    <div class="alarm-row">
+      <div class="alarm-dot" data-lvl="100" style="background:${alarms[100]?'#E30A17':'#333'}"></div>
+      <span class="alarm-label">100%</span>
+      <span class="alarm-ts ${alarm100ts?'hit':''}">${alarm100ts ? 'Triggered: ' + alarm100ts : 'Not triggered'}</span>
+    </div>
+    <p style="font-size:.7rem;color:#555;margin-top:.75rem">Alarm timestamps are recorded once per month — first crossing only. Reset counter to clear.</p>
+  </div>
+
   <div class="card">
     <h2>History</h2>
     <table>
@@ -8308,8 +8411,33 @@ ${adminNav('cost')}
       </tbody>
     </table>
   </div>
-  <p style="font-size:.7rem;color:#555;text-align:center">Cap configurable via MONTHLY_CLAUDE_CAP env var (default $8). Refreshes each page load.</p>
 </main>
+<div id="toast"></div>
+<script>
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.display = 'block';
+  setTimeout(() => { t.style.display = 'none'; }, 2500);
+}
+function toggleCapEdit() {
+  const row = document.getElementById('capEditRow');
+  row.style.display = row.style.display === 'flex' ? 'none' : 'flex';
+}
+async function saveCap() {
+  const cap = parseFloat(document.getElementById('capInput').value);
+  if (!cap || cap <= 0) { toast('Invalid cap value'); return; }
+  const r = await fetch('/admin/cost', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'set-cap', cap }) });
+  if (r.ok) { toast('Cap updated — reloading…'); setTimeout(() => location.reload(), 800); }
+  else { toast('Error saving cap'); }
+}
+async function doReset() {
+  if (!confirm('Reset current month counter and all alarm timestamps?')) return;
+  const r = await fetch('/admin/cost', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'reset' }) });
+  if (r.ok) { toast('Counter reset — reloading…'); setTimeout(() => location.reload(), 800); }
+  else { toast('Error resetting'); }
+}
+</script>
 </body>
 </html>`;
 }
@@ -11240,8 +11368,12 @@ ${nav}
 
   <div class="card">
     <h2>Anasayfa Önbelleğini Yenile</h2>
-    <p style="font-size:.8rem;color:#888;margin-bottom:1rem">Supabase'deki yayınlanmış makaleleri KV önbelleğine yazar. Pipeline duraklaması sonrası anasayfada haber azalırsa kullanın.</p>
-    <button class="btn" onclick="rebuildCache()">Önbelleği Yenile</button>
+    <p style="font-size:.8rem;color:#888;margin-bottom:1rem">Supabase'deki yayınlanmış makaleleri KV önbelleğine yazar. Pipeline duraklaması sonrası anasayfada haber azalırsa kullanın. <strong>RSS Yenile</strong>: Supabase'i atlayıp RSS kaynaklarından doğrudan çeker — haber kuruluğu durumunda kullanın.</p>
+    <div style="display:flex;gap:.75rem;flex-wrap:wrap">
+      <button class="btn" onclick="rebuildCache()">Önbelleği Yenile</button>
+      <button class="btn" onclick="rebuildCacheRss()">RSS'ten Yenile</button>
+      <button class="btn" onclick="runWide()">Geniş Tarama (7 Gün)</button>
+    </div>
     <div id="rebuild-status" class="status"></div>
   </div>
 
@@ -11289,7 +11421,27 @@ function runVoicePatterns() {
   post('/admin/run-voice-patterns', d => \`Tamamlandı. Kütüphanede \${d.total} örnek var.\`, 'vp-status');
 }
 function rebuildCache() {
-  post('/rebuild-cache', d => \`Tamamlandı: \${d.rebuilt} makale KV'ye yazıldı.\`, 'rebuild-status');
+  post('/rebuild-cache', d => \`Tamamlandı: \${d.rebuilt} makale KV'ye yazıldı (kaynak: \${d.source}).\`, 'rebuild-status');
+}
+async function rebuildCacheRss() {
+  const el = document.getElementById('rebuild-status');
+  el.textContent = 'RSS kaynaklarından çekiliyor...'; el.className = 'status'; el.style.display = 'block';
+  try {
+    const r = await fetch('/rebuild-cache?rss=1', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'HTTP ' + r.status);
+    el.textContent = \`Tamamlandı: \${d.rebuilt} makale RSS'ten KV'ye yazıldı.\`;
+  } catch(e) { el.textContent = 'Hata: ' + e.message; el.className = 'status err'; }
+}
+async function runWide() {
+  const el = document.getElementById('rebuild-status');
+  el.textContent = 'Geniş tarama başlatılıyor (7 gün)...'; el.className = 'status'; el.style.display = 'block';
+  try {
+    const r = await fetch('/run?lookback_hours=168', { method: 'POST' });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || 'HTTP ' + r.status);
+    el.textContent = \`Başlatıldı (7 günlük tarama). ~60 saniye bekleyin, sonra /cache'i kontrol edin.\`;
+  } catch(e) { el.textContent = 'Hata: ' + e.message; el.className = 'status err'; }
 }
 function runSynth() {
   const id = document.getElementById('synth-id').value.trim();
