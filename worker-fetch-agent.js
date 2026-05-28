@@ -413,7 +413,7 @@ export default {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site  = sites?.[0];
+        const site  = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
         const rows = await supabase(env, 'GET',
           `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&select=id,title,slug,nvs_score,publish_mode,published_at,original_url&order=title.asc&limit=2000`);
@@ -441,7 +441,7 @@ export default {
       const dry = url.searchParams.get('dry') === 'true';
       try {
         const sites = await getActiveSites(env);
-        const site  = sites?.[0];
+        const site  = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
 
         // 1. Find all slug-null copy_source rows
@@ -498,7 +498,7 @@ export default {
       // Strategy 2: fetch RSS feeds directly, skip url-dedup. Forced with ?rss=1.
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { status: 500 });
 
         // Strategy 1 — Supabase
@@ -842,7 +842,7 @@ export default {
       if (templateId === 'T01') {
         // Direct T01 test — no KV flag check, does NOT save to Supabase (dry run)
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers: { 'Access-Control-Allow-Origin': '*' } });
         const fixture = await getNextFixture(env);
         const match = fixture
@@ -878,7 +878,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const fixture = await getNextFixture(env);
         const match = fixture
@@ -920,7 +920,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const fixture = await getNextFixture(env);
         const match = fixture
@@ -967,7 +967,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const scorer  = url.searchParams.get('scorer')  || 'El Bilal Touré';
         const minute  = parseInt(url.searchParams.get('minute') || '67');
@@ -1016,7 +1016,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site  = sites?.[0];
+        const site  = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
 
         const filterChannel = url.searchParams.get('channel_id');
@@ -1081,7 +1081,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         let bjkScore, oppScore;
         if (url.searchParams.has('bjk') && url.searchParams.has('opp')) {
@@ -1135,7 +1135,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const bjkScore = parseInt(url.searchParams.get('bjk') || '2');
         const oppScore = parseInt(url.searchParams.get('opp') || '1');
@@ -1180,7 +1180,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const fixture = await getNextFixture(env);
         const match = fixture
@@ -1221,7 +1221,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const fixture = await getNextFixture(env);
         const match = fixture
@@ -1264,7 +1264,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const fixture = await getNextFixture(env);
         const match = fixture
@@ -1304,7 +1304,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         let bjkScore, oppScore;
         if (url.searchParams.has('bjk') && url.searchParams.has('opp')) {
@@ -1351,7 +1351,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const fixtureId = parseInt(url.searchParams.get('fixture') || String(NEXT_MATCH.fixture_id));
         const lineup = await getFixtureLineup(fixtureId, env);
@@ -1388,7 +1388,7 @@ export default {
       if (!storyId) return Response.json({ error: 'story_id required' }, { headers, status: 400 });
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const rows = await supabase(env, 'GET',
           `/rest/v1/stories?id=eq.${storyId}&select=*&limit=1`);
@@ -1416,7 +1416,7 @@ export default {
       const targetId = url.searchParams.get('story_id') || null;
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
 
         const allSites = url.searchParams.get('all') === '1';
@@ -1473,7 +1473,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const bjkScore = parseInt(url.searchParams.get('bjk') || '3');
         const oppScore = parseInt(url.searchParams.get('opp') || '1');
@@ -1514,7 +1514,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const referee = url.searchParams.get('referee') || NEXT_MATCH.referee || 'Ali Palabıyık';
         const recentFixtures = await getLastFixtures(env, 10).catch(() => []);
@@ -1564,7 +1564,7 @@ export default {
         if (!rows?.length) return Response.json({ error: 'article not found', slug }, { headers, status: 404 });
         const article = rows[0];
         const sites = await getActiveSites(env);
-        const site  = sites?.[0];
+        const site  = resolveSite(url, sites);
         const result = await synthesizeArticle({
           title: article.title, summary: article.summary || '',
           url: article.original_url || '', original_url: article.original_url || '',
@@ -1610,7 +1610,7 @@ export default {
       try {
         const publish = url.searchParams.get('publish') === '1';
         const sites = await getActiveSites(env);
-        const site = sites?.[0];
+        const site = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
 
         // Pull recent high-NVS articles that aren't already synthesized
@@ -1671,7 +1671,7 @@ export default {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
         const sites = await getActiveSites(env);
-        const site  = sites?.[0];
+        const site  = resolveSite(url, sites);
         if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
         const liveKV    = await env.PITCHOS_CACHE.get('match:BJK:live').then(r => r ? JSON.parse(r) : null).catch(() => null);
         const fid = url.searchParams.get('fixture_id')
@@ -1794,7 +1794,9 @@ export default {
       const alarms = { 80: alarm80, 90: alarm90, 100: alarm100 };
       const data = { current_month: monthKey, current_usd: +current.toFixed(4), cap_usd: cap, cap_is_override: !!capOverride, pct_used: pct, blocked: current >= cap, history, alarms };
       if (url.searchParams.get('json') === '1') return Response.json(data, { headers: { 'Content-Type': 'application/json' } });
-      return new Response(renderCostPage(data), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      return new Response(renderCostPage(data, currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     // ── FINANCIALS PAGE ───────────────────────────────────────
@@ -1861,8 +1863,10 @@ export default {
         return { month: m, fixed: FIXED_TOTAL, claude, manual, revenue: snap.revenue ?? 0 };
       });
 
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
       return new Response(
-        renderFinancialsPage(monthsData, FIXED_ITEMS),
+        renderFinancialsPage(monthsData, FIXED_ITEMS, currentSite.short_code, allSites),
         { headers: { 'Content-Type': 'text/html;charset=UTF-8' } }
       );
     }
@@ -2091,7 +2095,7 @@ Sadece JSON döndür:
     if (url.pathname === '/admin/sources') {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const sites = await getActiveSites(env);
-      const site  = sites?.[0];
+      const site  = resolveSite(url, sites);
       if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
 
       if (request.method === 'GET') {
@@ -2149,7 +2153,7 @@ Sadece JSON döndür:
     if (url.pathname === '/admin/sources/tests' && request.method === 'GET') {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const sites = await getActiveSites(env);
-      const site  = sites?.[0];
+      const site  = resolveSite(url, sites);
       if (!site) return Response.json({}, { headers });
       const sources = await supabase(env, 'GET', `/rest/v1/source_configs?site_id=eq.${site.id}&select=id`) || [];
       const results = await Promise.all(sources.map(async s => {
@@ -2165,7 +2169,7 @@ Sadece JSON döndür:
     if (url.pathname === '/admin/sources/seed' && request.method === 'POST') {
       const headers = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const sites = await getActiveSites(env);
-      const site  = sites?.[0];
+      const site  = resolveSite(url, sites);
       if (!site) return Response.json({ error: 'no active site' }, { headers, status: 500 });
 
       const existing = await supabase(env, 'GET',
@@ -2239,14 +2243,18 @@ Sadece JSON döndür:
       const cookie = request.headers.get('cookie') || '';
       const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
-      return new Response(renderSourcesPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      return new Response(renderSourcesPage(currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/report') {
       const cookie = request.headers.get('cookie') || '';
       const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage('/admin/report'), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
-      return new Response(renderAdminReportPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      return new Response(renderAdminReportPage(currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/report-data') {
@@ -2467,7 +2475,7 @@ Sadece JSON döndür:
     if (url.pathname === '/admin/rewrite-db-check' && request.method === 'GET') {
       const authErr = await requireOps(request, env); if (authErr) return authErr;
       const sites = await getActiveSites(env);
-      const site = sites?.[0];
+      const site = resolveSite(url, sites);
       if (!site) return Response.json({ error: 'no site' });
       const [allRewrites, nullPub, recent4d, schemaCheck] = await Promise.all([
         supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=eq.rewrite&select=slug,title,published_at,fetched_at,created_at&order=created_at.desc&limit=20`),
@@ -2770,14 +2778,18 @@ Sadece JSON döndür:
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       const kvRaw = await env.PITCHOS_CACHE.get('match:BJK:next').catch(() => null);
       const cachedMatch = kvRaw ? JSON.parse(kvRaw) : null;
-      return new Response(renderAdminToolsPage(NEXT_MATCH, cachedMatch), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      return new Response(renderAdminToolsPage(NEXT_MATCH, cachedMatch, currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/releases') {
       const cookie = request.headers.get('cookie') || '';
       const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
-      return new Response(renderAdminReleasesPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      return new Response(renderAdminReleasesPage(currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/qa') {
@@ -2786,7 +2798,9 @@ Sadece JSON döndür:
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       const raw = await env.PITCHOS_CACHE.get('qa:results').catch(() => null);
       const saved = raw ? JSON.parse(raw) : {};
-      return new Response(renderAdminQAPage(saved), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      return new Response(renderAdminQAPage(saved, currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/qa/save' && request.method === 'POST') {
@@ -2819,7 +2833,9 @@ Sadece JSON döndür:
       }
       const cached = await env.PITCHOS_CACHE.get('articles:BJK');
       const articles = cached ? JSON.parse(cached) : [];
-      return new Response(renderAdminPage(articles), {
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      return new Response(renderAdminPage(articles, currentSite.short_code, allSites), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
     }
@@ -2832,7 +2848,7 @@ Sadece JSON döndür:
     if (url.pathname === '/admin/source-stats') {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const sites = await getActiveSites(env);
-      const site  = sites?.[0];
+      const site  = resolveSite(url, sites);
       if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
       const hours = parseInt(url.searchParams.get('hours') || '24');
       const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
@@ -2856,7 +2872,7 @@ Sadece JSON döndür:
     if (url.pathname === '/admin/content-counts') {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const sites = await getActiveSites(env);
-      const site = sites?.[0];
+      const site = resolveSite(url, sites);
       if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
       const countFor = async (filter) => {
         const res = await fetch(`${env.SUPABASE_URL}/rest/v1/content_items?${filter}&select=id&limit=1`, {
@@ -2881,7 +2897,7 @@ Sadece JSON döndür:
     if (url.pathname === '/admin/content-data') {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       const sites = await getActiveSites(env);
-      const site  = sites?.[0];
+      const site  = resolveSite(url, sites);
       if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
       const page  = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
       const limit = 20;
@@ -3149,7 +3165,9 @@ Sadece JSON döndür:
           const orderMap = Object.fromEntries(JSON.parse(orderRaw).map((s, i) => [s, i]));
           items.sort((a, b) => (orderMap[a.slug] ?? 99999) - (orderMap[b.slug] ?? 99999));
         }
-        return new Response(renderCuratedVideoPage(items), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+        const allSites = await getActiveSites(env);
+        const currentSite = resolveSite(url, allSites);
+        return new Response(renderCuratedVideoPage(items, currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       }
 
       if (request.method === 'PUT') {
@@ -7997,31 +8015,39 @@ loadCounts();
 </html>`.replace('ADMINNAV_PLACEHOLDER', adminNav('content'));
 }
 
-function adminNav(active) {
+function resolveSite(url, sites) {
+  const code = url.searchParams.get('site');
+  return (code && sites.find(s => s.short_code === code)) || sites[0];
+}
+
+function adminNav(active, siteCode, allSites) {
   const links = [
-    { href: '/admin/content',        label: 'İçerik',      key: 'content'        },
-    { href: '/admin/curated-video',  label: 'Küratör',     key: 'curated-video'  },
-    { href: '/admin',                label: 'Editör',      key: 'news'           },
-    { href: '/admin/sources/ui',     label: 'Kaynaklar',   key: 'sources'        },
-    { href: '/admin/financials',     label: 'Maliyet',     key: 'financials'     },
-    { href: '/admin/report',         label: 'Rapor',       key: 'report'         },
-    { href: '/admin/test-templates', label: 'Şablon Test', key: 'test'           },
-    { href: '/admin/tools',          label: 'Araçlar',     key: 'tools'          },
-    { href: '/admin/releases',       label: 'Sürümler',    key: 'releases'       },
-    { href: '/admin/qa',             label: 'QA',          key: 'qa'             },
+    { href: `/admin/content?site=${siteCode}`,        label: 'İçerik',      key: 'content'        },
+    { href: `/admin/curated-video?site=${siteCode}`,  label: 'Küratör',     key: 'curated-video'  },
+    { href: `/admin?site=${siteCode}`,                label: 'Editör',      key: 'news'           },
+    { href: `/admin/sources/ui?site=${siteCode}`,     label: 'Kaynaklar',   key: 'sources'        },
+    { href: `/admin/financials?site=${siteCode}`,     label: 'Maliyet',     key: 'financials'     },
+    { href: `/admin/report?site=${siteCode}`,         label: 'Rapor',       key: 'report'         },
+    { href: `/admin/test-templates?site=${siteCode}`, label: 'Şablon Test', key: 'test'           },
+    { href: `/admin/tools?site=${siteCode}`,          label: 'Araçlar',     key: 'tools'          },
+    { href: `/admin/releases?site=${siteCode}`,       label: 'Sürümler',    key: 'releases'       },
+    { href: `/admin/qa?site=${siteCode}`,             label: 'QA',          key: 'qa'             },
   ];
   const navLinks = links.map(l => {
     const isActive = active === l.key;
     return `<a href="${l.href}" style="display:flex;align-items:center;padding:0 1rem;height:100%;font-size:.78rem;font-weight:${isActive ? '700' : '400'};color:${isActive ? '#fff' : '#666'};text-decoration:none;border-bottom:${isActive ? '2px solid #E30A17' : '2px solid transparent'}">${l.label}</a>`;
   }).join('');
+  const siteSelector = allSites && allSites.length > 1
+    ? `<select onchange="location.href=location.pathname+'?site='+this.value" style="background:#1a1a1a;border:1px solid #333;color:#ccc;font-size:.75rem;padding:3px 8px;border-radius:4px;margin-left:1rem;cursor:pointer">${allSites.map(s=>`<option value="${s.short_code}"${s.short_code===siteCode?' selected':''}>${s.short_code} — ${s.team_name||s.short_code}</option>`).join('')}</select>`
+    : '';
   return `<header style="background:#111;border-bottom:1px solid #222;padding:0 1.5rem;height:48px;display:flex;align-items:center;gap:0;position:sticky;top:0;z-index:10">
   <a href="/" style="font-size:1rem;font-weight:900;color:#fff;text-decoration:none;margin-right:1rem">Kartal<span style="color:#E30A17">ix</span></a>
-  <nav style="display:flex;height:100%">${navLinks}</nav>
+  <nav style="display:flex;height:100%">${navLinks}</nav>${siteSelector}
   <a href="/" style="color:#555;font-size:.72rem;text-decoration:none;margin-left:auto">← Site</a>
 </header>`;
 }
 
-function renderCuratedVideoPage(list) {
+function renderCuratedVideoPage(list, siteCode, allSites) {
   const sectionOpts = Object.entries(_VH_ALL_SECTION_MAP).map(([k, d]) => `<option value="${k}">${d.label}</option>`).join('');
   const sectionsJson = JSON.stringify(Object.entries(_VH_ALL_SECTION_MAP).map(([value, d]) => ({ value, label: d.label })));
 
@@ -8101,7 +8127,7 @@ tbody tr.drag-over{outline:2px solid #E30A17}
 </style>
 </head>
 <body>
-${adminNav('curated-video')}
+${adminNav('curated-video', siteCode, allSites)}
 <div class="page">
   <div class="card">
     <div class="card-title">Video Ekle</div>
@@ -8317,7 +8343,7 @@ async function saveOrder() {
 </html>`;
 }
 
-function renderCostPage(data) {
+function renderCostPage(data, siteCode, allSites) {
   const { current_usd, cap_usd, cap_is_override, pct_used, blocked, history, alarms, current_month } = data;
   const barPct = Math.min(parseFloat(pct_used || 0), 100);
   const barColor = barPct >= 100 ? '#E30A17' : barPct >= 80 ? '#f0a500' : '#3a9a3a';
@@ -8381,7 +8407,7 @@ td:last-child{text-align:right;color:#888}
 </style>
 </head>
 <body>
-${adminNav('cost')}
+${adminNav('cost', siteCode, allSites)}
 <main>
   <div class="card">
     <h2>This Month — ${current_month}</h2>
@@ -8465,7 +8491,7 @@ async function doReset() {
 </html>`;
 }
 
-function renderFinancialsPage(monthsData, fixedItems) {
+function renderFinancialsPage(monthsData, fixedItems, siteCode, allSites) {
   const allMonths    = monthsData.map(d => d.month);
   const currentMonth = allMonths[allMonths.length - 1] || '';
   // All manual entries tagged with their start month (for rendering the table)
@@ -8524,7 +8550,7 @@ td{padding:6px 8px;border-bottom:1px solid #161616;vertical-align:middle;font-si
 </style>
 </head>
 <body>
-${adminNav('financials')}
+${adminNav('financials', siteCode, allSites)}
 <main>
 
 <div class="range-bar">
@@ -8769,7 +8795,7 @@ renderBreakdown('${currentMonth}');
 </html>`;
 }
 
-function renderSourcesPage() {
+function renderSourcesPage(siteCode, allSites) {
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -8822,7 +8848,7 @@ select{background:#1e1e1e;border:1px solid #2a2a2a;color:#e8e6e0;padding:3px 5px
 </style>
 </head>
 <body>
-${adminNav('sources')}
+${adminNav('sources', siteCode, allSites)}
 <main>
   <div class="toolbar">
     <button class="btn btn-green" onclick="toggleAdd()">+ Add Source</button>
@@ -9149,8 +9175,8 @@ async function login() {
 </html>`;
 }
 
-function renderAdminReportPage() {
-  const nav = adminNav('report');
+function renderAdminReportPage(siteCode, allSites) {
+  const nav = adminNav('report', siteCode, allSites);
   const shell = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9468,7 +9494,6 @@ ${nav}
 </body>
 </html>`;
 
-  // Script block is concatenated separately so client-side template literals don't conflict
   const script = '<script>\n' + reportDashboardJs() + '\n<\/script>';
   const kpiScript = '<script>\n' + kpiStripJs() + '\n<\/script>';
   const analyticsScript = '<script>\n' + analyticsJs() + '\n<\/script>';
@@ -10631,8 +10656,8 @@ if(typeof currentFrom!=='undefined')loadAnalytics();
 `;
 }
 
-function renderAdminReleasesPage() {
-  const nav = adminNav('releases');
+function renderAdminReleasesPage(siteCode, allSites) {
+  const nav = adminNav('releases', siteCode, allSites);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -11142,8 +11167,8 @@ function toggle(id) {
 </html>`;
 }
 
-function renderAdminQAPage(saved = {}) {
-  const nav = adminNav('qa');
+function renderAdminQAPage(saved = {}, siteCode, allSites) {
+  const nav = adminNav('qa', siteCode, allSites);
 
   const TESTS = [
     { id:'T01', group:'Feed & Articles', action:'GET kartalix.com/cache', check:'JSON array, no article with today-dated slug but old content, no copy_source entries' },
@@ -11319,8 +11344,8 @@ async function saveAll() {
 </html>`;
 }
 
-function renderAdminToolsPage(hardcoded, cached) {
-  const nav = adminNav('tools');
+function renderAdminToolsPage(hardcoded, cached, siteCode, allSites) {
+  const nav = adminNav('tools', siteCode, allSites);
   const fmt = m => m ? `${m.opponent} — ${m.date} ${m.time} @ ${m.venue || '?'} (fixture #${m.fixture_id || '?'})` : 'none';
   return `<!DOCTYPE html>
 <html lang="tr">
@@ -11484,7 +11509,7 @@ async function runPipeline() {
 </html>`;
 }
 
-function renderAdminPage(articles = []) {
+function renderAdminPage(articles = [], siteCode, allSites) {
   const SCOPES = ['global','match','transfer','news','T01','T05','T08b','T09','T10','T11','T-REF'];
   const scopeDesc = {
     global: 'Her içerik (tüm Claude çağrıları)',
@@ -11540,7 +11565,7 @@ h2 span{font-size:.65rem;color:#555;font-weight:400}
 </style>
 </head>
 <body>
-${adminNav('news')}
+${adminNav('news', siteCode, allSites)}
 <main>
 
   <!-- LEFT: News list + submitted feedback -->
