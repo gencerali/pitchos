@@ -8184,6 +8184,18 @@ ${adminNav('curated-video', siteCode, allSites)}
   </div>
 </div>
 <script>
+const ADMIN_SITE = '${siteCode}';
+const _origFetch = window.fetch.bind(window);
+window.fetch = (input, opts) => {
+  if (typeof input === 'string' && input.startsWith('/admin/')) {
+    try {
+      const u = new URL(input, location.origin);
+      if (!u.searchParams.get('site')) u.searchParams.set('site', ADMIN_SITE);
+      input = u.pathname + u.search;
+    } catch(e) {}
+  }
+  return _origFetch(input, opts);
+};
 const SECTIONS = ${sectionsJson};
 
 function onUrlInput() {
