@@ -2842,7 +2842,9 @@ Sadece JSON döndür:
 
     // ── CONTENT CMS ──────────────────────────────────────────────
     if (url.pathname === '/admin/content') {
-      return new Response(renderContentPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      return new Response(renderContentPage(currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/source-stats') {
@@ -3242,7 +3244,9 @@ Sadece JSON döndür:
     }
 
     if (url.pathname === '/admin/test-templates' && request.method === 'GET') {
-      return new Response(renderTestTemplatesPage(), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      return new Response(renderTestTemplatesPage(currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/test-templates/recent-fixtures' && request.method === 'GET') {
@@ -6304,7 +6308,8 @@ ${siteCookieBanner()}
 </html>`;
 }
 
-function renderTestTemplatesPage() {
+function renderTestTemplatesPage(siteCode, allSites) {
+  const nav = adminNav('test', siteCode, allSites);
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -6314,10 +6319,7 @@ function renderTestTemplatesPage() {
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;height:100vh;display:flex;flex-direction:column}
-.topbar{background:#1e293b;border-bottom:1px solid #334155;padding:.6rem 1.2rem;display:flex;align-items:center;gap:1rem;flex-shrink:0}
-.topbar a{color:#7dd3fc;font-size:.82rem;text-decoration:none}.topbar a:hover{text-decoration:underline}
-.topbar h1{font-size:1rem;color:#f8fafc;font-weight:600}
-.layout{display:flex;flex:1;overflow:hidden}
+.layout{display:flex;height:calc(100vh - 48px);overflow:hidden}
 .sidebar{width:340px;flex-shrink:0;background:#1e293b;border-right:1px solid #334155;display:flex;flex-direction:column;overflow:hidden}
 .sidebar-top{padding:.8rem;border-bottom:1px solid #334155;flex-shrink:0}
 .sidebar-top h2{font-size:.8rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem}
@@ -6362,17 +6364,14 @@ body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;height:10
 </style>
 </head>
 <body>
-<div class="topbar">
-  <a href="/admin">← Admin</a>
-  <h1>Şablon Test</h1>
-  <span style="font-size:.75rem;color:#64748b" id="fix-label">Soldan bir maç seç</span>
-</div>
+${nav}
 <div class="layout">
 
   <!-- Fixture selector -->
   <div class="sidebar">
     <div class="sidebar-top">
       <h2>Son Maçlar</h2>
+      <div style="font-size:.72rem;color:#64748b;margin-top:.35rem" id="fix-label">Bir maç seç</div>
     </div>
     <div class="fixture-list" id="fix-list">
       <div class="fix-loading">Yükleniyor…</div>
@@ -7500,7 +7499,7 @@ ${siteCookieBanner()}
 </html>`;
 }
 
-function renderContentPage() {
+function renderContentPage(siteCode, allSites) {
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -8012,7 +8011,7 @@ load(1);
 loadCounts();
 </script>
 </body>
-</html>`.replace('ADMINNAV_PLACEHOLDER', adminNav('content'));
+</html>`.replace('ADMINNAV_PLACEHOLDER', adminNav('content', siteCode, allSites));
 }
 
 function resolveSite(url, sites) {
