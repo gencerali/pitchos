@@ -241,11 +241,8 @@ export default {
       if (capStatus.blocked) {
         return Response.json({ status: 'blocked', reason: 'cost_cap', preflight });
       }
-      const lookbackHours = parseInt(url.searchParams.get('lookback_hours') || '0');
-      const runOpts = { forceRun: true };
-      if (lookbackHours > 0) runOpts.lookbackMs = lookbackHours * 3600 * 1000;
-      ctx.waitUntil(runAllSites(env, ctx, runOpts));
-      return Response.json({ status: 'started', preflight, lookback_hours: lookbackHours || 24, message: 'Running in background — check /cache in ~60s' });
+      ctx.waitUntil(runAllSites(env, ctx, { forceRun: true }));
+      return Response.json({ status: 'started', preflight, message: 'Running in background — check /cache in ~60s' });
     }
     if (url.pathname === '/widgets/config') {
       return Response.json(
@@ -504,14 +501,12 @@ export default {
         const site = sites?.[0];
         if (!site) return Response.json({ error: 'no active site' }, { status: 500 });
 
-        const forceRss = url.searchParams.get('rss') === '1';
-
-        // Strategy 1 — Supabase (skipped if ?rss=1)
-        const rows = forceRss ? null : await supabase(env, 'GET',
+        // Strategy 1 — Supabase
+        const rows = await supabase(env, 'GET',
           `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=neq.rss_summary&order=published_at.desc&limit=100&select=title,summary,full_body,source_name,source_type,original_url,category,nvs_score,golden_score,published_at,fetched_at,created_at,sport,publish_mode,image_url,slug,template_id`
         );
 
-        if (!forceRss && rows && rows.length > 0) {
+        if (rows && rows.length > 0) {
           const articles = rows.filter(r => r.slug).map(r => toKVShape({
             title:               r.title        || '',
             summary:             r.summary      || '',
@@ -11368,12 +11363,8 @@ ${nav}
 
   <div class="card">
     <h2>Anasayfa Önbelleğini Yenile</h2>
-    <p style="font-size:.8rem;color:#888;margin-bottom:1rem">Supabase'deki yayınlanmış makaleleri KV önbelleğine yazar. Pipeline duraklaması sonrası anasayfada haber azalırsa kullanın. <strong>RSS Yenile</strong>: Supabase'i atlayıp RSS kaynaklarından doğrudan çeker — haber kuruluğu durumunda kullanın.</p>
-    <div style="display:flex;gap:.75rem;flex-wrap:wrap">
-      <button class="btn" onclick="rebuildCache()">Önbelleği Yenile</button>
-      <button class="btn" onclick="rebuildCacheRss()">RSS'ten Yenile</button>
-      <button class="btn" onclick="runWide()">Geniş Tarama (7 Gün)</button>
-    </div>
+    <p style="font-size:.8rem;color:#888;margin-bottom:1rem">Supabase'deki yayınlanmış makaleleri KV önbelleğine yazar. Pipeline duraklaması sonrası anasayfada haber azalırsa kullanın.</p>
+    <button class="btn" onclick="rebuildCache()">Önbelleği Yenile</button>
     <div id="rebuild-status" class="status"></div>
   </div>
 
@@ -11421,27 +11412,7 @@ function runVoicePatterns() {
   post('/admin/run-voice-patterns', d => \`Tamamlandı. Kütüphanede \${d.total} örnek var.\`, 'vp-status');
 }
 function rebuildCache() {
-  post('/rebuild-cache', d => \`Tamamlandı: \${d.rebuilt} makale KV'ye yazıldı (kaynak: \${d.source}).\`, 'rebuild-status');
-}
-async function rebuildCacheRss() {
-  const el = document.getElementById('rebuild-status');
-  el.textContent = 'RSS kaynaklarından çekiliyor...'; el.className = 'status'; el.style.display = 'block';
-  try {
-    const r = await fetch('/rebuild-cache?rss=1', { method: 'POST' });
-    const d = await r.json();
-    if (!r.ok || d.error) throw new Error(d.error || 'HTTP ' + r.status);
-    el.textContent = \`Tamamlandı: \${d.rebuilt} makale RSS'ten KV'ye yazıldı.\`;
-  } catch(e) { el.textContent = 'Hata: ' + e.message; el.className = 'status err'; }
-}
-async function runWide() {
-  const el = document.getElementById('rebuild-status');
-  el.textContent = 'Geniş tarama başlatılıyor (7 gün)...'; el.className = 'status'; el.style.display = 'block';
-  try {
-    const r = await fetch('/run?lookback_hours=168', { method: 'POST' });
-    const d = await r.json();
-    if (!r.ok || d.error) throw new Error(d.error || 'HTTP ' + r.status);
-    el.textContent = \`Başlatıldı (7 günlük tarama). ~60 saniye bekleyin, sonra /cache'i kontrol edin.\`;
-  } catch(e) { el.textContent = 'Hata: ' + e.message; el.className = 'status err'; }
+  post('/rebuild-cache', d => \`Tamamlandı: \${d.rebuilt} makale KV'ye yazıldı.\`, 'rebuild-status');
 }
 function runSynth() {
   const id = document.getElementById('synth-id').value.trim();
