@@ -241,8 +241,8 @@ export default {
       if (capStatus.blocked) {
         return Response.json({ status: 'blocked', reason: 'cost_cap', preflight });
       }
-      ctx.waitUntil(runAllSites(env, ctx, { forceRun: true }));
-      return Response.json({ status: 'started', preflight, message: 'Running in background — check /cache in ~60s' });
+      await env.PITCHOS_CACHE.put('run:requested', new Date().toISOString(), { expirationTtl: 900 });
+      return Response.json({ status: 'queued', preflight, message: 'Pipeline queued — fires within 5 min on next cron tick. Check /cache after ~5 min.' });
     }
     if (url.pathname === '/widgets/config') {
       return Response.json(
@@ -3682,9 +3682,13 @@ Sadece JSON döndür:
       const liveRaw = await env.PITCHOS_CACHE.get('match:BJK:live').catch(() => null);
       const liveState = liveRaw ? JSON.parse(liveRaw) : null;
       const isMatchLive = liveState?.fixture_id && !liveState.result_published;
+      const runRequested = await env.PITCHOS_CACHE.get('run:requested').catch(() => null);
+      if (runRequested) await env.PITCHOS_CACHE.delete('run:requested').catch(() => {});
       const work = [matchWatcher(env), runAlarmChecks(env)];
       if (isMatchLive) {
         work.push(runAllSites(env, ctx, { cronExpr: '*/5 * * * *', lookbackMs: 30 * 60 * 1000 }));
+      } else if (runRequested) {
+        work.push(runAllSites(env, ctx, { forceRun: true }));
       }
       ctx.waitUntil(Promise.all(work));
     } else if (cron === '0 4 * * *') {
