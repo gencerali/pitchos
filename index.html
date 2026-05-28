@@ -1285,6 +1285,14 @@
     // Body HTML
     const bodyHtml = buildBodyHtml(bodyRaw);
 
+    // YouTube embed: generate iframe from URL if full_body doesn't already have one
+    const ytEmbedId = isVideoEmbed && srcUrl
+      ? (srcUrl.match(/(?:youtu\.be\/|[?&]v=)([a-zA-Z0-9_-]{11})/)?.[1] || null)
+      : null;
+    const videoHtml = ytEmbedId && !bodyHtml.includes('<iframe')
+      ? `<div class="yt-embed"><iframe src="https://www.youtube.com/embed/${ytEmbedId}" allowfullscreen loading="lazy" frameborder="0" title="${esc(title)}"></iframe></div>`
+      : '';
+
     // Key quote (first sentence)
     const quote = firstSentence(bodyRaw);
 
@@ -1360,6 +1368,8 @@
         #articleView .av-body li{margin-bottom:0.4rem}
         #articleView .av-body a{color:#E30A17;text-decoration:underline;text-decoration-color:rgba(227,10,23,0.35)}
         #articleView .av-body blockquote{border-left:3px solid #333;padding:0.75rem 1rem;background:#141414;margin:1.5rem 0;border-radius:0 4px 4px 0;color:#aaa;font-style:italic}
+        #articleView .yt-embed{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:6px;margin-bottom:1.5rem;background:#000}
+        #articleView .yt-embed iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
         #articleView .av-attr{max-width:720px;margin:0 auto;padding:1rem 1.5rem 1.5rem;border-top:1px solid #1a1a1a;font-size:0.72rem;color:#555;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap}
         #articleView .av-share{max-width:720px;margin:0 auto;padding:1.5rem;background:#111;border-top:1px solid #1f1f1f;border-bottom:1px solid #1f1f1f}
         #articleView .av-share-label{font-size:0.65rem;letter-spacing:0.15em;text-transform:uppercase;color:#555;margin-bottom:0.875rem;font-family:'Barlow Condensed',sans-serif}
@@ -1422,7 +1432,8 @@
       </div>
 
       <div class="av-body-wrap av-slide-in" style="animation-delay:0.1s">
-        ${quote ? `<blockquote class="av-quote">${esc(quote)}</blockquote>` : ''}
+        ${quote && !isVideoEmbed ? `<blockquote class="av-quote">${esc(quote)}</blockquote>` : ''}
+        ${videoHtml}
         <div class="av-body" id="avBodyContent">${bodyHtml}</div>
         ${['T-HT','T11','T12','T13','T-XG'].includes(a.template_id) ? `<div id="avMatchStats" style="margin:1.5rem 0"></div>` : ''}
         ${a.template_id === 'T02' && a.opponent_id ? `<div id="avH2hWidget" style="margin:2rem 0"></div>` : ''}
