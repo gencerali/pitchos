@@ -503,7 +503,7 @@ export default {
 
         // Strategy 1 — Supabase
         const rows = await supabase(env, 'GET',
-          `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=neq.rss_summary&order=published_at.desc&limit=100&select=title,summary,full_body,source_name,source_type,original_url,category,nvs_score,golden_score,published_at,fetched_at,created_at,sport,publish_mode,image_url,slug,template_id`
+          `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=neq.rss_summary&order=created_at.desc&limit=300&select=title,summary,full_body,source_name,source_type,original_url,category,nvs_score,golden_score,published_at,fetched_at,created_at,sport,publish_mode,image_url,slug,template_id`
         );
 
         if (rows && rows.length > 0) {
@@ -3003,7 +3003,7 @@ Sadece JSON döndür:
           publish_mode: 'manual', status: 'published', nvs_score: 75,
           content_type: 'fact', sport: 'football', original_url: '',
           reviewed_by: 'admin', slug: newSlug,
-          fetched_at: now, reviewed_at: now,
+          fetched_at: now, published_at: now, reviewed_at: now,
         };
         const inserted = await supabase(env, 'POST', '/rest/v1/content_items', [newRow]);
         if (!inserted) return Response.json({ error: 'Supabase insert failed' }, { status: 500, headers: h });
@@ -3581,10 +3581,33 @@ Sadece JSON döndür:
         nvs_score: a.nvs || a.nvs_score || 50, content_type: 'fact',
         sport: a.sport || 'football', original_url: a.url || a.original_url || '',
         image_url: a.image_url || '', template_id: a.template_id || null,
-        fetched_at: a.published_at || now, reviewed_at: now, reviewed_by: 'sync_kv_to_db',
+        published_at: a.published_at || now, fetched_at: a.published_at || now, reviewed_at: now, reviewed_by: 'sync_kv_to_db',
       }));
       await supabase(env, 'POST', '/rest/v1/content_items', rows);
       return Response.json({ synced: kvOnly.length, slugs: kvOnly.map(a => a.slug) }, { headers: h });
+    }
+
+    if (url.pathname === '/admin/backfill-published-at' && request.method === 'POST') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const sites = await getActiveSites(env);
+      const site  = sites?.[0];
+      if (!site) return Response.json({ error: 'no active site' }, { status: 500, headers: h });
+      const nullRows = await supabase(env, 'GET',
+        `/rest/v1/content_items?site_id=eq.${site.id}&published_at=is.null&select=id,fetched_at,created_at&limit=1000`
+      );
+      if (!nullRows?.length) return Response.json({ updated: 0, message: 'no null rows' }, { headers: h });
+      let updated = 0;
+      const CHUNK = 50;
+      for (let i = 0; i < nullRows.length; i += CHUNK) {
+        await Promise.all(nullRows.slice(i, i + CHUNK).map(r =>
+          supabase(env, 'PATCH', `/rest/v1/content_items?id=eq.${r.id}`,
+            { published_at: r.fetched_at || r.created_at },
+            { 'Prefer': 'return=minimal' }
+          ).then(() => { updated++; }).catch(() => {})
+        ));
+      }
+      return Response.json({ updated, total_null: nullRows.length }, { headers: h });
     }
 
     if (url.pathname === '/admin/migrate-pipeline-log' && request.method === 'POST') {
@@ -6031,6 +6054,7 @@ async function backfillArticleToSupabase(kvArticle, env) {
       original_url: kvArticle.url || kvArticle.original_url || '',
       image_url:    kvArticle.image_url || '',
       template_id:  kvArticle.template_id || null,
+      published_at: kvArticle.published_at || now,
       fetched_at:   kvArticle.published_at || now,
       reviewed_at:  now,
       reviewed_by:  'auto_backfill',
