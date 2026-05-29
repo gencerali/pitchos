@@ -207,7 +207,7 @@ export default {
             }
             return a;
           });
-          await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(fixed), { expirationTtl: 7200 });
+          await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(fixed), { expirationTtl: 43200 });
         }
 
         return Response.json({
@@ -406,7 +406,7 @@ export default {
     if (url.pathname === '/update-cache') {
       if (request.method !== 'POST') return new Response('POST only', { status: 405 });
       const articles = await request.json();
-      await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(articles), { expirationTtl: 7200 });
+      await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(articles), { expirationTtl: 43200 });
       return Response.json({ updated: articles.length });
     }
     if (url.pathname === '/admin/find-duplicates') {
@@ -563,7 +563,7 @@ export default {
             slug:                generateSlug(a.title, a.published_at),
           }));
         if (top.length === 0) return Response.json({ error: 'RSS feeds returned 0 articles after filtering' });
-        await env.PITCHOS_CACHE.put(`articles:${site.short_code}`, JSON.stringify(top), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put(`articles:${site.short_code}`, JSON.stringify(top), { expirationTtl: 43200 });
         return Response.json({ rebuilt: top.length, source: 'rss_direct', site: site.short_code });
       } catch (e) {
         return Response.json({ error: e.message }, { status: 500 });
@@ -598,7 +598,7 @@ export default {
         }
         enriched.push(article);
       }
-      await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(enriched), { expirationTtl: 7200 });
+      await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(enriched), { expirationTtl: 43200 });
       return Response.json({ enriched: enriched.length, articles: enriched.map(a => ({ title: a.title?.slice(0, 40), mode: a.publish_mode, len: a.full_body?.length || 0 })) });
     }
     if (url.pathname === '/test-verifier') {
@@ -902,7 +902,7 @@ export default {
           url: '', source_url: '', is_fresh: true, is_p4: false, image_url: '',
         };
         const updated = [kvCard, ...existing.filter(a => a.template_id !== 'T02')].slice(0, 100);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 43200 });
         return Response.json({
           success: true, title: card.title, slug: card.slug,
           h2h_matches: h2h.length,
@@ -949,7 +949,7 @@ export default {
           url: '', source_url: '', is_fresh: true, is_p4: false, image_url: '',
         };
         const updated = [kvCard, ...existing.filter(a => a.template_id !== 'T01')].slice(0, 100);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 43200 });
         return Response.json({
           success: true,
           title: card.title,
@@ -997,7 +997,7 @@ export default {
           url: '', source_url: '', is_fresh: true, is_p4: false, image_url: '',
         };
         const updated = [kvCard, ...existing.filter(a => a.template_id !== 'T10')].slice(0, 100);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 43200 });
         return Response.json({
           success: true, title: card.title, slug: card.slug,
           words: (card.full_body || '').split(/\s+/).length,
@@ -1119,7 +1119,7 @@ export default {
           url: '', source_url: '', is_fresh: true, is_p4: false, image_url: '',
         };
         const updated = [kvCard, ...existing.filter(a => a.template_id !== 'T11')].slice(0, 100);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 43200 });
         return Response.json({
           success: true, title: card.title, slug: card.slug,
           words: (card.full_body || '').split(/\s+/).length,
@@ -1164,7 +1164,7 @@ export default {
           url: '', source_url: '', is_fresh: true, is_p4: false, image_url: '',
         };
         const updated = [kvCard, ...existing.filter(a => a.template_id !== 'T13')].slice(0, 100);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 43200 });
         return Response.json({
           success: true, title: card.title, slug: card.slug,
           mom: players[0]?.name, rating: players[0]?.rating,
@@ -1205,7 +1205,7 @@ export default {
           url: '', source_url: '', is_fresh: true, is_p4: false, image_url: '',
         };
         const updated = [kvCard, ...existing.filter(a => a.template_id !== 'T07')].slice(0, 100);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 43200 });
         return Response.json({
           success: true, title: card.title, slug: card.slug,
           injuries_from_api: injuries.length,
@@ -1248,7 +1248,7 @@ export default {
           url: '', source_url: '', is_fresh: true, is_p4: false, image_url: '',
         };
         const updated = [kvCard, ...existing.filter(a => a.template_id !== 'T03')].slice(0, 100);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 43200 });
         return Response.json({
           success: true, title: card.title, slug: card.slug,
           recent_count: recent.length, standing: bjkRow ? `${bjkRow.rank}. sıra` : 'N/A',
@@ -1335,7 +1335,7 @@ export default {
           url: '', source_url: '', is_fresh: true, is_p4: false, image_url: '',
         };
         const updated = [kvCard, ...existing.filter(a => a.template_id !== 'T12')].slice(0, 100);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 43200 });
         return Response.json({
           success: true, title: card.title, slug: card.slug,
           stats_available: !!stats, players_real: players.length > 0,
@@ -1370,7 +1370,7 @@ export default {
           url: '', source_url: '', is_fresh: true, is_p4: false, image_url: '',
         };
         const updated = [kvCard, ...existing.filter(a => a.template_id !== '09')].slice(0, 100);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 43200 });
         return Response.json({
           success: true, title: card.title, slug: card.slug,
           formation: lineup.formation, players: lineup.startXI.map(p => p.name),
@@ -1497,7 +1497,7 @@ export default {
           url: '', source_url: '', is_fresh: true, is_p4: false, image_url: '',
         };
         const updated = [kvCard, ...existing.filter(a => a.template_id !== 'T-XG')].slice(0, 100);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 43200 });
         return Response.json({
           success: true, title: card.title, slug: card.slug,
           xg: xg.toFixed(2), goals: bjkScore, delta: delta.toFixed(2),
@@ -1539,7 +1539,7 @@ export default {
           url: '', source_url: '', is_fresh: true, is_p4: false, image_url: '',
         };
         const updated = [kvCard, ...existing.filter(a => a.template_id !== 'T-REF')].slice(0, 100);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(updated), { expirationTtl: 43200 });
         return Response.json({
           success: true, title: card.title, referee,
           ref_matches_found: refMatches.length,
@@ -1969,7 +1969,7 @@ export default {
       const filtered = tid
         ? articles.filter(a => a.template_id !== tid)
         : articles.filter(a => a.slug !== slug);
-      await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(filtered), { expirationTtl: 7200 });
+      await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(filtered), { expirationTtl: 43200 });
       return Response.json({ removed: before - filtered.length, remaining: filtered.length, filter: tid || slug }, { headers });
     }
 
@@ -3050,13 +3050,13 @@ Sadece JSON döndür:
               ? { ...a, title: newRow.title, summary: newRow.summary, full_body: newRow.full_body,
                   category: newRow.category, image_url: newRow.image_url, publish_mode: 'manual', is_kartalix_content: true }
               : a);
-            await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(patched), { expirationTtl: 7200 });
+            await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(patched), { expirationTtl: 43200 });
           } else {
             arts.unshift({ title: newRow.title, summary: newRow.summary, full_body: newRow.full_body,
               source: 'Kartalix', source_name: 'Kartalix', category: newRow.category,
               published_at: now, nvs: 75, slug: newSlug, image_url: newRow.image_url || '',
               publish_mode: 'manual', is_kartalix_content: true });
-            await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+            await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 43200 });
           }
         }
         return Response.json({ ok: true, slug: newSlug, is_new: !kv_only }, { headers: h });
@@ -3096,7 +3096,7 @@ Sadece JSON döndür:
           // Demoted to pending — remove from public feed
           arts = arts.filter(a => a.slug !== slug);
         }
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 43200 });
       }
       return Response.json({ ok: true, slug }, { headers: h });
     }
@@ -3124,7 +3124,7 @@ Sadece JSON döndür:
               category: r.category || 'Haber', published_at: new Date().toISOString(),
               nvs: r.nvs_score || 0, slug: r.slug, image_url: r.image_url || '',
               publish_mode: r.publish_mode || 'manual', is_kartalix_content: r.source_type === 'kartalix' });
-            await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+            await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 43200 });
           }
         }
       }
@@ -3142,7 +3142,7 @@ Sadece JSON döndür:
       const kv = await env.PITCHOS_CACHE.get('articles:BJK');
       if (kv) {
         const arts = JSON.parse(kv).filter(a => a.slug !== slug);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 43200 });
       }
       return Response.json({ ok: true }, { headers: h });
     }
@@ -3159,7 +3159,7 @@ Sadece JSON döndür:
       const kv = await env.PITCHOS_CACHE.get('articles:BJK');
       if (kv) {
         const arts = JSON.parse(kv).filter(a => a.slug !== slug);
-        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 7200 });
+        await env.PITCHOS_CACHE.put('articles:BJK', JSON.stringify(arts), { expirationTtl: 43200 });
       }
       return Response.json({ ok: true }, { headers: h });
     }
@@ -3424,11 +3424,6 @@ Sadece JSON döndür:
           const ev = event_data || { type: 'Var', detail: 'Goal cancelled', time: { elapsed: 67 }, player: { name: 'Test Oyuncu' }, comments: 'Offside' };
           const mockMatch = { ...nextMatch, score_bjk: ev.score_bjk ?? 1, score_opp: ev.score_opp ?? 1 };
           card = await generateVARFlash(mockMatch, ev, site, env);
-
-        } else if (template === 'T-OG') {
-          const ev = event_data || { type: 'Goal', detail: 'Own Goal', time: { elapsed: 72 }, player: { name: 'Test Oyuncu' }, team: { id: 9999 } };
-          const mockMatch = { ...nextMatch, score_bjk: ev.score_bjk ?? 1, score_opp: ev.score_opp ?? 1 };
-          card = await generateGoalFlash(mockMatch, ev, site, env);
 
         } else if (template === 'T-PEN') {
           const ev = event_data || { type: 'Goal', detail: 'Missed Penalty', time: { elapsed: 80 }, player: { name: 'Test Oyuncu' }, team: { id: 549 } };
@@ -4263,7 +4258,7 @@ async function fetchGoalEvents(fixtureId, env) {
   );
 }
 
-// ─── ALL EVENTS (for Sprint A: T-HT, T-RED, T-VAR, T-OG, T-PEN) ──────────
+// ─── ALL EVENTS (for Sprint A: T-HT, T-RED, T-VAR, T-PEN + own goals → T10) ──
 async function fetchAllEvents(fixtureId, env) {
   if (!env.API_FOOTBALL_KEY || !fixtureId) return [];
   try {
@@ -4308,6 +4303,7 @@ const toKVShape = a => ({
   category:            a.category     || 'Haber',
   nvs:                 a.nvs          || a.nvs_score   || 0,
   trust_score:         a.trust_score  || tierToTrustScore(a.trust_tier || a.trust),
+  trust_tier:          a.trust_tier   || null,
   golden_score:        a.golden_score || null,
   published_at:        a.published_at || a.fetched_at  || new Date().toISOString(),
   fetched_at:          a.fetched_at   || null,
@@ -4587,7 +4583,7 @@ async function matchWatcher(env) {
           }
         }
 
-        // ── Sprint A: T-HT, T-RED, T-VAR, T-OG, T-PEN ────────────
+        // ── Sprint A: T-HT, T-RED, T-VAR, T-PEN + own goals → T10 ──
         // Fetch all events once; reuse for all Sprint A checks.
         if (!liveFixture.is_finished) {
           try {
@@ -4610,7 +4606,7 @@ async function matchWatcher(env) {
               } catch(e) { console.error('WATCHER T-HT failed:', e.message); }
             }
 
-            // Scan events for T-RED, T-VAR, T-OG, T-PEN
+            // Scan events for T-RED, T-VAR, own goals (→ T10), T-PEN
             for (const ev of allEvents) {
               const eid = mkEventId(ev);
               if (seenIds.has(eid)) continue;
@@ -4637,14 +4633,14 @@ async function matchWatcher(env) {
                     console.log(`WATCHER KV WRITE T-VAR: ${ev.detail}`);
                   }
                 }
-                // T-OG — BJK player scoring an own goal (opponent benefits, score_opp increases)
+                // Own goal — saves as T10 (generateGoalFlash always uses template_id: 'T10')
                 else if (ev.type === 'Goal' && ev.detail === 'Own Goal' && ev.team?.id !== 549) {
                   const card = await generateGoalFlash(matchObj, ev, site, env);
                   if (card) {
                     const raw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
                     const latest = raw ? JSON.parse(raw) : [];
                     await cacheToKV(env, site.short_code, mergeAndDedupe([toKVShape({ ...card, nvs: 85, is_kartalix_content: true, is_template: true, fixture_id: liveFixture.fixture_id }), ...latest], 300));
-                    console.log(`WATCHER KV WRITE T-OG: ${ev.player?.name}`);
+                    console.log(`WATCHER KV WRITE T10 (own goal): ${ev.player?.name}`);
                   }
                 }
                 // T-PEN — missed penalty (any team)
@@ -6222,7 +6218,7 @@ ${items}
 async function serveSitemap(env) {
   const cached = await env.PITCHOS_CACHE.get('articles:BJK');
   const articles = cached ? JSON.parse(cached) : [];
-  const SITEMAP_NOINDEX_TEMPLATES = ['T10', 'T11', 'T-RED', 'T-VAR', 'T-OG', 'T-PEN', 'T-HT'];
+  const SITEMAP_NOINDEX_TEMPLATES = ['T10', 'T11', 'T-RED', 'T-VAR', 'T-PEN', 'T-HT'];
   const articleUrls = articles
     .filter(a => a.slug && !SITEMAP_NOINDEX_TEMPLATES.includes(a.template_id || '') && a.publish_mode !== 'rss_summary')
     .map(a => `  <url>
@@ -6260,7 +6256,7 @@ ${articleUrls}
 const ADSENSE_SCRIPT = `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5282305686231853" crossorigin="anonymous"></script>`;
 
 function shouldShowAds({ templateId, publishMode, bodyLength }) {
-  const NO_ADS_TEMPLATES = ['T10','T11','T-RED','T-VAR','T-OG','T-PEN','T-HT'];
+  const NO_ADS_TEMPLATES = ['T10','T11','T-RED','T-VAR','T-PEN','T-HT'];
   if (templateId && NO_ADS_TEMPLATES.includes(templateId)) return false;
   if (publishMode === 'rss_summary') return false;
   return (bodyLength || 0) >= 1200;
@@ -6437,7 +6433,6 @@ const TEMPLATES = [
   { id:'T10',   label:'T10 — Gol Flash',             desc:'BJK golü — olay seç',                 eventKey: 'goals' },
   { id:'T-RED', label:'T-RED — Kırmızı Kart Flash',  desc:'Kırmızı kart olayı seç',             eventKey: 'red_cards' },
   { id:'T-VAR', label:'T-VAR — VAR Karar Flash',     desc:'VAR olayı seç',                      eventKey: 'var_events' },
-  { id:'T-OG',  label:'T-OG — Kendi Kalesine',       desc:'Own goal olayı seç',                 eventKey: 'own_goals' },
   { id:'T-PEN', label:'T-PEN — Kaçırılan Penaltı',   desc:'Kaçırılan penaltı olayı seç',        eventKey: 'missed_pens' },
   // ── Post-match ───────────────────────────────────────────────
   { id:'T11',   label:'T11 — Maç Sonu Flash',        desc:'FT: skor + lig durumu',               eventKey: 'all' },
@@ -7142,7 +7137,7 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, 
   const templateId  = a.template_id || null;
   // Event-flash templates are short time-sensitive cards, not indexable articles.
   // rss_summary articles are source excerpts — also noindex.
-  const NOINDEX_TEMPLATES = ['T10', 'T11', 'T-RED', 'T-VAR', 'T-OG', 'T-PEN', 'T-HT'];
+  const NOINDEX_TEMPLATES = ['T10', 'T11', 'T-RED', 'T-VAR', 'T-PEN', 'T-HT'];
   const isNoIndex = (templateId && NOINDEX_TEMPLATES.includes(templateId)) || a.publish_mode === 'rss_summary';
   // Derive default admin note scope from article type
   const feedbackScope = templateId || (a.publish_mode?.includes('transfer') ? 'transfer' : a.publish_mode?.includes('match') ? 'match' : 'news');
@@ -7156,7 +7151,7 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, 
     'T12':['Maç Sonu','badge-match'], 'T13':['Analiz','badge-analysis'],
     'T-XG':['xG Analizi','badge-analysis'], 'T-REF':['Referans','badge-analysis'],
     'T-RED':['Kırmızı Kart','badge-live'], 'T-VAR':['VAR','badge-live'],
-    'T-OG':['Kendi Kalesine','badge-live'], 'T-PEN':['Penaltı','badge-live'],
+    'T-PEN':['Penaltı','badge-live'],
     'T-HT':['Devre Arası','badge-live'],
   };
   const [badgeLabel, badgeClass] = (() => {

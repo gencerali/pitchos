@@ -983,7 +983,7 @@ export async function logFetch(env, siteId, status, stats, errorMsg, funnelStats
 
 // Half-lives in hours. Templates with kickoff-pin logic use null.
 const HALF_LIFE_BY_TEMPLATE = {
-  'T10': 0.5, 'T-HT': 0.5, 'T-RED': 0.5, 'T-VAR': 0.5, 'T-OG': 0.5, 'T-PEN': 0.5,
+  'T10': 0.5, 'T-HT': 0.5, 'T-RED': 0.5, 'T-VAR': 0.5, 'T-PEN': 0.5,
   'T11': 4,
   'T12': 24, 'T13': 24,
   'T01': 18, 'T02': 18, 'T03': 18,
@@ -1000,7 +1000,7 @@ const HALF_LIFE_BY_MODE = {
 // Hard TTL caps (hours). Evict unconditionally after this age.
 const HARD_TTL_BY_TEMPLATE = {
   // In-match / post-match events — evict fast
-  'T10': 3, 'T-HT': 3, 'T-RED': 3, 'T-VAR': 3, 'T-OG': 3, 'T-PEN': 3,
+  'T10': 3, 'T-HT': 3, 'T-RED': 3, 'T-VAR': 3, 'T-PEN': 3,
   'T11': 12, 'T12': 72, 'T13': 72,
   // Pre-match previews — evict well after the final whistle
   'T01': 36, 'T03': 36, 'T07': 24, 'T-REF': 36,
@@ -1123,8 +1123,124 @@ const TIER_SCORES = {
 };
 export function tierToTrustScore(tier) { return TIER_SCORES[tier] || 50; }
 
+// ─── CONFIG-DRIVEN SCORING ─────────────────────────────────────
+
+export const SCORING_CONFIG_DEFAULTS = {
+  video_nvs_by_type: {
+    match_highlight: 95, generic_highlight: 65,
+    coach_interview: 85, president_interview: 85,
+    player_interview: 80, generic_interview: 70,
+    news: null, // null → use channel NVS (article.nvs)
+  },
+  video_half_life_by_type: {
+    match_highlight: 24, generic_highlight: 18,
+    coach_interview: 24, president_interview: 24,
+    player_interview: 24, generic_interview: 24,
+    news: 12,
+  },
+  template_nvs_by_id: {
+    T10: 90, T11: 85, T12: 75, T13: 70,
+    T01: 65, T02: 60, T03: 60, T07: 65,
+    'T-HT': 75, 'T-RED': 90, 'T-VAR': 85, 'T-PEN': 85,
+    'T-XG': 70, 'T-REF': 60, T08c: 70, T09: 70,
+  },
+  template_half_life_by_id: {
+    T10: 0.75, T11: 4, T12: 24, T13: 24,
+    T01: 18, T02: 18, T03: 18, T07: 36,
+    'T-HT': 1, 'T-RED': 0.75, 'T-VAR': 0.75, 'T-PEN': 0.75,
+    'T-XG': 12, 'T-REF': 18, T08c: 8, T09: 1.5,
+    // T05 not listed — handled by explicit null in getHalfLife
+  },
+  template_official_nvs: 90,
+  template_official_half_life: 24,
+  rewrite_half_life_by_category: {
+    Match: 24, Transfer: 36, Injury: 18,
+    Squad: 24, Club: 48, 'Other Sport': 24, 'National Team': 18,
+    default: 24,
+  },
+  curated_video_nvs: {
+    belgeseller: 15, unutulmaz: 15,
+  },
+  scoring_multipliers: {
+    trust_by_tier: { T1: 1.8, T2: 1.4, T3: 1.0, T4: 0.5 },
+  },
+  homepage: {
+    main_feed_size: null,
+    max_videos_in_main_feed: 3,
+  },
+  rail_fallback_video_slugs: [],
+};
+
+export async function loadSiteConfig(env, siteCode) {
+  const key = `config:${siteCode}`;
+  try {
+    const raw = await env.PITCHOS_CACHE.get(key);
+    if (!raw) return SCORING_CONFIG_DEFAULTS;
+    return { ...SCORING_CONFIG_DEFAULTS, ...JSON.parse(raw) };
+  } catch (err) {
+    console.log(`loadSiteConfig: failed to load ${key}, using defaults: ${err.message}`);
+    return SCORING_CONFIG_DEFAULTS;
+  }
+}
+
+function getEffectiveNVS(article, config) {
+  const cfg = config || {};
+  if (article.publish_mode === 'youtube_embed') {
+    if (cfg.curated_video_nvs?.[article.category] !== undefined)
+      return cfg.curated_video_nvs[article.category];
+    if (article.video_type && cfg.video_nvs_by_type?.[article.video_type] !== undefined) {
+      const val = cfg.video_nvs_by_type[article.video_type];
+      return val !== null ? val : (article.nvs ?? 0);
+    }
+    return article.nvs ?? 0;
+  }
+  if (article.template_id) {
+    const val = cfg.template_nvs_by_id?.[article.template_id];
+    if (val !== undefined) return val;
+  }
+  if (article.publish_mode === 'template_official') return cfg.template_official_nvs ?? 90;
+  return article.nvs ?? article.nvs_score ?? 0;
+}
+
+function getHalfLife(article, config) {
+  const cfg = config || {};
+  if (article.template_id === 'T05') return null; // pin until kickoff+2h
+  if (article.publish_mode === 'youtube_embed') {
+    if (article.video_type && cfg.video_half_life_by_type?.[article.video_type] !== undefined)
+      return cfg.video_half_life_by_type[article.video_type];
+    return 24;
+  }
+  if (article.template_id) {
+    const val = cfg.template_half_life_by_id?.[article.template_id];
+    if (val !== undefined) return val;
+  }
+  if (article.publish_mode === 'template_official') return cfg.template_official_half_life ?? 24;
+  if (article.publish_mode === 'rewrite' || article.publish_mode === 'synthesis') {
+    const cat = article.category || 'default';
+    const hl = cfg.rewrite_half_life_by_category?.[cat];
+    return hl !== undefined ? hl : (cfg.rewrite_half_life_by_category?.default ?? 24);
+  }
+  return cfg.publish_mode_half_life?.[article.publish_mode] ?? 24;
+}
+
+function getTrustMultiplier(article, config) {
+  if (article.publish_mode !== 'rewrite' && article.publish_mode !== 'synthesis') return 1.0;
+  const tierMap = config?.scoring_multipliers?.trust_by_tier || { T1: 1.8, T2: 1.4, T3: 1.0, T4: 0.5 };
+  return tierMap[article.trust_tier || 'T3'] ?? 1.0;
+}
+
+function computeScore(article, config, nowMs) {
+  const halfLife = getHalfLife(article, config);
+  if (halfLife === null) return null; // signals pin logic in rankAndEvict
+  const effectiveNVS = getEffectiveNVS(article, config);
+  if (effectiveNVS <= 0) return 0;
+  const ts = article.fetched_at || article.published_at || article.created_at;
+  const ageHours = ts ? (nowMs - new Date(ts).getTime()) / 3600000 : 0;
+  return effectiveNVS * Math.exp(-ageHours / halfLife) * getTrustMultiplier(article, config);
+}
+
 export function rankAndEvict(articles, limit = 200, opts = {}) {
-  const { kickoffIso = null, floor = 5, minPool = 0 } = opts;
+  const { kickoffIso = null, floor = 5, minPool = 0, config = null } = opts;
   const kickoffMs = kickoffIso ? new Date(kickoffIso).getTime() : null;
   const nowMs = Date.now();
 
@@ -1139,10 +1255,7 @@ export function rankAndEvict(articles, limit = 200, opts = {}) {
 
   const scored = unique.map(a => {
     const ageHours = getArticleAge(a);
-    const { halfLife, hardTtl } = getDecayParams(a);
-    const nvs = a.nvs || a.nvs_score || 0;
-    const storyBoost = Math.min(1.4, 1.0 + ((a.contributions_last_6h || 0) * 0.05));
-    const trustMultiplier = Math.max(0.2, Math.min(2.0, (a.trust_score || 50) / 50));
+    const { hardTtl } = getDecayParams(a);
 
     // Hard TTL: evict unconditionally
     if (hardTtl && ageHours >= hardTtl) return { ...a, _rank: -1 };
@@ -1151,21 +1264,17 @@ export function rankAndEvict(articles, limit = 200, opts = {}) {
     if (a.template_id === 'T05' && kickoffMs) {
       // T05 lineup: pinned until kickoff + 2h, then fast decay
       const postKickoffHours = (nowMs - kickoffMs) / 3600000;
-      if (postKickoffHours < 2) {
-        rankScore = 1000; // pinned
-      } else {
-        rankScore = nvs * Math.exp(-postKickoffHours / 4) * storyBoost;
-      }
-    } else if (halfLife === null) {
-      rankScore = nvs * storyBoost; // no decay (unknown pin template)
+      rankScore = postKickoffHours < 2
+        ? 1000
+        : (a.nvs || a.nvs_score || 0) * Math.exp(-postKickoffHours / 4);
     } else {
-      rankScore = nvs * Math.exp(-ageHours / halfLife) * storyBoost;
+      const score = computeScore(a, config, nowMs);
+      rankScore = score === null
+        ? (a.nvs || a.nvs_score || 0) // null half-life: no decay
+        : score;
     }
 
-    if (rankScore > 0) rankScore *= trustMultiplier;
-
-    // Templates with valid rank still float above rewrites at same score
-    // by adding a small bias (preserves existing behavior for fresh templates)
+    // Templates float slightly above rewrites at equal score
     if (a.template_id && rankScore > 0) rankScore += 0.1;
 
     return { ...a, _rank: rankScore };
@@ -1188,34 +1297,50 @@ export function rankAndEvict(articles, limit = 200, opts = {}) {
   }
   survived.sort((a, b) => b._rank - a._rank);
 
+  // Apply video cap after sort
+  const MAX_VIDEOS = config?.homepage?.max_videos_in_main_feed ?? 3;
+  let videoCount = 0;
+  const capped = [];
+  for (const a of survived) {
+    if (a.publish_mode === 'youtube_embed') {
+      if (videoCount >= MAX_VIDEOS) {
+        if (a.slug) evictedReasonMap.set(a.slug, 'video_cap');
+        continue;
+      }
+      videoCount++;
+    }
+    capped.push(a);
+  }
+
   // Minimum pool guarantee: if floor-filtering drops pool below minPool, keep the
   // highest-ranked sub-floor articles (hard-TTL evictions are still permanent).
-  if (minPool > 0 && survived.length < minPool) {
+  if (minPool > 0 && capped.length < minPool) {
     const subFloor = scored
       .filter(a => a._rank > 0 && a._rank < floor)
       .sort((a, b) => b._rank - a._rank);
-    const needed = Math.min(minPool - survived.length, subFloor.length);
+    const needed = Math.min(minPool - capped.length, subFloor.length);
     if (needed > 0) {
-      survived.push(...subFloor.slice(0, needed));
-      survived.sort((a, b) => b._rank - a._rank);
+      capped.push(...subFloor.slice(0, needed));
+      capped.sort((a, b) => b._rank - a._rank);
     }
   }
 
-  const overflowItems = survived.slice(limit);
+  const overflowItems = capped.slice(limit);
   for (const a of overflowItems) {
     const slug = a.slug || null;
     if (slug) evictedReasonMap.set(slug, 'overflow');
   }
 
   return {
-    articles: survived.slice(0, limit).map(({ _rank, ...rest }) => rest),
+    articles: capped.slice(0, limit).map(({ _rank, ...rest }) => rest),
     evictedReasonMap,
   };
 }
 
 export async function cacheToKV(env, siteCode, articles, opts = {}) {
   try {
-    const { articles: ranked, evictedReasonMap } = rankAndEvict(articles, 200, { minPool: 20, ...opts });
+    const config = await loadSiteConfig(env, siteCode);
+    const { articles: ranked, evictedReasonMap } = rankAndEvict(articles, 200, { minPool: 20, ...opts, config });
     const key = `articles:${siteCode}`;
     const timelineKey = `kv:timeline:${siteCode}`;
     const now = new Date().toISOString();

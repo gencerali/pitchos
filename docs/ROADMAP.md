@@ -4,6 +4,15 @@
 
 ---
 
+## Current Focus: NVS Harmonization
+
+Active workstream: 12 packages (P0–P12), one at a time.  
+Critical path: P0 → P1 → P2 → P4 / P5 / P6  
+Reason: AdSense rejected Kartalix for "valuable inventory." Homepage cleanup (reducing video dominance, surfacing quality content) required before resubmission.  
+Full plan: `docs/nvs-harmonization-assessment-2026-05-30.md`
+
+---
+
 ## Release Model
 
 | Track | Meaning |
@@ -23,6 +32,38 @@
 ## Parallel Workstreams
 
 These run alongside the sprint sequence. Each is independent unless noted.
+
+---
+
+### 🔴 NVS Harmonization *(active — critical path before AdSense resubmission)*
+
+Goal: Replace ad-hoc scoring constants with a config-driven NVS system; clean up homepage video dominance for AdSense resubmission. One package at a time with verification between each.
+
+**P1 open questions** (to be decided before P2 code starts):
+- Q1: Keep `storyBoost` + `trustMultiplier` for rewrites?
+- Q2: `/tum-haberler` in scope now or later?
+- Q3: Video rail wiring (P4) in same change as P2?
+- Q4: Homepage feed size 15 — dynamic floor on slow days?
+- Q5: Curated video exclusion — category discriminator vs DB columns?
+- Q6: T-OG `template_id` fix — in this change or leave alone?
+
+| Package | Status | Scope | Effort | Deps |
+|---------|--------|-------|--------|------|
+| P0 | 🔲 Next | Pre-flight SQL verification (read-only): published_at backfill, confirm no NULLs in last 14 days, confirm `config:BJK` KV absent | XS | — |
+| P1 | 🔲 Next | Decide Q1–Q6 above (Ali + assistant, no code) | XS | P0 |
+| P2 ⭐ | 🔲 Not started | Core scoring: `getEffectiveNVS`, `getHalfLife`, `loadSiteConfig` with hardcoded fallbacks, updated `rankAndEvict`, write `config:BJK` KV. Files: `src/publisher.js` (lines 984–1031, 1126–1214), `worker-fetch-agent.js` | M | P0, P1 |
+| P4 | 🔲 Not started | Video rail: replace `MOCK_VIDEOS` placeholder in "Video Öne Çıkanlar" rail with real data. Files: `index.html` (~40 lines), possibly new `/featured-videos` endpoint | S | — |
+| P5 | 🔲 Not started | Homepage video cap: at most 3 videos in top 15 post-sort; feed size → 15. Files: `src/publisher.js`, `index.html` | S | P2 |
+| P6 | 🔲 Not started | Curated video exclusion from main feed via category discriminator (`belgeseller` / `unutulmaz`). File: `src/publisher.js` `getEffectiveNVS` | S | P2 |
+| P3 | 🟡 Second wave | T-OG `template_id` fix: `generateGoalFlash` saves `T-OG` for own goals instead of T10 | XS | P2 if Q6=yes |
+| P9 | 🟡 Second wave | Config admin page Phase 1 (read-only `/admin/config` showing all current values). Ref: `docs/config-page-design.md` | S | — |
+| P7 | 🟢 Deferred | `/tum-haberler` server-rendered paginated all-news page | M | content quality progress |
+| P8 | 🟢 Deferred | Curated push-to-homepage toggle: `push_to_homepage`, `manual_nvs`, `manual_half_life` DB columns + admin toggle | M | P6 verified |
+| P10 | 🟢 Deferred | Config admin Phase 2: save buttons for Supabase fields (thresholds, team/league/season) | S | P9 |
+| P11 | 🟢 Deferred | Config admin Phase 3: editable KV runtime overrides via `config:BJK` | S | P2 + P9 |
+| P12 | 🟢 Deferred | Config admin Phase 4: keyword editor for `sites.keyword_config.keywords` | S | P9 |
+
+**Note:** The 10-step incremental scoring redesign (D1–D5) is a separate parked workstream — not part of this harmonization.
 
 ---
 
@@ -88,9 +129,9 @@ Goal: `/konu/videolar` redesigned as a classified video hub with tabbed sections
 | VH2 | Phase 2: `/konu/videolar` redesign (tabs, sections, grid, ad slots) | ✅ Done | L | Server-rendered; 4 tabs + ?tip= URL routing; retention windows; 2-col mobile / 4-col desktop |
 | VH3 | Fix Pack 1: CSS grid overflow + classifier refinement | ✅ Done | S | `min-width:0` on cards; pattern+exclusion classifier replacing simple keywords |
 | VH7 | Curated video sections (Belgeseller + Unutulmazlar) | ✅ Done | M | `category` column as discriminator (no schema migration); `/admin/curated-video` with oEmbed, inline edit, drag-and-drop sort (KV order), all 5 sections in dropdown; reveal-next-12; Tümü includes curated; min-12 backfill per tab; ads hidden until reveal; YouTube iframe auto-injected on article pages; İlgili Videolar via Supabase |
-| VH4 | Featured Ranking Logic | 🔲 Not started | M | Tier hierarchy scoring: match_highlight 100 → news 50×NVS; 24h decay for premium types; `featured_rank` numeric column; compute at query time |
-| VH5 | Homepage Video Filter | 🔲 Not started | S | Top 3 youtube_embed by `featured_rank` on homepage; non-video articles unaffected. *Depends on VH4* |
-| VH6 | Admin override for featured | 🔲 Deferred | S | `featured_until` + `featured_blocked` columns for manual pin/hide. *Defer until VH4 auto-logic proven* |
+| VH4 | Featured Ranking Logic | 🔲 Not started | M | Tier hierarchy scoring: match_highlight 100 → news 50×NVS; 24h decay for premium types; `featured_rank` numeric column; compute at query time. **→ Subsumed by NVS Harmonization P2 (core scoring)** |
+| VH5 | Homepage Video Filter | 🔲 Not started | S | Top 3 youtube_embed by `featured_rank` on homepage; non-video articles unaffected. *Depends on VH4*. **→ Subsumed by P5 + P6** |
+| VH6 | Admin override for featured | 🔲 Deferred | S | `featured_until` + `featured_blocked` columns for manual pin/hide. *Defer until VH4 auto-logic proven.* **→ P8 if needed** |
 | VH8 | Video search + filtering | 🔲 Not started | M | Search box in /konu/videolar header; server-side `ILIKE '%query%'` across title; respects active tab filter; mobile-friendly with clear button. Can ship independently of VH4 |
 
 **Decisions needed:**
@@ -400,7 +441,7 @@ Ordered by value/dependency. Do not start until v1.0 ships.
 
 | # | Release | Scope | Est. |
 |---|---------|-------|------|
-| v1.1 | Squad Intelligence | squad_members DB, dynamic keywords, auto-rebuild on squad change. Also replaces hardcoded `CURRENT_PLAYER_NAMES` in video classifier. | 1–2 wks |
+| v1.1 | 🟢 Squad Intelligence | squad_members DB, dynamic keywords, auto-rebuild on squad change. Also replaces hardcoded `CURRENT_PLAYER_NAMES` in video classifier. Deferred until critical path ships. | 1–2 wks |
 | v1.1b | API-Football Webhooks | Register webhook URL with API-Football; `POST /api-football-event` route receives goal/card/HT/FT payloads and fires templates immediately — replaces 5-min poll latency with ~2–4 min end-to-end. Keep cron watcher as fallback. | ½ day |
 | v1.2 | Distribution | Distribute Agent, push notifications (NVS≥80), distribution_log | 1–2 wks |
 | v1.3 | Visual Assets | Visual Asset Agent, IT6 templates, image pipeline. Includes placeholder pool for non-YouTube articles (12–15 CC0 images, hash-based assignment). Flash pool trigger: fires when `publish_mode=template_official` OR `NVS≥75` AND urgent title keywords (XS effort, design ready). **Blocked on lawyer consultation** for Wikimedia + AI-generated images. | 2–3 wks |
@@ -409,7 +450,7 @@ Ordered by value/dependency. Do not start until v1.0 ships.
 | v1.5 | Governance | CLO (FSEK rule engine), CFO full (per-agent cost attribution, weekly report) | 2 wks |
 | v1.6 | Self-Learning | Engagement signals → scoring; source performance table; journalist accuracy tracker (I3/I4 — needs Twitter + YT transcript data first) | 3–4 wks |
 | v1.7 | Multi-Dimensional Trust | Full trust model — 4 dimensions wired together (see below) | 3–4 wks |
-| v2.0 | Multi-team | Pitchos onboarding for Team 2; cross-team learning propagation. **Decision: business priority + timing — Beşiktaş site success first.** | TBD |
+| v2.0 | 🟢 Multi-team | Pitchos onboarding for Team 2; cross-team learning propagation. **Decision: business priority + timing — Beşiktaş site success first.** Deferred until post-launch. | TBD |
 
 ### Decisions blocking Post-Launch items
 
