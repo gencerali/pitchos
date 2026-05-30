@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
@@ -2961,20 +2961,62 @@ Sadece JSON döndür:
           `/rest/v1/content_items?site_id=eq.${site.id}&slug=in.(${kvSlugs.join(',')})&select=id,slug,title,summary,full_body,category,publish_mode,nvs_score,needs_review,fetched_at,image_url,source_name,status,template_id`
         );
         const dbBySlug = new Map((dbRows || []).map(r => [r.slug, r]));
+        // KV fields (scoring, entry) spread first; Supabase editorial fields overlay
         let merged = kvArticles
           .filter(a => a.slug)
-          .map(a => dbBySlug.get(a.slug) || {
-            id: null, slug: a.slug, title: a.title || '',
-            summary: a.summary || '', full_body: a.full_body || '',
-            category: a.category || 'Haber',
-            publish_mode: a.publish_mode || 'rss_summary',
-            nvs_score: a.nvs || a.nvs_score || 0,
-            needs_review: false, fetched_at: a.published_at || null,
-            image_url: a.image_url || '',
-            source_name: a.source_name || a.source || '',
-            status: 'published', template_id: a.template_id || null,
-            _kv_only: true,
+          .map(a => {
+            const db = dbBySlug.get(a.slug);
+            return db
+              ? { ...a, ...db }
+              : { ...a, id: null, needs_review: false, status: 'published', _kv_only: true };
           });
+        // Load scoring config and compute P13 fields server-side
+        const scoringConfig = await loadSiteConfig(env, site.short_code || 'BJK').catch(() => null);
+        const nowMs = Date.now();
+        merged = merged.map(a => {
+          const halfLifeVal = getHalfLife(a, scoringConfig);
+          const scoreNow = computeScore(a, scoringConfig, nowMs);
+          const nvs = getEffectiveNVS(a, scoringConfig);
+          const trust = getTrustMultiplier(a, scoringConfig);
+          // Exit ETA
+          let exitEta = '—';
+          if (a.template_id === 'T05') {
+            exitEta = 'Pinned';
+          } else if (halfLifeVal === null) {
+            exitEta = 'Pinned';
+          } else {
+            const ts = a.fetched_at || a.published_at || a.created_at;
+            const currentAgeHours = ts ? (nowMs - new Date(ts).getTime()) / 3600000 : 0;
+            const FLOOR = 5;
+            const ratio = (nvs * trust) / FLOOR;
+            if (ratio <= 1) {
+              exitEta = '≤floor';
+            } else {
+              const ageAtFloor = halfLifeVal * Math.log(ratio);
+              let naturalHours = ageAtFloor - currentAgeHours;
+              const tid = a.template_id;
+              const hardTtl = tid ? (HARD_TTL_BY_TEMPLATE[tid] || null) : (HARD_TTL_BY_MODE[a.publish_mode] || null);
+              let binding = '';
+              if (hardTtl && (hardTtl - currentAgeHours < naturalHours)) {
+                naturalHours = hardTtl - currentAgeHours;
+                binding = ' TTL';
+              }
+              if (naturalHours <= 0) exitEta = 'imminent';
+              else if (naturalHours < 1) exitEta = `~${Math.round(naturalHours * 60)}m${binding}`;
+              else exitEta = `~${Math.round(naturalHours)}h${binding}`;
+            }
+          }
+          return { ...a,
+            _score_now: scoreNow !== null ? Math.round(scoreNow * 10) / 10 : null,
+            _score_entry: a.entry_rank_score != null ? Math.round(a.entry_rank_score * 10) / 10 : null,
+            _nvs_eff: Math.round(nvs),
+            _half_life: halfLifeVal,
+            _exit_eta: exitEta,
+            _kv_entered_at: a.kv_entered_at || null,
+          };
+        });
+        // Sort by Now score DESC (nulls last)
+        merged.sort((a, b) => (b._score_now ?? -1) - (a._score_now ?? -1));
         if (q) { const ql = q.toLowerCase(); merged = merged.filter(a => (a.title||'').toLowerCase().includes(ql)); }
         if (mode === 'yz')           merged = merged.filter(a => ['rewrite','synthesis'].includes(a.publish_mode));
         else if (mode === 'yz_plus') merged = merged.filter(a => ['original_synthesis','synthesis_generated'].includes(a.publish_mode));
@@ -7575,6 +7617,11 @@ select{height:30px;color:#aaa}
 .ds-live .ds-count{color:#4ade80}.ds-yayinda .ds-count{color:#60a5fa}.ds-pend .ds-count{color:#fbbf24}.ds-arch .ds-count{color:#666}.ds-del .ds-count{color:#c0392b}
 .hp-times{font-size:.59rem;color:#4a7aaa;margin-top:.2rem;line-height:1.3}
 .hp-times-pub{color:#4a9a6a}.hp-times-evicted{color:#7a5a3a}
+.score-strip{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.3rem;padding:.25rem .35rem;background:#111;border:1px solid #1e1e1e;border-radius:3px}
+.sc{display:flex;flex-direction:column;align-items:center;min-width:36px}
+.sc-val{font-size:.65rem;font-weight:700;color:#ccc;line-height:1}
+.sc-val.sc-now{color:#4ade80}.sc-val.sc-pinned{color:#a78bfa}.sc-val.sc-floor{color:#ef4444}.sc-val.sc-imminent{color:#f97316}
+.sc-lbl{font-size:.48rem;letter-spacing:.05em;text-transform:uppercase;color:#444;line-height:1;margin-top:.15rem}
 </style>
 </head>
 <body>
@@ -7749,6 +7796,22 @@ function fmtDate(s) {
   return d.toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'}) + ' ' + d.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'});
 }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtOnSite(kvEnteredAt) {
+  if (!kvEnteredAt) return '—';
+  const ms = Date.now() - new Date(kvEnteredAt).getTime();
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 60) return minutes + 'm';
+  const hours = Math.floor(minutes / 60);
+  const remMin = minutes % 60;
+  if (hours < 24) return remMin > 0 ? hours + 'h ' + remMin + 'm' : hours + 'h';
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  return remHours > 0 ? days + 'd ' + remHours + 'h' : days + 'd';
+}
+function fmtHalfLife(hl) {
+  if (hl === null || hl === undefined) return 'pinned';
+  return hl + 'h';
+}
 
 function statusPill(a) {
   if (!a.slug) return '';
@@ -7817,6 +7880,16 @@ async function load(page) {
       } else if (a.homepage_published_at) {
         hpHtml = \`<div class="hp-times hp-times-pub">🏠 \${fmtDate(a.homepage_published_at)} · hâlâ yayında</div>\`;
       }
+      const hasScoring = a._score_now !== undefined && a._score_now !== null;
+      const nowCls = a._exit_eta === 'Pinned' ? 'sc-pinned' : a._exit_eta === '≤floor' ? 'sc-floor' : a._exit_eta === 'imminent' ? 'sc-imminent' : 'sc-now';
+      const scoreStripHtml = hasScoring ? \`<div class="score-strip">
+        <div class="sc"><span class="sc-val">\${a._nvs_eff ?? '—'}</span><span class="sc-lbl">NVS</span></div>
+        <div class="sc"><span class="sc-val">\${a._score_entry != null ? a._score_entry : '—'}</span><span class="sc-lbl">Entry</span></div>
+        <div class="sc"><span class="sc-val \${nowCls}">\${a._score_now != null ? a._score_now : '—'}</span><span class="sc-lbl">Now</span></div>
+        <div class="sc"><span class="sc-val">\${esc(a._exit_eta||'—')}</span><span class="sc-lbl">Exit ETA</span></div>
+        <div class="sc"><span class="sc-val">\${fmtOnSite(a._kv_entered_at)}</span><span class="sc-lbl">On Site</span></div>
+        <div class="sc"><span class="sc-val">\${fmtHalfLife(a._half_life)}</span><span class="sc-lbl">HalfLife</span></div>
+      </div>\` : '';
       return \`
       <div class="art-row\${currentSlug===a.slug?' active':''}" data-slug="\${esc(a.slug)}" onclick="openBySlug(this.dataset.slug)">
         <div class="art-title">\${esc(a.title||'(başlıksız)')}</div>
@@ -7828,6 +7901,7 @@ async function load(page) {
           \${a.status === 'pending' && a.slug ? '<button class="btn-quick-pub" data-slug="'+esc(a.slug)+'" onclick="quickPublish(event,this.dataset.slug)">Yayınla ↑</button>' : ''}
           <span class="art-date">\${fmtDate(a.fetched_at)}</span>
         </div>
+        \${scoreStripHtml}
         \${hpHtml}
       </div>\`;
     }).join('');

@@ -998,7 +998,7 @@ const HALF_LIFE_BY_MODE = {
   'video_embed': 24, 'youtube_embed': 48,
 };
 // Hard TTL caps (hours). Evict unconditionally after this age.
-const HARD_TTL_BY_TEMPLATE = {
+export const HARD_TTL_BY_TEMPLATE = {
   // In-match / post-match events — evict fast
   'T10': 3, 'T-HT': 3, 'T-RED': 3, 'T-VAR': 3, 'T-PEN': 3,
   'T11': 12, 'T12': 72, 'T13': 72,
@@ -1007,7 +1007,7 @@ const HARD_TTL_BY_TEMPLATE = {
   'T02': 72, // H2H history — low urgency, keep a bit longer
   'T09': 12, // Lineup — only useful on match day
 };
-const HARD_TTL_BY_MODE = {
+export const HARD_TTL_BY_MODE = {
   'copy_source': 12, 'rss_summary': 2, 'manual': 168,
 };
 
@@ -1183,7 +1183,7 @@ export async function loadSiteConfig(env, siteCode) {
   }
 }
 
-function getEffectiveNVS(article, config) {
+export function getEffectiveNVS(article, config) {
   const cfg = config || {};
   if (article.publish_mode === 'youtube_embed') {
     if (cfg.curated_video_nvs?.[article.category] !== undefined)
@@ -1202,7 +1202,7 @@ function getEffectiveNVS(article, config) {
   return article.nvs ?? article.nvs_score ?? 0;
 }
 
-function getHalfLife(article, config) {
+export function getHalfLife(article, config) {
   const cfg = config || {};
   if (article.template_id === 'T05') return null; // pin until kickoff+2h
   if (article.publish_mode === 'youtube_embed') {
@@ -1223,13 +1223,13 @@ function getHalfLife(article, config) {
   return cfg.publish_mode_half_life?.[article.publish_mode] ?? 24;
 }
 
-function getTrustMultiplier(article, config) {
+export function getTrustMultiplier(article, config) {
   if (article.publish_mode !== 'rewrite' && article.publish_mode !== 'synthesis') return 1.0;
   const tierMap = config?.scoring_multipliers?.trust_by_tier || { T1: 1.8, T2: 1.4, T3: 1.0, T4: 0.5 };
   return tierMap[article.trust_tier || 'T3'] ?? 1.0;
 }
 
-function computeScore(article, config, nowMs) {
+export function computeScore(article, config, nowMs) {
   const halfLife = getHalfLife(article, config);
   if (halfLife === null) return null; // signals pin logic in rankAndEvict
   const effectiveNVS = getEffectiveNVS(article, config);
@@ -1349,9 +1349,24 @@ export async function cacheToKV(env, siteCode, articles, opts = {}) {
       env.PITCHOS_CACHE.get(key),
       env.PITCHOS_CACHE.get(timelineKey),
     ]);
-    const oldSlugs = new Set((oldRaw ? JSON.parse(oldRaw) : []).map(a => a.slug).filter(Boolean));
+    const oldArticles = oldRaw ? JSON.parse(oldRaw) : [];
+    const oldSlugs = new Set(oldArticles.map(a => a.slug).filter(Boolean));
+    const oldArticleMap = new Map(oldArticles.map(a => [a.slug, a]).filter(([k]) => k));
     const newSlugs = new Set(ranked.map(a => a.slug).filter(Boolean));
     const timeline = timelineRaw ? JSON.parse(timelineRaw) : {};
+
+    // Stamp kv_entered_at / entry_rank_score: once on first entry, preserved on re-rank
+    for (const a of ranked) {
+      if (!a.slug) continue;
+      const old = oldArticleMap.get(a.slug);
+      if (old?.kv_entered_at) {
+        a.kv_entered_at = old.kv_entered_at;
+        a.entry_rank_score = old.entry_rank_score ?? a._rank ?? null;
+      } else {
+        a.kv_entered_at = now;
+        a.entry_rank_score = a._rank ?? null;
+      }
+    }
 
     for (const slug of newSlugs) {
       if (!timeline[slug]) timeline[slug] = {};
