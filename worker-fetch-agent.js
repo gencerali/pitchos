@@ -417,24 +417,6 @@ export default {
       }
       return new Response(JSON.stringify({ articles, rail_fallback }), { headers: h });
     }
-    if (url.pathname === '/admin/seed-rail-fallback') {
-      // One-time endpoint: queries Supabase for 10 random Unutulmazlar, writes to config:BJK.
-      // Strip after Ali verifies slugs.
-      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
-      const BJK_SITE_ID = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
-      const rows = await supabase(env, 'GET',
-        `/rest/v1/content_items?site_id=eq.${BJK_SITE_ID}&category=eq.unutulmaz&publish_mode=eq.youtube_embed&status=eq.published&select=slug&order=published_at.desc&limit=50`
-      ).catch(() => null);
-      if (!rows || !rows.length) return Response.json({ error: 'no rows returned' }, { headers: h });
-      const shuffled = [...rows].sort(() => Math.random() - 0.5);
-      const slugs = shuffled.slice(0, 10).map(r => r.slug).filter(Boolean);
-      const configRaw = await env.PITCHOS_CACHE.get('config:BJK');
-      if (!configRaw) return Response.json({ error: 'config:BJK not found' }, { headers: h });
-      const cfg = JSON.parse(configRaw);
-      cfg.rail_fallback_video_slugs = slugs;
-      await env.PITCHOS_CACHE.put('config:BJK', JSON.stringify(cfg));
-      return Response.json({ ok: true, slugs }, { headers: h });
-    }
     if (url.pathname === '/report') {
       const report = await buildReport(env);
       return new Response(JSON.stringify(report), {
