@@ -1332,7 +1332,7 @@ export function rankAndEvict(articles, limit = 200, opts = {}) {
   }
 
   return {
-    articles: capped.slice(0, limit).map(({ _rank, ...rest }) => rest),
+    articles: capped.slice(0, limit).map(({ _rank, ...rest }) => ({ ...rest, current_rank: _rank })),
     evictedReasonMap,
   };
 }
@@ -1361,10 +1361,10 @@ export async function cacheToKV(env, siteCode, articles, opts = {}) {
       const old = oldArticleMap.get(a.slug);
       if (old?.kv_entered_at) {
         a.kv_entered_at = old.kv_entered_at;
-        a.entry_rank_score = old.entry_rank_score ?? a._rank ?? null;
+        a.entry_rank_score = old.entry_rank_score ?? a.current_rank ?? null;
       } else {
         a.kv_entered_at = now;
-        a.entry_rank_score = a._rank ?? null;
+        a.entry_rank_score = a.current_rank ?? null;
       }
     }
 

@@ -3036,10 +3036,11 @@ Sadece JSON döndür:
             _half_life: halfLifeVal,
             _exit_eta: exitEta,
             _kv_entered_at: a.kv_entered_at || null,
+            _current_rank: a.current_rank != null ? Math.round(a.current_rank * 10) / 10 : null,
           };
         });
-        // Sort by Now score DESC (nulls last)
-        merged.sort((a, b) => (b._score_now ?? -1) - (a._score_now ?? -1));
+        // Sort by current_rank DESC (nulls last)
+        merged.sort((a, b) => (b._current_rank ?? -1) - (a._current_rank ?? -1));
         if (q) { const ql = q.toLowerCase(); merged = merged.filter(a => (a.title||'').toLowerCase().includes(ql)); }
         if (mode === 'yz')           merged = merged.filter(a => ['rewrite','synthesis'].includes(a.publish_mode));
         else if (mode === 'yz_plus') merged = merged.filter(a => ['original_synthesis','synthesis_generated'].includes(a.publish_mode));
@@ -7643,7 +7644,7 @@ select{height:30px;color:#aaa}
 .score-strip{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.3rem;padding:.25rem .35rem;background:#111;border:1px solid #1e1e1e;border-radius:3px}
 .sc{display:flex;flex-direction:column;align-items:center;min-width:36px}
 .sc-val{font-size:.65rem;font-weight:700;color:#ccc;line-height:1}
-.sc-val.sc-now{color:#4ade80}.sc-val.sc-pinned{color:#a78bfa}.sc-val.sc-floor{color:#ef4444}.sc-val.sc-imminent{color:#f97316}
+.sc-val.sc-now{color:#4ade80}.sc-val.sc-pinned{color:#a78bfa}.sc-val.sc-floor{color:#ef4444}.sc-val.sc-imminent{color:#f97316}.sc-val.sc-rank{color:#facc15}
 .sc-lbl{font-size:.48rem;letter-spacing:.05em;text-transform:uppercase;color:#444;line-height:1;margin-top:.15rem}
 </style>
 </head>
@@ -7906,6 +7907,7 @@ async function load(page) {
       const hasScoring = a._score_now !== undefined && a._score_now !== null;
       const nowCls = a._exit_eta === 'Pinned' ? 'sc-pinned' : a._exit_eta === '≤floor' ? 'sc-floor' : a._exit_eta === 'imminent' ? 'sc-imminent' : 'sc-now';
       const scoreStripHtml = hasScoring ? \`<div class="score-strip">
+        <div class="sc"><span class="sc-val sc-rank">\${a._current_rank != null ? a._current_rank : '—'}</span><span class="sc-lbl">Rank</span></div>
         <div class="sc"><span class="sc-val">\${a._nvs_eff ?? '—'}</span><span class="sc-lbl">NVS</span></div>
         <div class="sc"><span class="sc-val">\${a._score_entry != null ? a._score_entry : '—'}</span><span class="sc-lbl">Entry</span></div>
         <div class="sc"><span class="sc-val \${nowCls}">\${a._score_now != null ? a._score_now : '—'}</span><span class="sc-lbl">Now</span></div>

@@ -2019,7 +2019,7 @@
     const fallback = cacheResponse.rail_fallback || [];
     const allVideos = articles.filter(a => a.publish_mode === 'youtube_embed');
     const featured = [...allVideos]
-      .sort((a, b) => (b._rank || 0) - (a._rank || 0))
+      .sort((a, b) => (b.current_rank || 0) - (a.current_rank || 0))
       .slice(0, 3);
     const featuredSlugs = new Set(featured.map(a => a.slug));
     const recent = [...allVideos]
