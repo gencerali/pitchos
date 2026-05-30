@@ -551,12 +551,12 @@
     }
     .video-card:hover { background: var(--panel); }
     .video-thumb {
-      width: 44px; height: 44px; border-radius: 2px;
-      background: #1a0000; display: flex;
-      align-items: center; justify-content: center;
-      font-size: 1.1rem; flex-shrink: 0;
-      border: 1px solid #2a0000;
+      width: 96px; height: 54px; border-radius: 2px;
+      background: #1a0000; flex-shrink: 0; overflow: hidden;
+      border: 1px solid #2a0000; display: flex;
+      align-items: center; justify-content: center; font-size: 1.1rem;
     }
+    .video-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .video-body { flex: 1; min-width: 0; }
     .video-source {
       font-family: 'Barlow Condensed', sans-serif;
@@ -1074,12 +1074,6 @@
     { title: 'Merkez hakem kurulu açıklaması', summary: 'Geçen haftaki penaltı kararlarına ilişkin resmi değerlendirme yapıldı.', source: 'TRT Spor', url: '#', category: 'Club', nvs: 55, golden_score: 3, trust: 'broadcast', time_ago: '9 saat önce' },
     { title: 'Genç yıldız milli takıma çağrıldı', summary: 'Teknik direktör, kadroya ilk kez çağırdığı isimleri açıkladı.', source: 'A Spor', url: '#', category: 'Squad', nvs: 70, golden_score: 4, trust: 'broadcast', time_ago: '10 saat önce' },
     { title: 'Basketbol şampiyonluk yolunda', summary: 'Beşiktaş Fibabanka EuroCup\'ta finale çok yakın.', source: 'Fotomaç Basketbol', url: '#', category: 'Basketball', nvs: 75, golden_score: 3, trust: 'press', sport: 'basketball', time_ago: '11 saat önce' },
-  ];
-
-  const MOCK_VIDEOS = [
-    { source: 'Rabona TV', moment: 'Transfer görüşmeleri: Brugge anlaşması detayları', timestamp: '02:14', url: 'https://youtube.com' },
-    { source: 'Fırat Günayer', moment: 'Medikal randevusu perşembeye alındı', timestamp: '07:40', url: 'https://youtube.com' },
-    { source: 'BJK TV', moment: 'Antrenman öncesi açıklamalar ve kadro haberleri', timestamp: '00:45', url: 'https://youtube.com' },
   ];
 
   // ── HELPERS ──────────────────────────────────────────────────
@@ -1645,10 +1639,13 @@
 
   async function init() {
     let articles = [];
+    let cacheData = {};
     try {
       const res  = await fetch(`${WORKER_URL}/cache`);
       const data = await res.json();
-      articles   = Array.isArray(data) && data.length > 0 ? data : MOCK_ARTICLES;
+      const arr  = Array.isArray(data) ? data : (data.articles || []);
+      articles   = arr.length > 0 ? arr : MOCK_ARTICLES;
+      cacheData  = Array.isArray(data) ? { articles: data, rail_fallback: [] } : data;
     } catch {
       articles = MOCK_ARTICLES;
     }
@@ -1696,7 +1693,7 @@
     renderRadarLive(articles);
     renderPulseLive(articles);
     renderOtherSports(otherArticles);
-    renderVideos(MOCK_VIDEOS);
+    renderVideos(cacheData);
     setTimestamp();
   }
 
@@ -2012,17 +2009,49 @@
   }
 
   // ── RENDER VIDEOS ────────────────────────────────────────────
-  function renderVideos(items) {
-    document.getElementById('videoGrid').innerHTML = items.map(v => `
-      <a class="video-card" href="${esc(v.url)}" target="_blank" rel="noopener">
-        <div class="video-thumb">▶</div>
-        <div class="video-body">
-          <div class="video-source">${esc(v.source)}</div>
-          <div class="video-moment">${esc(cleanForDisplay(v.moment))}</div>
-          <div class="video-ts">⏱ ${esc(v.timestamp)}'den itibaren</div>
-        </div>
-      </a>
-    `).join('');
+  function buildVideoRail(cacheResponse) {
+    const articles = cacheResponse.articles || [];
+    const fallback = cacheResponse.rail_fallback || [];
+    const allVideos = articles.filter(a => a.publish_mode === 'youtube_embed');
+    const featured = [...allVideos]
+      .sort((a, b) => (b._rank || 0) - (a._rank || 0))
+      .slice(0, 3);
+    const featuredSlugs = new Set(featured.map(a => a.slug));
+    const recent = [...allVideos]
+      .filter(a => !featuredSlugs.has(a.slug))
+      .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
+      .slice(0, 7);
+    const placedSlugs = new Set([...featuredSlugs, ...recent.map(a => a.slug)]);
+    let rail = [...featured, ...recent];
+    if (rail.length < 10 && fallback.length > 0) {
+      const available = fallback.filter(a => !placedSlugs.has(a.slug));
+      rail = rail.concat(available.slice(0, 10 - rail.length));
+    }
+    return rail.slice(0, 10);
+  }
+
+  function renderVideoCard(v) {
+    const thumbnail = v.image_url || (v.video_id ? `https://img.youtube.com/vi/${esc(v.video_id)}/maxresdefault.jpg` : '');
+    const link = v.slug ? `/haber/${esc(v.slug)}` : (v.url || '#');
+    const source = v.source_name || v.source || '';
+    return `<a class="video-card" href="${link}">
+      <div class="video-thumb">${thumbnail ? `<img src="${esc(thumbnail)}" alt="${esc(v.title || '')}" loading="lazy">` : '▶'}</div>
+      <div class="video-body">
+        <div class="video-source">${esc(source)}</div>
+        <div class="video-moment">${esc(cleanForDisplay(v.title || ''))}</div>
+        <div class="video-ts">${timeAgo(v.published_at)}</div>
+      </div>
+    </a>`;
+  }
+
+  function renderVideos(cacheResponse) {
+    const videos = buildVideoRail(cacheResponse);
+    const grid = document.getElementById('videoGrid');
+    if (!videos.length) {
+      grid.closest('.video-section').style.display = 'none';
+      return;
+    }
+    grid.innerHTML = videos.map(v => renderVideoCard(v)).join('');
   }
 
   function setTimestamp() {

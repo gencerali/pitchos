@@ -389,10 +389,51 @@ export default {
     }
     if (url.pathname === '/cache') {
       const siteCode = url.searchParams.get('site') || 'BJK';
-      const cached = await env.PITCHOS_CACHE.get(`articles:${siteCode}`);
-      return new Response(cached || '[]', {
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET' },
-      });
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET' };
+      const [cached, config] = await Promise.all([
+        env.PITCHOS_CACHE.get(`articles:${siteCode}`),
+        loadSiteConfig(env, siteCode).catch(() => null),
+      ]);
+      const articles = cached ? JSON.parse(cached) : [];
+      const fallbackSlugs = config?.rail_fallback_video_slugs || [];
+      let rail_fallback = [];
+      if (fallbackSlugs.length > 0) {
+        const kvBySlug = new Map(articles.filter(a => a.slug).map(a => [a.slug, a]));
+        const fromKV = [];
+        const needFromDb = [];
+        for (const slug of fallbackSlugs) {
+          if (kvBySlug.has(slug)) fromKV.push(kvBySlug.get(slug));
+          else needFromDb.push(slug);
+        }
+        let fromDb = [];
+        if (needFromDb.length > 0) {
+          const rows = await supabase(env, 'GET',
+            `/rest/v1/content_items?slug=in.(${needFromDb.join(',')})&select=slug,title,image_url,published_at,source_name,publish_mode,category`
+          ).catch(() => []);
+          fromDb = rows || [];
+        }
+        const allBySlug = new Map([...fromKV.map(a => [a.slug, a]), ...fromDb.map(a => [a.slug, a])]);
+        rail_fallback = fallbackSlugs.map(s => allBySlug.get(s)).filter(Boolean);
+      }
+      return new Response(JSON.stringify({ articles, rail_fallback }), { headers: h });
+    }
+    if (url.pathname === '/admin/seed-rail-fallback') {
+      // One-time endpoint: queries Supabase for 10 random Unutulmazlar, writes to config:BJK.
+      // Strip after Ali verifies slugs.
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const BJK_SITE_ID = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
+      const rows = await supabase(env, 'GET',
+        `/rest/v1/content_items?site_id=eq.${BJK_SITE_ID}&category=eq.unutulmaz&publish_mode=eq.youtube_embed&status=eq.published&select=slug&order=published_at.desc&limit=50`
+      ).catch(() => null);
+      if (!rows || !rows.length) return Response.json({ error: 'no rows returned' }, { headers: h });
+      const shuffled = [...rows].sort(() => Math.random() - 0.5);
+      const slugs = shuffled.slice(0, 10).map(r => r.slug).filter(Boolean);
+      const configRaw = await env.PITCHOS_CACHE.get('config:BJK');
+      if (!configRaw) return Response.json({ error: 'config:BJK not found' }, { headers: h });
+      const cfg = JSON.parse(configRaw);
+      cfg.rail_fallback_video_slugs = slugs;
+      await env.PITCHOS_CACHE.put('config:BJK', JSON.stringify(cfg));
+      return Response.json({ ok: true, slugs }, { headers: h });
     }
     if (url.pathname === '/report') {
       const report = await buildReport(env);
