@@ -149,12 +149,13 @@ export function bjkMatchDetail(text, keywords = BJK_KEYWORDS) {
 }
 
 // ─── CLAUDE API CALL ─────────────────────────────────────────
-export async function callClaude(env, model, prompt, useWebSearch, maxTokens = 2000) {
+export async function callClaude(env, model, prompt, useWebSearch, maxTokens = 2000, system = null) {
   const body = {
     model,
     max_tokens: maxTokens,
     messages: [{ role: 'user', content: prompt }],
   };
+  if (system !== null) body.system = system;
   if (useWebSearch) {
     body.tools = [{ type: 'web_search_20250305', name: 'web_search' }];
   }
@@ -164,6 +165,7 @@ export async function callClaude(env, model, prompt, useWebSearch, maxTokens = 2
       'Content-Type': 'application/json',
       'x-api-key': env.ANTHROPIC_API_KEY,
       'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'prompt-caching-2024-07-31',
     },
     body: JSON.stringify(body),
   });

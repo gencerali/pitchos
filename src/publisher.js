@@ -607,13 +607,11 @@ export async function synthesizeArticle(article, env, site = null, opts = {}) {
     ? `Kaynak: Beşiktaş JK resmi açıklaması — bu bilgi kesindir, "iddia" veya "kaynağına göre" çerçevesi yasak.`
     : `Kaynak metin: ${sourceText}`;
 
-  const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak metinden özgün bir Kartalix haberi yaz.
-
-Kaynak başlık: ${article.title}
-${isOfficial ? `Kaynak metin: ${sourceText}\n${sourceLabel}` : sourceLabel}${factsBlock}${entityBlock}${editorialCtx}${groundingCtx}
+  // Static prefix: role + editorial notes + grounding context + rules.
+  // Cached in the system prompt — same across all synthesis calls in a pipeline run.
+  const systemText = `Sen Kartalix'in Beşiktaş spor editörüsün. Görevin: verilen kaynak metinden özgün bir Türkçe Kartalix haberi yazmak.${editorialCtx}${groundingCtx}
 
 Kurallar:
-- ${targetWords} kelime — fazlası yasak. Kaynak kaç bilgi veriyorsa o kadar yaz.
 - Türkçe, doğrudan haber üslubu
 - İLK CÜMLE: KİŞİLER ve OLAY — kim, ne yaptı/oldu
 - Yalnızca KAYNAK METNİNDE bulunan bilgileri yaz. Şunları YAZMA:
@@ -625,8 +623,15 @@ Kurallar:
 - DOĞRULANMIŞ VERİLER arka plan bilgisidir: sezon bağlamını habere işle ama birebir aktarma
 - Paragraflar arası boş satır bırak
 - Başlık ekleme`;
+  const systemPrompt = [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }];
 
-  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 1000);
+  // Dynamic suffix: per-article content. Not cached — changes every call.
+  const userContent = `Kaynak başlık: ${article.title}
+${isOfficial ? `Kaynak metin: ${sourceText}\n${sourceLabel}` : sourceLabel}${factsBlock}${entityBlock}
+
+${targetWords} kelime — fazlası yasak. Kaynak kaç bilgi veriyorsa o kadar yaz.`;
+
+  const res = await callClaude(env, MODEL_GENERATE, userContent, false, 1000, systemPrompt);
   if (res?.usage) _usages.push({ model: MODEL_GENERATE, usage: res.usage });
   let body = extractText(res.content).trim();
 
@@ -666,12 +671,14 @@ Kurallar:
   console.log(`TITLE GEN: "${kartalixTitle?.slice(0, 60)}" (was: "${article.title?.slice(0, 60)}")`);
 
   const _aggUsage = () => {
-    const h = { input_tokens: 0, output_tokens: 0 };
-    const s = { input_tokens: 0, output_tokens: 0 };
+    const h = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+    const s = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
     for (const { model, usage } of _usages) {
       const t = model === MODEL_GENERATE ? s : h;
-      t.input_tokens  += usage.input_tokens  || 0;
-      t.output_tokens += usage.output_tokens || 0;
+      t.input_tokens                += usage.input_tokens                || 0;
+      t.output_tokens               += usage.output_tokens               || 0;
+      t.cache_creation_input_tokens += usage.cache_creation_input_tokens || 0;
+      t.cache_read_input_tokens     += usage.cache_read_input_tokens     || 0;
     }
     return { haiku: h, sonnet: s };
   };
@@ -679,8 +686,8 @@ Kurallar:
   if (!verification.passed && verification.issues.length > 0) {
     console.log(`VERIFY FAIL: ${verification.issues.join('; ')}`);
     try {
-      const fixPrompt = prompt + `\n\nDİKKAT — aşağıdaki olgusal hatalar tespit edildi, düzelt:\n${verification.issues.join('\n')}`;
-      const res2 = await callClaude(env, MODEL_GENERATE, fixPrompt, false, 700);
+      const fixUserContent = userContent + `\n\nDİKKAT — aşağıdaki olgusal hatalar tespit edildi, düzelt:\n${verification.issues.join('\n')}`;
+      const res2 = await callClaude(env, MODEL_GENERATE, fixUserContent, false, 700, systemPrompt);
       if (res2?.usage) _usages.push({ model: MODEL_GENERATE, usage: res2.usage });
       const body2 = extractText(res2.content).trim();
       if (body2.length > 200) {
