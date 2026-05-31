@@ -4859,7 +4859,7 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null)
       }
       if (!video.embed_qualify) continue;
       try {
-        const card = await generateVideoEmbed(video, site, env);
+        const card = await generateVideoEmbed(video, site, env, stats);
         if (!card) continue;
         const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
         const current = raw ? JSON.parse(raw) : [];
@@ -4922,7 +4922,7 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null)
           }
         }
         if (transcripts.length > 0) {
-          const card = await generateRabonaDigest(usedVideos, transcripts, site, env);
+          const card = await generateRabonaDigest(usedVideos, transcripts, site, env, stats);
           if (card) {
             const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
             const current = raw ? JSON.parse(raw) : [];
@@ -5215,7 +5215,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       if (nextMatch.match_day === today && !immediateKV.find(a => a.template_id === '05')) {
         console.log('TEMPLATE 05: generating...');
         const injuries = nextMatch.fixture_id ? await getInjuries(env, nextMatch.fixture_id) : [];
-        const card = await generateMatchDayCard(nextMatch, preFiltered, site, env, injuries);
+        const card = await generateMatchDayCard(nextMatch, preFiltered, site, env, injuries, stats);
         if (card) {
           await linkToMatchStory(card);
           const withT = [toKVShape(card), ...immediateKV];
@@ -5232,7 +5232,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
 
       if (hoursToKickoff <= 24 && hoursToKickoff > 3 && !immediateKV.find(a => a.template_id === '08b')) {
         console.log('TEMPLATE 08b: checking for muhtemel 11...');
-        const card = await generateMuhtemel11(nextMatch, preFiltered, site, env);
+        const card = await generateMuhtemel11(nextMatch, preFiltered, site, env, stats);
         if (card) {
           await linkToMatchStory(card);
           const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
@@ -5273,7 +5273,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
         if (hoursToKickoff > 0 && hoursToKickoff <= 72) {
           console.log(`TEMPLATE T02: ${hoursToKickoff.toFixed(1)}h to kickoff — generating H2H history...`);
           const h2h = await getH2H(nextMatch.opponent_id, env);
-          const card = await generateH2HHistory(nextMatch, h2h, site, env);
+          const card = await generateH2HHistory(nextMatch, h2h, site, env, stats);
           if (card) {
             await linkToMatchStory(card);
             await env.PITCHOS_CACHE.put(t02Key, '1', { expirationTtl: 86400 });
@@ -5300,7 +5300,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
           const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
           const rssArticles = (latestRaw ? JSON.parse(latestRaw) : immediateKV)
             .filter(a => a.template_id !== 'T07' && !a.is_kartalix_content);
-          const card = await generateInjuryReport(nextMatch, injuries, rssArticles, site, env);
+          const card = await generateInjuryReport(nextMatch, injuries, rssArticles, site, env, stats);
           if (card) {
             await linkToMatchStory(card);
             await env.PITCHOS_CACHE.put(t07Key, '1', { expirationTtl: 86400 });
@@ -5332,7 +5332,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
               bjk_draws:  refMatches.filter(f => f.score_bjk === f.score_opp).length,
               bjk_losses: refMatches.filter(f => f.score_bjk < f.score_opp).length,
             } : null;
-            const card = await generateRefereeProfile(nextMatch, referee, refStats, site, env);
+            const card = await generateRefereeProfile(nextMatch, referee, refStats, site, env, stats);
             if (card) {
               await linkToMatchStory(card);
               await env.PITCHOS_CACHE.put(trefKey, '1', { expirationTtl: 86400 });
@@ -5363,7 +5363,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
             getStandings(env),
           ]);
           const bjkRow = table ? table.find(r => r.team?.id === 549) : null;
-          const card = await generateFormGuide(nextMatch, recent, bjkRow, site, env);
+          const card = await generateFormGuide(nextMatch, recent, bjkRow, site, env, stats);
           if (card) {
             await linkToMatchStory(card);
             await env.PITCHOS_CACHE.put(t03Key, '1', { expirationTtl: 86400 });
@@ -5392,7 +5392,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
             getInjuries(env, nextMatch.fixture_id),
             env.PITCHOS_CACHE.get('lineup_history', 'json').catch(() => null),
           ]);
-          const card = await generateLineupCard(nextMatch, bjkLastLineup, oppLastLineup, injuries, predHistory || [], site, env);
+          const card = await generateLineupCard(nextMatch, bjkLastLineup, oppLastLineup, injuries, predHistory || [], site, env, stats);
           if (card) {
             await linkToMatchStory(card);
             await env.PITCHOS_CACHE.put(t08cKey, '1', { expirationTtl: 86400 });
@@ -5477,7 +5477,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
             getStandings(env),
           ]);
           const standingsCtx = buildStandingsContext(table);
-          const card = await generateMatchPreview(nextMatch, h2h, weather, standingsCtx, site, env);
+          const card = await generateMatchPreview(nextMatch, h2h, weather, standingsCtx, site, env, stats);
           if (card) {
             await linkToMatchStory(card);
             await env.PITCHOS_CACHE.put(t01Key, '1', { expirationTtl: 86400 });
@@ -5517,7 +5517,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
               } else {
                 const latestGoal = goalEvents[goalEvents.length - 1];
                 const matchObj = { ...nextMatch, score_bjk: liveFixture.score_bjk, score_opp: liveFixture.score_opp };
-                const card = await generateGoalFlash(matchObj, latestGoal, site, env);
+                const card = await generateGoalFlash(matchObj, latestGoal, site, env, stats);
                 if (card) {
                   await linkToMatchStory(card);
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
@@ -5532,12 +5532,12 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
             // T11 + T12 + T13 — match finished, fire once
             if (liveFixture.is_finished && !liveState.result_published) {
               console.log('T11: match finished — generating result flash...');
-              const [players, stats, events] = await Promise.all([
+              const [players, fixtureStats, events] = await Promise.all([
                 getFixturePlayers(liveFixture.fixture_id, env),
                 getFixtureStats(liveFixture.fixture_id, env),
                 getFixtureEvents(liveFixture.fixture_id, env).catch(() => []),
               ]);
-              const card = await generateResultFlash(liveFixture, players, site, env, events);
+              const card = await generateResultFlash(liveFixture, players, site, env, events, stats);
               if (card) {
                 await linkToMatchStory(card);
                 liveState.result_published = true;
@@ -5551,7 +5551,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
               // T13 — Man of the Match
               try {
                 console.log('T13: generating man of the match...');
-                const motmCard = await generateManOfTheMatch(liveFixture, players, site, env);
+                const motmCard = await generateManOfTheMatch(liveFixture, players, site, env, stats);
                 if (motmCard) {
                   await linkToMatchStory(motmCard);
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
@@ -5565,7 +5565,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
               // T12 — Full match report (xG + stats + ratings)
               try {
                 console.log('T12: generating match report...');
-                const reportCard = await generateMatchReport(liveFixture, players, stats, site, env, events);
+                const reportCard = await generateMatchReport(liveFixture, players, fixtureStats, site, env, events, stats);
                 if (reportCard) {
                   await linkToMatchStory(reportCard);
                   const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
@@ -5578,11 +5578,11 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
 
               // T-xG Delta — only when |BJK goals − xG| > 1.2
               try {
-                if (stats?.xg != null) {
-                  const xgDelta = Math.abs((liveFixture.score_bjk ?? 0) - parseFloat(stats.xg));
+                if (fixtureStats?.xg != null) {
+                  const xgDelta = Math.abs((liveFixture.score_bjk ?? 0) - parseFloat(fixtureStats.xg));
                   console.log(`T-XG: delta=${xgDelta.toFixed(2)}`);
                   if (xgDelta > 1.2) {
-                    const xgCard = await generateXGDelta(liveFixture, stats, site, env);
+                    const xgCard = await generateXGDelta(liveFixture, fixtureStats, site, env, stats);
                     if (xgCard) {
                       await linkToMatchStory(xgCard);
                       const latestRaw = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
@@ -5624,7 +5624,15 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
     let thinDropItems     = [];
     try {
       const top100forWrite = top100.slice(0, 100);
-      const allWritten = await writeArticles(top100forWrite, site, env);
+      const { results: allWritten, _usage: writeUsage } = await writeArticles(top100forWrite, site, env);
+      if (writeUsage?.haiku && (writeUsage.haiku.input_tokens || writeUsage.haiku.output_tokens)) {
+        addUsagePhase(stats, writeUsage.haiku, MODEL_FETCH, 'synthesis');
+        stats.claudeCalls++;
+      }
+      if (writeUsage?.sonnet && (writeUsage.sonnet.input_tokens || writeUsage.sonnet.output_tokens)) {
+        addUsagePhase(stats, writeUsage.sonnet, MODEL_GENERATE, 'synthesis');
+        stats.claudeCalls++;
+      }
       console.log(`Write phase: ${allWritten.map(a => a.publish_mode).join(', ')}`);
 
       scoredLowItems = allWritten

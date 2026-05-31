@@ -1,4 +1,4 @@
-﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes } from './utils.js';
+﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, addUsagePhase, addCost } from './utils.js';
 import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens } from './processor.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
@@ -164,7 +164,7 @@ export function cleanRSS(text) {
 // Post-generation Haiku call. Extracts factual claims (standings, scores,
 // recent results) and cross-checks against grounding data.
 // Fails open — if API data is unavailable or call errors, returns passed:true.
-async function verifyArticle(body, groundingCtx, env) {
+async function verifyArticle(body, groundingCtx, env, _usages = null) {
   if (!groundingCtx || !groundingCtx.includes('DOĞRULANMIŞ VERİLER')) {
     return { passed: true, issues: [] };
   }
@@ -180,6 +180,7 @@ Sorun varsa: {"passed":false,"issues":["iddia X ama gerçek Y"]}`;
 
   try {
     const res = await callClaude(env, MODEL_FETCH, prompt, false, 150);
+    if (_usages && res?.usage) _usages.push({ model: MODEL_FETCH, usage: res.usage });
     const text = extractText(res.content).trim();
     const m = text.match(/\{[\s\S]*?\}/);
     if (!m) return { passed: true, issues: [] };
@@ -393,7 +394,7 @@ Bilmiyorsan null yaz.`;
 // Articles arrive sorted by NVS, so only the highest-value P4 articles get facts.
 const MAX_FACTS_EXTRACTS = 5;
 
-async function extractKeyEntities(title, sourceText, env) {
+async function extractKeyEntities(title, sourceText, env, _usages = null) {
   const prompt = `Aşağıdaki spor haberinin en kritik bilgilerini çıkar. Sadece metinde geçen gerçek bilgileri yaz — tahmin etme.
 
 Başlık: ${title}
@@ -405,6 +406,7 @@ OLAY: [ne oldu — kısa, fiil içeren tek cümle]
 DETAYLAR: [önemli rakamlar, tarihler, maç/kulüp/turnuva adları — yoksa boş bırak]`;
   try {
     const res = await callClaude(env, MODEL_FETCH, prompt, false, 150);
+    if (_usages && res?.usage) _usages.push({ model: MODEL_FETCH, usage: res.usage });
     return extractText(res.content).trim();
   } catch {
     return '';
@@ -416,7 +418,7 @@ const PROXY_BASE = 'https://pitchos-proxy.onrender.com';
 // Gate: does the available content actually deliver on what the title promises?
 // Cheap check (~200 input tokens, 1-2 output). Returns true if content is sufficient,
 // false if the title makes claims the source doesn't support.
-export async function checkContentCoversTitlePromise(title, content, env) {
+export async function checkContentCoversTitlePromise(title, content, env, _usages = null) {
   const prompt = `Kaynak başlık: "${title}"
 
 Kaynak içerik:
@@ -429,6 +431,7 @@ Sadece EVET ya da HAYIR yaz.`;
 
   try {
     const res = await callClaude(env, MODEL_FETCH, prompt, false, 5);
+    if (_usages && res?.usage) _usages.push({ model: MODEL_FETCH, usage: res.usage });
     const answer = extractText(res.content).trim().toUpperCase();
     return answer.startsWith('EVET');
   } catch {
@@ -436,7 +439,7 @@ Sadece EVET ya da HAYIR yaz.`;
   }
 }
 
-async function generateKartalixTitle(body, rssTitle, env) {
+async function generateKartalixTitle(body, rssTitle, env, _usages = null) {
   const prompt = `Sen Beşiktaş haber siteleri için başlık yazan bir editörsün.
 
 KAYNAK BAŞLIK (sadece referans — kopyalama, clickbait olabilir):
@@ -458,10 +461,12 @@ Sadece başlığı yaz. Başka hiçbir şey yazma.`;
   try {
     const clean = t => t.trim().replace(/^["'«»]+|["'«»]+$/g, '').replace(/\.+$/, '').trim();
     const res = await callClaude(env, MODEL_FETCH, prompt, false, 50);
+    if (_usages && res?.usage) _usages.push({ model: MODEL_FETCH, usage: res.usage });
     const title = clean(extractText(res.content));
     if (title.length >= 30 && title.length <= 100) return title;
 
     const res2 = await callClaude(env, MODEL_FETCH, prompt, false, 50);
+    if (_usages && res2?.usage) _usages.push({ model: MODEL_FETCH, usage: res2.usage });
     const title2 = clean(extractText(res2.content));
     if (title2.length >= 30 && title2.length <= 100) return title2;
 
@@ -472,7 +477,7 @@ Sadece başlığı yaz. Başka hiçbir şey yazma.`;
   }
 }
 
-async function extractFactsFromSource(title, sourceText, env) {
+async function extractFactsFromSource(title, sourceText, env, _usages = null) {
   const prompt = `Aşağıdaki Beşiktaş haberinden yalnızca açıkça belirtilen gerçekleri çıkar. Tahmin etme, ekstra bağlam ekleme.
 
 Başlık: ${title}
@@ -488,6 +493,7 @@ Madde yoksa "Doğrulanmış bilgi yok." yaz.`;
 
   try {
     const res = await callClaude(env, MODEL_FETCH, prompt, false, 200);
+    if (_usages && res?.usage) _usages.push({ model: MODEL_FETCH, usage: res.usage });
     const text = extractText(res.content).trim();
     if (text === 'Doğrulanmış bilgi yok.' || !text) return { bullets: '', count: 0 };
     const lines = text.split('\n').filter(l => l.trim().startsWith('-'));
@@ -498,6 +504,7 @@ Madde yoksa "Doğrulanmış bilgi yok." yaz.`;
 }
 
 export async function synthesizeArticle(article, env, site = null, opts = {}) {
+  const _usages = []; // accumulates { model, usage } from all sub-calls
   const srcUrl = article.url || article.original_url || '';
   let sourceText = null; // null = source not fetched; synthesis requires real source text
 
@@ -569,7 +576,7 @@ export async function synthesizeArticle(article, env, site = null, opts = {}) {
   }
 
   // Gate: only synthesize if the source content actually delivers on the title's promise.
-  const covers = await checkContentCoversTitlePromise(article.title, sourceText, env);
+  const covers = await checkContentCoversTitlePromise(article.title, sourceText, env, _usages);
   if (!covers) {
     console.log(`SYNTHESIS GATE FAIL [${article.nvs}]: "${article.title?.slice(0, 60)}" — source does not cover title's promise`);
     return { body: null };
@@ -578,8 +585,8 @@ export async function synthesizeArticle(article, env, site = null, opts = {}) {
   const [editorialCtx, groundingCtx, keyEntities, sourceFacts] = await Promise.all([
     getEditorialNotes(env, ['general', 'style']),
     buildGroundingContext(env, site),
-    extractKeyEntities(article.title, sourceText, env),
-    extractFactsFromSource(article.title, sourceText, env),
+    extractKeyEntities(article.title, sourceText, env, _usages),
+    extractFactsFromSource(article.title, sourceText, env, _usages),
   ]);
   console.log(`FACTS EXTRACTED [${article.nvs}]: ${sourceFacts.count} bullets — "${article.title?.slice(0, 50)}"`);
 
@@ -620,6 +627,7 @@ Kurallar:
 - Başlık ekleme`;
 
   const res = await callClaude(env, MODEL_GENERATE, prompt, false, 1000);
+  if (res?.usage) _usages.push({ model: MODEL_GENERATE, usage: res.usage });
   let body = extractText(res.content).trim();
 
   // Detect Claude refusal/rejection responses — these must never be published.
@@ -652,32 +660,45 @@ Kurallar:
   }
 
   const [kartalixTitle, verification] = await Promise.all([
-    generateKartalixTitle(body, article.title, env),
-    verifyArticle(body, groundingCtx, env),
+    generateKartalixTitle(body, article.title, env, _usages),
+    verifyArticle(body, groundingCtx, env, _usages),
   ]);
   console.log(`TITLE GEN: "${kartalixTitle?.slice(0, 60)}" (was: "${article.title?.slice(0, 60)}")`);
+
+  const _aggUsage = () => {
+    const h = { input_tokens: 0, output_tokens: 0 };
+    const s = { input_tokens: 0, output_tokens: 0 };
+    for (const { model, usage } of _usages) {
+      const t = model === MODEL_GENERATE ? s : h;
+      t.input_tokens  += usage.input_tokens  || 0;
+      t.output_tokens += usage.output_tokens || 0;
+    }
+    return { haiku: h, sonnet: s };
+  };
 
   if (!verification.passed && verification.issues.length > 0) {
     console.log(`VERIFY FAIL: ${verification.issues.join('; ')}`);
     try {
       const fixPrompt = prompt + `\n\nDİKKAT — aşağıdaki olgusal hatalar tespit edildi, düzelt:\n${verification.issues.join('\n')}`;
       const res2 = await callClaude(env, MODEL_GENERATE, fixPrompt, false, 700);
+      if (res2?.usage) _usages.push({ model: MODEL_GENERATE, usage: res2.usage });
       const body2 = extractText(res2.content).trim();
       if (body2.length > 200) {
         console.log(`VERIFY REGENERATED OK`);
-        return { body: body2, title: kartalixTitle, needs_review: false, verification_result: { passed: true, issues: [], regenerated: true } };
+        return { body: body2, title: kartalixTitle, needs_review: false, verification_result: { passed: true, issues: [], regenerated: true }, _usage: _aggUsage() };
       }
     } catch {}
     console.log(`VERIFY FAIL — needs_review flagged`);
-    return { body, title: kartalixTitle, needs_review: true, verification_result: verification };
+    return { body, title: kartalixTitle, needs_review: true, verification_result: verification, _usage: _aggUsage() };
   }
 
-  return { body, title: kartalixTitle, needs_review: false, verification_result: verification };
+  return { body, title: kartalixTitle, needs_review: false, verification_result: verification, _usage: _aggUsage() };
 }
 
 export async function writeArticles(articles, site, env) {
   const results = [];
   let factsExtracted = 0;
+  const _writeUsage = { haiku: { input_tokens: 0, output_tokens: 0 }, sonnet: { input_tokens: 0, output_tokens: 0 } };
 
   // Warm proxy once before the loop if any article is likely to need synthesis.
   // Prevents the first synthesis call from paying both the cold-start cost AND
@@ -737,9 +758,17 @@ export async function writeArticles(articles, site, env) {
           // Cap counts rewrite SUCCESSES only — publish_mode is set to 'rewrite' only when
           // body.length > 600 (line ~613). Failed attempts leave publish_mode as 'rss_summary'
           // and do not increment rewritesSoFar. Verified 2026-05-22, no code change needed.
+          const _accSynthUsage = (r) => {
+            if (!r?._usage) return;
+            _writeUsage.haiku.input_tokens  += r._usage.haiku?.input_tokens  || 0;
+            _writeUsage.haiku.output_tokens += r._usage.haiku?.output_tokens || 0;
+            _writeUsage.sonnet.input_tokens  += r._usage.sonnet?.input_tokens  || 0;
+            _writeUsage.sonnet.output_tokens += r._usage.sonnet?.output_tokens || 0;
+          };
           let result = null;
           try {
             result = await synthesizeArticle(article, env, site, { proxyWarmed });
+            _accSynthUsage(result);
           } catch(e) {
             console.error('Synthesis failed:', e.message, '|', article.title?.slice(0, 50));
           }
@@ -754,6 +783,7 @@ export async function writeArticles(articles, site, env) {
                   { ...sibling, nvs: article.nvs, category: article.category },
                   env, site, { proxyWarmed }
                 );
+                _accSynthUsage(retry);
                 if (retry?.body && retry.body.length > 600) {
                   result = retry;
                   // Attribution must point to the source whose content was actually synthesized.
@@ -814,7 +844,7 @@ export async function writeArticles(articles, site, env) {
     results.push(published);
   }
 
-  return results;
+  return { results, _usage: _writeUsage };
 }
 
 // ─── SUPABASE SAVES ───────────────────────────────────────────
@@ -1062,8 +1092,8 @@ export async function drainRewriteQueue(site, env) {
   const siteCode = site.short_code || 'BJK';
   const key = `rewrite:queue:${siteCode}`;
   let queue = [];
-  try { const raw = await env.PITCHOS_CACHE.get(key); if (raw) queue = JSON.parse(raw); } catch { return 0; }
-  if (!queue.length) return 0;
+  try { const raw = await env.PITCHOS_CACHE.get(key); if (raw) queue = JSON.parse(raw); } catch { return []; }
+  if (!queue.length) return [];
 
   // Prune stale entries (> 48h)
   const cutoff = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
@@ -1072,6 +1102,7 @@ export async function drainRewriteQueue(site, env) {
   const batch = queue.slice(0, 8);
   const succeeded = [];
   const results = [];
+  const drainStats = { tokensIn: 0, tokensOut: 0, costEur: 0 };
 
   // Warm proxy once before draining the batch
   let proxyWarmed = false;
@@ -1089,6 +1120,12 @@ export async function drainRewriteQueue(site, env) {
         source_name: entry.source_name, summary: entry.summary, nvs: entry.nvs,
         fetched_at: entry.fetched_at, category: 'Haber', content_type: 'fact', sport: 'football' };
       const result = await synthesizeArticle(article, env, site, { proxyWarmed });
+      if (result?._usage) {
+        if (result._usage.haiku?.input_tokens || result._usage.haiku?.output_tokens)
+          addUsagePhase(drainStats, result._usage.haiku, MODEL_FETCH, 'synthesis');
+        if (result._usage.sonnet?.input_tokens || result._usage.sonnet?.output_tokens)
+          addUsagePhase(drainStats, result._usage.sonnet, MODEL_GENERATE, 'synthesis');
+      }
       const body = result?.body;
       if (body && body.length > 600) {
         results.push({ ...article, full_body: body, publish_mode: 'rewrite',
@@ -1110,6 +1147,7 @@ export async function drainRewriteQueue(site, env) {
   queue = queue.filter(e => !succeeded.includes(e.url));
   await env.PITCHOS_CACHE.put(key, JSON.stringify(queue), { expirationTtl: REWRITE_QUEUE_TTL });
   console.log(`REWRITE DRAIN [${siteCode}]: processed ${succeeded.length}, remaining ${queue.length}`);
+  if (drainStats.costEur > 0) await addCost(env, drainStats.costEur).catch(() => {});
   return results;
 }
 
@@ -1504,7 +1542,7 @@ function weatherEmoji(icon) {
 // ─── TEMPLATE 05 — MATCH DAY CARD ────────────────────────────
 // injuries: array from getInjuries() — used directly when provided.
 // cachedArticles: kept for weather context only (RSS fallback removed).
-export async function generateMatchDayCard(match, cachedArticles, site, env, injuries = null) {
+export async function generateMatchDayCard(match, cachedArticles, site, env, injuries = null, stats = null) {
   const platformName  = site?.display_name || site?.name || 'Kartalix';
   const platformEmoji = site?.emoji || '🦅';
 
@@ -1556,6 +1594,7 @@ Sadece haber metnini yaz, başlık ekleme.`;
   try {
     const res = await callClaude(env, 'claude-haiku-4-5-20251001', prosePrompt, false, 600);
     body = extractText(res.content).trim();
+    if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_FETCH, 'template'); stats.claudeCalls++; }
   } catch(e) {
     console.error('T05 prose generation failed:', e.message);
   }
@@ -1595,7 +1634,7 @@ Sadece haber metnini yaz, başlık ekleme.`;
 }
 
 // ─── TEMPLATE 08b — MUHTEMEL 11 ──────────────────────────────
-export async function generateMuhtemel11(match, articles, site, env) {
+export async function generateMuhtemel11(match, articles, site, env, stats = null) {
   const platformName  = site?.display_name || site?.name || 'Kartalix';
   const platformEmoji = site?.emoji || '🦅';
   const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
@@ -1651,6 +1690,7 @@ ${lineupArticles.map(a =>
       }),
     });
     const data = await response.json();
+    if (stats && data?.usage) { addUsagePhase(stats, data.usage, MODEL_FETCH, 'template'); stats.claudeCalls++; }
     try {
       const text = data.content?.[0]?.text || '{}';
       const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -1700,6 +1740,7 @@ Sadece haber metnini yaz.`;
   try {
     const res = await callClaude(env, 'claude-haiku-4-5-20251001', prosePrompt, false, 500);
     prose = extractText(res.content).trim();
+    if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_FETCH, 'template'); stats.claudeCalls++; }
   } catch(e) { console.error('T08b prose failed:', e.message); }
 
   if (!prose) {
@@ -1823,7 +1864,7 @@ export async function generateConfirmedLineup(match, lineup, site, env) {
 // Fires once per match in the 24–48h pre-match window.
 // referee: string from normalizeFixture(). stats: BJK disciplinary
 // history under this referee (computed from last fixtures).
-export async function generateRefereeProfile(match, referee, refStats, site, env) {
+export async function generateRefereeProfile(match, referee, refStats, site, env, stats = null) {
   if (!referee) return null;
 
   const statLines = refStats ? [
@@ -1854,6 +1895,7 @@ Sadece Türkçe haber metnini yaz.`;
 
   const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 700);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_GENERATE, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const title   = `${match.opponent} Maçının Hakemi: ${referee}`;
@@ -1888,7 +1930,7 @@ Sadece Türkçe haber metnini yaz.`;
 // ─── T01 MATCH PREVIEW ────────────────────────────────────────
 // 300–400 word pre-match article. Fires 0–48h before kickoff.
 // Inputs: normalizeFixture object, last-5 H2H array, Open-Meteo current object.
-export async function generateMatchPreview(match, h2h, weather, standing, site, env) {
+export async function generateMatchPreview(match, h2h, weather, standing, site, env, stats = null) {
   const oppSlug = (match.opponent || '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
   const h2hLines = (h2h || []).slice(0, 5).map(f => {
@@ -1932,6 +1974,7 @@ Sadece Türkçe haber metnini yaz.`;
 
   const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1500);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_GENERATE, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const title   = `${match.home ? match.opponent + ' - Beşiktaş' : 'Beşiktaş - ' + match.opponent} Maç Önü`;
@@ -1966,7 +2009,7 @@ Sadece Türkçe haber metnini yaz.`;
 // ─── T03 FORM GUIDE ──────────────────────────────────────────
 // Fires once in 48–72h pre-match window. Last 5 results + standing trend.
 // recentFixtures: getLastFixtures() array (5 items). standing: BJK row from getStandings().
-export async function generateFormGuide(match, recentFixtures, standing, site, env) {
+export async function generateFormGuide(match, recentFixtures, standing, site, env, stats = null) {
   if (!recentFixtures || recentFixtures.length < 3) return null;
 
   const formLine = recentFixtures.slice(0, 5).map(f => {
@@ -2010,6 +2053,7 @@ Sadece Türkçe haber metnini yaz.`;
 
   const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1200);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_GENERATE, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const title   = `Beşiktaş'ın Formu: ${formString} — ${match.opponent} Maçı Öncesi`;
@@ -2044,7 +2088,7 @@ Sadece Türkçe haber metnini yaz.`;
 // ─── T07 INJURY & SUSPENSION REPORT ──────────────────────────
 // Fires once per match in the 24–48h pre-match window.
 // injuries: getInjuries() array. rssArticles: recent cached articles for context.
-export async function generateInjuryReport(match, injuries, rssArticles, site, env) {
+export async function generateInjuryReport(match, injuries, rssArticles, site, env, stats = null) {
   const injured    = injuries.filter(i => i.type !== 'Suspension');
   const suspended  = injuries.filter(i => i.type === 'Suspension');
 
@@ -2090,6 +2134,7 @@ Sadece Türkçe haber metnini yaz.`;
 
   const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1000);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_GENERATE, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const totalAbsent = injuries.length;
@@ -2127,7 +2172,7 @@ Sadece Türkçe haber metnini yaz.`;
 // ─── T02 H2H HISTORY ─────────────────────────────────────────
 // Fires once in 24–72h pre-match window. Writes a standalone H2H history article.
 // Uses up to 10 past meetings; needs at least 2 to be meaningful.
-export async function generateH2HHistory(match, h2h, site, env) {
+export async function generateH2HHistory(match, h2h, site, env, stats = null) {
   if (!h2h || h2h.length < 2) return null;
 
   const wins   = h2h.filter(f => f.score_bjk > f.score_opp).length;
@@ -2168,6 +2213,7 @@ Sadece Türkçe haber metnini yaz.`;
 
   const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1200);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_GENERATE, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const title   = `Beşiktaş - ${match.opponent} Rekabeti: Tarihsel Rakamlar`;
@@ -2202,7 +2248,7 @@ Sadece Türkçe haber metnini yaz.`;
 // ─── T10 GOAL FLASH ───────────────────────────────────────────
 // Short article (100–150 words) per goal event during live match.
 // goalEvent: a single event object from the API events array.
-export async function generateGoalFlash(match, goalEvent, site, env) {
+export async function generateGoalFlash(match, goalEvent, site, env, stats = null) {
   const scorer  = goalEvent.player?.name  || 'Bilinmeyen';
   const assister = goalEvent.assist?.name || null;
   const minute  = goalEvent.time?.elapsed || '?';
@@ -2227,6 +2273,7 @@ YAZIM KURALLARI:
 
   const res  = await callClaude(env, MODEL_FETCH, prompt, false, 400);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_FETCH, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const bjkScore = match.score_bjk ?? 0;
@@ -2264,7 +2311,7 @@ YAZIM KURALLARI:
 // ─── T11 RESULT FLASH ─────────────────────────────────────────
 // 300–400 word post-match result article. Fires on FT detection.
 // fixture: normalizeFixture object. players: getFixturePlayers array.
-export async function generateResultFlash(fixture, players, site, env, events = []) {
+export async function generateResultFlash(fixture, players, site, env, events = [], stats = null) {
   const bjkWon  = fixture.score_bjk > fixture.score_opp;
   const draw    = fixture.score_bjk === fixture.score_opp;
   const result  = bjkWon ? 'Beşiktaş kazandı' : draw ? 'Beraberlik' : 'Beşiktaş kaybetti';
@@ -2304,6 +2351,7 @@ YAZIM KURALLARI:
 
   const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1500);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_GENERATE, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const score   = `${fixture.score_bjk}-${fixture.score_opp}`;
@@ -2343,7 +2391,7 @@ YAZIM KURALLARI:
 // Fires after FT, requires at least 3 rated players. Dedicated spotlight
 // article on the best-rated BJK player. Distinct from T11 (result) —
 // T13 is a player-focused piece for that specific game.
-export async function generateManOfTheMatch(fixture, players, site, env) {
+export async function generateManOfTheMatch(fixture, players, site, env, stats = null) {
   if (!players || players.length < 3) return null;
   const mom = players[0]; // already sorted by rating desc
   if (!mom.rating || mom.rating < 6.0) return null;
@@ -2382,6 +2430,7 @@ Sadece Türkçe haber metnini yaz.`;
 
   const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1000);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_GENERATE, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const resultTag = result === 'galibiyet' ? 'Fırtınası' : result === 'beraberlik' ? 'Performansı' : 'Öne Çıktı';
@@ -2418,7 +2467,7 @@ Sadece Türkçe haber metnini yaz.`;
 // Full post-match analysis ~500 words. Fires after T11/T13.
 // Combines: result, xG, possession, shots, top player ratings, key events.
 // stats: getFixtureStats output (may be null — degrades gracefully).
-export async function generateMatchReport(fixture, players, stats, site, env, events = []) {
+export async function generateMatchReport(fixture, players, stats, site, env, events = [], _costStats = null) {
   const bjkWon = fixture.score_bjk > fixture.score_opp;
   const draw   = fixture.score_bjk === fixture.score_opp;
   const result = bjkWon ? 'Beşiktaş galip' : draw ? 'Beraberlik' : 'Beşiktaş mağlup';
@@ -2476,6 +2525,7 @@ Sadece Türkçe haber metnini yaz.`;
 
   const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 1800);
   const body = extractText(res.content).trim();
+  if (_costStats && res?.usage) { addUsagePhase(_costStats, res.usage, MODEL_GENERATE, 'template'); _costStats.claudeCalls++; }
   if (!body) return null;
 
   const title   = `Maç Raporu: ${scoreline}`;
@@ -2516,7 +2566,7 @@ function youtubeThumbnailUrl(videoId) {
 // ─── T-VID YOUTUBE EMBED ─────────────────────────────────────
 // Embed-only treatment: 1-sentence Haiku intro from video title + YouTube iframe.
 // No captions, no facts, no firewall needed — the video IS the content.
-export async function generateVideoEmbed(video, site, env) {
+export async function generateVideoEmbed(video, site, env, stats = null) {
   const prompt = `Sen Kartalix'in spor editörüsün. Aşağıdaki YouTube videosunu Türkçe tek bir cümleyle tanıt. Sade, bilgilendirici haber dili kullan. Emoji veya başlık yazma.
 
 Video: ${video.title}
@@ -2526,6 +2576,7 @@ Sadece tanıtım cümlesini yaz.`;
 
   const res   = await callClaude(env, 'claude-haiku-4-5-20251001', prompt, false, 100);
   const intro = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_FETCH, 'template'); stats.claudeCalls++; }
   if (!intro) return null;
 
   const full_body = `<p>${intro}</p>\n<div class="yt-embed" style="margin:1.5rem 0"><iframe width="100%" height="380" src="https://www.youtube.com/embed/${video.video_id}" frameborder="0" allowfullscreen loading="lazy" style="border-radius:6px;display:block"></iframe></div>`;
@@ -2567,7 +2618,7 @@ Sadece tanıtım cümlesini yaz.`;
 // T-VID-HLT highlights / T-VID-GOL goal clip / T-VID-INT interview /
 // T-VID-BP press conference / T-VID-REF referee analysis.
 // All Super Lig only. match = nextMatch object from backgroundWork.
-export async function generateMatchVideoEmbed(video, videoType, match, site, env) {
+export async function generateMatchVideoEmbed(video, videoType, match, site, env, stats = null) {
   const opp  = match?.opponent || 'rakip';
   const isPost = video.published_at > (match?.kickoff_iso || '');
 
@@ -2600,6 +2651,7 @@ export async function generateMatchVideoEmbed(video, videoType, match, site, env
     `Sen Kartalix'in spor editörüsün. ${cfg.prompt}\n\nVideo başlığı: ${video.title}\nKanal: ${video.channel_name}\n\nSadece tanıtım metnini yaz.`,
     false, 150);
   const intro = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_FETCH, 'template'); stats.claudeCalls++; }
   if (!intro) return null;
 
   const full_body = `<p>${intro}</p>\n<div class="yt-embed" style="margin:1.5rem 0"><iframe width="100%" height="380" src="https://www.youtube.com/embed/${video.video_id}" frameborder="0" allowfullscreen loading="lazy" style="border-radius:6px;display:block"></iframe></div>`;
@@ -2638,7 +2690,7 @@ export async function generateMatchVideoEmbed(video, videoType, match, site, env
 // ─── T-xG DELTA ──────────────────────────────────────────────
 // Post-match edge case: fires only when |BJK goals − BJK xG| > 1.2.
 // stats: getFixtureStats output. Must have stats.xg to fire.
-export async function generateXGDelta(fixture, stats, site, env) {
+export async function generateXGDelta(fixture, stats, site, env, _costStats = null) {
   if (!stats || stats.xg == null) return null;
   const xg    = parseFloat(stats.xg);
   const goals = fixture.score_bjk ?? 0;
@@ -2678,6 +2730,7 @@ Sadece Türkçe haber metnini yaz.`;
 
   const res  = await callClaude(env, MODEL_GENERATE, prompt, false, 900);
   const body = extractText(res.content).trim();
+  if (_costStats && res?.usage) { addUsagePhase(_costStats, res.usage, MODEL_GENERATE, 'template'); _costStats.claudeCalls++; }
   if (!body) return null;
 
   const direction = overPerformed ? 'Üstünde' : 'Altında';
@@ -2713,7 +2766,7 @@ Sadece Türkçe haber metnini yaz.`;
 // ─── T-HT HALFTIME REPORT ─────────────────────────────────────
 // Fires once when liveFixture.status === 'HT'. Summarises first half.
 // allEvents: raw /fixtures/events response array for the fixture.
-export async function generateHalftimeReport(match, allEvents, site, env) {
+export async function generateHalftimeReport(match, allEvents, site, env, stats = null) {
   const tid = site?.team_id || match?.team_id || 549;
   const bjkGoals = (allEvents || []).filter(e => e.type === 'Goal' && e.team?.id === tid && e.detail !== 'Missed Penalty');
   const oppGoals = (allEvents || []).filter(e => e.type === 'Goal' && e.team?.id !== tid && e.detail !== 'Missed Penalty');
@@ -2741,6 +2794,7 @@ YAZIM KURALLARI:
 
   const res  = await callClaude(env, MODEL_FETCH, prompt, false, 500);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_FETCH, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const bjk  = match.score_bjk ?? 0;
@@ -2766,7 +2820,7 @@ YAZIM KURALLARI:
 // ─── T-RED RED CARD FLASH ─────────────────────────────────────
 // Fires on any new Red Card or Yellow+Red event for either team.
 // cardEvent: single event from /fixtures/events (type === 'Card').
-export async function generateRedCardFlash(match, cardEvent, site, env) {
+export async function generateRedCardFlash(match, cardEvent, site, env, stats = null) {
   const player   = cardEvent.player?.name || 'Bilinmeyen';
   const minute   = cardEvent.time?.elapsed || '?';
   const isOurs   = cardEvent.team?.id === (site?.team_id || match?.team_id || 549);
@@ -2787,6 +2841,7 @@ YAZIM KURALLARI:
 
   const res  = await callClaude(env, MODEL_FETCH, prompt, false, 350);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_FETCH, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const title = isOurs
@@ -2808,7 +2863,7 @@ YAZIM KURALLARI:
 // ─── T-VAR VAR DECISION FLASH ─────────────────────────────────
 // Fires on any new VAR event detected in /fixtures/events.
 // varEvent: single event from /fixtures/events (type === 'Var').
-export async function generateVARFlash(match, varEvent, site, env) {
+export async function generateVARFlash(match, varEvent, site, env, stats = null) {
   const minute  = varEvent.time?.elapsed || '?';
   const detail  = varEvent.detail  || '';
   const player  = varEvent.player?.name || '';
@@ -2830,6 +2885,7 @@ YAZIM KURALLARI:
 
   const res  = await callClaude(env, MODEL_FETCH, prompt, false, 350);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_FETCH, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const title = `${minute}' VAR: ${detail || 'Karar inceleniyor'} — Beşiktaş ${match.score_bjk ?? 0}-${match.score_opp ?? 0} ${match.opponent}`;
@@ -2849,7 +2905,7 @@ YAZIM KURALLARI:
 // ─── T-PEN MISSED PENALTY FLASH ───────────────────────────────
 // Fires when a Missed Penalty event appears in /fixtures/events (either team).
 // penEvent: single event from /fixtures/events (detail === 'Missed Penalty').
-export async function generateMissedPenaltyFlash(match, penEvent, site, env) {
+export async function generateMissedPenaltyFlash(match, penEvent, site, env, stats = null) {
   const player = penEvent.player?.name || 'Bilinmeyen';
   const minute = penEvent.time?.elapsed || '?';
   const isOurs = penEvent.team?.id === (site?.team_id || match?.team_id || 549);
@@ -2868,6 +2924,7 @@ YAZIM KURALLARI:
 
   const res  = await callClaude(env, MODEL_FETCH, prompt, false, 350);
   const body = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_FETCH, 'template'); stats.claudeCalls++; }
   if (!body) return null;
 
   const title = isOurs
@@ -3003,7 +3060,7 @@ KURALLAR:
 // Daily digest of Fırat Günayer's Rabona Digital videos.
 // Combines transcripts from all of today's videos into one analysis article.
 // Called once per day — caller must gate with a KV date-key.
-export async function generateRabonaDigest(videos, transcripts, site, env) {
+export async function generateRabonaDigest(videos, transcripts, site, env, stats = null) {
   if (!transcripts.length) return null;
 
   const today = new Date().toISOString().slice(0, 10);
@@ -3028,6 +3085,7 @@ KURALLAR:
 
   const res = await callClaude(env, MODEL_GENERATE, prompt, false, 750);
   const raw  = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_GENERATE, 'template'); stats.claudeCalls++; }
   if (!raw || raw.length < 150) return null;
 
   const titleMatch = raw.match(/^BAŞLIK:\s*(.+)/m);
@@ -3227,7 +3285,7 @@ ${pitch}${bjkSvg}${oppSvg}${m11Lbl}${oppFmLbl}</svg>`;
   return `<div style="max-width:900px;margin:1.5rem auto;background:#0f1117;border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.6);font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif">${header}<div style="overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:520px;margin:0 auto">${svgEl}</div>${playerStrip}</div>${proseHtml?`<div style="max-width:900px;margin:0 auto 1.5rem;padding:0.8rem 0.25rem 0;font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif">${proseHtml}</div>`:''}`;
 }
 
-export async function generateLineupCard(match, bjkLastLineup, oppLastLineup, injuries, predictionHistory, site, env) {
+export async function generateLineupCard(match, bjkLastLineup, oppLastLineup, injuries, predictionHistory, site, env, stats = null) {
   if (!bjkLastLineup || bjkLastLineup.startXI.length < 8) {
     console.log('T08c: no BJK last lineup data, skipping'); return null;
   }
@@ -3273,6 +3331,7 @@ ${excludedLine} ${replLine} ${histLine}
   try{
     const res=await callClaude(env,'claude-haiku-4-5-20251001',prosePrompt,false,500);
     prose=extractText(res.content).trim();
+    if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_FETCH, 'template'); stats.claudeCalls++; }
   }catch(e){console.error('T08c prose failed:',e.message);}
   if(!prose) prose=`Beşiktaş'ın ${match.opponent} maçı için geçen haftanın kadrosu baz alınarak tahmini 11 oluşturuldu.${excludedLine?' '+excludedLine+'.':''}\n\nResmi kadro açıklaması maçtan yaklaşık 1 saat önce yapılacaktır.`;
 

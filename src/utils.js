@@ -7,7 +7,7 @@ export const MODEL_GENERATE = 'claude-sonnet-4-6'; // synthesis generation — f
 // ─── COST ESTIMATES (EUR per 1M tokens) ──────────────────────
 const COST = {
   'claude-haiku-4-5-20251001': { input: 0.80, output: 4.00 },
-  'claude-sonnet-4-6':         { input: 2.75, output: 13.75 },
+  'claude-sonnet-4-6':         { input: 3.00, output: 15.00 },
 };
 
 // ─── BJK KEYWORD LIST ────────────────────────────────────────
@@ -364,19 +364,31 @@ export function extractText(content = []) {
 
 function addUsage(stats, usage, model) {
   if (!usage) return;
-  const rates = COST[model] || { input: 3, output: 15 };
-  stats.tokensIn  += usage.input_tokens  || 0;
-  stats.tokensOut += usage.output_tokens || 0;
-  stats.costEur   += ((usage.input_tokens  / 1_000_000) * rates.input) +
-                     ((usage.output_tokens / 1_000_000) * rates.output);
+  const rates = COST[model] || { input: 3.00, output: 15.00 };
+  const inp   = usage.input_tokens  || 0;
+  const out   = usage.output_tokens || 0;
+  const cw    = usage.cache_creation_input_tokens || 0; // cache write: 1.25x input rate
+  const cr    = usage.cache_read_input_tokens     || 0; // cache read: 0.10x input rate
+  stats.tokensIn  += inp + cw + cr;
+  stats.tokensOut += out;
+  stats.costEur   += ((inp / 1_000_000) * rates.input) +
+                     ((out / 1_000_000) * rates.output) +
+                     ((cw  / 1_000_000) * rates.input * 1.25) +
+                     ((cr  / 1_000_000) * rates.input * 0.10);
 }
 
 export function addUsagePhase(stats, usage, model, phase) {
   if (!usage) return;
   addUsage(stats, usage, model);
-  const rates = COST[model] || { input: 3, output: 15 };
-  const cost = ((usage.input_tokens  / 1_000_000) * rates.input) +
-               ((usage.output_tokens / 1_000_000) * rates.output);
+  const rates = COST[model] || { input: 3.00, output: 15.00 };
+  const inp = usage.input_tokens || 0;
+  const out = usage.output_tokens || 0;
+  const cw  = usage.cache_creation_input_tokens || 0;
+  const cr  = usage.cache_read_input_tokens     || 0;
+  const cost = ((inp / 1_000_000) * rates.input) +
+               ((out / 1_000_000) * rates.output) +
+               ((cw  / 1_000_000) * rates.input * 1.25) +
+               ((cr  / 1_000_000) * rates.input * 0.10);
   if (phase === 'scout') {
     stats.scout_tokens_in  += usage.input_tokens  || 0;
     stats.scout_tokens_out += usage.output_tokens || 0;
