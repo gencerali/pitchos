@@ -6211,8 +6211,13 @@ async function serveArticlePage(slug, env, ctx) {
   }
 
   if (!article) {
+    // Check if this slug ever existed (rejected/archived/deleted) → 410 Gone
+    // so Google drops it faster than repeated 404s.
+    const gone = await supabase(env, 'GET',
+      `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&select=id&limit=1`);
+    const status = (gone && gone.length > 0) ? 410 : 404;
     return new Response(renderArticleNotFound(slug), {
-      status: 404,
+      status,
       headers: { 'Content-Type': 'text/html;charset=UTF-8' },
     });
   }
