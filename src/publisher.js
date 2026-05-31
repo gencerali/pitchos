@@ -392,7 +392,9 @@ Bilmiyorsan null yaz.`;
 // ─── WRITE ARTICLES (Readability for top 3 only, rss_summary rest) ─
 // extractFacts is capped at MAX_FACTS_EXTRACTS per run — each is a Claude call.
 // Articles arrive sorted by NVS, so only the highest-value P4 articles get facts.
-const MAX_FACTS_EXTRACTS = 5;
+export const SYNTHESIS_NVS_THRESHOLD = 30;
+export const SYNTHESIS_CAP_PER_RUN = 18;
+export const MAX_FACTS_EXTRACTS = 5;
 
 async function extractKeyEntities(title, sourceText, env, _usages = null) {
   const prompt = `Aşağıdaki spor haberinin en kritik bilgilerini çıkar. Sadece metinde geçen gerçek bilgileri yaz — tahmin etme.
@@ -711,7 +713,7 @@ export async function writeArticles(articles, site, env) {
   // Prevents the first synthesis call from paying both the cold-start cost AND
   // the article fetch timeout simultaneously.
   let proxyWarmed = false;
-  if (articles.some(a => (a.nvs || 0) >= 30 && a.treatment !== 'embed')) {
+  if (articles.some(a => (a.nvs || 0) >= SYNTHESIS_NVS_THRESHOLD && a.treatment !== 'embed')) {
     const warmStart = Date.now();
     await fetch(PROXY_BASE + '/health', { signal: AbortSignal.timeout(35000) }).catch(() => {});
     if (Date.now() - warmStart > 5000) await new Promise(r => setTimeout(r, 3000));
@@ -759,9 +761,9 @@ export async function writeArticles(articles, site, env) {
 
       // Auto-synthesis: for high-NVS articles, fetch source and write a full Kartalix article.
       // Cap 18 rewrites per run; overflow is queued to rewrite:queue:<siteCode> KV for the next run.
-      if ((article.nvs || 0) >= 30) {
+      if ((article.nvs || 0) >= SYNTHESIS_NVS_THRESHOLD) {
         const rewritesSoFar = results.filter(r => r.publish_mode === 'rewrite').length;
-        if (rewritesSoFar < 18) {
+        if (rewritesSoFar < SYNTHESIS_CAP_PER_RUN) {
           // Cap counts rewrite SUCCESSES only — publish_mode is set to 'rewrite' only when
           // body.length > 600 (line ~613). Failed attempts leave publish_mode as 'rss_summary'
           // and do not increment rewritesSoFar. Verified 2026-05-22, no code change needed.
@@ -1070,8 +1072,8 @@ function getDecayParams(article) {
 // ─── PERSISTENT REWRITE QUEUE (H1) ───────────────────────────
 // When the per-run synthesis cap (6) is hit, overflow articles are saved to KV
 // and drained by the hourly cron. Each entry: { url, title, nvs, source_name, summary, fetched_at }
-const REWRITE_QUEUE_MAX = 200;
-const REWRITE_QUEUE_TTL = 48 * 3600; // 48h
+export const REWRITE_QUEUE_MAX = 200;
+export const REWRITE_QUEUE_TTL = 48 * 3600; // 48h
 
 export async function enqueueForRewrite(article, siteCode, env) {
   const key = `rewrite:queue:${siteCode}`;

@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
@@ -2854,6 +2854,29 @@ Sadece JSON döndür:
         pub_rate: s.total > 0 ? Math.round(s.published / s.total * 100) : 0,
       })).sort((a, b) => b.total - a.total).slice(0, 20);
       return Response.json({ runs_ts, pub_by_day, story_by_day, nvs_hist, source_quality });
+    }
+
+    if (url.pathname === '/admin/config') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      const kvRaw = await env.PITCHOS_CACHE.get(`config:${currentSite.short_code}`).catch(() => null);
+      const kvConfig = kvRaw ? JSON.parse(kvRaw) : null;
+      return new Response(renderAdminConfigPage(currentSite, kvConfig, currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
+    if (url.pathname === '/admin/config/save' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      const body = await request.json().catch(() => null);
+      if (!body?.field || body.value === undefined) return Response.json({ error: 'bad body' }, { status: 400 });
+      const allowed = ['auto_publish_threshold', 'review_threshold', 'team_id', 'league_id', 'season'];
+      if (!allowed.includes(body.field)) return Response.json({ error: 'field not allowed' }, { status: 400 });
+      await supabase(env, 'PATCH', `/rest/v1/sites?id=eq.${currentSite.id}`, { [body.field]: body.value });
+      return Response.json({ ok: true });
     }
 
     if (url.pathname === '/admin/tools') {
@@ -8188,6 +8211,204 @@ function resolveSite(url, sites) {
   return (code && sites.find(s => s.short_code === code)) || sites[0];
 }
 
+function renderAdminConfigPage(site, kvConfig, siteCode, allSites) {
+  const sc = siteCode;
+  const kvId = 'dedaea653ed542cca25e6cc2551dd1c3';
+  const eRow = (label, field, val, note = '') => `
+      <div class="cfg-row">
+        <div class="cfg-label">${label}</div>
+        <div class="cfg-value">
+          <input type="number" id="f-${field}" value="${val}" style="width:80px;height:28px">
+          <button class="btn btn-primary btn-sm" onclick="save('${field}')" id="btn-${field}" style="margin-left:.4rem">Kaydet</button>
+          <span id="st-${field}" class="save-status"></span>
+        </div>
+        ${note ? `<div class="cfg-note">${note}</div>` : ''}
+      </div>`;
+  const rRow = (label, val, badge, note = '') => `
+      <div class="cfg-row">
+        <div class="cfg-label">${label} <span class="${badge === 'SABIT' ? 'badge-code' : 'badge-ro'}">${badge}</span></div>
+        <div class="cfg-value">${val}</div>
+        ${note ? `<div class="cfg-note">${note}</div>` : ''}
+      </div>`;
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Kartalix — Ayarlar</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5}
+.btn{border:none;border-radius:4px;font-size:.75rem;font-weight:700;padding:.35rem .85rem;cursor:pointer;white-space:nowrap}
+.btn-primary{background:#E30A17;color:#fff}.btn-primary:hover{opacity:.85}
+.btn-sm{padding:.25rem .6rem;font-size:.7rem}
+input[type=number]{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;font-size:.83rem;outline:none;padding:.25rem .5rem}
+input[type=number]:focus{border-color:#444}
+.page{max-width:860px;margin:2rem auto;padding:0 1.25rem}
+.card{background:#111;border:1px solid #222;border-radius:8px;padding:1.25rem;margin-bottom:1.25rem}
+.card-title{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none}
+.card-title::before{content:'▾';color:#444;font-size:.8rem}
+.card-title.collapsed::before{content:'▸'}
+.card-title.nocollapse{cursor:default}
+.card-title.nocollapse::before{content:''}
+.cfg-row{display:grid;grid-template-columns:260px 1fr;gap:.4rem 1rem;padding:.55rem 0;border-bottom:1px solid #1a1a1a;align-items:center}
+.cfg-row:last-child{border-bottom:none}
+.cfg-label{font-size:.8rem;color:#999}
+.cfg-value{font-size:.83rem;color:#e8e6e0;font-family:'Consolas',monospace;display:flex;align-items:center;flex-wrap:wrap;gap:.25rem}
+.cfg-note{grid-column:2;font-size:.7rem;color:#555;padding-bottom:.25rem}
+.save-status{font-size:.7rem}.save-ok{color:#4ade80}.save-err{color:#f87171}
+.badge-code{font-size:.6rem;font-weight:700;background:#1a1a2a;color:#7c9adb;border:1px solid #2a2a3a;border-radius:3px;padding:1px 5px}
+.badge-ro{font-size:.6rem;font-weight:700;background:#1e1a0a;color:#888;border:1px solid #2a2520;border-radius:3px;padding:1px 5px}
+.section-note{font-size:.75rem;color:#555;margin-bottom:.75rem}
+pre{background:#0d1117;border:1px solid #1e2533;border-radius:4px;padding:.75rem 1rem;font-size:.72rem;color:#8b9db7;overflow-x:auto;line-height:1.6;margin-top:.4rem}
+</style>
+</head>
+<body>
+${adminNav('config', sc, allSites)}
+<div class="page">
+  <div style="margin-bottom:1.25rem">
+    <div style="font-size:.85rem;font-weight:700;color:#ccc">Ayarlar <span style="color:#444;font-weight:400;font-size:.75rem;margin-left:.5rem">${sc} · site_id=${site.id}</span></div>
+    <div style="font-size:.72rem;color:#555;margin-top:.2rem">Bölüm 1 ve 5 doğrudan Supabase'e kaydedilir. Diğerleri publisher.js sabit kodlarını gösterir.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" onclick="toggle(this)">1. Yayın Eşikleri <span class="badge-code">DB</span></div>
+    <div class="card-body">
+      <div class="section-note">Makalelerin otomatik yayınlanmasını, inceleme kuyruğuna alınmasını veya sessizce atılmasını kontrol eder.</div>
+      ${eRow('Otomatik Yayın Eşiği', 'auto_publish_threshold', site.auto_publish_threshold ?? 30, 'NVS ≥ bu değer olan makaleler onay gerekmeksizin yayınlanır. Önerilen: 25–40.')}
+      ${eRow('İnceleme Kuyruğu Eşiği', 'review_threshold', site.review_threshold ?? 20, 'Bu değer ile otomatik yayın eşiği arasındaki makaleler kuyruğa girer. Mutlaka altında olmalı.')}
+      ${rRow('Sentez NVS Kesimi', SYNTHESIS_NVS_THRESHOLD, 'SABIT', 'NVS ≥ bu değer olan makaleler Claude yeniden yazımına uygun. publisher.js sabit kodu.')}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" onclick="toggle(this)">2. Pipeline Limitleri <span class="badge-code">SABIT</span></div>
+    <div class="card-body">
+      <div class="section-note">Her cron çalışmasının ne kadar iş yapacağını kontrol eder. Maliyet ve hacmi doğrudan etkiler.</div>
+      ${rRow('Çalışma Başına Maks. Yeniden Yazım', SYNTHESIS_CAP_PER_RUN, 'SABIT', 'Her cron döngüsünde yeniden yazılacak maksimum makale. Taşan makaleler KV kuyruğuna alınır.')}
+      ${rRow('Çalışma Başına Maks. Gerçek Çıkarımı', MAX_FACTS_EXTRACTS, 'SABIT', 'Her çalışmada gerçek çıkarımı için maksimum Claude çağrısı.')}
+      ${rRow('Yeniden Yazım Kuyruğu Maks. Boyutu', REWRITE_QUEUE_MAX, 'SABIT', 'KV kuyruğunda bekleyebilecek maksimum makale sayısı.')}
+      ${rRow('Yeniden Yazım Kuyruğu Yaşam Süresi', `${REWRITE_QUEUE_TTL / 3600}s`, 'SABIT', 'Bu süreden eski kuyruk girdileri atılır.')}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title collapsed" onclick="toggle(this)">3. İçerik Puanlama &amp; Çürüme <span class="badge-code">SABIT</span></div>
+    <div class="card-body" style="display:none">
+      <div class="section-note">Makalelerin anasayfada nasıl eskidiğini kontrol eder.</div>
+      ${rRow('Yarı Ömür — Haber Yeniden Yazım', '24s', 'SABIT', 'Normal yeniden yazılmış makalenin anasayfa sıralamasının yarıya düşme süresi.')}
+      ${rRow('Yarı Ömür — YouTube Embed', '48s', 'SABIT', 'Küratör video için. Videolar kalıcı değer taşıdığından haberlerden uzun.')}
+      ${rRow('Yarı Ömür — RSS Özeti', '3s / 0.5s', 'SABIT', 'copy_source: 3s, rss_summary: 0.5s. Yeniden yazım tamamlanana kadar yer tutucu.')}
+      ${rRow('Canlı Maç Flash Yarı Ömrü', '0.5s (1s hard eviction)', 'SABIT', 'Gol, kırmızı kart, VAR. Tasarım gereği sabit.')}
+      ${rRow('NVS Yaş Cezaları', '−15 (24s sonra), −30 (48s sonra)', 'SABIT', 'Eski haberler sentez slotları için yeni içerikle rekabet etmez.')}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title collapsed" onclick="toggle(this)">4. Kaynak Güven Seviyeleri <span class="badge-ro">SALT OKUNUR</span></div>
+    <div class="card-body" style="display:none">
+      <div class="section-note">Kaynak tier'ları /admin/sources/ui'den atanır. Çarpanlar kod değişikliği gerektirir.</div>
+      <div class="cfg-row" style="grid-template-columns:60px 120px 60px 1fr;font-size:.72rem;color:#555;font-weight:700">
+        <div>Tier</div><div>Etiket</div><div>Çarpan</div><div>Örnekler</div>
+      </div>
+      <div class="cfg-row" style="grid-template-columns:60px 120px 60px 1fr">
+        <div>T1</div><div>Resmi</div><div>1.8×</div><div style="font-size:.72rem;color:#555">Kulüp kanalları, basın konferansları</div>
+      </div>
+      <div class="cfg-row" style="grid-template-columns:60px 120px 60px 1fr">
+        <div>T2</div><div>Yayıncı</div><div>1.4×</div><div style="font-size:.72rem;color:#555">beIN Sports, TRT Spor</div>
+      </div>
+      <div class="cfg-row" style="grid-template-columns:60px 120px 60px 1fr">
+        <div>T3</div><div>Basın</div><div>1.0×</div><div style="font-size:.72rem;color:#555">Fanatik, Milliyet, NTV Spor</div>
+      </div>
+      <div class="cfg-row" style="grid-template-columns:60px 120px 60px 1fr">
+        <div>T4</div><div>Dijital</div><div>0.5×</div><div style="font-size:.72rem;color:#555">Agregator bloglar, düşük otorite</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title" onclick="toggle(this)">5. Maç &amp; Sezon <span class="badge-code">DB</span></div>
+    <div class="card-body">
+      <div class="section-note">API-Football çağrıları için takım ve lig tanımlayıcıları.</div>
+      ${eRow('Takım ID', 'team_id', site.team_id ?? 549, "API-Football takım ID'si. Yanlış değer = maç verisi yok. BJK: 549.")}
+      ${eRow('Lig ID', 'league_id', site.league_id ?? 203, 'API-Football lig ID\'si. Süper Lig: 203, UCL: 2, UEL: 3, Conference: 848, Kupa: 204.')}
+      ${eRow('Sezon', 'season', site.season ?? 2025, 'Başlangıç yılı (2025 = 2025–26 sezonu). Her temmuz güncelle.')}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title collapsed" onclick="toggle(this)">6. Önbellek &amp; Görünüm <span class="badge-code">SABIT</span></div>
+    <div class="card-body" style="display:none">
+      <div class="section-note">KV'de kaç makale tutulur ve önbellek ne kadar süre geçerli.</div>
+      ${rRow('Anasayfa Maks. Makale Sayısı', '200', 'SABIT', 'KV görüntüleme önbelleğinde tutulan maksimum makale.')}
+      ${rRow('Önbellek TTL', '12s', 'SABIT', 'KV önbelleğinin geçerlilik süresi. Pipeline genellikle çok daha sık günceller.')}
+      ${rRow('Sıralama Alt Sınırı', '5', 'SABIT', 'Bu değerin altındaki skor alanlar anasayfa havuzundan tamamen çıkarılır.')}
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:2rem">
+    <div class="card-title nocollapse">Gelecek Fazlar</div>
+    <div style="font-size:.78rem;color:#666;line-height:1.9">
+      <div><strong style="color:#888">Faz 3</strong> — KV çalışma zamanı geçersiz kılmaları: Bölüm 2, 3, 6 alanları <code>config:${sc}</code> KV'ye yazılır; pipeline sabit değerler yerine bunları okur.</div>
+      <div style="margin-top:.4rem"><strong style="color:#888">Faz 4</strong> — Anahtar kelime editörü: <code>sites.keyword_config.keywords</code> için tag editörü (şu an SQL ile düzenleniyor, 103 giriş).</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title nocollapse">Test Akışı — config:${sc} Değişikliklerini Elle Test Et</div>
+    <div class="section-note" style="margin-bottom:1rem">config:${sc} KV'sini manuel düzenleyip etkisini gözlemlemek için adım adım rehber.</div>
+    <ol style="font-size:.78rem;color:#888;line-height:2.2;padding-left:1.25rem;margin-bottom:1rem">
+      <li>Mevcut değeri yukarıdaki sayfadan not edin</li>
+      <li>Aşağıdaki snippet'lerden birini çalıştırarak KV'yi güncelleyin</li>
+      <li>Bu sayfayı yenileyerek yeni değerin göründüğünü onaylayın</li>
+      <li>Sonraki pipeline döngüsünü bekleyin (~3s) veya <code>/run</code> KV bayrağıyla tetikleyin</li>
+      <li>Anasayfa / içerik admini üzerinden etkiyi gözlemleyin</li>
+      <li>Eski JSON ile aynı komutu çalıştırarak geri alın</li>
+    </ol>
+    <div style="font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem">KV Namespace ID</div>
+    <pre>${kvId}</pre>
+    <div style="font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Mevcut config:${sc} Değerini Oku</div>
+    <pre>npx wrangler kv key get --namespace-id=${kvId} "config:${sc}"</pre>
+    <div style="font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Sentez NVS Eşiğini Değiştir (örn. 35)</div>
+    <pre>npx wrangler kv key put --namespace-id=${kvId} "config:${sc}" '{"synthesis_nvs_threshold":35}'</pre>
+    <div style="font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Sentez Çalışma Başına Cap'i Değiştir (örn. 12)</div>
+    <pre>npx wrangler kv key put --namespace-id=${kvId} "config:${sc}" '{"synthesis_cap_per_run":12}'</pre>
+    <div style="font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Haber Yarı Ömrünü Değiştir (örn. 36s)</div>
+    <pre>npx wrangler kv key put --namespace-id=${kvId} "config:${sc}" '{"rewrite_half_life_by_category":{"Match":36,"Transfer":36,"Injury":24,"Squad":24,"Club":48,"Other Sport":24,"National Team":24,"default":36}}'</pre>
+    <div style="font-size:.72rem;color:#444;margin-top:.75rem">Not: Birden fazla değeri tek komutta göndermek için JSON nesnesini birleştirin. Geri almak için eski JSON'u aynı komuta verin.</div>
+  </div>
+</div>
+<script>
+function toggle(title) {
+  const body = title.closest('.card').querySelector('.card-body');
+  if (!body) return;
+  const collapsed = title.classList.toggle('collapsed');
+  body.style.display = collapsed ? 'none' : '';
+}
+async function save(field) {
+  const input = document.getElementById('f-' + field);
+  const st    = document.getElementById('st-' + field);
+  const btn   = document.getElementById('btn-' + field);
+  const value = parseInt(input.value, 10);
+  if (isNaN(value)) { st.textContent = 'Geçersiz değer'; st.className = 'save-status save-err'; return; }
+  btn.disabled = true; st.textContent = '…'; st.className = 'save-status';
+  try {
+    const r = await fetch('/admin/config/save?site=${sc}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ field, value }),
+    });
+    const j = await r.json();
+    if (j.ok) { st.textContent = '✓ Kaydedildi'; st.className = 'save-status save-ok'; }
+    else      { st.textContent = j.error || 'Hata'; st.className = 'save-status save-err'; }
+  } catch { st.textContent = 'Ağ hatası'; st.className = 'save-status save-err'; }
+  btn.disabled = false;
+}
+</script>
+</body>
+</html>`;
+}
+
 function adminNav(active, siteCode, allSites) {
   const links = [
     { href: `/admin/content?site=${siteCode}`,        label: 'İçerik',      key: 'content'        },
@@ -8200,6 +8421,7 @@ function adminNav(active, siteCode, allSites) {
     { href: `/admin/tools?site=${siteCode}`,          label: 'Araçlar',     key: 'tools'          },
     { href: `/admin/releases?site=${siteCode}`,       label: 'Sürümler',    key: 'releases'       },
     { href: `/admin/qa?site=${siteCode}`,             label: 'QA',          key: 'qa'             },
+    { href: `/admin/config?site=${siteCode}`,         label: 'Ayarlar',     key: 'config'         },
   ];
   const navLinks = links.map(l => {
     const isActive = active === l.key;
