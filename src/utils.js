@@ -389,15 +389,30 @@ export function addUsagePhase(stats, usage, model, phase) {
                ((out / 1_000_000) * rates.output) +
                ((cw  / 1_000_000) * rates.input * 1.25) +
                ((cr  / 1_000_000) * rates.input * 0.10);
+  // Legacy fields for backward compat
   if (phase === 'scout') {
-    stats.scout_tokens_in  += usage.input_tokens  || 0;
-    stats.scout_tokens_out += usage.output_tokens || 0;
+    stats.scout_tokens_in  += inp;
+    stats.scout_tokens_out += out;
     stats.scout_cost_eur   += cost;
   } else if (phase === 'write') {
-    stats.write_tokens_in  += usage.input_tokens  || 0;
-    stats.write_tokens_out += usage.output_tokens || 0;
+    stats.write_tokens_in  += inp;
+    stats.write_tokens_out += out;
     stats.write_cost_eur   += cost;
   }
+  // Per-phase breakdown
+  if (!stats.phases) stats.phases = {};
+  if (!stats.phases[phase]) stats.phases[phase] = { calls: 0, cost: 0, tokensIn: 0, tokensOut: 0 };
+  stats.phases[phase].calls    += 1;
+  stats.phases[phase].cost     += cost;
+  stats.phases[phase].tokensIn += inp + cw + cr;
+  stats.phases[phase].tokensOut += out;
+  // Per-model breakdown
+  if (!stats.models) stats.models = {};
+  if (!stats.models[model]) stats.models[model] = { calls: 0, cost: 0, tokensIn: 0, tokensOut: 0 };
+  stats.models[model].calls    += 1;
+  stats.models[model].cost     += cost;
+  stats.models[model].tokensIn += inp + cw + cr;
+  stats.models[model].tokensOut += out;
 }
 
 // ─── COST GUARD ──────────────────────────────────────────────
@@ -422,6 +437,41 @@ export async function addCost(env, usd) {
         if (!existing) await env.PITCHOS_CACHE.put(alarmKey, now);
       }
     }
+  }
+}
+
+export async function flushCostStats(env, siteCode, stats) {
+  if (!stats || stats.costEur <= 0) return;
+  const now   = new Date();
+  const month = now.toISOString().slice(0, 7);
+  const day   = now.toISOString().slice(0, 10);
+  const phases = stats.phases || {};
+  const models = stats.models || {};
+  for (const [key, ttl] of [
+    [`cost:${siteCode}:${month}`, null],
+    [`cost:${siteCode}:${day}`,   90 * 24 * 3600],
+  ]) {
+    const raw = await env.PITCHOS_CACHE.get(key);
+    const cur = raw ? JSON.parse(raw) : { total: 0, phases: {}, models: {}, runs: 0, updated: '' };
+    cur.total   = +(((cur.total || 0) + stats.costEur).toFixed(6));
+    cur.runs    = (cur.runs || 0) + 1;
+    cur.updated = now.toISOString();
+    for (const [ph, pd] of Object.entries(phases)) {
+      if (!cur.phases[ph]) cur.phases[ph] = { calls: 0, cost: 0, tokensIn: 0, tokensOut: 0 };
+      cur.phases[ph].calls    += pd.calls    || 0;
+      cur.phases[ph].cost     += pd.cost     || 0;
+      cur.phases[ph].tokensIn += pd.tokensIn || 0;
+      cur.phases[ph].tokensOut += pd.tokensOut || 0;
+    }
+    for (const [mdl, md] of Object.entries(models)) {
+      if (!cur.models[mdl]) cur.models[mdl] = { calls: 0, cost: 0, tokensIn: 0, tokensOut: 0 };
+      cur.models[mdl].calls    += md.calls    || 0;
+      cur.models[mdl].cost     += md.cost     || 0;
+      cur.models[mdl].tokensIn += md.tokensIn || 0;
+      cur.models[mdl].tokensOut += md.tokensOut || 0;
+    }
+    const opts = ttl ? { expirationTtl: ttl } : {};
+    await env.PITCHOS_CACHE.put(key, JSON.stringify(cur), opts);
   }
 }
 

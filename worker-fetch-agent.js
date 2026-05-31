@@ -9,7 +9,7 @@
  *   4. Caches articles to KV (fan site reads from here)
  *   5. Logs cost + results to Supabase
  */
-import { getActiveSites, addUsagePhase, addCost, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
+import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore } from './src/publisher.js';
@@ -1887,25 +1887,70 @@ export default {
 
       const now2 = new Date();
       const monthKey2 = now2.toISOString().slice(0, 7);
-      const [costRaw, costCap, a80, a90, a100] = await Promise.all([
+      const activeTab = url.searchParams.get('tab') === 'cost' ? 'cost' : 'fin';
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      const sc = currentSite.short_code;
+
+      // Build last-7-days list for daily breakdown keys
+      const last7 = [];
+      for (let i = 0; i < 7; i++) { const d = new Date(now2); d.setDate(d.getDate() - i); last7.push(d.toISOString().slice(0, 10)); }
+      const firstOfMonth = `${monthKey2}-01`;
+
+      const [costRaw, costCap, a80, a90, a100, brkMonthRaw, artRows, ...brkDailyRaw] = await Promise.all([
         env.PITCHOS_CACHE.get(`cost:${monthKey2}`),
         env.PITCHOS_CACHE.get('cost:cap'),
         env.PITCHOS_CACHE.get(`cost:alarm:80:${monthKey2}`),
         env.PITCHOS_CACHE.get(`cost:alarm:90:${monthKey2}`),
         env.PITCHOS_CACHE.get(`cost:alarm:100:${monthKey2}`),
+        env.PITCHOS_CACHE.get(`cost:${sc}:${monthKey2}`),
+        supabase(env, 'GET', `/rest/v1/content_items?site_id=eq.${currentSite.id}&status=not.in.(rejected,archived)&fetched_at=gte.${firstOfMonth}T00:00:00&select=id&limit=2000`),
+        ...last7.map(d => env.PITCHOS_CACHE.get(`cost:${sc}:${d}`)),
       ]);
+
       const costCur = parseFloat(costRaw || '0');
       const costCapV = parseFloat(costCap || env.MONTHLY_CLAUDE_CAP || '8');
       const costPct = costCapV > 0 ? (costCur / costCapV * 100).toFixed(1) : '0';
       const costMonths = [monthKey2];
       for (let i = 1; i <= 2; i++) { const d2 = new Date(now2); d2.setMonth(d2.getMonth()-i); costMonths.push(d2.toISOString().slice(0,7)); }
       const costHistory = await Promise.all(costMonths.map(async m => ({ month: m, usd: parseFloat((await env.PITCHOS_CACHE.get(`cost:${m}`)) || '0') })));
-      const costData = { current_month: monthKey2, current_usd: +costCur.toFixed(4), cap_usd: costCapV, cap_is_override: !!costCap, pct_used: costPct, blocked: costCur >= costCapV, history: costHistory, alarms: { 80: a80, 90: a90, 100: a100 } };
-      const activeTab = url.searchParams.get('tab') === 'cost' ? 'cost' : 'fin';
-      const allSites = await getActiveSites(env);
-      const currentSite = resolveSite(url, allSites);
+
+      // Aggregate 7-day breakdown from daily keys
+      const brk7d = { total: 0, phases: {}, models: {}, runs: 0 };
+      const brkDailyParsed = brkDailyRaw.map((r, i) => ({ day: last7[i], data: r ? JSON.parse(r) : null }));
+      for (const { data } of brkDailyParsed) {
+        if (!data) continue;
+        brk7d.total += data.total || 0;
+        brk7d.runs  += data.runs  || 0;
+        for (const [ph, pd] of Object.entries(data.phases || {})) {
+          if (!brk7d.phases[ph]) brk7d.phases[ph] = { calls: 0, cost: 0, tokensIn: 0, tokensOut: 0 };
+          brk7d.phases[ph].calls    += pd.calls    || 0;
+          brk7d.phases[ph].cost     += pd.cost     || 0;
+          brk7d.phases[ph].tokensIn += pd.tokensIn || 0;
+          brk7d.phases[ph].tokensOut += pd.tokensOut || 0;
+        }
+        for (const [mdl, md] of Object.entries(data.models || {})) {
+          if (!brk7d.models[mdl]) brk7d.models[mdl] = { calls: 0, cost: 0, tokensIn: 0, tokensOut: 0 };
+          brk7d.models[mdl].calls    += md.calls    || 0;
+          brk7d.models[mdl].cost     += md.cost     || 0;
+          brk7d.models[mdl].tokensIn += md.tokensIn || 0;
+          brk7d.models[mdl].tokensOut += md.tokensOut || 0;
+        }
+      }
+
+      const costData = {
+        current_month: monthKey2, current_usd: +costCur.toFixed(4), cap_usd: costCapV,
+        cap_is_override: !!costCap, pct_used: costPct, blocked: costCur >= costCapV,
+        history: costHistory, alarms: { 80: a80, 90: a90, 100: a100 },
+        breakdown: {
+          mtd:    brkMonthRaw ? JSON.parse(brkMonthRaw) : null,
+          last7d: brk7d,
+          today:  brkDailyParsed[0]?.data || null,
+        },
+        art_count_mtd: (artRows || []).length,
+      };
       return new Response(
-        renderFinancialsPage(monthsData, FIXED_ITEMS, costData, activeTab, currentSite.short_code, allSites),
+        renderFinancialsPage(monthsData, FIXED_ITEMS, costData, activeTab, sc, allSites),
         { headers: { 'Content-Type': 'text/html;charset=UTF-8' } }
       );
     }
@@ -4956,6 +5001,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
     claudeCalls: 0,
     scout_tokens_in: 0, scout_tokens_out: 0, scout_cost_eur: 0,
     tokensIn: 0, tokensOut: 0, costEur: 0,
+    phases: {}, models: {},
   };
 
   // ── FETCH (RSS + web search + beIN + Twitter in parallel) ────
@@ -5117,7 +5163,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
     }
     funnelStats._error = e.message;
     await logFetch(env, site.id, 'failed', stats, e.message, funnelStats);
-    if (stats.costEur > 0) await addCost(env, stats.costEur);
+    if (stats.costEur > 0) { await addCost(env, stats.costEur); await flushCostStats(env, site.short_code, stats).catch(() => {}); }
     return stats;
   }
   const mergedScored = preFiltered.map((orig, i) => ({
@@ -5801,7 +5847,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
     }
 
     await logFetch(env, site.id, 'success', stats, null, funnelStats);
-    if (stats.costEur > 0) await addCost(env, stats.costEur);
+    if (stats.costEur > 0) { await addCost(env, stats.costEur); await flushCostStats(env, site.short_code, stats).catch(() => {}); }
 
     // ── PIPELINE LOG — per-article disposition ─────────────────
     try {
@@ -8832,6 +8878,17 @@ ${adminNav('financials', siteCode, allSites)}
     <div class="alarm-row"><div class="alarm-dot" style="background:${alarms[100]?'#E30A17':'#333'}"></div><span class="alarm-label">100%</span><span class="alarm-ts ${alarm100ts?'hit':''}">${alarm100ts?'Triggered: '+alarm100ts:'Not triggered'}</span></div>
     <p style="font-size:.7rem;color:#555;margin-top:.75rem">Alarm timestamps are recorded once per month — first crossing only. Reset counter to clear.</p>
   </div>
+  <div class="cost-card" id="brkCard">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+      <div class="ch2" style="margin-bottom:0">Breakdown</div>
+      <div style="display:flex;gap:.35rem">
+        <button class="cbtn primary" id="bpMtd"   onclick="setCostPeriod('mtd')">MTD</button>
+        <button class="cbtn"         id="bp7d"    onclick="setCostPeriod('7d')">7 Days</button>
+        <button class="cbtn"         id="bpToday" onclick="setCostPeriod('today')">Today</button>
+      </div>
+    </div>
+    <div id="brkBody"></div>
+  </div>
   <div class="cost-card">
     <div class="ch2">History</div>
     <table><thead><tr><th>Month</th><th>Spend (USD)</th></tr></thead>
@@ -9026,11 +9083,74 @@ async function saveRevenue() {
   setTimeout(()=>{ if(d.ok) location.reload(); },900);
 }
 
+// ── Cost breakdown ─────────────────────────────────────────────
+const COST_BRK  = ${JSON.stringify(costData.breakdown)};
+const ART_MTD   = ${costData.art_count_mtd};
+let   costPeriod = 'mtd';
+const PHASE_LABELS = {
+  scout:'Scout (Haiku)', synthesis:'Synthesis', verify:'Verify',
+  transfer:'Transfer', fact_extract:'Fact Extract', score:'Score',
+  classify_video:'Classify Video', video_embed:'Video Embed',
+};
+const MODEL_SHORT = {
+  'claude-haiku-4-5-20251001':'Haiku 4.5',
+  'claude-sonnet-4-6':'Sonnet 4.6',
+};
+function phLabel(k) { if(PHASE_LABELS[k]) return PHASE_LABELS[k]; if(k.startsWith('template:')) return 'Template '+k.slice(9); return k; }
+function fmtU(n) { return '$'+(n||0).toFixed(4); }
+function fmtK(n) { return n>=1000?(n/1000).toFixed(1)+'K':String(n||0); }
+function setCostPeriod(p) {
+  costPeriod = p;
+  ['Mtd','7d','Today'].forEach(x => { const b=document.getElementById('bp'+x); if(b) b.classList.toggle('primary', x.toLowerCase()===p||(x==='7d'&&p==='7d')||(x==='Mtd'&&p==='mtd')||(x==='Today'&&p==='today')); });
+  document.getElementById('bpMtd').classList.toggle('primary',   p==='mtd');
+  document.getElementById('bp7d').classList.toggle('primary',    p==='7d');
+  document.getElementById('bpToday').classList.toggle('primary', p==='today');
+  renderCostBrk();
+}
+function renderCostBrk() {
+  const data = costPeriod==='mtd' ? COST_BRK.mtd : costPeriod==='7d' ? COST_BRK.last7d : COST_BRK.today;
+  const el = document.getElementById('brkBody');
+  if (!el) return;
+  if (!data || !data.total) {
+    el.innerHTML = '<p style="color:#555;font-size:.78rem;padding:.5rem 0">No data for this period yet — populates after next pipeline run.</p>';
+    return;
+  }
+  const phases = Object.entries(data.phases||{}).sort((a,b)=>b[1].cost-a[1].cost);
+  const models = Object.entries(data.models||{});
+  const artCount = costPeriod==='mtd' ? ART_MTD : null;
+  let html = '';
+  html += '<div style="font-size:.62rem;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem">By Phase</div>';
+  html += '<table><thead><tr><th>Phase</th><th style="text-align:right">Cost</th><th style="text-align:right">Calls</th><th style="text-align:right">Avg/call</th></tr></thead><tbody>';
+  for(const [ph,pd] of phases) {
+    const avg = pd.calls>0?('$'+(pd.cost/pd.calls).toFixed(4)):'—';
+    html += \`<tr><td>\${phLabel(ph)}</td><td style="text-align:right">\${fmtU(pd.cost)}</td><td style="text-align:right">\${pd.calls}</td><td style="text-align:right">\${avg}</td></tr>\`;
+  }
+  const totalCalls = phases.reduce((s,[,p])=>s+p.calls,0);
+  html += \`<tr class="total-row"><td>Total</td><td style="text-align:right">\${fmtU(data.total)}</td><td style="text-align:right">\${totalCalls}</td><td></td></tr>\`;
+  html += '</tbody></table>';
+  if(models.length) {
+    html += '<div style="font-size:.62rem;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-top:1.1rem;margin-bottom:.4rem">By Model</div>';
+    html += '<table><thead><tr><th>Model</th><th style="text-align:right">Cost</th><th style="text-align:right">Calls</th><th style="text-align:right">Avg tok-in</th><th style="text-align:right">Avg tok-out</th></tr></thead><tbody>';
+    for(const [mdl,md] of models) {
+      const avgIn  = md.calls>0 ? fmtK(Math.round(md.tokensIn /md.calls)) : '—';
+      const avgOut = md.calls>0 ? fmtK(Math.round(md.tokensOut/md.calls)) : '—';
+      html += \`<tr><td>\${MODEL_SHORT[mdl]||mdl}</td><td style="text-align:right">\${fmtU(md.cost)}</td><td style="text-align:right">\${md.calls}</td><td style="text-align:right">\${avgIn}</td><td style="text-align:right">\${avgOut}</td></tr>\`;
+    }
+    html += '</tbody></table>';
+  }
+  if(artCount && data.total>0) {
+    const perArt = (data.total/artCount).toFixed(4);
+    html += \`<div style="margin-top:1rem;padding:.65rem .75rem;background:#1a1a1a;border-radius:4px;font-size:.8rem"><span style="color:#555">Published articles MTD: </span><strong>\${artCount}</strong><span style="color:#555;margin-left:1.25rem">Claude cost/article: </span><strong>$\${perArt}</strong></div>\`;
+  }
+  el.innerHTML = html;
+}
+
 // Init
 const curData = ALL_DATA.find(d=>d.month==='${currentMonth}');
 if (curData) document.getElementById('revAmt').value = curData.revenue.toFixed(2);
 render();
 renderBreakdown('${currentMonth}');
+renderCostBrk();
 </script>
 </body>
 </html>`;

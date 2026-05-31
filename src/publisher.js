@@ -1,4 +1,4 @@
-﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, addUsagePhase, addCost } from './utils.js';
+﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, addUsagePhase, addCost, flushCostStats } from './utils.js';
 import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens } from './processor.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
@@ -1102,7 +1102,7 @@ export async function drainRewriteQueue(site, env) {
   const batch = queue.slice(0, 8);
   const succeeded = [];
   const results = [];
-  const drainStats = { tokensIn: 0, tokensOut: 0, costEur: 0 };
+  const drainStats = { tokensIn: 0, tokensOut: 0, costEur: 0, phases: {}, models: {} };
 
   // Warm proxy once before draining the batch
   let proxyWarmed = false;
@@ -1147,7 +1147,10 @@ export async function drainRewriteQueue(site, env) {
   queue = queue.filter(e => !succeeded.includes(e.url));
   await env.PITCHOS_CACHE.put(key, JSON.stringify(queue), { expirationTtl: REWRITE_QUEUE_TTL });
   console.log(`REWRITE DRAIN [${siteCode}]: processed ${succeeded.length}, remaining ${queue.length}`);
-  if (drainStats.costEur > 0) await addCost(env, drainStats.costEur).catch(() => {});
+  if (drainStats.costEur > 0) {
+    await addCost(env, drainStats.costEur).catch(() => {});
+    await flushCostStats(env, siteCode, drainStats).catch(() => {});
+  }
   return results;
 }
 
