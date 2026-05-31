@@ -6501,7 +6501,7 @@ body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;height:10
 .tcard.no-events{opacity:.5}
 .tc-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.4rem}
 .tc-label{font-size:.85rem;font-weight:600;color:#f1f5f9}
-.tc-badge{font-size:.65rem;background:#065f46;color:#6ee7b7;border-radius:3px;padding:1px 5px}
+.tc-badge{font-size:.72rem;background:#065f46;color:#6ee7b7;border-radius:3px;padding:1px 5px}
 .tc-badge.none{background:#374151;color:#9ca3af}
 .tc-desc{font-size:.72rem;color:#94a3b8;margin-bottom:.5rem}
 .tc-events{margin:.4rem 0}
@@ -7695,39 +7695,39 @@ select{height:30px;color:#aaa}
 .badge-yt{background:#3a1a1a;color:#aa4a4a}
 .badge-manual{background:#2a2a1a;color:#aaaa4a}
 .badge-rss{background:#2a2a2a;color:#777}
-.nvs{font-size:.63rem;color:#555}
+.nvs{font-size:.72rem;color:#888}
 .nr-flag{font-size:.72rem;color:#f0a500}
-.status-pill{font-size:.6rem;font-weight:700;letter-spacing:.05em;padding:1px 7px;border-radius:10px;white-space:nowrap}
+.status-pill{font-size:.7rem;font-weight:700;letter-spacing:.05em;padding:1px 7px;border-radius:10px;white-space:nowrap}
 .sp-live{background:#14532d;color:#4ade80}
 .sp-pub{background:#1e3a5f;color:#60a5fa}
 .sp-pend{background:#3a2e00;color:#fbbf24}
-.sp-arch{background:#2a2a2a;color:#555}
+.sp-arch{background:#2a2a2a;color:#888}
 .sp-kv{background:#2a1a3a;color:#a78bfa}
-.art-date{font-size:.63rem;color:#444;margin-left:auto}
-.btn-quick-pub{font-size:.6rem;font-weight:700;padding:1px 8px;border-radius:3px;border:1px solid #92400e;background:#78350f;color:#fbbf24;cursor:pointer;white-space:nowrap;margin-left:auto}
+.art-date{font-size:.72rem;color:#777;margin-left:auto}
+.btn-quick-pub{font-size:.7rem;font-weight:700;padding:1px 8px;border-radius:3px;border:1px solid #92400e;background:#78350f;color:#fbbf24;cursor:pointer;white-space:nowrap;margin-left:auto}
 .btn-quick-pub:hover{background:#92400e;color:#fff}
 .editor-inner{flex:1;display:flex;flex-direction:column;padding:1.25rem 1.5rem;overflow-y:auto;gap:.85rem}
-.editor-empty{flex:1;display:flex;align-items:center;justify-content:center;color:#333;font-size:.9rem}
-.field label{display:block;font-size:.65rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem}
+.editor-empty{flex:1;display:flex;align-items:center;justify-content:center;color:#999;font-size:.9rem}
+.field label{display:block;font-size:.72rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem}
 .field input[type=text],.field input[type=url]{width:100%;height:34px}
 .field textarea{width:100%;resize:vertical}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}
 .editor-actions{display:flex;gap:.6rem;align-items:center;padding:.85rem 1.5rem;border-top:1px solid #222;flex-shrink:0;background:#111}
-.save-status{font-size:.72rem;color:#555;margin-left:.5rem}
+.save-status{font-size:.72rem;color:#888;margin-left:.5rem}
 .pagination{padding:.5rem .85rem;border-top:1px solid #1e1e1e;display:flex;gap:.5rem;flex-shrink:0}
 .dash-strip{display:flex;gap:.4rem;padding:.5rem .85rem;border-bottom:1px solid #222;background:#0d0d0d;flex-shrink:0}
 .dash-stat{flex:1;display:flex;flex-direction:column;align-items:center;gap:.12rem;background:#111;border:1px solid #1e1e1e;border-radius:5px;padding:.3rem .2rem;cursor:pointer;transition:border-color .12s;min-width:0}
 .dash-stat:hover{border-color:#333}.dash-stat.ds-active{border-color:#E30A17}
 .ds-count{font-size:.9rem;font-weight:700;color:#ddd;line-height:1}
-.ds-label{font-size:.5rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#555;white-space:nowrap}
-.ds-live .ds-count{color:#4ade80}.ds-yayinda .ds-count{color:#60a5fa}.ds-pend .ds-count{color:#fbbf24}.ds-arch .ds-count{color:#666}.ds-del .ds-count{color:#c0392b}
+.ds-label{font-size:.5rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;white-space:nowrap}
+.ds-live .ds-count{color:#4ade80}.ds-yayinda .ds-count{color:#60a5fa}.ds-pend .ds-count{color:#fbbf24}.ds-arch .ds-count{color:#999}.ds-del .ds-count{color:#c0392b}
 .hp-times{font-size:.59rem;color:#4a7aaa;margin-top:.2rem;line-height:1.3}
 .hp-times-pub{color:#4a9a6a}.hp-times-evicted{color:#7a5a3a}
 .score-strip{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.3rem;padding:.25rem .35rem;background:#111;border:1px solid #1e1e1e;border-radius:3px}
 .sc{display:flex;flex-direction:column;align-items:center;min-width:36px}
-.sc-val{font-size:.65rem;font-weight:700;color:#ccc;line-height:1}
+.sc-val{font-size:.72rem;font-weight:700;color:#ccc;line-height:1}
 .sc-val.sc-now{color:#4ade80}.sc-val.sc-pinned{color:#a78bfa}.sc-val.sc-floor{color:#ef4444}.sc-val.sc-imminent{color:#f97316}.sc-val.sc-rank{color:#facc15}
-.sc-lbl{font-size:.48rem;letter-spacing:.05em;text-transform:uppercase;color:#444;line-height:1;margin-top:.15rem}
+.sc-lbl{font-size:.48rem;letter-spacing:.05em;text-transform:uppercase;color:#777;line-height:1;margin-top:.15rem}
 </style>
 </head>
 <body>
@@ -7773,7 +7773,7 @@ ADMINNAV_PLACEHOLDER
       <button class="btn btn-primary btn-sm" style="margin-left:auto" onclick="newArticle()">+ Yeni</button>
     </div>
     <div id="failureBanner" style="display:none;background:#7f1d1d;color:#fca5a5;padding:.6rem 1rem;font-size:0.78rem;border-bottom:1px solid #991b1b"></div>
-    <div class="art-list" id="artList"><p style="padding:1rem;color:#444">Yükleniyor…</p></div>
+    <div class="art-list" id="artList"><p style="padding:1rem;color:#777">Yükleniyor…</p></div>
     <div class="pagination" id="pagination"></div>
   </div>
   <div class="editor-panel">
@@ -7785,11 +7785,11 @@ ADMINNAV_PLACEHOLDER
           <input type="text" id="eTitle" placeholder="Haber başlığı">
         </div>
         <div class="field">
-          <label>Özet <span style="color:#444;text-transform:none;font-weight:400">(isteğe bağlı)</span></label>
+          <label>Özet <span style="color:#777;text-transform:none;font-weight:400">(isteğe bağlı)</span></label>
           <textarea id="eSummary" rows="2" placeholder="Kısa özet…"></textarea>
         </div>
         <div class="field">
-          <label>İçerik <span id="wc" style="color:#444;text-transform:none;font-weight:400"></span></label>
+          <label>İçerik <span id="wc" style="color:#777;text-transform:none;font-weight:400"></span></label>
           <textarea id="eBody" rows="16" placeholder="Haber metni veya HTML…" oninput="updateWc()"></textarea>
         </div>
         <div class="field-row">
@@ -7805,15 +7805,15 @@ ADMINNAV_PLACEHOLDER
           </div>
         </div>
         <div class="field" id="eSlugRow" style="display:none">
-          <label>Slug <span style="color:#444;text-transform:none;font-weight:400">(sadece okuma)</span></label>
-          <input type="text" id="eSlug" readonly style="color:#555;cursor:default">
+          <label>Slug <span style="color:#777;text-transform:none;font-weight:400">(sadece okuma)</span></label>
+          <input type="text" id="eSlug" readonly style="color:#888;cursor:default">
         </div>
         <div class="field" id="eFbRow" style="display:none">
-          <label>YZ Rehberlik Notu <span style="color:#444;text-transform:none;font-weight:400;letter-spacing:0">— Talimat Üret için kaynak olarak kullanılır</span></label>
+          <label>YZ Rehberlik Notu <span style="color:#777;text-transform:none;font-weight:400;letter-spacing:0">— Talimat Üret için kaynak olarak kullanılır</span></label>
           <textarea id="eFbText" rows="3" placeholder="Ton, eksik bilgi, üslup, düzeltme önerileri…"></textarea>
           <div style="display:flex;gap:.5rem;margin-top:.4rem;align-items:center">
             <button class="btn btn-secondary btn-sm" onclick="saveFb()">Notu Kaydet</button>
-            <span id="eFbStatus" style="font-size:.72rem;color:#555"></span>
+            <span id="eFbStatus" style="font-size:.72rem;color:#888"></span>
           </div>
           <div id="eFbList" style="margin-top:.5rem"></div>
         </div>
@@ -7976,7 +7976,7 @@ async function load(page) {
   const has_more = data.has_more || false;
   const list = document.getElementById('artList');
   if (data.error) { list.innerHTML = '<p style="padding:1rem;color:#c0392b">Hata: ' + esc(data.error) + '</p>'; return; }
-  if (!articles.length) { list.innerHTML = '<p style="padding:1rem;color:#444">Haber bulunamadı.</p>'; }
+  if (!articles.length) { list.innerHTML = '<p style="padding:1rem;color:#777">Haber bulunamadı.</p>'; }
   else {
     articles.forEach(a => { articleCache[a.slug] = a; });
     list.innerHTML = articles.map(a => {
@@ -8016,7 +8016,7 @@ async function load(page) {
   const pg = document.getElementById('pagination');
   pg.innerHTML = \`
     \${currentPage > 1 ? '<button class="btn btn-secondary btn-sm" onclick="load('+(currentPage-1)+')">← Önceki</button>' : ''}
-    <span style="font-size:.72rem;color:#555;margin:auto">Sayfa \${currentPage}</span>
+    <span style="font-size:.72rem;color:#888;margin:auto">Sayfa \${currentPage}</span>
     \${has_more ? '<button class="btn btn-secondary btn-sm" onclick="load('+(currentPage+1)+')">Sonraki →</button>' : ''}
   \`;
 }
@@ -8169,7 +8169,7 @@ async function loadArticleFb(slug) {
     list.innerHTML = items.map(f => \`
       <div style="background:#1a2a1a;border-left:2px solid #3a5a3a;padding:.35rem .6rem;margin-bottom:.3rem;font-size:.75rem;color:#9a9;border-radius:0 3px 3px 0;display:flex;justify-content:space-between;gap:.5rem;align-items:flex-start">
         <span style="flex:1">\${esc(f.comment)}</span>
-        <button onclick="delArticleFb('\${f.id}')" style="background:transparent;border:none;color:#555;cursor:pointer;font-size:.7rem;flex-shrink:0">✕</button>
+        <button onclick="delArticleFb('\${f.id}')" style="background:transparent;border:none;color:#888;cursor:pointer;font-size:.7rem;flex-shrink:0">✕</button>
       </div>
     \`).join('');
   } catch(e) {}
@@ -8219,23 +8219,23 @@ function renderAdminConfigPage(site, kvConfig, siteCode, allSites) {
         <div class="cfg-label">${label}</div>
         <div class="cfg-value">
           <input type="number" id="f-${field}" value="${val}" style="width:80px;height:28px">
-          <button class="btn btn-primary btn-sm" onclick="save('${field}')" id="btn-${field}" style="margin-left:.4rem">Kaydet</button>
+          <button class="btn btn-primary btn-sm" onclick="save('${field}')" id="btn-${field}" style="margin-left:.4rem">Save</button>
           <span id="st-${field}" class="save-status"></span>
         </div>
         ${note ? `<div class="cfg-note">${note}</div>` : ''}
       </div>`;
   const rRow = (label, val, badge, note = '') => `
       <div class="cfg-row">
-        <div class="cfg-label">${label} <span class="${badge === 'SABIT' ? 'badge-code' : 'badge-ro'}">${badge}</span></div>
+        <div class="cfg-label">${label} <span class="${badge === 'CONST' ? 'badge-code' : 'badge-ro'}">${badge}</span></div>
         <div class="cfg-value">${val}</div>
         ${note ? `<div class="cfg-note">${note}</div>` : ''}
       </div>`;
   return `<!DOCTYPE html>
-<html lang="tr">
+<html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Kartalix — Ayarlar</title>
+<title>Kartalix — Settings</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.5}
@@ -8246,8 +8246,8 @@ input[type=number]{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;bor
 input[type=number]:focus{border-color:#444}
 .page{max-width:860px;margin:2rem auto;padding:0 1.25rem}
 .card{background:#111;border:1px solid #222;border-radius:8px;padding:1.25rem;margin-bottom:1.25rem}
-.card-title{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none}
-.card-title::before{content:'▾';color:#444;font-size:.8rem}
+.card-title{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#888;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none}
+.card-title::before{content:'▾';color:#777;font-size:.8rem}
 .card-title.collapsed::before{content:'▸'}
 .card-title.nocollapse{cursor:default}
 .card-title.nocollapse::before{content:''}
@@ -8255,11 +8255,11 @@ input[type=number]:focus{border-color:#444}
 .cfg-row:last-child{border-bottom:none}
 .cfg-label{font-size:.8rem;color:#999}
 .cfg-value{font-size:.83rem;color:#e8e6e0;font-family:'Consolas',monospace;display:flex;align-items:center;flex-wrap:wrap;gap:.25rem}
-.cfg-note{grid-column:2;font-size:.7rem;color:#555;padding-bottom:.25rem}
+.cfg-note{grid-column:2;font-size:.7rem;color:#888;padding-bottom:.25rem}
 .save-status{font-size:.7rem}.save-ok{color:#4ade80}.save-err{color:#f87171}
-.badge-code{font-size:.6rem;font-weight:700;background:#1a1a2a;color:#7c9adb;border:1px solid #2a2a3a;border-radius:3px;padding:1px 5px}
-.badge-ro{font-size:.6rem;font-weight:700;background:#1e1a0a;color:#888;border:1px solid #2a2520;border-radius:3px;padding:1px 5px}
-.section-note{font-size:.75rem;color:#555;margin-bottom:.75rem}
+.badge-code{font-size:.72rem;font-weight:700;background:#1a1a2a;color:#7c9adb;border:1px solid #2a2a3a;border-radius:3px;padding:1px 5px}
+.badge-ro{font-size:.72rem;font-weight:700;background:#1e1a0a;color:#888;border:1px solid #2a2520;border-radius:3px;padding:1px 5px}
+.section-note{font-size:.75rem;color:#888;margin-bottom:.75rem}
 pre{background:#0d1117;border:1px solid #1e2533;border-radius:4px;padding:.75rem 1rem;font-size:.72rem;color:#8b9db7;overflow-x:auto;line-height:1.6;margin-top:.4rem}
 </style>
 </head>
@@ -8267,115 +8267,115 @@ pre{background:#0d1117;border:1px solid #1e2533;border-radius:4px;padding:.75rem
 ${adminNav('config', sc, allSites)}
 <div class="page">
   <div style="margin-bottom:1.25rem">
-    <div style="font-size:.85rem;font-weight:700;color:#ccc">Ayarlar <span style="color:#444;font-weight:400;font-size:.75rem;margin-left:.5rem">${sc} · site_id=${site.id}</span></div>
-    <div style="font-size:.72rem;color:#555;margin-top:.2rem">Bölüm 1 ve 5 doğrudan Supabase'e kaydedilir. Diğerleri publisher.js sabit kodlarını gösterir.</div>
+    <div style="font-size:.85rem;font-weight:700;color:#ccc">Settings <span style="color:#777;font-weight:400;font-size:.75rem;margin-left:.5rem">${sc} · site_id=${site.id}</span></div>
+    <div style="font-size:.72rem;color:#888;margin-top:.2rem">Sections 1 and 5 save directly to Supabase. Others show hardcoded constants from publisher.js.</div>
   </div>
 
   <div class="card">
-    <div class="card-title" onclick="toggle(this)">1. Yayın Eşikleri <span class="badge-code">DB</span></div>
+    <div class="card-title" onclick="toggle(this)">1. Publish Thresholds <span class="badge-code">DB</span></div>
     <div class="card-body">
-      <div class="section-note">Makalelerin otomatik yayınlanmasını, inceleme kuyruğuna alınmasını veya sessizce atılmasını kontrol eder.</div>
-      ${eRow('Otomatik Yayın Eşiği', 'auto_publish_threshold', site.auto_publish_threshold ?? 30, 'NVS ≥ bu değer olan makaleler onay gerekmeksizin yayınlanır. Önerilen: 25–40.')}
-      ${eRow('İnceleme Kuyruğu Eşiği', 'review_threshold', site.review_threshold ?? 20, 'Bu değer ile otomatik yayın eşiği arasındaki makaleler kuyruğa girer. Mutlaka altında olmalı.')}
-      ${rRow('Sentez NVS Kesimi', SYNTHESIS_NVS_THRESHOLD, 'SABIT', 'NVS ≥ bu değer olan makaleler Claude yeniden yazımına uygun. publisher.js sabit kodu.')}
+      <div class="section-note">Controls whether articles are auto-published, queued for review, or silently dropped.</div>
+      ${eRow('Auto-Publish Threshold', 'auto_publish_threshold', site.auto_publish_threshold ?? 30, 'Articles with NVS ≥ this value are published without approval. Recommended: 25–40.')}
+      ${eRow('Review Queue Threshold', 'review_threshold', site.review_threshold ?? 20, 'Articles between this value and the auto-publish threshold enter the queue. Must be below auto-publish.')}
+      ${rRow('Synthesis NVS Cutoff', SYNTHESIS_NVS_THRESHOLD, 'CONST', 'Articles with NVS ≥ this value are eligible for Claude rewrite. Hardcoded in publisher.js.')}
     </div>
   </div>
 
   <div class="card">
-    <div class="card-title" onclick="toggle(this)">2. Pipeline Limitleri <span class="badge-code">SABIT</span></div>
+    <div class="card-title" onclick="toggle(this)">2. Pipeline Limits <span class="badge-code">CONST</span></div>
     <div class="card-body">
-      <div class="section-note">Her cron çalışmasının ne kadar iş yapacağını kontrol eder. Maliyet ve hacmi doğrudan etkiler.</div>
-      ${rRow('Çalışma Başına Maks. Yeniden Yazım', SYNTHESIS_CAP_PER_RUN, 'SABIT', 'Her cron döngüsünde yeniden yazılacak maksimum makale. Taşan makaleler KV kuyruğuna alınır.')}
-      ${rRow('Çalışma Başına Maks. Gerçek Çıkarımı', MAX_FACTS_EXTRACTS, 'SABIT', 'Her çalışmada gerçek çıkarımı için maksimum Claude çağrısı.')}
-      ${rRow('Yeniden Yazım Kuyruğu Maks. Boyutu', REWRITE_QUEUE_MAX, 'SABIT', 'KV kuyruğunda bekleyebilecek maksimum makale sayısı.')}
-      ${rRow('Yeniden Yazım Kuyruğu Yaşam Süresi', `${REWRITE_QUEUE_TTL / 3600}s`, 'SABIT', 'Bu süreden eski kuyruk girdileri atılır.')}
+      <div class="section-note">Controls how much work each cron run does. Directly affects cost and throughput.</div>
+      ${rRow('Max Rewrites Per Run', SYNTHESIS_CAP_PER_RUN, 'CONST', 'Maximum articles rewritten per cron cycle. Overflow articles are queued in KV.')}
+      ${rRow('Max Fact Extracts Per Run', MAX_FACTS_EXTRACTS, 'CONST', 'Maximum Claude calls for fact extraction per run.')}
+      ${rRow('Rewrite Queue Max Size', REWRITE_QUEUE_MAX, 'CONST', 'Maximum number of articles that can wait in the KV queue.')}
+      ${rRow('Rewrite Queue TTL', `${REWRITE_QUEUE_TTL / 3600}h`, 'CONST', 'Queue entries older than this are discarded.')}
     </div>
   </div>
 
   <div class="card">
-    <div class="card-title collapsed" onclick="toggle(this)">3. İçerik Puanlama &amp; Çürüme <span class="badge-code">SABIT</span></div>
+    <div class="card-title collapsed" onclick="toggle(this)">3. Content Scoring &amp; Decay <span class="badge-code">CONST</span></div>
     <div class="card-body" style="display:none">
-      <div class="section-note">Makalelerin anasayfada nasıl eskidiğini kontrol eder.</div>
-      ${rRow('Yarı Ömür — Haber Yeniden Yazım', '24s', 'SABIT', 'Normal yeniden yazılmış makalenin anasayfa sıralamasının yarıya düşme süresi.')}
-      ${rRow('Yarı Ömür — YouTube Embed', '48s', 'SABIT', 'Küratör video için. Videolar kalıcı değer taşıdığından haberlerden uzun.')}
-      ${rRow('Yarı Ömür — RSS Özeti', '3s / 0.5s', 'SABIT', 'copy_source: 3s, rss_summary: 0.5s. Yeniden yazım tamamlanana kadar yer tutucu.')}
-      ${rRow('Canlı Maç Flash Yarı Ömrü', '0.5s (1s hard eviction)', 'SABIT', 'Gol, kırmızı kart, VAR. Tasarım gereği sabit.')}
-      ${rRow('NVS Yaş Cezaları', '−15 (24s sonra), −30 (48s sonra)', 'SABIT', 'Eski haberler sentez slotları için yeni içerikle rekabet etmez.')}
+      <div class="section-note">Controls how articles age on the homepage.</div>
+      ${rRow('Half-Life — News Rewrite', '24h', 'CONST', 'Time for a normal rewritten article\'s homepage score to halve.')}
+      ${rRow('Half-Life — YouTube Embed', '48h', 'CONST', 'For curated video. Longer than news because videos carry lasting value.')}
+      ${rRow('Half-Life — RSS Summary', '3h / 0.5h', 'CONST', 'copy_source: 3h, rss_summary: 0.5h. Placeholder until rewrite completes.')}
+      ${rRow('Live Match Flash Half-Life', '0.5h (1h hard eviction)', 'CONST', 'Goal, red card, VAR. Fixed by design.')}
+      ${rRow('NVS Age Penalties', '−15 (after 24h), −30 (after 48h)', 'CONST', 'Old articles don\'t compete with fresh content for synthesis slots.')}
     </div>
   </div>
 
   <div class="card">
-    <div class="card-title collapsed" onclick="toggle(this)">4. Kaynak Güven Seviyeleri <span class="badge-ro">SALT OKUNUR</span></div>
+    <div class="card-title collapsed" onclick="toggle(this)">4. Source Trust Tiers <span class="badge-ro">READ-ONLY</span></div>
     <div class="card-body" style="display:none">
-      <div class="section-note">Kaynak tier'ları /admin/sources/ui'den atanır. Çarpanlar kod değişikliği gerektirir.</div>
-      <div class="cfg-row" style="grid-template-columns:60px 120px 60px 1fr;font-size:.72rem;color:#555;font-weight:700">
-        <div>Tier</div><div>Etiket</div><div>Çarpan</div><div>Örnekler</div>
+      <div class="section-note">Source tiers are assigned from /admin/sources/ui. Multipliers require a code change.</div>
+      <div class="cfg-row" style="grid-template-columns:60px 120px 60px 1fr;font-size:.72rem;color:#888;font-weight:700">
+        <div>Tier</div><div>Label</div><div>Multiplier</div><div>Examples</div>
       </div>
       <div class="cfg-row" style="grid-template-columns:60px 120px 60px 1fr">
-        <div>T1</div><div>Resmi</div><div>1.8×</div><div style="font-size:.72rem;color:#555">Kulüp kanalları, basın konferansları</div>
+        <div>T1</div><div>Official</div><div>1.8×</div><div style="font-size:.72rem;color:#888">Club channels, press conferences</div>
       </div>
       <div class="cfg-row" style="grid-template-columns:60px 120px 60px 1fr">
-        <div>T2</div><div>Yayıncı</div><div>1.4×</div><div style="font-size:.72rem;color:#555">beIN Sports, TRT Spor</div>
+        <div>T2</div><div>Broadcast</div><div>1.4×</div><div style="font-size:.72rem;color:#888">beIN Sports, TRT Spor</div>
       </div>
       <div class="cfg-row" style="grid-template-columns:60px 120px 60px 1fr">
-        <div>T3</div><div>Basın</div><div>1.0×</div><div style="font-size:.72rem;color:#555">Fanatik, Milliyet, NTV Spor</div>
+        <div>T3</div><div>Press</div><div>1.0×</div><div style="font-size:.72rem;color:#888">Fanatik, Milliyet, NTV Spor</div>
       </div>
       <div class="cfg-row" style="grid-template-columns:60px 120px 60px 1fr">
-        <div>T4</div><div>Dijital</div><div>0.5×</div><div style="font-size:.72rem;color:#555">Agregator bloglar, düşük otorite</div>
+        <div>T4</div><div>Digital</div><div>0.5×</div><div style="font-size:.72rem;color:#888">Aggregator blogs, low authority</div>
       </div>
     </div>
   </div>
 
   <div class="card">
-    <div class="card-title" onclick="toggle(this)">5. Maç &amp; Sezon <span class="badge-code">DB</span></div>
+    <div class="card-title" onclick="toggle(this)">5. Match &amp; Season <span class="badge-code">DB</span></div>
     <div class="card-body">
-      <div class="section-note">API-Football çağrıları için takım ve lig tanımlayıcıları.</div>
-      ${eRow('Takım ID', 'team_id', site.team_id ?? 549, "API-Football takım ID'si. Yanlış değer = maç verisi yok. BJK: 549.")}
-      ${eRow('Lig ID', 'league_id', site.league_id ?? 203, 'API-Football lig ID\'si. Süper Lig: 203, UCL: 2, UEL: 3, Conference: 848, Kupa: 204.')}
-      ${eRow('Sezon', 'season', site.season ?? 2025, 'Başlangıç yılı (2025 = 2025–26 sezonu). Her temmuz güncelle.')}
+      <div class="section-note">Team and league identifiers for API-Football calls.</div>
+      ${eRow('Team ID', 'team_id', site.team_id ?? 549, "API-Football team ID. Wrong value = no match data. BJK: 549.")}
+      ${eRow('League ID', 'league_id', site.league_id ?? 203, "API-Football league ID. Süper Lig: 203, UCL: 2, UEL: 3, Conference: 848, Cup: 204.")}
+      ${eRow('Season', 'season', site.season ?? 2025, 'Start year (2025 = 2025–26 season). Update every July.')}
     </div>
   </div>
 
   <div class="card">
-    <div class="card-title collapsed" onclick="toggle(this)">6. Önbellek &amp; Görünüm <span class="badge-code">SABIT</span></div>
+    <div class="card-title collapsed" onclick="toggle(this)">6. Cache &amp; Display <span class="badge-code">CONST</span></div>
     <div class="card-body" style="display:none">
-      <div class="section-note">KV'de kaç makale tutulur ve önbellek ne kadar süre geçerli.</div>
-      ${rRow('Anasayfa Maks. Makale Sayısı', '200', 'SABIT', 'KV görüntüleme önbelleğinde tutulan maksimum makale.')}
-      ${rRow('Önbellek TTL', '12s', 'SABIT', 'KV önbelleğinin geçerlilik süresi. Pipeline genellikle çok daha sık günceller.')}
-      ${rRow('Sıralama Alt Sınırı', '5', 'SABIT', 'Bu değerin altındaki skor alanlar anasayfa havuzundan tamamen çıkarılır.')}
+      <div class="section-note">How many articles are kept in KV and how long the cache is valid.</div>
+      ${rRow('Homepage Max Articles', '200', 'CONST', 'Maximum articles held in the KV display cache.')}
+      ${rRow('Cache TTL', '12h', 'CONST', 'KV cache validity period. The pipeline usually updates much more frequently.')}
+      ${rRow('Ranking Floor', '5', 'CONST', 'Articles scoring below this are completely removed from the homepage pool.')}
     </div>
   </div>
 
   <div class="card" style="margin-top:2rem">
-    <div class="card-title nocollapse">Gelecek Fazlar</div>
-    <div style="font-size:.78rem;color:#666;line-height:1.9">
-      <div><strong style="color:#888">Faz 3</strong> — KV çalışma zamanı geçersiz kılmaları: Bölüm 2, 3, 6 alanları <code>config:${sc}</code> KV'ye yazılır; pipeline sabit değerler yerine bunları okur.</div>
-      <div style="margin-top:.4rem"><strong style="color:#888">Faz 4</strong> — Anahtar kelime editörü: <code>sites.keyword_config.keywords</code> için tag editörü (şu an SQL ile düzenleniyor, 103 giriş).</div>
+    <div class="card-title nocollapse">Future Phases</div>
+    <div style="font-size:.78rem;color:#999;line-height:1.9">
+      <div><strong style="color:#aaa">Phase 3</strong> — KV runtime overrides: Sections 2, 3, 6 fields written to <code>config:${sc}</code> KV; pipeline reads these instead of hardcoded values.</div>
+      <div style="margin-top:.4rem"><strong style="color:#aaa">Phase 4</strong> — Keyword editor: tag editor for <code>sites.keyword_config.keywords</code> (currently edited via SQL, 103 entries).</div>
     </div>
   </div>
 
   <div class="card">
-    <div class="card-title nocollapse">Test Akışı — config:${sc} Değişikliklerini Elle Test Et</div>
-    <div class="section-note" style="margin-bottom:1rem">config:${sc} KV'sini manuel düzenleyip etkisini gözlemlemek için adım adım rehber.</div>
-    <ol style="font-size:.78rem;color:#888;line-height:2.2;padding-left:1.25rem;margin-bottom:1rem">
-      <li>Mevcut değeri yukarıdaki sayfadan not edin</li>
-      <li>Aşağıdaki snippet'lerden birini çalıştırarak KV'yi güncelleyin</li>
-      <li>Bu sayfayı yenileyerek yeni değerin göründüğünü onaylayın</li>
-      <li>Sonraki pipeline döngüsünü bekleyin (~3s) veya <code>/run</code> KV bayrağıyla tetikleyin</li>
-      <li>Anasayfa / içerik admini üzerinden etkiyi gözlemleyin</li>
-      <li>Eski JSON ile aynı komutu çalıştırarak geri alın</li>
+    <div class="card-title nocollapse">Test Workflow — Manually Test config:${sc} Changes</div>
+    <div class="section-note" style="margin-bottom:1rem">Step-by-step guide for manually editing the config:${sc} KV and observing the effect.</div>
+    <ol style="font-size:.78rem;color:#aaa;line-height:2.2;padding-left:1.25rem;margin-bottom:1rem">
+      <li>Note the current value from this page above</li>
+      <li>Run one of the snippets below to update KV</li>
+      <li>Refresh this page to confirm the new value appears</li>
+      <li>Wait for the next pipeline cycle (~3 min) or trigger with the <code>/run</code> KV flag</li>
+      <li>Observe the effect via the homepage / content admin</li>
+      <li>Roll back by running the same command with the old JSON</li>
     </ol>
-    <div style="font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem">KV Namespace ID</div>
+    <div style="font-size:.72rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.3rem">KV Namespace ID</div>
     <pre>${kvId}</pre>
-    <div style="font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Mevcut config:${sc} Değerini Oku</div>
+    <div style="font-size:.72rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Read Current config:${sc} Value</div>
     <pre>npx wrangler kv key get --namespace-id=${kvId} "config:${sc}"</pre>
-    <div style="font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Sentez NVS Eşiğini Değiştir (örn. 35)</div>
+    <div style="font-size:.72rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Change Synthesis NVS Threshold (e.g. 35)</div>
     <pre>npx wrangler kv key put --namespace-id=${kvId} "config:${sc}" '{"synthesis_nvs_threshold":35}'</pre>
-    <div style="font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Sentez Çalışma Başına Cap'i Değiştir (örn. 12)</div>
+    <div style="font-size:.72rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Change Synthesis Cap Per Run (e.g. 12)</div>
     <pre>npx wrangler kv key put --namespace-id=${kvId} "config:${sc}" '{"synthesis_cap_per_run":12}'</pre>
-    <div style="font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Haber Yarı Ömrünü Değiştir (örn. 36s)</div>
+    <div style="font-size:.72rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.08em;margin:.9rem 0 .3rem">Change News Half-Life (e.g. 36h)</div>
     <pre>npx wrangler kv key put --namespace-id=${kvId} "config:${sc}" '{"rewrite_half_life_by_category":{"Match":36,"Transfer":36,"Injury":24,"Squad":24,"Club":48,"Other Sport":24,"National Team":24,"default":36}}'</pre>
-    <div style="font-size:.72rem;color:#444;margin-top:.75rem">Not: Birden fazla değeri tek komutta göndermek için JSON nesnesini birleştirin. Geri almak için eski JSON'u aynı komuta verin.</div>
+    <div style="font-size:.72rem;color:#777;margin-top:.75rem">Note: To send multiple values in one command, merge the JSON objects. To roll back, pass the old JSON to the same command.</div>
   </div>
 </div>
 <script>
@@ -8390,7 +8390,7 @@ async function save(field) {
   const st    = document.getElementById('st-' + field);
   const btn   = document.getElementById('btn-' + field);
   const value = parseInt(input.value, 10);
-  if (isNaN(value)) { st.textContent = 'Geçersiz değer'; st.className = 'save-status save-err'; return; }
+  if (isNaN(value)) { st.textContent = 'Invalid value'; st.className = 'save-status save-err'; return; }
   btn.disabled = true; st.textContent = '…'; st.className = 'save-status';
   try {
     const r = await fetch('/admin/config/save?site=${sc}', {
@@ -8399,9 +8399,9 @@ async function save(field) {
       body: JSON.stringify({ field, value }),
     });
     const j = await r.json();
-    if (j.ok) { st.textContent = '✓ Kaydedildi'; st.className = 'save-status save-ok'; }
-    else      { st.textContent = j.error || 'Hata'; st.className = 'save-status save-err'; }
-  } catch { st.textContent = 'Ağ hatası'; st.className = 'save-status save-err'; }
+    if (j.ok) { st.textContent = '✓ Saved'; st.className = 'save-status save-ok'; }
+    else      { st.textContent = j.error || 'Error'; st.className = 'save-status save-err'; }
+  } catch { st.textContent = 'Network error'; st.className = 'save-status save-err'; }
   btn.disabled = false;
 }
 </script>
@@ -8421,11 +8421,11 @@ function adminNav(active, siteCode, allSites) {
     { href: `/admin/tools?site=${siteCode}`,          label: 'Araçlar',     key: 'tools'          },
     { href: `/admin/releases?site=${siteCode}`,       label: 'Sürümler',    key: 'releases'       },
     { href: `/admin/qa?site=${siteCode}`,             label: 'QA',          key: 'qa'             },
-    { href: `/admin/config?site=${siteCode}`,         label: 'Ayarlar',     key: 'config'         },
+    { href: `/admin/config?site=${siteCode}`,         label: 'Settings',    key: 'config'         },
   ];
   const navLinks = links.map(l => {
     const isActive = active === l.key;
-    return `<a href="${l.href}" style="display:flex;align-items:center;padding:0 1rem;height:100%;font-size:.78rem;font-weight:${isActive ? '700' : '400'};color:${isActive ? '#fff' : '#666'};text-decoration:none;border-bottom:${isActive ? '2px solid #E30A17' : '2px solid transparent'}">${l.label}</a>`;
+    return `<a href="${l.href}" style="display:flex;align-items:center;padding:0 1rem;height:100%;font-size:.78rem;font-weight:${isActive ? '700' : '400'};color:${isActive ? '#fff' : '#aaa'};text-decoration:none;border-bottom:${isActive ? '2px solid #E30A17' : '2px solid transparent'}">${l.label}</a>`;
   }).join('');
   const siteSelector = allSites && allSites.length > 1
     ? `<select onchange="location.href=location.pathname+'?site='+this.value" style="background:#1a1a1a;border:1px solid #333;color:#ccc;font-size:.75rem;padding:3px 8px;border-radius:4px;margin-left:1rem;cursor:pointer">${allSites.map(s=>`<option value="${s.short_code}"${s.short_code===siteCode?' selected':''}>${s.short_code} — ${s.team_name||s.short_code}</option>`).join('')}</select>`
@@ -8433,7 +8433,7 @@ function adminNav(active, siteCode, allSites) {
   return `<header style="background:#111;border-bottom:1px solid #222;padding:0 1.5rem;height:48px;display:flex;align-items:center;gap:0;position:sticky;top:0;z-index:10">
   <a href="/" style="font-size:1rem;font-weight:900;color:#fff;text-decoration:none;margin-right:1rem">Kartal<span style="color:#E30A17">ix</span></a>
   <nav style="display:flex;height:100%">${navLinks}</nav>${siteSelector}
-  <a href="/" style="color:#555;font-size:.72rem;text-decoration:none;margin-left:auto">← Site</a>
+  <a href="/" style="color:#888;font-size:.72rem;text-decoration:none;margin-left:auto">← Site</a>
 </header>`;
 }
 
@@ -8453,16 +8453,16 @@ function renderCuratedVideoPage(list, siteCode, allSites) {
       `<option value="${k}"${k === v.category ? ' selected' : ''}>${d.label}</option>`
     ).join('');
     return `<tr id="row-${slug}" data-slug="${slug}" draggable="true">
-      <td class="drag-handle" style="padding:.55rem .5rem;width:24px;text-align:center;cursor:grab;color:#444;font-size:1rem;user-select:none">⠿</td>
+      <td class="drag-handle" style="padding:.55rem .5rem;width:24px;text-align:center;cursor:grab;color:#777;font-size:1rem;user-select:none">⠿</td>
       <td style="padding:.55rem .75rem;width:108px">
         <a href="${ytHref}" target="_blank" rel="noopener"><img src="${thumb}" style="width:96px;height:54px;object-fit:cover;border-radius:4px;display:block" loading="lazy"></a>
       </td>
       <td style="padding:.55rem .75rem">
         <a href="${articleHref}" style="color:#ddd;text-decoration:none;font-size:.82rem;line-height:1.4">${v.title || ''}</a>
-        <div style="margin-top:.25rem;font-size:.68rem;color:#555">${v.source_name || ''} · ${date}</div>
+        <div style="margin-top:.25rem;font-size:.68rem;color:#888">${v.source_name || ''} · ${date}</div>
       </td>
       <td style="padding:.55rem .75rem;white-space:nowrap">
-        <span style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:3px;background:#1a2a3a;color:#4a7aaa">${secLabel}</span>
+        <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:3px;background:#1a2a3a;color:#4a7aaa">${secLabel}</span>
       </td>
       <td style="padding:.55rem .75rem;white-space:nowrap">
         <button class="btn btn-secondary btn-sm" onclick="toggleEdit('${slug}','${titleEsc}')">Düzenle</button>
@@ -8498,10 +8498,10 @@ body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-seri
 .btn-sm{padding:.25rem .6rem;font-size:.7rem}
 input[type=text],input[type=url],select{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;font-family:inherit;font-size:.83rem;outline:none;padding:.35rem .6rem}
 input[type=text]:focus,input[type=url]:focus,select:focus{border-color:#444}
-label{font-size:.65rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.3rem}
+label{font-size:.72rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.3rem}
 .page{max-width:900px;margin:2rem auto;padding:0 1.25rem}
 .card{background:#111;border:1px solid #222;border-radius:8px;padding:1.25rem;margin-bottom:1.5rem}
-.card-title{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#555;margin-bottom:1rem}
+.card-title{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#888;margin-bottom:1rem}
 .form-row{display:grid;grid-template-columns:1fr auto;gap:.75rem;align-items:end;margin-bottom:.75rem}
 .form-grid{display:grid;grid-template-columns:1fr 1fr auto;gap:.75rem;align-items:end}
 .field{display:flex;flex-direction:column}
@@ -8509,11 +8509,11 @@ label{font-size:.65rem;font-weight:700;color:#666;text-transform:uppercase;lette
 .status{font-size:.75rem;padding:.3rem .6rem;border-radius:4px;margin-top:.5rem}
 .status-ok{background:#14532d;color:#4ade80}.status-err{background:#7f1d1d;color:#fca5a5}
 table{width:100%;border-collapse:collapse}
-thead th{padding:.5rem .75rem;text-align:left;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#555;border-bottom:1px solid #222}
+thead th{padding:.5rem .75rem;text-align:left;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#888;border-bottom:1px solid #222}
 tbody tr{border-bottom:1px solid #1e1e1e}
 tbody tr:hover:not([id^="edit-"]){background:#161616}
 tbody tr.drag-over{outline:2px solid #E30A17}
-.empty{padding:2rem;text-align:center;color:#444;font-size:.85rem}
+.empty{padding:2rem;text-align:center;color:#777;font-size:.85rem}
 </style>
 </head>
 <body>
@@ -8773,7 +8773,7 @@ main{max-width:640px;margin:2rem auto;padding:0 1.5rem}
 h2{font-size:.78rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:1rem}
 .big-num{font-size:2.6rem;font-weight:900;color:#fff;line-height:1}
 .pct-badge{display:inline-block;font-size:1.2rem;font-weight:800;margin-left:.6rem;vertical-align:middle;color:${barColor}}
-.big-sub{font-size:.75rem;color:#666;margin-top:.3rem}
+.big-sub{font-size:.75rem;color:#999;margin-top:.3rem}
 .bar-wrap{background:#1a1a1a;border-radius:4px;height:10px;margin:1rem 0 .5rem;overflow:hidden}
 .bar-fill{height:100%;border-radius:4px;transition:width .3s}
 .bar-label{font-size:.72rem;color:#888;display:flex;justify-content:space-between}
@@ -8800,9 +8800,9 @@ h2{font-size:.78rem;font-weight:700;color:#888;text-transform:uppercase;letter-s
 .btn.primary:hover{border-color:#44f;color:#ccf}
 .cap-edit{display:none;align-items:center;gap:.5rem;margin-top:.75rem;flex-wrap:wrap}
 .cap-edit input{background:#1a1a1a;border:1px solid #333;color:#e8e6e0;padding:.4rem .6rem;border-radius:4px;font-size:.82rem;font-family:inherit;width:90px}
-.cap-source{font-size:.7rem;color:#555;margin-top:.3rem}
+.cap-source{font-size:.7rem;color:#888;margin-top:.3rem}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;font-size:.7rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:4px 0;border-bottom:1px solid #222}
+th{text-align:left;font-size:.7rem;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:4px 0;border-bottom:1px solid #222}
 td{padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:.85rem}
 td:last-child{text-align:right;color:#888}
 #toast{position:fixed;bottom:1.5rem;right:1.5rem;background:#222;border:1px solid #444;color:#e8e6e0;padding:.6rem 1rem;border-radius:5px;font-size:.8rem;display:none;z-index:999}
@@ -8850,7 +8850,7 @@ ${adminNav('cost', siteCode, allSites)}
       <span class="alarm-label">100%</span>
       <span class="alarm-ts ${alarm100ts?'hit':''}">${alarm100ts ? 'Triggered: ' + alarm100ts : 'Not triggered'}</span>
     </div>
-    <p style="font-size:.7rem;color:#555;margin-top:.75rem">Alarm timestamps are recorded once per month — first crossing only. Reset counter to clear.</p>
+    <p style="font-size:.7rem;color:#888;margin-top:.75rem">Alarm timestamps are recorded once per month — first crossing only. Reset counter to clear.</p>
   </div>
 
   <div class="card">
@@ -8921,25 +8921,25 @@ main{max-width:900px;margin:2rem auto;padding:0 1.5rem}
 .rbtn{background:#1a1a1a;border:1px solid #2a2a2a;color:#888;padding:.35rem .85rem;border-radius:4px;font-size:.75rem;cursor:pointer;font-family:inherit}
 .rbtn:hover{border-color:#444;color:#ccc}
 .rbtn.active{background:#1a1a2a;border-color:#4466aa;color:#aad}
-.custom-range{display:none;gap:.5rem;align-items:center;font-size:.78rem;color:#666}
+.custom-range{display:none;gap:.5rem;align-items:center;font-size:.78rem;color:#999}
 .custom-range input{background:#1a1a1a;border:1px solid #333;color:#e8e6e0;border-radius:4px;padding:.3rem .5rem;font-size:.78rem;font-family:inherit}
 .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:.75rem;margin-bottom:1.5rem}
 @media(max-width:640px){.summary{grid-template-columns:1fr 1fr}}
 .kpi{background:#111;border:1px solid #222;border-radius:6px;padding:.9rem 1.1rem}
-.kpi-label{font-size:.62rem;color:#555;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.25rem}
+.kpi-label{font-size:.62rem;color:#888;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.25rem}
 .kpi-value{font-size:1.45rem;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
-.kpi-sub{font-size:.62rem;color:#444;margin-top:.2rem}
+.kpi-sub{font-size:.62rem;color:#777;margin-top:.2rem}
 .red{color:#E30A17}.green{color:#3a9a3a}.dim{color:#888}
 .chart-wrap{background:#111;border:1px solid #222;border-radius:6px;padding:1.1rem 1.25rem;margin-bottom:1.5rem}
 .section{margin-bottom:1.5rem}
 .section-head{display:flex;align-items:center;gap:.75rem;margin-bottom:.7rem;padding-bottom:.4rem;border-bottom:1px solid #1e1e1e}
-h2{font-size:.68rem;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.1em;flex:1}
+h2{font-size:.68rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.1em;flex:1}
 .month-pick{background:#1a1a1a;border:1px solid #2a2a2a;color:#aaa;border-radius:4px;padding:.25rem .5rem;font-size:.75rem;font-family:inherit}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;font-size:.62rem;color:#444;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:5px 8px;border-bottom:1px solid #1e1e1e}
+th{text-align:left;font-size:.62rem;color:#777;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:5px 8px;border-bottom:1px solid #1e1e1e}
 td{padding:6px 8px;border-bottom:1px solid #161616;vertical-align:middle;font-size:.82rem}
 .num{text-align:right;font-variant-numeric:tabular-nums}
-.nc{color:#444;font-size:.72rem}
+.nc{color:#777;font-size:.72rem}
 .badge{font-size:.52rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:10px;border:1px solid;white-space:nowrap}
 .bf{background:#1a2030;color:#6af;border-color:#2a3a50}
 .bv{background:#2a1a10;color:#f93;border-color:#3a2a10}
@@ -8948,24 +8948,24 @@ td{padding:6px 8px;border-bottom:1px solid #161616;vertical-align:middle;font-si
 .brt{background:#0a1a20;color:#39a;border-color:#1a2a30}
 .total-row td{border-top:1px solid #2a2a2a;font-weight:700;font-size:.78rem;color:#aaa}
 .entry-form{background:#111;border:1px solid #222;border-radius:6px;padding:.9rem 1.1rem;margin-bottom:.75rem;display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap}
-.entry-form label{font-size:.6rem;color:#555;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.25rem}
+.entry-form label{font-size:.7rem;color:#888;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.25rem}
 .entry-form input,.entry-form select{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;padding:.35rem .55rem;font-size:.82rem;font-family:inherit;outline:none}
 .entry-form input:focus,.entry-form select:focus{border-color:#444}
 .btn-save{background:#1a2a1a;color:#7ec87e;border:1px solid #2a3a2a;padding:.35rem .9rem;border-radius:4px;font-size:.75rem;font-weight:600;cursor:pointer;white-space:nowrap}
 .btn-save:hover{background:#2a3a2a}
-.btn-del{background:transparent;border:1px solid #2a2a2a;color:#555;padding:2px 8px;border-radius:3px;font-size:.68rem;cursor:pointer}
+.btn-del{background:transparent;border:1px solid #2a2a2a;color:#888;padding:2px 8px;border-radius:3px;font-size:.68rem;cursor:pointer}
 .btn-del:hover{border-color:#E30A17;color:#E30A17}
 .st{font-size:.7rem;color:#3a9a3a;align-self:center;min-width:50px}
-.page-note{font-size:.65rem;color:#333;text-align:center;margin-top:1.25rem}
+.page-note{font-size:.72rem;color:#999;text-align:center;margin-top:1.25rem}
 .tabs{display:flex;gap:0;border-bottom:1px solid #2a2a2a;margin-bottom:1.5rem}
-.tab-btn{padding:.55rem 1.25rem;cursor:pointer;font-size:.75rem;color:#666;border:none;background:none;border-bottom:2px solid transparent;font-family:inherit}
+.tab-btn{padding:.55rem 1.25rem;cursor:pointer;font-size:.75rem;color:#999;border:none;background:none;border-bottom:2px solid transparent;font-family:inherit}
 .tab-btn.active{color:#fff;border-bottom-color:#E30A17}
 .tab-btn:hover{color:#ccc}
 #costPanel .cost-card{background:#111;border:1px solid #222;border-radius:6px;padding:1.25rem 1.5rem;margin-bottom:1.25rem}
 #costPanel .ch2{font-size:.78rem;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:1rem}
 #costPanel .big-num{font-size:2.6rem;font-weight:900;color:#fff;line-height:1}
 #costPanel .pct-badge{display:inline-block;font-size:1.2rem;font-weight:800;margin-left:.6rem;vertical-align:middle;color:${barColor}}
-#costPanel .big-sub{font-size:.75rem;color:#666;margin-top:.3rem}
+#costPanel .big-sub{font-size:.75rem;color:#999;margin-top:.3rem}
 #costPanel .bar-wrap{background:#1a1a1a;border-radius:4px;height:10px;margin:1rem 0 .5rem;overflow:hidden}
 #costPanel .bar-fill{height:100%;border-radius:4px}
 #costPanel .bar-label{font-size:.72rem;color:#888;display:flex;justify-content:space-between}
@@ -8987,9 +8987,9 @@ td{padding:6px 8px;border-bottom:1px solid #161616;vertical-align:middle;font-si
 #costPanel .cbtn.primary:hover{border-color:#44f;color:#ccf}
 #costPanel .cap-edit{display:none;align-items:center;gap:.5rem;margin-top:.75rem;flex-wrap:wrap}
 #costPanel .cap-edit input{background:#1a1a1a;border:1px solid #333;color:#e8e6e0;padding:.4rem .6rem;border-radius:4px;font-size:.82rem;font-family:inherit;width:90px}
-#costPanel .cap-source{font-size:.7rem;color:#555;margin-top:.3rem}
+#costPanel .cap-source{font-size:.7rem;color:#888;margin-top:.3rem}
 #costPanel table{width:100%;border-collapse:collapse}
-#costPanel th{text-align:left;font-size:.7rem;color:#666;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:4px 0;border-bottom:1px solid #222}
+#costPanel th{text-align:left;font-size:.7rem;color:#999;font-weight:600;text-transform:uppercase;letter-spacing:.06em;padding:4px 0;border-bottom:1px solid #222}
 #costPanel td{padding:6px 0;border-bottom:1px solid #1a1a1a;font-size:.85rem}
 #costPanel td:last-child{text-align:right;color:#888}
 #toast{position:fixed;bottom:1.5rem;right:1.5rem;background:#222;border:1px solid #444;color:#e8e6e0;padding:.6rem 1rem;border-radius:5px;font-size:.8rem;display:none;z-index:999}
@@ -9098,7 +9098,7 @@ ${adminNav('financials', siteCode, allSites)}
     <div class="alarm-row"><div class="alarm-dot" style="background:${alarms[80]?'#f0a500':'#333'}"></div><span class="alarm-label">80%</span><span class="alarm-ts ${alarm80ts?'hit':''}">${alarm80ts?'Triggered: '+alarm80ts:'Not triggered'}</span></div>
     <div class="alarm-row"><div class="alarm-dot" style="background:${alarms[90]?'#f0a500':'#333'}"></div><span class="alarm-label">90%</span><span class="alarm-ts ${alarm90ts?'hit':''}">${alarm90ts?'Triggered: '+alarm90ts:'Not triggered'}</span></div>
     <div class="alarm-row"><div class="alarm-dot" style="background:${alarms[100]?'#E30A17':'#333'}"></div><span class="alarm-label">100%</span><span class="alarm-ts ${alarm100ts?'hit':''}">${alarm100ts?'Triggered: '+alarm100ts:'Not triggered'}</span></div>
-    <p style="font-size:.7rem;color:#555;margin-top:.75rem">Alarm timestamps are recorded once per month — first crossing only. Reset counter to clear.</p>
+    <p style="font-size:.7rem;color:#888;margin-top:.75rem">Alarm timestamps are recorded once per month — first crossing only. Reset counter to clear.</p>
   </div>
   <div class="cost-card" id="brkCard">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
@@ -9246,7 +9246,7 @@ function renderBreakdown(month) {
   rows += \`<tr><td>Claude API (auto-tracked)</td><td><span class="badge bv">variable</span></td><td class="num">\${fmt(d.claude)}</td><td class="nc">KV accumulator</td><td></td></tr>\`;
   ec.forEach(c => {
     const badge = c.type==='recurring'?'<span class="badge brt">recurring</span>':'<span class="badge bm">one-time</span>';
-    const origin = c.startMonth!==month?' <span style="color:#444;font-size:.65rem">(from '+c.startMonth+')</span>':'';
+    const origin = c.startMonth!==month?' <span style="color:#777;font-size:.72rem">(from '+c.startMonth+')</span>':'';
     rows += \`<tr><td>\${c.item}\${origin}</td><td>\${badge}</td><td class="num">\${fmt(c.amount)}</td><td class="nc">\${c.notes||''}</td><td><button class="btn-del" onclick="delCost('\${c.startMonth}','\${c.id}')">×</button></td></tr>\`;
   });
   rows += \`<tr class="total-row"><td colspan="2">TOTAL BURN</td><td class="num">\${fmt(total)}</td><td></td><td></td></tr>\`;
@@ -9334,14 +9334,14 @@ function renderCostBrk() {
   const el = document.getElementById('brkBody');
   if (!el) return;
   if (!data || !data.total) {
-    el.innerHTML = '<p style="color:#555;font-size:.78rem;padding:.5rem 0">No data for this period yet — populates after next pipeline run.</p>';
+    el.innerHTML = '<p style="color:#888;font-size:.78rem;padding:.5rem 0">No data for this period yet — populates after next pipeline run.</p>';
     return;
   }
   const phases = Object.entries(data.phases||{}).sort((a,b)=>b[1].cost-a[1].cost);
   const models = Object.entries(data.models||{});
   const artCount = costPeriod==='mtd' ? ART_MTD : null;
   let html = '';
-  html += '<div style="font-size:.62rem;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem">By Phase</div>';
+  html += '<div style="font-size:.62rem;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem">By Phase</div>';
   html += '<table><thead><tr><th>Phase</th><th style="text-align:right">Cost</th><th style="text-align:right">Calls</th><th style="text-align:right">Avg/call</th></tr></thead><tbody>';
   for(const [ph,pd] of phases) {
     const avg = pd.calls>0?('$'+(pd.cost/pd.calls).toFixed(4)):'—';
@@ -9351,7 +9351,7 @@ function renderCostBrk() {
   html += \`<tr class="total-row"><td>Total</td><td style="text-align:right">\${fmtU(data.total)}</td><td style="text-align:right">\${totalCalls}</td><td></td></tr>\`;
   html += '</tbody></table>';
   if(models.length) {
-    html += '<div style="font-size:.62rem;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-top:1.1rem;margin-bottom:.4rem">By Model</div>';
+    html += '<div style="font-size:.62rem;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-top:1.1rem;margin-bottom:.4rem">By Model</div>';
     html += '<table><thead><tr><th>Model</th><th style="text-align:right">Cost</th><th style="text-align:right">Calls</th><th style="text-align:right">Avg tok-in</th><th style="text-align:right">Avg tok-out</th></tr></thead><tbody>';
     for(const [mdl,md] of models) {
       const avgIn  = md.calls>0 ? fmtK(Math.round(md.tokensIn /md.calls)) : '—';
@@ -9362,7 +9362,7 @@ function renderCostBrk() {
   }
   if(artCount && data.total>0) {
     const perArt = (data.total/artCount).toFixed(4);
-    html += \`<div style="margin-top:1rem;padding:.65rem .75rem;background:#1a1a1a;border-radius:4px;font-size:.8rem"><span style="color:#555">Published articles MTD: </span><strong>\${artCount}</strong><span style="color:#555;margin-left:1.25rem">Claude cost/article: </span><strong>$\${perArt}</strong></div>\`;
+    html += \`<div style="margin-top:1rem;padding:.65rem .75rem;background:#1a1a1a;border-radius:4px;font-size:.8rem"><span style="color:#888">Published articles MTD: </span><strong>\${artCount}</strong><span style="color:#888;margin-left:1.25rem">Claude cost/article: </span><strong>$\${perArt}</strong></div>\`;
   }
   el.innerHTML = html;
 }
@@ -9399,18 +9399,18 @@ main{max-width:1200px;margin:1.5rem auto;padding:0 1.5rem}
 .btn-blue:hover{background:#2a3a4a}
 .btn-red{background:transparent;color:#844;border:1px solid #433;padding:3px 8px}
 .btn-red:hover{border-color:#E30A17;color:#E30A17}
-.btn-sm{padding:3px 8px;font-size:11px}
+.btn-sm{padding:3px 8px;font-size:12px}
 /* Add form panel */
 .add-panel{background:#111;border:1px solid #2a2a2a;border-radius:6px;padding:1rem 1.25rem;margin-bottom:1rem;display:none}
 .add-panel.open{display:block}
-.add-panel h3{font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.9rem}
+.add-panel h3{font-size:.72rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.1em;margin-bottom:.9rem}
 .form-row{display:flex;gap:.6rem;flex-wrap:wrap;align-items:flex-end;margin-bottom:.6rem}
-.form-row label{font-size:.6rem;color:#555;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.2rem}
+.form-row label{font-size:.7rem;color:#888;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.2rem}
 .form-row input,.form-row select{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:3px;padding:.35rem .55rem;font-size:12px;font-family:inherit;outline:none}
 .form-row input:focus,.form-row select:focus{border-color:#444}
 /* Table */
 table{width:100%;border-collapse:collapse;font-size:12px}
-th{text-align:left;padding:6px 8px;border-bottom:1px solid #2a2a2a;color:#666;font-weight:600;white-space:nowrap;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+th{text-align:left;padding:6px 8px;border-bottom:1px solid #2a2a2a;color:#999;font-weight:600;white-space:nowrap;font-size:12px;text-transform:uppercase;letter-spacing:.06em}
 td{padding:5px 8px;border-bottom:1px solid #1a1a1a;vertical-align:middle}
 tr.src-row:hover > td{background:#151515}
 input[type=text],input[type=number]{background:#1e1e1e;border:1px solid #2a2a2a;color:#e8e6e0;padding:3px 6px;border-radius:3px;font-size:12px;font-family:inherit}
@@ -9419,9 +9419,9 @@ select{background:#1e1e1e;border:1px solid #2a2a2a;color:#e8e6e0;padding:3px 5px
 .badge{display:inline-block;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600}
 .badge-rss{background:#1a2a3a;color:#7aa}
 .badge-yt{background:#3a1a1a;color:#f77}
-.saved{color:#7ec87e;font-size:11px;margin-left:4px}
+.saved{color:#7ec87e;font-size:12px;margin-left:4px}
 /* Test result panel */
-.test-row td{background:#0e1a0e;padding:.6rem 1rem;font-size:11px;color:#888}
+.test-row td{background:#0e1a0e;padding:.6rem 1rem;font-size:12px;color:#888}
 .test-row.error td{background:#1a0e0e}
 .test-ok{color:#3a9}
 .test-err{color:#E30A17}
@@ -9437,7 +9437,7 @@ ${adminNav('sources', siteCode, allSites)}
     <button class="btn btn-green" onclick="toggleAdd()">+ Add Source</button>
     <button class="btn btn-blue" onclick="seedSources()">Seed Defaults</button>
     <button class="btn" onclick="testAll(this)">Test All</button>
-    <span id="testAllSt" style="font-size:11px;color:#666;margin-left:.25rem"></span>
+    <span id="testAllSt" style="font-size:12px;color:#999;margin-left:.25rem"></span>
   </div>
 
   <!-- ADD FORM -->
@@ -9463,13 +9463,13 @@ ${adminNav('sources', siteCode, allSites)}
       </div>
       <div><label>NVS Hint</label><input type="number" id="aNvs" style="width:70px" placeholder="auto"/></div>
       <div style="display:flex;gap:1rem;align-items:flex-end;padding-bottom:4px">
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#666;cursor:pointer">
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#999;cursor:pointer">
           <input type="checkbox" id="aAllQ"/> All Qualify
         </label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#666;cursor:pointer">
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#999;cursor:pointer">
           <input type="checkbox" id="aProxy"/> Proxy
         </label>
-        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:#666;cursor:pointer">
+        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#999;cursor:pointer">
           <input type="checkbox" id="aP4" checked/> P4
         </label>
       </div>
@@ -9479,7 +9479,7 @@ ${adminNav('sources', siteCode, allSites)}
       <button class="btn btn-green" onclick="addSource()">Save &amp; Add</button>
       <button class="btn btn-green" onclick="addAndTest()">Save &amp; Test</button>
       <button class="btn" onclick="toggleAdd()">Cancel</button>
-      <span id="addSt" style="font-size:11px;color:#3a9;margin-left:.5rem"></span>
+      <span id="addSt" style="font-size:12px;color:#3a9;margin-left:.5rem"></span>
     </div>
   </div>
 
@@ -9532,7 +9532,7 @@ async function load() {
           <span class="dot \${dot}" title="\${esc(tip)}"></span>
           <input type="text" value="\${esc(r.name)}" style="width:150px;font-weight:600" onchange="markDirty('\${r.id}')"/>
         </div>
-        <div style="color:#444;font-size:10px;margin-top:2px;padding-left:13px">\${esc(r.url||r.channel_id||'')}</div>
+        <div style="color:#777;font-size:12px;margin-top:2px;padding-left:13px">\${esc(r.url||r.channel_id||'')}</div>
       </td>
       <td><span class="badge \${r.source_type==='rss'?'badge-rss':'badge-yt'}">\${r.source_type}</span></td>
       <td><select onchange="markDirty('\${r.id}')">\${TIERS.map(t=>\`<option \${t===r.trust_tier?'selected':''}>\${t}</option>\`).join('')}</select></td>
@@ -9553,11 +9553,11 @@ async function load() {
     <tr id="edit-\${r.id}" style="display:none"><td colspan="10">
       <div style="padding:8px 14px;background:#f8fafc;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;border-top:1px solid #e2e8f0">
         \${r.source_type==='rss'
-          ? \`<label style="font-size:11px;display:flex;flex-direction:column;gap:2px">Feed URL<input id="eu-\${r.id}" type="text" value="\${esc(r.url||'')}" style="width:320px"/></label>\`
-          : \`<label style="font-size:11px;display:flex;flex-direction:column;gap:2px">Channel ID<input id="ec-\${r.id}" type="text" value="\${esc(r.channel_id||'')}" style="width:180px"/></label>\`
+          ? \`<label style="font-size:12px;display:flex;flex-direction:column;gap:2px">Feed URL<input id="eu-\${r.id}" type="text" value="\${esc(r.url||'')}" style="width:320px"/></label>\`
+          : \`<label style="font-size:12px;display:flex;flex-direction:column;gap:2px">Channel ID<input id="ec-\${r.id}" type="text" value="\${esc(r.channel_id||'')}" style="width:180px"/></label>\`
         }
-        <label style="font-size:11px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="eproxy-\${r.id}" \${r.proxy?'checked':''}/> Proxy</label>
-        <label style="font-size:11px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="ep4-\${r.id}" \${r.is_p4?'checked':''}/> P4</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="eproxy-\${r.id}" \${r.proxy?'checked':''}/> Proxy</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px"><input type="checkbox" id="ep4-\${r.id}" \${r.is_p4?'checked':''}/> P4</label>
         <button class="btn btn-green btn-sm" onclick="saveEdit('\${r.id}','\${r.source_type}')">Apply</button>
         <button class="btn btn-sm" onclick="document.getElementById('edit-\${r.id}').style.display='none'">Cancel</button>
       </div>
@@ -9604,7 +9604,7 @@ async function testSource(id) {
   const out   = document.getElementById('test-out-'+id);
   panel.style.display = 'table-row';
   panel.className = 'test-row';
-  out.innerHTML = '<span style="color:#555">Testing…</span>';
+  out.innerHTML = '<span style="color:#888">Testing…</span>';
   try {
     const res  = await fetch('/admin/sources/test?id='+id);
     const data = await res.json();
@@ -10007,7 +10007,7 @@ ${nav}
       </div>
     </div>
   </div>
-  <div id="pc-tooltip" style="display:none;position:fixed;background:rgba(15,23,42,0.92);color:#e2e8f0;padding:7px 10px;border-radius:5px;font-size:11px;pointer-events:none;z-index:200;line-height:1.6;white-space:nowrap"></div>
+  <div id="pc-tooltip" style="display:none;position:fixed;background:rgba(15,23,42,0.92);color:#e2e8f0;padding:7px 10px;border-radius:5px;font-size:12px;pointer-events:none;z-index:200;line-height:1.6;white-space:nowrap"></div>
   <div class="section open" id="sec-pipelog">
     <div class="sec-head" onclick="toggleSec('sec-pipelog')">
       <div class="sec-title">🔎 Article Pipeline Log <span class="badge" id="pl-badge-count">—</span></div>
@@ -11264,8 +11264,8 @@ function renderAdminReleasesPage(siteCode, allSites) {
 body{background:#0d0d0d;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.6}
 .content{max-width:900px;margin:0 auto;padding:2rem 1.5rem}
 h1{font-size:22px;font-weight:800;margin-bottom:4px;color:#fff}
-.subtitle{color:#555;font-size:12px;letter-spacing:.06em;margin-bottom:2rem}
-.section-title{font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.1em;margin:2.5rem 0 1rem;padding-bottom:6px;border-bottom:1px solid #1a1a1a}
+.subtitle{color:#888;font-size:12px;letter-spacing:.06em;margin-bottom:2rem}
+.section-title{font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.1em;margin:2.5rem 0 1rem;padding-bottom:6px;border-bottom:1px solid #1a1a1a}
 .rlist{display:flex;flex-direction:column;gap:2px;margin-bottom:.5rem}
 .rrow{display:grid;grid-template-columns:90px 1fr auto;align-items:start;gap:1rem;padding:14px 16px;background:#111;border:1px solid #1e1e1e;cursor:pointer;transition:background .15s}
 .rrow:hover{background:#161616}
@@ -11274,19 +11274,19 @@ h1{font-size:22px;font-weight:800;margin-bottom:4px;color:#fff}
 .vtag.shipped{background:#0a2a0a;color:#3a9a3a;border:1px solid #1a4a1a}
 .vtag.current{background:#1a1a0a;color:#c8f135;border:1px solid #3a3a0a}
 .vtag.next{background:#1a1a2a;color:#7a7aff;border:1px solid #2a2a4a}
-.vtag.planned{background:#1a1a1a;color:#555;border:1px solid #2a2a2a}
+.vtag.planned{background:#1a1a1a;color:#888;border:1px solid #2a2a2a}
 .vtag.blocked{background:#2a0a0a;color:#ff4444;border:1px solid #4a1a1a}
 .rrow-title{font-size:13px;font-weight:600;color:#ddd}
-.rrow-sub{font-size:11px;color:#666;margin-top:2px}
-.rrow-date{font-size:11px;color:#444;white-space:nowrap}
-.freeze-badge{display:inline-block;font-size:.6rem;font-weight:700;padding:1px 5px;background:#12101a;color:#8877ff;border:1px solid #2a2040;border-radius:2px;margin-left:6px;vertical-align:middle}
+.rrow-sub{font-size:12px;color:#999;margin-top:2px}
+.rrow-date{font-size:12px;color:#777;white-space:nowrap}
+.freeze-badge{display:inline-block;font-size:.7rem;font-weight:700;padding:1px 5px;background:#12101a;color:#8877ff;border:1px solid #2a2040;border-radius:2px;margin-left:6px;vertical-align:middle}
 .detail{display:none;padding:18px 16px;background:#0d0d14;border:1px solid #1e1e2e;border-top:none;margin-bottom:12px}
 .detail.open{display:block}
 .detail table{width:100%;border-collapse:collapse;margin-bottom:14px}
 .detail td{padding:5px 8px;font-size:12px;border-bottom:1px solid #1a1a1a;vertical-align:top}
-.detail td:first-child{color:#666;width:160px;white-space:nowrap}
+.detail td:first-child{color:#999;width:160px;white-space:nowrap}
 .detail td:last-child{color:#ccc}
-.detail h4{font-size:11px;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;margin-top:14px}
+.detail h4{font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;margin-top:14px}
 .detail ul{padding-left:18px}
 .detail li{font-size:12px;color:#bbb;margin-bottom:4px;line-height:1.5}
 .rtag{display:inline-block;font-size:.58rem;font-weight:700;padding:1px 5px;margin-right:5px;vertical-align:middle;letter-spacing:.07em}
@@ -11297,10 +11297,10 @@ h1{font-size:22px;font-weight:800;margin-bottom:4px;color:#fff}
 .defer{background:#37415118;color:#6b7280;border:1px solid #37415150}
 .note{background:#0f766e18;color:#2dd4bf;border:1px solid #0f766e50}
 .criteria{background:#0f0f18;border:1px solid #2a2a3a;padding:12px 16px;margin-top:12px}
-.criteria h5{font-size:11px;font-weight:700;color:#8877ff;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.criteria h5{font-size:12px;font-weight:700;color:#8877ff;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
 .criteria li{font-size:12px;color:#aaa;margin-bottom:3px}
-code{background:#1a1a1a;padding:1px 5px;border-radius:3px;font-size:11px;color:#c8f135;font-family:monospace}
-.backup-box{background:#0a0a12;border:1px solid #1a1a2a;padding:12px 16px;margin-top:12px;font-size:12px;color:#666;line-height:1.8}
+code{background:#1a1a1a;padding:1px 5px;border-radius:3px;font-size:12px;color:#c8f135;font-family:monospace}
+.backup-box{background:#0a0a12;border:1px solid #1a1a2a;padding:12px 16px;margin-top:12px;font-size:12px;color:#999;line-height:1.8}
 .backup-box strong{color:#8877ff}
 </style>
 </head>
@@ -11444,7 +11444,7 @@ ${nav}
         <li><span class="rtag feat">feat</span> <strong>Rewrite quality</strong> — <code>extractFactsFromSource()</code> (Haiku, transient) injected into synthesis; <code>targetWords</code> tiers by bullet count; filler prohibitions added</li>
         <li><span class="rtag fix">fix</span> <strong>AdSense compliance</strong> — <code>shouldShowAds()</code> gates articles by template + body length (≥1200 chars); utility pages fully ad-free; <code>_routes.json</code> + catch-all 404 Pages Function eliminates SPA fallback serving ads; all trailing-slash variants handled</li>
         <li><span class="rtag perf">perf</span> Pipeline cron: hourly → 2-hourly (<code>0 */2 * * *</code>)</li>
-        <li><em style="color:#555;font-size:11px">I3/I4 journalist accuracy tracking deferred to v1.6 — needs Twitter + YT transcript signal</em></li>
+        <li><em style="color:#888;font-size:12px">I3/I4 journalist accuracy tracking deferred to v1.6 — needs Twitter + YT transcript signal</em></li>
       </ul>
     </div>
 
@@ -11719,7 +11719,7 @@ ${nav}
     <div id="b17" class="detail">
       <h4>Full rank formula</h4>
       <p style="font-size:12px;color:#aaa;margin-bottom:10px"><code>rank = nvs × decay × storyBoost × tierMultiplier × contentTypeMultiplier × journalistMultiplier</code></p>
-      <p style="font-size:12px;color:#666;margin-bottom:10px">Currently live: <code>tierMultiplier</code> only (wired in Sprint I1). This release adds the remaining three dimensions.</p>
+      <p style="font-size:12px;color:#999;margin-bottom:10px">Currently live: <code>tierMultiplier</code> only (wired in Sprint I1). This release adds the remaining three dimensions.</p>
       <ul>
         <li><strong>D2 — Content-type</strong> (<code>contentTypeMultiplier</code>): fact=1.0×, analysis=0.9×, rumor=0.8× — single line in <code>rankAndEvict</code></li>
         <li><strong>D3 — Corroboration</strong> (upgrading <code>storyBoost</code>): distinct <code>source_family</code> in 6h window — 1 family=no boost, 2=1.2×, 3+=1.5×</li>
@@ -11822,7 +11822,7 @@ function renderAdminQAPage(saved = {}, siteCode, allSites) {
   <td style="padding:10px 12px;width:220px"><textarea id="c_${t.id}" rows="1" oninput="autoGrow(this)" placeholder="not ekle…" style="width:100%;background:#1a1a1a;border:1px solid #333;color:#e0e0e0;font-size:13px;padding:5px 8px;border-radius:3px;resize:none;font-family:inherit;line-height:1.4">${c}</textarea></td>
 </tr>`;
     }).join('');
-    return `<tr><td colspan="5" style="padding:14px 12px 7px;font-size:11px;font-weight:800;color:#aaa;text-transform:uppercase;letter-spacing:.12em;border-bottom:1px solid #2a2a2a;background:#0d0d0d">${g}</td></tr>${rows}`;
+    return `<tr><td colspan="5" style="padding:14px 12px 7px;font-size:12px;font-weight:800;color:#aaa;text-transform:uppercase;letter-spacing:.12em;border-bottom:1px solid #2a2a2a;background:#0d0d0d">${g}</td></tr>${rows}`;
   }).join('');
 
   return `<!DOCTYPE html>
@@ -11843,10 +11843,10 @@ h1{font-size:22px;font-weight:800;margin-bottom:4px;color:#fff}
 .pass-stat{color:#5ed65e}
 .fail-stat{color:#ff6b6b}
 .pend-stat{color:#888}
-.total-label{font-size:13px;color:#666}
+.total-label{font-size:13px;color:#999}
 .save-btn{margin-left:auto;background:#E30A17;color:#fff;border:none;padding:9px 22px;font-size:13px;font-weight:700;border-radius:4px;cursor:pointer;letter-spacing:.04em}
-.save-btn:disabled{background:#2a2a2a;color:#666;cursor:default}
-.saved-at{font-size:12px;color:#666;margin-left:8px}
+.save-btn:disabled{background:#2a2a2a;color:#999;cursor:default}
+.saved-at{font-size:12px;color:#999;margin-left:8px}
 table{width:100%;border-collapse:collapse}
 thead th{padding:10px 12px;text-align:left;font-size:12px;color:#aaa;font-weight:700;background:#111;border-bottom:2px solid #2a2a2a}
 </style>
@@ -11965,9 +11965,9 @@ function renderAdminToolsPage(hardcoded, cached, siteCode, allSites) {
 body{background:#0d0d0d;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
 .page{max-width:720px;margin:0 auto;padding:2rem 1.5rem}
 .card{background:#111;border:1px solid #222;border-radius:6px;padding:1.25rem 1.5rem;margin-bottom:1.5rem}
-h2{font-size:.72rem;font-weight:700;color:#666;text-transform:uppercase;letter-spacing:.08em;margin-bottom:1rem}
+h2{font-size:.72rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.08em;margin-bottom:1rem}
 .row{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.6rem}
-label{font-size:.78rem;color:#888;min-width:120px}
+label{font-size:.78rem;color:#aaa;min-width:120px}
 .val{font-size:.85rem;color:#e8e6e0;font-family:monospace}
 .val.stale{color:#f0a500}
 .val.live{color:#3a9a3a}
@@ -12146,14 +12146,14 @@ main{max-width:960px;margin:2rem auto;padding:0 1.5rem;display:grid;grid-templat
 @media(max-width:700px){main{grid-template-columns:1fr}}
 .panel{min-width:0}
 h2{font-size:.85rem;font-weight:700;color:#fff;margin-bottom:1rem;border-bottom:1px solid #222;padding-bottom:.5rem;display:flex;align-items:center;justify-content:space-between}
-h2 span{font-size:.65rem;color:#555;font-weight:400}
+h2 span{font-size:.72rem;color:#888;font-weight:400}
 .card{background:#111;border:1px solid #222;border-radius:6px;padding:1rem;margin-bottom:.75rem}
-.card-title{font-size:.72rem;color:#888;margin-bottom:.4rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-title{font-size:.72rem;color:#aaa;margin-bottom:.4rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .card-body{font-size:.875rem;color:#d0cec8;line-height:1.55}
-.card-meta{font-size:.63rem;color:#555;margin-top:.4rem;display:flex;gap:.75rem;align-items:center}
-.badge{background:#1a1a1a;border:1px solid #333;color:#aaa;font-size:.6rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:1px 7px;border-radius:10px}
+.card-meta{font-size:.72rem;color:#888;margin-top:.4rem;display:flex;gap:.75rem;align-items:center}
+.badge{background:#1a1a1a;border:1px solid #333;color:#aaa;font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;padding:1px 7px;border-radius:10px}
 .badge.processed{color:#3a3;border-color:#3a3}
-.del-btn{background:transparent;border:1px solid #333;color:#666;padding:3px 9px;border-radius:4px;cursor:pointer;font-size:.68rem;margin-left:auto}
+.del-btn{background:transparent;border:1px solid #333;color:#999;padding:3px 9px;border-radius:4px;cursor:pointer;font-size:.68rem;margin-left:auto}
 .del-btn:hover{border-color:#E30A17;color:#E30A17}
 .distill-bar{background:#111;border:1px solid #222;border-radius:6px;padding:.875rem 1rem;margin-bottom:1rem;display:flex;gap:.75rem;align-items:center}
 .distill-btn{background:#E30A17;color:#fff;border:none;padding:.5rem 1.1rem;border-radius:4px;font-size:.78rem;font-weight:700;cursor:pointer;white-space:nowrap}
@@ -12161,14 +12161,14 @@ h2 span{font-size:.65rem;color:#555;font-weight:400}
 .distill-btn:disabled{opacity:.45;cursor:default}
 #distillStatus{font-size:.75rem;color:#aaa;flex:1}
 .add-form{background:#111;border:1px solid #222;border-radius:6px;padding:1rem;margin-bottom:1rem}
-.add-form label{display:block;font-size:.68rem;color:#888;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.35rem}
+.add-form label{display:block;font-size:.68rem;color:#aaa;text-transform:uppercase;letter-spacing:.08em;margin-bottom:.35rem}
 .add-form select,.add-form textarea{width:100%;background:#1a1a1a;border:1px solid #333;color:#e8e6e0;border-radius:4px;padding:.5rem .65rem;font-size:.875rem;font-family:inherit;outline:none}
 .add-form select{height:34px;margin-bottom:.75rem}
 .add-form textarea{height:70px;resize:vertical;margin-bottom:.75rem}
 .add-form .save-btn{background:#333;color:#e8e6e0;border:none;padding:.45rem 1rem;border-radius:4px;font-size:.75rem;font-weight:600;cursor:pointer}
 .add-form .save-btn:hover{background:#444}
 .status{font-size:.72rem;color:#E30A17;margin-top:.4rem;min-height:1.1em}
-.empty{color:#555;font-size:.85rem;padding:1rem 0}
+.empty{color:#888;font-size:.85rem;padding:1rem 0}
 </style>
 </head>
 <body>
@@ -12205,7 +12205,7 @@ ${adminNav('news', siteCode, allSites)}
   <!-- BOTTOM: Reference articles -->
   <div class="panel full-row">
     <h2>Referans Haberler <span id="refCount"></span></h2>
-    <p style="font-size:.75rem;color:#555;margin-bottom:1rem">Beğendiğin başka kanalların haberlerini buraya yapıştır. Sıkıştır çalıştığında Claude bu metinlerden stil ve ton prensipleri çıkarır.</p>
+    <p style="font-size:.75rem;color:#888;margin-bottom:1rem">Beğendiğin başka kanalların haberlerini buraya yapıştır. Sıkıştır çalıştığında Claude bu metinlerden stil ve ton prensipleri çıkarır.</p>
     <div class="add-form" style="display:grid;grid-template-columns:1fr 3fr;gap:.75rem;align-items:start">
       <div>
         <label>Kaynak adı</label>
@@ -12263,7 +12263,7 @@ async function loadNewsList() {
     const fbHtml = existingFb.map(f => \`
       <div style="background:#1a2a1a;border-left:2px solid #3a5a3a;padding:.4rem .6rem;margin-top:.4rem;font-size:.78rem;color:#9a9;border-radius:0 3px 3px 0;display:flex;justify-content:space-between;gap:.5rem">
         <span>\${escHtml(f.comment)}</span>
-        <button onclick="delFb('\${f.id}')" style="background:transparent;border:none;color:#555;cursor:pointer;font-size:.7rem;white-space:nowrap">✕</button>
+        <button onclick="delFb('\${f.id}')" style="background:transparent;border:none;color:#888;cursor:pointer;font-size:.7rem;white-space:nowrap">✕</button>
       </div>
     \`).join('');
     return \`
@@ -12272,7 +12272,7 @@ async function loadNewsList() {
           <div style="flex:1;min-width:0">
             \${tmpl ? \`<span class="badge" style="margin-bottom:.3rem;display:inline-block">\${escHtml(tmpl)}</span>\` : ''}
             <div class="card-title" style="font-size:.82rem;color:#ccc;white-space:normal">\${escHtml(title)}</div>
-            <div class="card-meta" style="margin-top:.25rem">\${date}\${slug ? \` · <a href="/haber/\${escHtml(slug)}" target="_blank" style="color:#555;font-size:.65rem">Haberi aç ↗</a>\` : ''}</div>
+            <div class="card-meta" style="margin-top:.25rem">\${date}\${slug ? \` · <a href="/haber/\${escHtml(slug)}" target="_blank" style="color:#888;font-size:.72rem">Haberi aç ↗</a>\` : ''}</div>
           </div>
           <button class="del-btn" style="border-color:#2a3a2a;color:#4a6a4a" onclick="toggleNote(\${i})">+ Not</button>
         </div>
@@ -12281,7 +12281,7 @@ async function loadNewsList() {
           <textarea id="ntext-\${i}" style="width:100%;background:#1a1a1a;border:1px solid #333;color:#e8e6e0;border-radius:4px;padding:.5rem .65rem;font-size:.82rem;font-family:inherit;height:64px;resize:vertical;outline:none" placeholder="Ton, eksik bilgi, üslup…"></textarea>
           <div style="display:flex;gap:.5rem;margin-top:.4rem;align-items:center">
             <button onclick="submitNote(\${i})" style="background:#2a5a2a;color:#fff;border:none;padding:.4rem .85rem;border-radius:4px;font-size:.75rem;font-weight:700;cursor:pointer">Kaydet</button>
-            <button onclick="document.getElementById('note-\${i}').style.display='none'" style="background:transparent;border:1px solid #333;color:#666;padding:.4rem .75rem;border-radius:4px;font-size:.75rem;cursor:pointer">İptal</button>
+            <button onclick="document.getElementById('note-\${i}').style.display='none'" style="background:transparent;border:1px solid #333;color:#999;padding:.4rem .75rem;border-radius:4px;font-size:.75rem;cursor:pointer">İptal</button>
             <span id="nst-\${i}" style="font-size:.72rem;color:#3a6a3a"></span>
           </div>
         </div>
