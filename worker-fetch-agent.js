@@ -3620,7 +3620,7 @@ Sadece JSON döndür:
       const site  = sites?.[0];
       if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
       const GOOD_MODES = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
-      const SELECT_FIELDS = 'slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life';
+      const SELECT_FIELDS = 'slug,title,summary,full_body,category,source_name,source_type,original_url,image_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life';
       const [dbRows, pushedRows] = await Promise.all([
         supabase(env, 'GET',
           `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=${SELECT_FIELDS}`),
@@ -3641,6 +3641,7 @@ Sadece JSON döndür:
         source:              r.source_name  || '',
         url:                 r.original_url || '',
         original_url:        r.original_url || '',
+        image_url:           r.image_url    || '',
         category:            r.category     || 'Haber',
         nvs:                 r.nvs_score    || 0,
         golden_score:        r.golden_score || null,
@@ -5147,12 +5148,13 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       try {
         const GOOD_MODES_SEED = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
         const dbRows = await supabase(env, 'GET',
-          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES_SEED.join(',')})&order=published_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life`);
+          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES_SEED.join(',')})&order=published_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,source_type,original_url,image_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life`);
         if (Array.isArray(dbRows) && dbRows.length > 0) {
           const seeded = dbRows.filter(r => r.slug && (r.full_body || r.summary)).map(r => toKVShape({
             title: r.title || '', summary: r.summary || '', full_body: r.full_body || r.summary || '',
             source_name: r.source_name || '', source: r.source_name || '',
             url: r.original_url || '', original_url: r.original_url || '',
+            image_url: r.image_url || '',
             category: r.category || 'Haber', nvs: r.nvs_score || 0,
             golden_score: r.golden_score || null,
             published_at: r.published_at || r.created_at || r.fetched_at,
