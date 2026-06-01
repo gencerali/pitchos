@@ -1048,10 +1048,13 @@ export default {
           ? new Date(url.searchParams.get('since'))
           : new Date(Date.now() - 48 * 60 * 60 * 1000);
 
+        const sourceConfigs   = await fetchSourceConfigs(site.id, env).catch(() => []);
+        const dynamicChannels = configsToYTChannels(sourceConfigs);
+        const allChannels     = (dynamicChannels.length > 0) ? dynamicChannels : YOUTUBE_CHANNELS;
         const channels = filterChannel
-          ? YOUTUBE_CHANNELS.filter(c => c.id === filterChannel)
-          : YOUTUBE_CHANNELS;
-        if (channels.length === 0) return Response.json({ error: 'channel_id not found' }, { headers, status: 404 });
+          ? allChannels.filter(c => c.id === filterChannel)
+          : allChannels;
+        if (channels.length === 0) return Response.json({ error: 'channel_id not found', all_channel_ids: allChannels.map(c => c.id) }, { headers, status: 404 });
 
         const seenUrls = await getSeenUrls(env, site.id);
         const results  = [];
@@ -4925,7 +4928,7 @@ function videoToArticle(video) {
 // Max 2 embeds per channel per run to avoid feed flooding.
 // Rabona Digital videos go to daily digest instead of embed.
 async function processYouTubeVideos(site, env, seenUrls, channelOverride = null) {
-  const channels = channelOverride || YOUTUBE_CHANNELS;
+  const channels = (channelOverride && channelOverride.length > 0) ? channelOverride : YOUTUBE_CHANNELS;
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const feeds = await Promise.all(channels.map(ch => fetchYouTubeChannel(ch, since).catch(() => [])));
 
@@ -5062,6 +5065,9 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
   const dynamicYTChannels = sourceConfigs.length > 0 ? configsToYTChannels(sourceConfigs) : null;
   if (sourceConfigs.length > 0) {
     console.log(`SOURCE CONFIGS: ${sourceConfigs.length} active (${dynamicRSSFeeds?.length || 0} RSS, ${dynamicYTChannels?.length || 0} YT)`);
+    if (dynamicYTChannels !== null && dynamicYTChannels.length === 0) {
+      console.warn('SOURCE CONFIGS: 0 active YouTube channels in source_configs — falling back to hardcoded YOUTUBE_CHANNELS');
+    }
   } else {
     console.log('SOURCE CONFIGS: none in DB, using hardcoded defaults');
   }
