@@ -2865,9 +2865,13 @@ Sadece JSON döndür:
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       const allSites = await getActiveSites(env);
       const currentSite = resolveSite(url, allSites);
-      const kvRaw = await env.PITCHOS_CACHE.get(`config:${currentSite.short_code}`).catch(() => null);
-      const kvConfig = kvRaw ? JSON.parse(kvRaw) : null;
-      return new Response(renderAdminConfigPage(currentSite, kvConfig, currentSite.short_code, allSites), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const [kvRaw, auditRaw] = await Promise.all([
+        env.PITCHOS_CACHE.get(`config:${currentSite.short_code}`).catch(() => null),
+        env.PITCHOS_CACHE.get(`config_audit:${currentSite.short_code}`).catch(() => null),
+      ]);
+      const kvConfig  = kvRaw   ? JSON.parse(kvRaw)   : null;
+      const auditLog  = auditRaw ? JSON.parse(auditRaw) : [];
+      return new Response(renderAdminConfigPage(currentSite, kvConfig, currentSite.short_code, allSites, auditLog), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/config/save' && request.method === 'POST') {
@@ -2875,11 +2879,51 @@ Sadece JSON döndür:
       if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
       const allSites = await getActiveSites(env);
       const currentSite = resolveSite(url, allSites);
+      if (!currentSite) return Response.json({ error: 'site not found' }, { status: 404 });
       const body = await request.json().catch(() => null);
       if (!body?.field || body.value === undefined) return Response.json({ error: 'bad body' }, { status: 400 });
-      const allowed = ['auto_publish_threshold', 'review_threshold', 'team_id', 'league_id', 'season'];
-      if (!allowed.includes(body.field)) return Response.json({ error: 'field not allowed' }, { status: 400 });
-      await supabase(env, 'PATCH', `/rest/v1/sites?id=eq.${currentSite.id}`, { [body.field]: body.value });
+
+      const FIELD_RULES = {
+        auto_publish_threshold: { type: 'int', min: 0, max: 100 },
+        review_threshold:       { type: 'int', min: 0, max: 100 },
+        team_id:                { type: 'int', min: 1, max: 999999 },
+        league_id:              { type: 'int', min: 1, max: 999999 },
+        season:                 { type: 'int', min: 2000, max: 2035 },
+        team_name:              { type: 'str', maxLen: 80 },
+      };
+      const rule = FIELD_RULES[body.field];
+      if (!rule) return Response.json({ error: 'field not allowed' }, { status: 400 });
+
+      let value;
+      if (rule.type === 'int') {
+        value = parseInt(body.value, 10);
+        if (isNaN(value))        return Response.json({ error: `${body.field} must be an integer` }, { status: 400 });
+        if (value < rule.min)    return Response.json({ error: `${body.field} must be ≥ ${rule.min}` }, { status: 400 });
+        if (value > rule.max)    return Response.json({ error: `${body.field} must be ≤ ${rule.max}` }, { status: 400 });
+      } else {
+        value = String(body.value || '').trim();
+        if (!value)                          return Response.json({ error: `${body.field} cannot be empty` }, { status: 400 });
+        if (value.length > rule.maxLen)      return Response.json({ error: `${body.field} max ${rule.maxLen} chars` }, { status: 400 });
+      }
+
+      if (body.field === 'review_threshold' || body.field === 'auto_publish_threshold') {
+        const autoV   = body.field === 'auto_publish_threshold' ? value : (currentSite.auto_publish_threshold ?? 30);
+        const reviewV = body.field === 'review_threshold'       ? value : (currentSite.review_threshold ?? 20);
+        if (reviewV >= autoV) return Response.json({ error: 'review_threshold must be below auto_publish_threshold' }, { status: 400 });
+      }
+
+      const oldValue = currentSite[body.field];
+      const result = await supabase(env, 'PATCH', `/rest/v1/sites?id=eq.${currentSite.id}`, { [body.field]: value });
+      if (result === null) return Response.json({ error: 'Supabase write failed — check worker logs' }, { status: 500 });
+
+      try {
+        const auditKey = `config_audit:${currentSite.short_code}`;
+        const existing = await env.PITCHOS_CACHE.get(auditKey).catch(() => null);
+        const log = existing ? JSON.parse(existing) : [];
+        log.push({ ts: new Date().toISOString(), field: body.field, from: oldValue ?? null, to: value });
+        await env.PITCHOS_CACHE.put(auditKey, JSON.stringify(log.slice(-50)));
+      } catch(e) { console.error('config audit log failed:', e.message); }
+
       return Response.json({ ok: true });
     }
 
@@ -8251,15 +8295,26 @@ function resolveSite(url, sites) {
   return (code && sites.find(s => s.short_code === code)) || sites[0];
 }
 
-function renderAdminConfigPage(site, kvConfig, siteCode, allSites) {
+function renderAdminConfigPage(site, kvConfig, siteCode, allSites, auditLog = []) {
   const sc = siteCode;
   const kvId = 'dedaea653ed542cca25e6cc2551dd1c3';
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   const eRow = (label, field, val, note = '') => `
       <div class="cfg-row">
         <div class="cfg-label">${label}</div>
         <div class="cfg-value">
           <input type="number" id="f-${field}" value="${val}" style="width:80px;height:28px">
           <button class="btn btn-primary btn-sm" onclick="save('${field}')" id="btn-${field}" style="margin-left:.4rem">Save</button>
+          <span id="st-${field}" class="save-status"></span>
+        </div>
+        ${note ? `<div class="cfg-note">${note}</div>` : ''}
+      </div>`;
+  const eRowStr = (label, field, val, note = '') => `
+      <div class="cfg-row">
+        <div class="cfg-label">${label}</div>
+        <div class="cfg-value">
+          <input type="text" id="f-${field}" value="${esc(val)}" style="width:180px;height:28px">
+          <button class="btn btn-primary btn-sm" onclick="saveStr('${field}')" id="btn-${field}" style="margin-left:.4rem">Save</button>
           <span id="st-${field}" class="save-status"></span>
         </div>
         ${note ? `<div class="cfg-note">${note}</div>` : ''}
@@ -8282,8 +8337,8 @@ body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-seri
 .btn{border:none;border-radius:4px;font-size:.75rem;font-weight:700;padding:.35rem .85rem;cursor:pointer;white-space:nowrap}
 .btn-primary{background:#E30A17;color:#fff}.btn-primary:hover{opacity:.85}
 .btn-sm{padding:.25rem .6rem;font-size:.7rem}
-input[type=number]{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;font-size:.83rem;outline:none;padding:.25rem .5rem}
-input[type=number]:focus{border-color:#444}
+input[type=number],input[type=text]{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;font-size:.83rem;outline:none;padding:.25rem .5rem}
+input[type=number]:focus,input[type=text]:focus{border-color:#444}
 .page{max-width:860px;margin:2rem auto;padding:0 1.25rem}
 .card{background:#111;border:1px solid #222;border-radius:8px;padding:1.25rem;margin-bottom:1.25rem}
 .card-title{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#888;margin-bottom:1rem;display:flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none}
@@ -8309,6 +8364,7 @@ ${adminNav('config', sc, allSites)}
   <div style="margin-bottom:1.25rem">
     <div style="font-size:.85rem;font-weight:700;color:#ccc">Settings <span style="color:#777;font-weight:400;font-size:.75rem;margin-left:.5rem">${sc} · site_id=${site.id}</span></div>
     <div style="font-size:.72rem;color:#888;margin-top:.2rem">Sections 1 and 5 save directly to Supabase. Others show hardcoded constants from publisher.js.</div>
+    <div style="font-size:.72rem;color:#888;margin-top:.15rem">All edits are validated (type + range + cross-field) and logged in the Audit Trail section below.</div>
   </div>
 
   <div class="card">
@@ -8367,9 +8423,10 @@ ${adminNav('config', sc, allSites)}
   </div>
 
   <div class="card">
-    <div class="card-title" onclick="toggle(this)">5. Match &amp; Season <span class="badge-code">DB</span></div>
+    <div class="card-title" onclick="toggle(this)">5. Match, Season &amp; Site <span class="badge-code">DB</span></div>
     <div class="card-body">
-      <div class="section-note">Team and league identifiers for API-Football calls.</div>
+      <div class="section-note">Team and league identifiers for API-Football calls, plus site display name.</div>
+      ${eRowStr('Team Name', 'team_name', site.team_name ?? '', 'Display name shown on the site (e.g. Beşiktaş JK).')}
       ${eRow('Team ID', 'team_id', site.team_id ?? 549, "API-Football team ID. Wrong value = no match data. BJK: 549.")}
       ${eRow('League ID', 'league_id', site.league_id ?? 203, "API-Football league ID. Süper Lig: 203, UCL: 2, UEL: 3, Conference: 848, Cup: 204.")}
       ${eRow('Season', 'season', site.season ?? 2025, 'Start year (2025 = 2025–26 season). Update every July.')}
@@ -8417,6 +8474,31 @@ ${adminNav('config', sc, allSites)}
     <pre>npx wrangler kv key put --namespace-id=${kvId} "config:${sc}" '{"rewrite_half_life_by_category":{"Match":36,"Transfer":36,"Injury":24,"Squad":24,"Club":48,"Other Sport":24,"National Team":24,"default":36}}'</pre>
     <div style="font-size:.72rem;color:#777;margin-top:.75rem">Note: To send multiple values in one command, merge the JSON objects. To roll back, pass the old JSON to the same command.</div>
   </div>
+
+  <div class="card">
+    <div class="card-title collapsed" onclick="toggle(this)">Audit Trail <span class="badge-code">KV</span></div>
+    <div class="card-body" style="display:none">
+      <div class="section-note">Last ${auditLog.length} config changes saved to this site. Most recent first.</div>
+      ${auditLog.length === 0 ? '<div style="font-size:.78rem;color:#666;padding:.5rem 0">No changes recorded yet.</div>' : `
+      <table style="width:100%;border-collapse:collapse;font-size:.78rem;margin-top:.5rem">
+        <thead><tr style="color:#999;font-size:.7rem;text-transform:uppercase;letter-spacing:.06em">
+          <th style="text-align:left;padding:4px 8px 4px 0;border-bottom:1px solid #222">Time (UTC)</th>
+          <th style="text-align:left;padding:4px 8px;border-bottom:1px solid #222">Field</th>
+          <th style="text-align:left;padding:4px 8px;border-bottom:1px solid #222">From</th>
+          <th style="text-align:left;padding:4px 8px;border-bottom:1px solid #222">To</th>
+        </tr></thead>
+        <tbody>
+          ${[...auditLog].reverse().slice(0, 30).map(e => `
+          <tr style="border-bottom:1px solid #1a1a1a">
+            <td style="padding:4px 8px 4px 0;color:#888;white-space:nowrap">${e.ts ? e.ts.slice(0,16).replace('T',' ') : '—'}</td>
+            <td style="padding:4px 8px;font-family:monospace;color:#aaa">${e.field ?? '—'}</td>
+            <td style="padding:4px 8px;color:#f87171">${e.from ?? '—'}</td>
+            <td style="padding:4px 8px;color:#4ade80">${e.to ?? '—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`}
+    </div>
+  </div>
 </div>
 <script>
 function toggle(title) {
@@ -8425,12 +8507,9 @@ function toggle(title) {
   const collapsed = title.classList.toggle('collapsed');
   body.style.display = collapsed ? 'none' : '';
 }
-async function save(field) {
-  const input = document.getElementById('f-' + field);
-  const st    = document.getElementById('st-' + field);
-  const btn   = document.getElementById('btn-' + field);
-  const value = parseInt(input.value, 10);
-  if (isNaN(value)) { st.textContent = 'Invalid value'; st.className = 'save-status save-err'; return; }
+async function _doSave(field, value) {
+  const st  = document.getElementById('st-' + field);
+  const btn = document.getElementById('btn-' + field);
   btn.disabled = true; st.textContent = '…'; st.className = 'save-status';
   try {
     const r = await fetch('/admin/config/save?site=${sc}', {
@@ -8443,6 +8522,20 @@ async function save(field) {
     else      { st.textContent = j.error || 'Error'; st.className = 'save-status save-err'; }
   } catch { st.textContent = 'Network error'; st.className = 'save-status save-err'; }
   btn.disabled = false;
+}
+function save(field) {
+  const input = document.getElementById('f-' + field);
+  const st    = document.getElementById('st-' + field);
+  const value = parseInt(input.value, 10);
+  if (isNaN(value)) { st.textContent = 'Must be a number'; st.className = 'save-status save-err'; return; }
+  _doSave(field, value);
+}
+function saveStr(field) {
+  const input = document.getElementById('f-' + field);
+  const st    = document.getElementById('st-' + field);
+  const value = input.value.trim();
+  if (!value) { st.textContent = 'Cannot be empty'; st.className = 'save-status save-err'; return; }
+  _doSave(field, value);
 }
 </script>
 </body>
