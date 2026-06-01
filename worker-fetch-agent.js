@@ -1601,7 +1601,7 @@ export default {
         // Rebuild KV so the corrected body is live immediately
         const GOOD_MODES = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
         const dbRows = await supabase(env, 'GET',
-          `/rest/v1/content_items?site_id=eq.${SITE}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport`
+          `/rest/v1/content_items?site_id=eq.${SITE}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life`
         );
         if (Array.isArray(dbRows) && dbRows.length > 0 && site) {
           const kvArticles = dbRows.filter(r => r.slug && (r.full_body || r.summary)).map(r => toKVShape({
@@ -1615,6 +1615,7 @@ export default {
             is_kartalix_content: r.source_type === 'kartalix',
             publish_mode: r.publish_mode || 'rss_summary',
             template_id: r.template_id || null, sport: r.sport || 'football', slug: r.slug,
+            push_to_homepage: r.push_to_homepage || false, manual_nvs: r.manual_nvs ?? null, manual_half_life: r.manual_half_life ?? null,
           }));
           await cacheToKV(env, site.short_code, kvArticles);
         }
@@ -3310,7 +3311,7 @@ Sadece JSON döndür:
       if (request.method === 'GET') {
         const [list, orderRaw] = await Promise.all([
           supabase(env, 'GET',
-            `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,category,original_url&site_id=eq.${currentSite.id}&publish_mode=eq.youtube_embed&category=in.(${Object.keys(_VH_ALL_SECTION_MAP).join(',')})&status=eq.published&order=published_at.desc&limit=200`
+            `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,category,original_url,push_to_homepage,manual_nvs,manual_half_life&site_id=eq.${currentSite.id}&publish_mode=eq.youtube_embed&category=in.(${Object.keys(_VH_ALL_SECTION_MAP).join(',')})&status=eq.published&order=published_at.desc&limit=200`
           ),
           env.PITCHOS_CACHE.get('curated:order'),
         ]);
@@ -3330,7 +3331,7 @@ Sadece JSON döndür:
       }
 
       if (request.method === 'POST') {
-        const { youtube_url, section, title: bodyTitle } = await request.json().catch(() => ({}));
+        const { youtube_url, section, title: bodyTitle, push_to_homepage, manual_nvs, manual_half_life } = await request.json().catch(() => ({}));
         if (!youtube_url || !section) return Response.json({ error: 'youtube_url and section required' }, { status: 400, headers: h });
         if (!validSections.has(section)) return Response.json({ error: `section must be one of: ${[...validSections].join(', ')}` }, { status: 400, headers: h });
         const vidMatch = youtube_url.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/)([a-zA-Z0-9_-]{11})/);
@@ -3346,6 +3347,7 @@ Sadece JSON döndür:
         const slug = generateSlug(title, null);
         const now = new Date().toISOString();
         const secDef = _VH_ALL_SECTION_MAP[section];
+        const pushEnabled = push_to_homepage === true;
         const saved = await supabase(env, 'POST', '/rest/v1/content_items', [{
           site_id: currentSite.id, source_type: 'youtube', source_name: sourceName,
           original_url: `https://www.youtube.com/watch?v=${videoId}`,
@@ -3355,13 +3357,16 @@ Sadece JSON döndür:
           nvs_score: 75, publish_mode: 'youtube_embed', status: 'published',
           template_id: 'T-VID', slug, published_at: now, reviewed_at: now,
           reviewed_by: 'admin', video_type: secDef.video_type,
+          push_to_homepage: pushEnabled,
+          manual_nvs:       pushEnabled ? (manual_nvs != null ? Number(manual_nvs) : 75) : null,
+          manual_half_life: pushEnabled ? (manual_half_life != null ? Number(manual_half_life) : 12) : null,
         }]);
         if (!saved?.[0]) return Response.json({ error: 'Supabase insert failed' }, { status: 500, headers: h });
         return Response.json({ ok: true, slug: saved[0].slug }, { headers: h });
       }
 
       if (request.method === 'PATCH') {
-        const { slug, section, title } = await request.json().catch(() => ({}));
+        const { slug, section, title, push_to_homepage, manual_nvs, manual_half_life } = await request.json().catch(() => ({}));
         if (!slug) return Response.json({ error: 'slug required' }, { status: 400, headers: h });
         const patch = {};
         if (section) {
@@ -3371,6 +3376,12 @@ Sadece JSON döndür:
           patch.video_type = secDef.video_type;
         }
         if (title) patch.title = title;
+        if (push_to_homepage !== undefined) {
+          const pushEnabled = push_to_homepage === true;
+          patch.push_to_homepage = pushEnabled;
+          patch.manual_nvs       = pushEnabled ? (manual_nvs != null ? Number(manual_nvs) : 75) : null;
+          patch.manual_half_life = pushEnabled ? (manual_half_life != null ? Number(manual_half_life) : 12) : null;
+        }
         if (!Object.keys(patch).length) return Response.json({ error: 'nothing to update' }, { status: 400, headers: h });
         await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&site_id=eq.${currentSite.id}`, patch);
         return Response.json({ ok: true }, { headers: h });
@@ -3609,7 +3620,7 @@ Sadece JSON döndür:
       if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
       const GOOD_MODES = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
       const dbRows = await supabase(env, 'GET',
-        `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport`);
+        `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life`);
       if (!Array.isArray(dbRows) || dbRows.length === 0) {
         return Response.json({ seeded: 0, message: 'No published articles with known modes in DB' }, { headers: h });
       }
@@ -3632,6 +3643,9 @@ Sadece JSON döndür:
         slug:                r.slug,
         template_id:         r.template_id  || null,
         sport:               r.sport        || 'football',
+        push_to_homepage:    r.push_to_homepage || false,
+        manual_nvs:          r.manual_nvs       ?? null,
+        manual_half_life:    r.manual_half_life  ?? null,
       }));
       await cacheToKV(env, site.short_code, kvArticles);
       return Response.json({ seeded: kvArticles.length }, { headers: h });
@@ -4447,8 +4461,11 @@ const toKVShape = a => ({
   sport:               a.sport        || 'football',
   publish_mode:        a.publish_mode || 'rss_summary',
   image_url:           a.image_url    || '',
-  template_id:         a.template_id  || null,
-  fixture_id:          a.fixture_id   || null,
+  template_id:         a.template_id     || null,
+  fixture_id:          a.fixture_id      || null,
+  push_to_homepage:    a.push_to_homepage || false,
+  manual_nvs:          a.manual_nvs       ?? null,
+  manual_half_life:    a.manual_half_life  ?? null,
   slug:                a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
 });
 
@@ -5121,7 +5138,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       try {
         const GOOD_MODES_SEED = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
         const dbRows = await supabase(env, 'GET',
-          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES_SEED.join(',')})&order=published_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport`);
+          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES_SEED.join(',')})&order=published_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life`);
         if (Array.isArray(dbRows) && dbRows.length > 0) {
           const seeded = dbRows.filter(r => r.slug && (r.full_body || r.summary)).map(r => toKVShape({
             title: r.title || '', summary: r.summary || '', full_body: r.full_body || r.summary || '',
@@ -5134,6 +5151,9 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
             is_fresh: false, is_kartalix_content: r.source_type === 'kartalix',
             publish_mode: r.publish_mode || 'rss_summary', slug: r.slug,
             template_id: r.template_id || null, sport: r.sport || 'football',
+            push_to_homepage: r.push_to_homepage || false,
+            manual_nvs:       r.manual_nvs       ?? null,
+            manual_half_life: r.manual_half_life  ?? null,
           }));
           await cacheToKV(env, site.short_code, seeded);
           console.log(`KV SEED on empty (no new articles): ${seeded.length} from DB`);
@@ -5769,7 +5789,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
           // immediately evicted by rankAndEvict, defeating the seed entirely.
           const seedModeExclude = ['rss_summary','copy_source'];
           const dbRows = await supabase(env, 'GET',
-            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&created_at=gte.${encodeURIComponent(seedCutoff)}&publish_mode=not.in.(${seedModeExclude.join(',')})&order=created_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,nvs_score,publish_mode,published_at,fetched_at,created_at,image_url,original_url,source_type,template_id,golden_score`);
+            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&created_at=gte.${encodeURIComponent(seedCutoff)}&publish_mode=not.in.(${seedModeExclude.join(',')})&order=created_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,nvs_score,publish_mode,published_at,fetched_at,created_at,image_url,original_url,source_type,template_id,golden_score,push_to_homepage,manual_nvs,manual_half_life`);
           if (Array.isArray(dbRows) && dbRows.length > 0) {
             latestKV = dbRows.map(r => toKVShape({
               title:        r.title,
@@ -5790,6 +5810,9 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
               image_url:    r.image_url   || '',
               slug:         r.slug,
               template_id:  r.template_id || null,
+              push_to_homepage: r.push_to_homepage || false,
+              manual_nvs:       r.manual_nvs       ?? null,
+              manual_half_life: r.manual_half_life  ?? null,
             }));
             console.log(`KV SEED from DB: ${latestKV.length} published articles (last 30d)`);
           } else {
@@ -8440,6 +8463,7 @@ function adminNav(active, siteCode, allSites) {
 function renderCuratedVideoPage(list, siteCode, allSites) {
   const sectionOpts = Object.entries(_VH_ALL_SECTION_MAP).map(([k, d]) => `<option value="${k}">${d.label}</option>`).join('');
   const sectionsJson = JSON.stringify(Object.entries(_VH_ALL_SECTION_MAP).map(([value, d]) => ({ value, label: d.label })));
+  const pushedCount = list.filter(v => v.push_to_homepage).length;
 
   const rows = list.map(v => {
     const thumb = v.image_url || '';
@@ -8449,33 +8473,50 @@ function renderCuratedVideoPage(list, siteCode, allSites) {
     const date = v.published_at ? new Date(v.published_at).toLocaleDateString('tr-TR') : '';
     const slug = (v.slug || '').replace(/'/g, "\\'");
     const titleEsc = (v.title || '').replace(/"/g, '&quot;').replace(/'/g, "\\'");
+    const isPushed = v.push_to_homepage === true;
+    const editNvs = v.manual_nvs ?? 75;
+    const editHl  = v.manual_half_life ?? 12;
     const editOpts = Object.entries(_VH_ALL_SECTION_MAP).map(([k, d]) =>
       `<option value="${k}"${k === v.category ? ' selected' : ''}>${d.label}</option>`
     ).join('');
+    const pushedBadge = isPushed
+      ? `<span style="display:inline-block;margin-left:.5rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;padding:1px 6px;border-radius:3px;background:#7c4a00;color:#fbbf24">📌 PUSHED</span>`
+      : '';
     return `<tr id="row-${slug}" data-slug="${slug}" draggable="true">
       <td class="drag-handle" style="padding:.55rem .5rem;width:24px;text-align:center;cursor:grab;color:#777;font-size:1rem;user-select:none">⠿</td>
       <td style="padding:.55rem .75rem;width:108px">
         <a href="${ytHref}" target="_blank" rel="noopener"><img src="${thumb}" style="width:96px;height:54px;object-fit:cover;border-radius:4px;display:block" loading="lazy"></a>
       </td>
       <td style="padding:.55rem .75rem">
-        <a href="${articleHref}" style="color:#ddd;text-decoration:none;font-size:.82rem;line-height:1.4">${v.title || ''}</a>
+        <a href="${articleHref}" style="color:#ddd;text-decoration:none;font-size:.82rem;line-height:1.4">${v.title || ''}</a>${pushedBadge}
         <div style="margin-top:.25rem;font-size:.68rem;color:#888">${v.source_name || ''} · ${date}</div>
       </td>
       <td style="padding:.55rem .75rem;white-space:nowrap">
         <span style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:3px;background:#1a2a3a;color:#4a7aaa">${secLabel}</span>
       </td>
       <td style="padding:.55rem .75rem;white-space:nowrap">
-        <button class="btn btn-secondary btn-sm" onclick="toggleEdit('${slug}','${titleEsc}')">Düzenle</button>
-        <button class="btn btn-danger btn-sm" onclick="del('${slug}')" style="margin-left:.3rem">Sil</button>
+        <button class="btn btn-secondary btn-sm" onclick="toggleEdit('${slug}',${isPushed ? 'true' : 'false'},'${titleEsc}')">Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="del('${slug}')" style="margin-left:.3rem">Del</button>
       </td>
     </tr>
     <tr id="edit-${slug}" style="display:none;background:#0d1117">
       <td colspan="5" style="padding:.75rem 1rem">
-        <div style="display:grid;grid-template-columns:1fr 180px auto auto;gap:.6rem;align-items:end">
-          <div><label>Başlık</label><input type="text" id="et-${slug}" value="${titleEsc}" style="width:100%;height:32px"></div>
-          <div><label>Bölüm</label><select id="es-${slug}" style="width:100%;height:32px">${editOpts}</select></div>
-          <button class="btn btn-primary btn-sm" onclick="saveEdit('${slug}')" style="height:32px;align-self:end">Kaydet</button>
-          <button class="btn btn-secondary btn-sm" onclick="cancelEdit('${slug}')" style="height:32px;align-self:end">İptal</button>
+        <div style="display:grid;grid-template-columns:1fr 180px auto auto;gap:.6rem;align-items:end;margin-bottom:.6rem">
+          <div><label>Title</label><input type="text" id="et-${slug}" value="${titleEsc}" style="width:100%;height:32px"></div>
+          <div><label>Section</label><select id="es-${slug}" style="width:100%;height:32px">${editOpts}</select></div>
+          <button class="btn btn-primary btn-sm" onclick="saveEdit('${slug}')" style="height:32px;align-self:end">Save</button>
+          <button class="btn btn-secondary btn-sm" onclick="cancelEdit('${slug}')" style="height:32px;align-self:end">Cancel</button>
+        </div>
+        <div style="margin-bottom:.5rem">
+          <label style="display:inline-flex;align-items:center;gap:.4rem;font-size:.75rem;font-weight:600;color:#ccc;text-transform:none;letter-spacing:normal;cursor:pointer">
+            <input type="checkbox" id="ep-${slug}" ${isPushed ? 'checked' : ''} onchange="toggleEditPush('${slug}',this.checked)">
+            Push to homepage
+          </label>
+          <div id="epf-${slug}" style="display:${isPushed ? 'grid' : 'none'};grid-template-columns:100px 130px 1fr;gap:.5rem;margin-top:.4rem;align-items:end">
+            <div><label>Manual NVS</label><input type="number" id="envs-${slug}" value="${editNvs}" min="0" max="100" style="width:100%;height:32px"></div>
+            <div><label>Half-life (h)</label><input type="number" id="ehl-${slug}" value="${editHl}" min="0.5" step="0.5" style="width:100%;height:32px"></div>
+            <small style="color:#888;font-size:.68rem;align-self:center">Auto-expires via decay — no manual unpin needed</small>
+          </div>
         </div>
         <div id="edit-status-${slug}" style="display:none;margin-top:.4rem;font-size:.72rem"></div>
       </td>
@@ -8496,8 +8537,8 @@ body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-seri
 .btn-secondary{background:#2a2a2a;color:#ccc;border:1px solid #333}.btn-secondary:hover{background:#333}
 .btn-danger{background:transparent;color:#c0392b;border:1px solid #c0392b}.btn-danger:hover{background:#c0392b;color:#fff}
 .btn-sm{padding:.25rem .6rem;font-size:.7rem}
-input[type=text],input[type=url],select{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;font-family:inherit;font-size:.83rem;outline:none;padding:.35rem .6rem}
-input[type=text]:focus,input[type=url]:focus,select:focus{border-color:#444}
+input[type=text],input[type=url],input[type=number],select{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;font-family:inherit;font-size:.83rem;outline:none;padding:.35rem .6rem}
+input[type=text]:focus,input[type=url]:focus,input[type=number]:focus,select:focus{border-color:#444}
 label{font-size:.72rem;font-weight:700;color:#999;text-transform:uppercase;letter-spacing:.08em;display:block;margin-bottom:.3rem}
 .page{max-width:900px;margin:2rem auto;padding:0 1.25rem}
 .card{background:#111;border:1px solid #222;border-radius:8px;padding:1.25rem;margin-bottom:1.5rem}
@@ -8520,40 +8561,53 @@ tbody tr.drag-over{outline:2px solid #E30A17}
 ${adminNav('curated-video', siteCode, allSites)}
 <div class="page">
   <div class="card">
-    <div class="card-title">Video Ekle</div>
+    <div class="card-title">Add Video</div>
     <div class="form-row">
       <div class="field">
         <label>YouTube URL</label>
-        <input type="url" id="ytUrl" placeholder="https://youtu.be/… veya youtube.com/watch?v=…" oninput="onUrlInput()" style="height:34px;width:100%">
+        <input type="url" id="ytUrl" placeholder="https://youtu.be/… or youtube.com/watch?v=…" oninput="onUrlInput()" style="height:34px;width:100%">
       </div>
       <div style="padding-bottom:0">
-        <button class="btn btn-secondary btn-sm" onclick="fetchMeta()" id="fetchBtn" style="height:34px">Getir</button>
+        <button class="btn btn-secondary btn-sm" onclick="fetchMeta()" id="fetchBtn" style="height:34px">Fetch</button>
       </div>
     </div>
     <div class="form-grid">
       <div class="field">
-        <label>Başlık</label>
-        <input type="text" id="ytTitle" placeholder="Otomatik veya manuel">
+        <label>Title</label>
+        <input type="text" id="ytTitle" placeholder="Auto or manual">
       </div>
       <div class="field">
-        <label>Bölüm</label>
+        <label>Section</label>
         <select id="ytSection">${sectionOpts}</select>
       </div>
       <div style="padding-bottom:0">
-        <button class="btn btn-primary" id="addBtn" onclick="addVideo()" style="height:34px">Video+</button>
+        <button class="btn btn-primary" id="addBtn" onclick="addVideo()" style="height:34px">Add+</button>
       </div>
     </div>
-    <div id="formStatus" style="display:none"></div>
+    <div style="margin-top:.75rem;border-top:1px solid #1e1e1e;padding-top:.75rem">
+      <label style="display:inline-flex;align-items:center;gap:.4rem;font-size:.75rem;font-weight:600;color:#ccc;text-transform:none;letter-spacing:normal;cursor:pointer">
+        <input type="checkbox" id="ytPush" onchange="togglePushFields(this.checked)">
+        Push to homepage
+      </label>
+      <div id="pushFields" style="display:none;margin-top:.5rem;display:none">
+        <div style="display:grid;grid-template-columns:100px 130px 1fr;gap:.5rem;align-items:end">
+          <div class="field"><label>Manual NVS</label><input type="number" id="ytNvs" value="75" min="0" max="100" style="height:32px"></div>
+          <div class="field"><label>Half-life (h)</label><input type="number" id="ytHl" value="12" min="0.5" step="0.5" style="height:32px"></div>
+          <small style="color:#888;font-size:.68rem;align-self:center">Auto-expires via decay — no manual unpin needed</small>
+        </div>
+      </div>
+    </div>
+    <div id="formStatus" style="display:none;margin-top:.5rem"></div>
   </div>
 
   <div class="card">
     <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-      <span>Küratör Liste (${list.length})</span>
-      ${list.length > 1 ? `<button class="btn btn-secondary btn-sm" id="saveOrderBtn" onclick="saveOrder()" style="display:none">Sıralamayı Kaydet</button>` : ''}
+      <span>Curated List (${list.length})${pushedCount > 0 ? ` &nbsp;<span style="font-size:.7rem;font-weight:600;color:#fbbf24;background:#7c4a00;padding:2px 8px;border-radius:3px">📌 ${pushedCount} pushed to homepage</span>` : ''}</span>
+      ${list.length > 1 ? `<button class="btn btn-secondary btn-sm" id="saveOrderBtn" onclick="saveOrder()" style="display:none">Save Order</button>` : ''}
     </div>
-    ${list.length === 0 ? '<div class="empty">Henüz video eklenmedi.</div>' : `
+    ${list.length === 0 ? '<div class="empty">No videos added yet.</div>' : `
     <table id="curatedTable">
-      <thead><tr><th style="width:24px"></th><th style="width:108px"></th><th>Başlık</th><th>Bölüm</th><th></th></tr></thead>
+      <thead><tr><th style="width:24px"></th><th style="width:108px"></th><th>Title</th><th>Section</th><th></th></tr></thead>
       <tbody id="curatedTbody">${rows}</tbody>
     </table>`}
   </div>
@@ -8577,46 +8631,64 @@ function onUrlInput() {
   document.getElementById('fetchBtn').disabled = !document.getElementById('ytUrl').value.trim();
 }
 
+function togglePushFields(on) {
+  document.getElementById('pushFields').style.display = on ? 'block' : 'none';
+}
+
+function toggleEditPush(slug, on) {
+  document.getElementById('epf-' + slug).style.display = on ? 'grid' : 'none';
+}
+
 async function fetchMeta() {
   const url = document.getElementById('ytUrl').value.trim();
   if (!url) return;
-  showStatus('Bilgi alınıyor…', '');
+  showStatus('Fetching…', '');
   const m = url.match(/(?:youtu\\.be\\/|[?&]v=|\\/shorts\\/)([a-zA-Z0-9_-]{11})/);
   const vid = m?.[1];
-  if (!vid) { showStatus('Video ID bulunamadı', 'err'); return; }
+  if (!vid) { showStatus('Could not extract video ID', 'err'); return; }
   try {
     const r = await fetch('https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=' + vid + '&format=json');
     if (!r.ok) throw new Error();
     const d = await r.json();
     document.getElementById('ytTitle').value = d.title || '';
-    showStatus('Başlık alındı ✓ — Eklemek için Video+ butonuna bas', 'ok');
-  } catch { showStatus('Başlık alınamadı — lütfen manuel girin', 'err'); }
+    showStatus('Title fetched ✓ — press Add+ to save', 'ok');
+  } catch { showStatus('Could not fetch title — enter manually', 'err'); }
 }
 
 async function addVideo() {
   const youtube_url = document.getElementById('ytUrl').value.trim();
   const title = document.getElementById('ytTitle').value.trim();
   const section = document.getElementById('ytSection').value;
-  if (!youtube_url) { showStatus('YouTube URL gerekli', 'err'); return; }
+  const push_to_homepage = document.getElementById('ytPush').checked;
+  if (!youtube_url) { showStatus('YouTube URL required', 'err'); return; }
   document.getElementById('addBtn').disabled = true;
-  showStatus('Ekleniyor…', '');
+  showStatus('Adding…', '');
   try {
+    const body = { youtube_url, section, title: title || undefined, push_to_homepage };
+    if (push_to_homepage) {
+      const nvs = document.getElementById('ytNvs').value;
+      const hl  = document.getElementById('ytHl').value;
+      if (nvs) body.manual_nvs = Number(nvs);
+      if (hl)  body.manual_half_life = Number(hl);
+    }
     const r = await fetch('/admin/curated-video', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ youtube_url, section, title: title || undefined }),
+      body: JSON.stringify(body),
     });
     const d = await r.json();
-    if (!r.ok) { showStatus(d.error || 'Hata', 'err'); return; }
-    showStatus('Eklendi ✓', 'ok');
+    if (!r.ok) { showStatus(d.error || 'Error', 'err'); return; }
+    showStatus('Added ✓', 'ok');
     document.getElementById('ytUrl').value = '';
     document.getElementById('ytTitle').value = '';
+    document.getElementById('ytPush').checked = false;
+    togglePushFields(false);
     setTimeout(() => location.reload(), 900);
-  } catch { showStatus('Bağlantı hatası', 'err'); }
+  } catch { showStatus('Connection error', 'err'); }
   finally { document.getElementById('addBtn').disabled = false; }
 }
 
-function toggleEdit(slug, title) {
+function toggleEdit(slug, isPushed, title) {
   const row = document.getElementById('edit-' + slug);
   row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
   if (row.style.display !== 'none') document.getElementById('et-' + slug).focus();
@@ -8629,30 +8701,38 @@ function cancelEdit(slug) {
 async function saveEdit(slug) {
   const title = document.getElementById('et-' + slug).value.trim();
   const section = document.getElementById('es-' + slug).value;
+  const push_to_homepage = document.getElementById('ep-' + slug).checked;
   const statusEl = document.getElementById('edit-status-' + slug);
-  statusEl.style.display = 'block'; statusEl.style.color = '#aaa'; statusEl.textContent = 'Kaydediliyor…';
+  statusEl.style.display = 'block'; statusEl.style.color = '#aaa'; statusEl.textContent = 'Saving…';
   try {
+    const body = { slug, title, section, push_to_homepage };
+    if (push_to_homepage) {
+      const nvs = document.getElementById('envs-' + slug).value;
+      const hl  = document.getElementById('ehl-' + slug).value;
+      if (nvs) body.manual_nvs = Number(nvs);
+      if (hl)  body.manual_half_life = Number(hl);
+    }
     const r = await fetch('/admin/curated-video', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug, title, section }),
+      body: JSON.stringify(body),
     });
     const d = await r.json();
-    if (!r.ok) { statusEl.style.color = '#fca5a5'; statusEl.textContent = d.error || 'Hata'; return; }
-    statusEl.style.color = '#4ade80'; statusEl.textContent = 'Kaydedildi ✓';
+    if (!r.ok) { statusEl.style.color = '#fca5a5'; statusEl.textContent = d.error || 'Error'; return; }
+    statusEl.style.color = '#4ade80'; statusEl.textContent = 'Saved ✓';
     setTimeout(() => location.reload(), 600);
-  } catch { statusEl.style.color = '#fca5a5'; statusEl.textContent = 'Bağlantı hatası'; }
+  } catch { statusEl.style.color = '#fca5a5'; statusEl.textContent = 'Connection error'; }
 }
 
 async function del(slug) {
-  if (!confirm('Bu videoyu küratör listesinden kaldır?')) return;
+  if (!confirm('Remove this video from curated list?')) return;
   const r = await fetch('/admin/curated-video', {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ slug }),
   });
   if (r.ok) location.reload();
-  else alert('Silinemedi');
+  else alert('Delete failed');
 }
 
 function showStatus(msg, type) {
@@ -8719,7 +8799,7 @@ async function saveOrder() {
   const saveBtn = document.getElementById('saveOrderBtn');
   if (!tbody || !saveBtn) return;
   const order = [...tbody.querySelectorAll('tr[data-slug]')].map(r => r.dataset.slug);
-  saveBtn.disabled = true; saveBtn.textContent = 'Kaydediliyor…';
+  saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
   try {
     const r = await fetch('/admin/curated-video', {
       method: 'PUT',
@@ -8727,16 +8807,16 @@ async function saveOrder() {
       body: JSON.stringify({ order }),
     });
     if (!r.ok) throw new Error();
-    saveBtn.textContent = 'Kaydedildi ✓';
+    saveBtn.textContent = 'Saved ✓';
     saveBtn.style.background = '#14532d'; saveBtn.style.color = '#4ade80';
     setTimeout(() => {
-      saveBtn.textContent = 'Sıralamayı Kaydet';
+      saveBtn.textContent = 'Save Order';
       saveBtn.style.background = ''; saveBtn.style.color = '';
       saveBtn.style.display = 'none';
       saveBtn.disabled = false;
     }, 1800);
   } catch {
-    saveBtn.textContent = 'Hata — tekrar dene';
+    saveBtn.textContent = 'Error — retry';
     saveBtn.disabled = false;
   }
 }

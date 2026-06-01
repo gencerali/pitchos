@@ -1219,6 +1219,10 @@ export const SCORING_CONFIG_DEFAULTS = {
     max_videos_in_main_feed: 3,
   },
   rail_fallback_video_slugs: [],
+  manual_push_defaults: {
+    nvs: 75,
+    half_life: 12,
+  },
 };
 
 export async function loadSiteConfig(env, siteCode) {
@@ -1235,6 +1239,7 @@ export async function loadSiteConfig(env, siteCode) {
 
 export function getEffectiveNVS(article, config) {
   const cfg = config || {};
+  if (article.push_to_homepage && article.manual_nvs != null) return article.manual_nvs;
   if (article.publish_mode === 'youtube_embed') {
     if (cfg.curated_video_nvs?.[article.category] !== undefined)
       return cfg.curated_video_nvs[article.category];
@@ -1255,6 +1260,7 @@ export function getEffectiveNVS(article, config) {
 export function getHalfLife(article, config) {
   const cfg = config || {};
   if (article.template_id === 'T05') return null; // pin until kickoff+2h
+  if (article.push_to_homepage && article.manual_half_life != null) return article.manual_half_life;
   if (article.publish_mode === 'youtube_embed') {
     if (article.video_type && cfg.video_half_life_by_type?.[article.video_type] !== undefined)
       return cfg.video_half_life_by_type[article.video_type];
