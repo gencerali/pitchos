@@ -1604,7 +1604,7 @@ export default {
         // Rebuild KV so the corrected body is live immediately
         const GOOD_MODES = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
         const dbRows = await supabase(env, 'GET',
-          `/rest/v1/content_items?site_id=eq.${SITE}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life`
+          `/rest/v1/content_items?site_id=eq.${SITE}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life,push_enabled_at`
         );
         if (Array.isArray(dbRows) && dbRows.length > 0 && site) {
           const kvArticles = dbRows.filter(r => r.slug && (r.full_body || r.summary)).map(r => toKVShape({
@@ -1618,7 +1618,7 @@ export default {
             is_kartalix_content: r.source_type === 'kartalix',
             publish_mode: r.publish_mode || 'rss_summary',
             template_id: r.template_id || null, sport: r.sport || 'football', slug: r.slug,
-            push_to_homepage: r.push_to_homepage || false, manual_nvs: r.manual_nvs ?? null, manual_half_life: r.manual_half_life ?? null,
+            push_to_homepage: r.push_to_homepage || false, manual_nvs: r.manual_nvs ?? null, manual_half_life: r.manual_half_life ?? null, push_enabled_at: r.push_enabled_at || null,
           }));
           await cacheToKV(env, site.short_code, kvArticles);
         }
@@ -3124,7 +3124,9 @@ Sadece JSON döndür:
           } else if (halfLifeVal === null) {
             exitEta = 'Pinned';
           } else {
-            const ts = a.fetched_at || a.published_at || a.created_at;
+            const ts = (a.push_to_homepage && a.push_enabled_at)
+              ? a.push_enabled_at
+              : (a.fetched_at || a.published_at || a.created_at);
             const currentAgeHours = ts ? (nowMs - new Date(ts).getTime()) / 3600000 : 0;
             const FLOOR = 5;
             const ratio = (nvs * trust) / FLOOR;
@@ -3358,7 +3360,7 @@ Sadece JSON döndür:
       if (request.method === 'GET') {
         const [list, orderRaw] = await Promise.all([
           supabase(env, 'GET',
-            `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,category,original_url,push_to_homepage,manual_nvs,manual_half_life&site_id=eq.${currentSite.id}&publish_mode=eq.youtube_embed&category=in.(${Object.keys(_VH_ALL_SECTION_MAP).join(',')})&status=eq.published&order=published_at.desc&limit=200`
+            `/rest/v1/content_items?select=slug,title,source_name,published_at,image_url,category,original_url,push_to_homepage,manual_nvs,manual_half_life,push_enabled_at&site_id=eq.${currentSite.id}&publish_mode=eq.youtube_embed&category=in.(${Object.keys(_VH_ALL_SECTION_MAP).join(',')})&status=eq.published&order=published_at.desc&limit=200`
           ),
           env.PITCHOS_CACHE.get('curated:order'),
         ]);
@@ -3407,6 +3409,7 @@ Sadece JSON döndür:
           push_to_homepage: pushEnabled,
           manual_nvs:       pushEnabled ? (manual_nvs != null ? Number(manual_nvs) : 75) : null,
           manual_half_life: pushEnabled ? (manual_half_life != null ? Number(manual_half_life) : 12) : null,
+          push_enabled_at:  pushEnabled ? now : null,
         }]);
         if (!saved?.[0]) return Response.json({ error: 'Supabase insert failed' }, { status: 500, headers: h });
         return Response.json({ ok: true, slug: saved[0].slug }, { headers: h });
@@ -3428,7 +3431,7 @@ Sadece JSON döndür:
           patch.push_to_homepage = pushEnabled;
           patch.manual_nvs       = pushEnabled ? (manual_nvs != null ? Number(manual_nvs) : 75) : null;
           patch.manual_half_life = pushEnabled ? (manual_half_life != null ? Number(manual_half_life) : 12) : null;
-          if (pushEnabled) patch.published_at = new Date().toISOString();
+          patch.push_enabled_at  = pushEnabled ? new Date().toISOString() : null;
         }
         if (!Object.keys(patch).length) return Response.json({ error: 'nothing to update' }, { status: 400, headers: h });
         await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&site_id=eq.${currentSite.id}`, patch);
@@ -3667,12 +3670,13 @@ Sadece JSON döndür:
       const site  = sites?.[0];
       if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
       const GOOD_MODES = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
-      const SELECT_FIELDS = 'slug,title,summary,full_body,category,source_name,source_type,original_url,image_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life';
+      const SELECT_FIELDS = 'slug,title,summary,full_body,category,source_name,source_type,original_url,image_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life,push_enabled_at';
+      const pushCutoff = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
       const [dbRows, pushedRows] = await Promise.all([
         supabase(env, 'GET',
           `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=${SELECT_FIELDS}`),
         supabase(env, 'GET',
-          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&push_to_homepage=eq.true&select=${SELECT_FIELDS}`),
+          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&push_to_homepage=eq.true&push_enabled_at=gte.${encodeURIComponent(pushCutoff)}&select=${SELECT_FIELDS}`),
       ]);
       if (!Array.isArray(dbRows) || dbRows.length === 0) {
         return Response.json({ seeded: 0, message: 'No published articles with known modes in DB' }, { headers: h });
@@ -3703,6 +3707,7 @@ Sadece JSON döndür:
         push_to_homepage:    r.push_to_homepage || false,
         manual_nvs:          r.manual_nvs       ?? null,
         manual_half_life:    r.manual_half_life  ?? null,
+        push_enabled_at:     r.push_enabled_at  || null,
       }));
       await cacheToKV(env, site.short_code, kvArticles);
       return Response.json({ seeded: kvArticles.length }, { headers: h });
@@ -4510,8 +4515,8 @@ const toKVShape = a => ({
   trust_score:         a.trust_score  || tierToTrustScore(a.trust_tier || a.trust),
   trust_tier:          a.trust_tier   || null,
   golden_score:        a.golden_score || null,
-  published_at:        a.push_to_homepage ? new Date().toISOString() : (a.published_at || a.fetched_at || new Date().toISOString()),
-  fetched_at:          a.push_to_homepage ? new Date().toISOString() : (a.fetched_at || null),
+  published_at:        a.published_at || a.fetched_at || new Date().toISOString(),
+  fetched_at:          a.fetched_at || null,
   is_fresh:            a.is_fresh     ?? true,
   is_kartalix_content: a.is_kartalix_content || false,
   is_p4:               isP4(a),
@@ -4523,6 +4528,7 @@ const toKVShape = a => ({
   push_to_homepage:    a.push_to_homepage || false,
   manual_nvs:          a.manual_nvs       ?? null,
   manual_half_life:    a.manual_half_life  ?? null,
+  push_enabled_at:     a.push_enabled_at  || null,
   slug:                a.slug || generateSlug(a.title, a.published_at || a.fetched_at),
 });
 
@@ -5198,7 +5204,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       try {
         const GOOD_MODES_SEED = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
         const dbRows = await supabase(env, 'GET',
-          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES_SEED.join(',')})&order=published_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,source_type,original_url,image_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life`);
+          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES_SEED.join(',')})&order=published_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,source_type,original_url,image_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life,push_enabled_at`);
         if (Array.isArray(dbRows) && dbRows.length > 0) {
           const seeded = dbRows.filter(r => r.slug && (r.full_body || r.summary)).map(r => toKVShape({
             title: r.title || '', summary: r.summary || '', full_body: r.full_body || r.summary || '',
@@ -5215,6 +5221,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
             push_to_homepage: r.push_to_homepage || false,
             manual_nvs:       r.manual_nvs       ?? null,
             manual_half_life: r.manual_half_life  ?? null,
+            push_enabled_at:  r.push_enabled_at  || null,
           }));
           await cacheToKV(env, site.short_code, seeded);
           console.log(`KV SEED on empty (no new articles): ${seeded.length} from DB`);
@@ -5850,7 +5857,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
           // immediately evicted by rankAndEvict, defeating the seed entirely.
           const seedModeExclude = ['rss_summary','copy_source'];
           const dbRows = await supabase(env, 'GET',
-            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&created_at=gte.${encodeURIComponent(seedCutoff)}&publish_mode=not.in.(${seedModeExclude.join(',')})&order=created_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,nvs_score,publish_mode,published_at,fetched_at,created_at,image_url,original_url,source_type,template_id,golden_score,push_to_homepage,manual_nvs,manual_half_life`);
+            `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&created_at=gte.${encodeURIComponent(seedCutoff)}&publish_mode=not.in.(${seedModeExclude.join(',')})&order=created_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,nvs_score,publish_mode,published_at,fetched_at,created_at,image_url,original_url,source_type,template_id,golden_score,push_to_homepage,manual_nvs,manual_half_life,push_enabled_at`);
           if (Array.isArray(dbRows) && dbRows.length > 0) {
             latestKV = dbRows.map(r => toKVShape({
               title:        r.title,
@@ -5874,6 +5881,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
               push_to_homepage: r.push_to_homepage || false,
               manual_nvs:       r.manual_nvs       ?? null,
               manual_half_life: r.manual_half_life  ?? null,
+              push_enabled_at:  r.push_enabled_at  || null,
             }));
             console.log(`KV SEED from DB: ${latestKV.length} published articles (last 30d)`);
           } else {

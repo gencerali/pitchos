@@ -1051,7 +1051,9 @@ export const HARD_TTL_BY_MODE = {
 };
 
 function getArticleAge(article) {
-  const ts = article.fetched_at || article.published_at || article.created_at;
+  const ts = (article.push_to_homepage && article.push_enabled_at)
+    ? article.push_enabled_at
+    : (article.fetched_at || article.published_at || article.created_at);
   if (!ts) return 0;
   return (Date.now() - new Date(ts).getTime()) / 3600000; // hours
 }
@@ -1290,7 +1292,9 @@ export function computeScore(article, config, nowMs) {
   if (halfLife === null) return null; // signals pin logic in rankAndEvict
   const effectiveNVS = getEffectiveNVS(article, config);
   if (effectiveNVS <= 0) return 0;
-  const ts = article.fetched_at || article.published_at || article.created_at;
+  const ts = (article.push_to_homepage && article.push_enabled_at)
+    ? article.push_enabled_at
+    : (article.fetched_at || article.published_at || article.created_at);
   const ageHours = ts ? (nowMs - new Date(ts).getTime()) / 3600000 : 0;
   return effectiveNVS * Math.exp(-ageHours / halfLife) * getTrustMultiplier(article, config);
 }
