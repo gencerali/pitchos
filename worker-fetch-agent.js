@@ -3381,6 +3381,7 @@ Sadece JSON döndür:
           patch.push_to_homepage = pushEnabled;
           patch.manual_nvs       = pushEnabled ? (manual_nvs != null ? Number(manual_nvs) : 75) : null;
           patch.manual_half_life = pushEnabled ? (manual_half_life != null ? Number(manual_half_life) : 12) : null;
+          if (pushEnabled) patch.published_at = new Date().toISOString();
         }
         if (!Object.keys(patch).length) return Response.json({ error: 'nothing to update' }, { status: 400, headers: h });
         await supabase(env, 'PATCH', `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&site_id=eq.${currentSite.id}`, patch);
@@ -3619,12 +3620,20 @@ Sadece JSON döndür:
       const site  = sites?.[0];
       if (!site) return Response.json({ error: 'no site' }, { status: 500, headers: h });
       const GOOD_MODES = ['rewrite','copy_source','template_matchday','template_postmatch','template_lineup','template_h2h','template_form_guide','template_injury','template_official','youtube_embed','synthesis_generated','manual','original_synthesis','video_embed'];
-      const dbRows = await supabase(env, 'GET',
-        `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life`);
+      const SELECT_FIELDS = 'slug,title,summary,full_body,category,source_name,source_type,original_url,nvs_score,golden_score,publish_mode,published_at,fetched_at,created_at,template_id,sport,push_to_homepage,manual_nvs,manual_half_life';
+      const [dbRows, pushedRows] = await Promise.all([
+        supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(${GOOD_MODES.join(',')})&order=published_at.desc&limit=100&select=${SELECT_FIELDS}`),
+        supabase(env, 'GET',
+          `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&push_to_homepage=eq.true&select=${SELECT_FIELDS}`),
+      ]);
       if (!Array.isArray(dbRows) || dbRows.length === 0) {
         return Response.json({ seeded: 0, message: 'No published articles with known modes in DB' }, { headers: h });
       }
-      const kvArticles = dbRows.filter(r => r.slug && (r.full_body || r.summary)).map(r => toKVShape({
+      // Merge pushed articles (may be older than limit=100 cutoff) — dedupe by slug
+      const slugSeen = new Set(dbRows.map(r => r.slug));
+      const merged = [...dbRows, ...(pushedRows || []).filter(r => !slugSeen.has(r.slug))];
+      const kvArticles = merged.filter(r => r.slug && (r.full_body || r.summary)).map(r => toKVShape({
         title:               r.title        || '',
         summary:             r.summary      || '',
         full_body:           r.full_body    || r.summary || '',
@@ -4453,8 +4462,8 @@ const toKVShape = a => ({
   trust_score:         a.trust_score  || tierToTrustScore(a.trust_tier || a.trust),
   trust_tier:          a.trust_tier   || null,
   golden_score:        a.golden_score || null,
-  published_at:        a.published_at || a.fetched_at  || new Date().toISOString(),
-  fetched_at:          a.fetched_at   || null,
+  published_at:        a.push_to_homepage ? new Date().toISOString() : (a.published_at || a.fetched_at || new Date().toISOString()),
+  fetched_at:          a.push_to_homepage ? new Date().toISOString() : (a.fetched_at || null),
   is_fresh:            a.is_fresh     ?? true,
   is_kartalix_content: a.is_kartalix_content || false,
   is_p4:               isP4(a),
