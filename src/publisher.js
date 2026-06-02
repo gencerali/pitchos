@@ -930,6 +930,22 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
     console.warn('Cross-run dedup query failed (non-blocking):', e.message);
   }
 
+  // Within-batch dedup on generated titles — catches same-run pairs the cross-run check misses
+  // (cross-run dedup compares each article only against DB records, not the current batch)
+  publishable.sort((a, b) => ((b.nvs || b.nvs_score || 0) - (a.nvs || a.nvs_score || 0)));
+  const batchKept = [];
+  for (const a of publishable) {
+    const aNorm = normalizeTitle(a.title);
+    const aKeys = extractKeyTokens(a.title);
+    const isDupe = batchKept.some(k => {
+      if (titleSimilarity(aNorm, normalizeTitle(k.title)) >= 0.5) return true;
+      return sharedStoryTokens(aKeys, extractKeyTokens(k.title)) >= 3;
+    });
+    if (isDupe) console.log(`WITHIN-BATCH DEDUP: "${(a.title || '').slice(0, 60)}" — similar article in same batch`);
+    else batchKept.push(a);
+  }
+  publishable = batchKept;
+
   const isSynthesized = m => m === 'rewrite' || m === 'original_synthesis' || (m && m.startsWith('template') && m !== 'template_official') || m === 'video_embed' || m === 'youtube_embed' || (m && m.startsWith('youtube_'));
 
   const rows = publishable.map(a => ({

@@ -66,7 +66,7 @@ export const RSS_FEEDS = [
   // Fanatik — RSS URL 404, correct URL unknown. Re-add when confirmed.
   // { url: 'https://www.fanatik.com.tr/rss/besiktas', name: 'Fanatik', ... }
   // Milliyet, Sporx, Ajansspor — no working direct RSS found. Covered by Google News below.
-  { url: 'https://www.duhuliye.com/rss',                   name: 'Duhuliye',     trust: 'press',      sport: 'football', is_p4: true,  keywordFilter: true },
+  { url: 'https://www.duhuliye.com/rss',                   name: 'Duhuliye',     trust: 'aggregator', sport: 'football', is_p4: true,  keywordFilter: true },
   { url: 'https://www.fotospor.com/feed/rss_sondakika.xml', name: 'Fotospor',    trust: 'press',      sport: 'football', is_p4: true,  keywordFilter: true },
 
   // Google News — aggregates Turkish press (Fanatik, Milliyet, Sporx, Ajansspor etc.)
