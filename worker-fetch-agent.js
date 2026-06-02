@@ -4977,7 +4977,7 @@ function videoToArticle(video) {
 
 // Max 2 embeds per channel per run to avoid feed flooding.
 // Rabona Digital videos go to daily digest instead of embed.
-async function processYouTubeVideos(site, env, seenUrls, channelOverride = null) {
+async function processYouTubeVideos(site, env, seenUrls, channelOverride = null, stats = null) {
   const channels = (channelOverride && channelOverride.length > 0) ? channelOverride : YOUTUBE_CHANNELS;
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const feeds = await Promise.all(channels.map(ch => fetchYouTubeChannel(ch, since).catch(() => [])));
@@ -4985,6 +4985,7 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null)
   let published = 0;
   let storyMatchCount = 0;   // cap Claude calls: 3 story-match attempts per run
   const rabonaQueue = [];
+  const embedFailures = [];
 
   // Pre-fetch open stories once for the whole YouTube pass
   let openStories = null;
@@ -5034,6 +5035,7 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null)
         }
       } catch (e) {
         console.error(`YT embed failed [${video.video_id}]:`, e.message);
+        embedFailures.push({ id: video.video_id, title: (video.title || '').slice(0, 60), err: e.message });
       }
     }
   }
@@ -5091,7 +5093,11 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null)
     }
   }
 
-  console.log(`YT INTAKE: ${published} items published`);
+  if (embedFailures.length > 0) {
+    const summary = embedFailures.map(f => `[${f.id}] ${f.err}`).join(' | ');
+    await recordPipelineFailures(env, site.short_code, [], `YT embed failed ${embedFailures.length}×: ${summary}`).catch(() => {});
+  }
+  console.log(`YT INTAKE: ${published} published, ${embedFailures.length} embed failures`);
   return published;
 }
 
@@ -5997,7 +6003,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
     } catch(e) { console.error('pipeline_log block failed:', e.message); }
 
     // ── YOUTUBE INTAKE ─────────────────────────────────────────
-    await processYouTubeVideos(site, env, seenUrls, dynamicYTChannels).catch(e => console.error('YT intake failed:', e.message));
+    await processYouTubeVideos(site, env, seenUrls, dynamicYTChannels, stats).catch(e => console.error('YT intake failed:', e.message));
 
     stats.durationMs = Date.now() - startTime;
   };
