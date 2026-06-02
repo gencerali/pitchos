@@ -3095,67 +3095,79 @@ KURALLAR:
   };
 }
 
-// Daily digest of Fırat Günayer's Rabona Digital videos.
-// Combines transcripts from all of today's videos into one analysis article.
-// Called once per day — caller must gate with a KV date-key.
-export async function generateRabonaDigest(videos, transcripts, site, env, stats = null) {
-  if (!transcripts.length) return null;
+// Per-video synthesis — fetch transcript, write summary + key quotes as a Turkish article.
+// includeEmbed=true appends the YouTube iframe at the bottom (embed_and_synthesize treatment).
+// includeEmbed=false produces a text-only article (synthesize treatment).
+// Returns null if the transcript is too short or Claude output is unusable.
+export async function generateVideoSynthesis(video, transcriptText, site, env, stats = null, includeEmbed = false) {
+  const prompt = `Sen Kartalix'in spor editörüsün. Aşağıda bir YouTube videosunun transkripti var. Bu videoyu özetleyen özgün bir Türkçe haber yazısı hazırla.
 
-  const today = new Date().toISOString().slice(0, 10);
-  const videoBlocks = transcripts.map((t, i) =>
-    `[Video ${i + 1}] "${videos[i].title}"\n${t.slice(0, 800)}`
-  ).join('\n\n---\n\n');
+Video: ${video.title}
+Kanal: ${video.channel_name}
 
-  const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Fırat Günayer, Rabona Digital'de bugün Beşiktaş hakkında analiz videoları yayınladı. Aşağıda bu videoların transkriptleri var.
-
-${videoBlocks}
-
-GÖREV: Bu transkriptlerden yola çıkarak Fırat Günayer'in bugünkü Beşiktaş analizini özetleyen özgün bir Kartalix haberi yaz.
+Transkript:
+${transcriptText.slice(0, 2000)}
 
 KURALLAR:
-- İlk satır: okuyucunun tıklamak isteyeceği, merak uyandıran Türkçe bir başlık. Gerçek içeriği yansıtsın, clickbait olmasın. "BAŞLIK: " öneki ile yaz.
+- İlk satır: okuyucunun dikkatini çekecek Türkçe bir başlık. "BAŞLIK: " öneki ile yaz.
 - Ardından boş bir satır bırak
-- 250–350 kelime haber metni
-- "Fırat Günayer'e göre" veya benzeri atıf kullanabilirsin
-- En önemli görüş ve argümanları ön plana çıkar
-- BJK taraftarının ilgisini çekecek analitik dil kullan
-- Paragraflar arası boş satır bırak`;
+- 200–300 kelime haber veya analiz metni
+- Önemli alıntıları ve kilit argümanları öne çıkar
+- ${video.channel_name}'e atıf yaparak aktarım yap
+- Sade, bilgilendirici haber dili. Emoji yok.`;
 
-  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 750);
-  const raw  = extractText(res.content).trim();
+  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 700);
+  const raw = extractText(res.content).trim();
   if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_GENERATE, 'template'); stats.claudeCalls++; }
-  if (!raw || raw.length < 150) return null;
+  if (!raw || raw.length < 100) return null;
 
   const titleMatch = raw.match(/^BAŞLIK:\s*(.+)/m);
-  const title = titleMatch ? titleMatch[1].trim() : videos[0].title;
-  const body  = raw.replace(/^BAŞLIK:.*\n+/m, '').trim();
-  if (body.length < 150) return null;
-  const slug  = generateSlug(title, today);
+  const title = titleMatch ? titleMatch[1].trim() : video.title;
+  const bodyText = raw.replace(/^BAŞLIK:.*\n+/m, '').trim();
+  if (bodyText.length < 100) return null;
+
+  const slug = generateSlug(title, video.published_at);
+  const bodyHtml = bodyText
+    .split(/\n\n+/)
+    .map(p => `<p>${p.trim()}</p>`)
+    .filter(p => p.length > 7)
+    .join('\n');
+  const embedHtml = includeEmbed
+    ? `\n<div class="yt-embed" style="margin:1.5rem 0"><iframe width="100%" height="380" src="https://www.youtube.com/embed/${video.video_id}" frameborder="0" allowfullscreen loading="lazy" style="border-radius:6px;display:block"></iframe></div>`
+    : '';
+  const full_body = bodyHtml + embedHtml;
+  const nvs = video.channel_tier === 'official' ? 80 : 74;
 
   const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
-    site_id: site.id, source_type: 'youtube', source_name: 'Rabona Digital',
-    original_url: `https://www.youtube.com/c/RabonaDigital`,
-    title, summary: body.slice(0, 220), full_body: body,
-    category: 'Analiz', content_type: 'kartalix_generated',
-    sport: 'football', nvs_score: 74,
-    publish_mode: 'rabona_digest', status: 'published',
-    slug, published_at: new Date().toISOString(),
-    reviewed_at: new Date().toISOString(), reviewed_by: 'auto',
+    site_id:      site.id,
+    source_type:  'youtube',
+    source_name:  video.channel_name,
+    original_url: `https://www.youtube.com/watch?v=${video.video_id}`,
+    title,
+    summary:      bodyText.slice(0, 220),
+    full_body,
+    image_url:    youtubeThumbnailUrl(video.video_id),
+    category:     'Video',
+    content_type: includeEmbed ? 'youtube_embed' : 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    nvs,
+    publish_mode: includeEmbed ? 'youtube_embed_synthesis' : 'youtube_synthesis',
+    status:       'published',
+    template_id:  includeEmbed ? 'T-VID' : null,
+    slug,
+    published_at: video.published_at,
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+    video_type:   classifyVideoType(title),
   }).catch(() => null);
 
-  console.log(`RABONA DIGEST: ${transcripts.length} video(s) → "${title.slice(0, 60)}"`);
-  return {
-    title, summary: body.slice(0, 220), full_body: body,
-    source_name: 'Rabona Digital', source: 'Rabona Digital',
-    published_at: new Date().toISOString(),
-    is_kartalix_content: true, is_template: false,
-    publish_mode: 'rabona_digest', nvs: 74,
-    category: 'Analiz', slug,
-    url: videos.length === 1 ? `https://www.youtube.com/watch?v=${videos[0].video_id}` : 'https://www.youtube.com/c/RabonaDigital',
-    source_url: '',
-    image_url: '', is_p4: false, is_fresh: true, sport: 'football',
-    template_id: null, fixture_id: null,
-    ...(saved?.[0] ? { id: saved[0].id } : {}),
+  console.log(`YT SYNTHESIS${includeEmbed ? '+EMBED' : ''}: "${title.slice(0, 60)}" [${video.channel_name}]`);
+  return saved?.[0] || {
+    title, summary: bodyText.slice(0, 220), full_body,
+    template_id: includeEmbed ? 'T-VID' : null, slug,
+    publish_mode: includeEmbed ? 'youtube_embed_synthesis' : 'youtube_synthesis',
+    published_at: video.published_at, source_name: video.channel_name, nvs_score: nvs,
+    image_url: youtubeThumbnailUrl(video.video_id), video_type: classifyVideoType(title),
   };
 }
 

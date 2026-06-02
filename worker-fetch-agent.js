@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateRabonaDigest, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
@@ -4984,7 +4984,6 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null,
 
   let published = 0;
   let storyMatchCount = 0;   // cap Claude calls: 3 story-match attempts per run
-  const rabonaQueue = [];
   const embedFailures = [];
 
   // Pre-fetch open stories once for the whole YouTube pass
@@ -5000,96 +4999,57 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null,
     console.log(`YT ${channel.name}: ${videos.length} fetched → ${newVids.length} qualified`);
 
     for (const video of newVids.slice(0, 3)) {
-      // Transcript-only channels go to digest queue, not embed
-      if (video.transcript_qualify && !video.embed_qualify) {
-        rabonaQueue.push(video);
-        seenUrls.add(`https://www.youtube.com/watch?v=${video.video_id}`);
-        continue;
-      }
-      if (!video.embed_qualify) continue;
-      try {
-        const card = await generateVideoEmbed(video, site, env, stats);
-        if (!card) continue;
-        const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
-        const current = raw ? JSON.parse(raw) : [];
-        const kvCard  = toKVShape({ ...card, nvs: card.nvs_score || 72, is_kartalix_content: true, is_template: true });
-        await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 300));
-        seenUrls.add(`https://www.youtube.com/watch?v=${video.video_id}`);
-        published++;
+      if (!video.embed_qualify && !video.transcript_qualify) continue;
 
-        // Story matching — video contributes to story system (capped at 3/run)
-        if (storyMatchCount < 3) {
-          try {
-            if (!openStories) openStories = await getOpenStories(site.id, env);
-            const videoArticle = videoToArticle(video);
-            const facts = await extractFactsForStory(videoArticle, env);
-            if (!SKIP_STORY_TYPES.has(facts.story_type)) {
-              const { story, isNew } = await matchOrCreateStory(videoArticle, facts, site.id, env, openStories, site.short_code);
-              if (isNew) openStories = [...openStories, story];
-              console.log(`YT story match [${video.title?.slice(0, 40)}]: ${isNew ? 'NEW' : 'MATCHED'} → ${story.id} (${story.state})`);
-            }
-            storyMatchCount++;
-          } catch (e) {
-            console.error(`YT story match failed [${video.video_id}]:`, e.message);
-          }
-        }
-      } catch (e) {
-        console.error(`YT embed failed [${video.video_id}]:`, e.message);
-        embedFailures.push({ id: video.video_id, title: (video.title || '').slice(0, 60), err: e.message });
-      }
-    }
-  }
+      let card = null;
 
-  // ── RABONA DAILY DIGEST ────────────────────────────────────────
-  // One digest article per day from Fırat Günayer's videos.
-  if (rabonaQueue.length > 0) {
-    const today   = new Date().toISOString().slice(0, 10);
-    const dayKey  = `rabona:digest:${today}`;
-    const already = await env.PITCHOS_CACHE.get(dayKey);
-    if (!already) {
-      try {
-        const transcripts = [];
-        const usedVideos  = [];
-        for (const video of rabonaQueue) {
-          const text = await fetchYouTubeTranscript(video.video_id);
-          if (text) { transcripts.push(text); usedVideos.push(video); }
-
-          // Story matching for transcript-qualified videos (within cap)
-          if (storyMatchCount < 3) {
-            try {
-              if (!openStories) openStories = await getOpenStories(site.id, env);
-              const videoArticle = videoToArticle(video);
-              const facts = await extractFactsForStory(videoArticle, env);
-              if (!SKIP_STORY_TYPES.has(facts.story_type)) {
-                const { story, isNew } = await matchOrCreateStory(videoArticle, facts, site.id, env, openStories, site.short_code);
-                if (isNew) openStories = [...openStories, story];
-                console.log(`YT story match [Rabona/${video.title?.slice(0, 30)}]: ${isNew ? 'NEW' : 'MATCHED'} → ${story.id} (${story.state})`);
-              }
-              storyMatchCount++;
-            } catch (e) {
-              console.error(`YT story match failed [Rabona/${video.video_id}]:`, e.message);
-            }
+      // 1. Synthesis path — transcript available → summary article (+ embed if embed_qualify)
+      if (video.transcript_qualify) {
+        try {
+          const transcriptText = await fetchYouTubeTranscript(video.video_id);
+          if (transcriptText) {
+            card = await generateVideoSynthesis(video, transcriptText, site, env, stats, video.embed_qualify);
           }
+        } catch (e) {
+          console.error(`YT synthesis failed [${video.video_id}]:`, e.message);
         }
-        if (transcripts.length > 0) {
-          const card = await generateRabonaDigest(usedVideos, transcripts, site, env, stats);
-          if (card) {
-            const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
-            const current = raw ? JSON.parse(raw) : [];
-            const kvCard  = toKVShape({ ...card, nvs: card.nvs || 74, is_kartalix_content: true });
-            await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 300));
-            await env.PITCHOS_CACHE.put(dayKey, '1', { expirationTtl: 86400 });
-            published++;
-            console.log(`RABONA DIGEST published: ${usedVideos.length} video(s)`);
-          }
-        } else {
-          console.log(`RABONA DIGEST: ${rabonaQueue.length} video(s) queued but no transcripts returned`);
-        }
-      } catch (e) {
-        console.error('Rabona digest failed:', e.message);
       }
-    } else {
-      console.log(`RABONA DIGEST: already published today (${today}), skipping`);
+
+      // 2. Embed fallback — synthesis produced nothing (no transcript or Claude failure)
+      if (!card && video.embed_qualify) {
+        try {
+          card = await generateVideoEmbed(video, site, env, stats);
+        } catch (e) {
+          console.error(`YT embed failed [${video.video_id}]:`, e.message);
+          embedFailures.push({ id: video.video_id, title: (video.title || '').slice(0, 60), err: e.message });
+        }
+      }
+
+      if (!card) continue;
+
+      const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
+      const current = raw ? JSON.parse(raw) : [];
+      const kvCard  = toKVShape({ ...card, nvs: card.nvs_score || card.nvs || 72, is_kartalix_content: true, is_template: !!card.template_id });
+      await cacheToKV(env, site.short_code, mergeAndDedupe([kvCard, ...current], 300));
+      seenUrls.add(`https://www.youtube.com/watch?v=${video.video_id}`);
+      published++;
+
+      // Story matching — video contributes to story system (capped at 3/run)
+      if (storyMatchCount < 3) {
+        try {
+          if (!openStories) openStories = await getOpenStories(site.id, env);
+          const videoArticle = videoToArticle(video);
+          const facts = await extractFactsForStory(videoArticle, env);
+          if (!SKIP_STORY_TYPES.has(facts.story_type)) {
+            const { story, isNew } = await matchOrCreateStory(videoArticle, facts, site.id, env, openStories, site.short_code);
+            if (isNew) openStories = [...openStories, story];
+            console.log(`YT story match [${video.title?.slice(0, 40)}]: ${isNew ? 'NEW' : 'MATCHED'} → ${story.id} (${story.state})`);
+          }
+          storyMatchCount++;
+        } catch (e) {
+          console.error(`YT story match failed [${video.video_id}]:`, e.message);
+        }
+      }
     }
   }
 
