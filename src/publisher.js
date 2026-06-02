@@ -1,4 +1,4 @@
-﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, addUsagePhase, addCost, flushCostStats } from './utils.js';
+﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, addUsagePhase, addCost, flushCostStats, saveSourceFact } from './utils.js';
 import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens } from './processor.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
@@ -998,6 +998,25 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
     });
 
     console.log(`SUPABASE INSERT OK: ${publishable.length} articles, ${savedRows.length} returned with IDs`);
+
+    // Store source facts for RSS articles (fire-and-forget, never blocks publish flow)
+    const rssSaved = savedWithIds.filter(a => !String(a.publish_mode || '').startsWith('youtube'));
+    if (rssSaved.length > 0) {
+      Promise.all(rssSaved.map(a => saveSourceFact(env, siteId, {
+        sourceType:  'rss',
+        sourceName:  a.source_name || a.source || 'Unknown',
+        originalUrl: a.url || a.original_url || '',
+        title:       a.original_rss_title || a.title || '',
+        content:     a.summary || null,
+        publishedAt: a.published_at || a.fetched_at || null,
+        metadata: {
+          trust_tier:   a.trust_tier || a.trust,
+          publish_mode: a.publish_mode,
+          nvs:          a.nvs || a.nvs_score,
+        },
+      }))).catch(() => {});
+    }
+
     return { saved: savedWithIds, failed: [], thinDropped };
   } catch (e) {
     console.error('SUPABASE INSERT EXCEPTION:', e.message);
@@ -3106,17 +3125,17 @@ Video: ${video.title}
 Kanal: ${video.channel_name}
 
 Transkript:
-${transcriptText.slice(0, 2000)}
+${transcriptText.slice(0, 6000)}
 
 KURALLAR:
 - İlk satır: okuyucunun dikkatini çekecek Türkçe bir başlık. "BAŞLIK: " öneki ile yaz.
 - Ardından boş bir satır bırak
-- 200–300 kelime haber veya analiz metni
+- Transkriptteki önemli tüm bilgileri kapsa; içerik ne kadar önemliyse o kadar uzun yaz. Gereksiz tekrardan kaçın ama bilgiyi kısaltma.
 - Önemli alıntıları ve kilit argümanları öne çıkar
 - ${video.channel_name}'e atıf yaparak aktarım yap
 - Sade, bilgilendirici haber dili. Emoji yok.`;
 
-  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 700);
+  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 1500);
   const raw = extractText(res.content).trim();
   if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_GENERATE, 'template'); stats.claudeCalls++; }
   if (!raw || raw.length < 100) return null;

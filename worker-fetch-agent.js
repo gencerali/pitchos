@@ -9,7 +9,7 @@
  *   4. Caches articles to KV (fan site reads from here)
  *   5. Logs cost + results to Supabase
  */
-import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle } from './src/utils.js';
+import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle, saveSourceFact } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
@@ -5004,9 +5004,10 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null,
       let card = null;
 
       // 1. Synthesis path — transcript available → summary article (+ embed if embed_qualify)
+      let transcriptText = null;
       if (video.transcript_qualify) {
         try {
-          const transcriptText = await fetchYouTubeTranscript(video.video_id);
+          transcriptText = await fetchYouTubeTranscript(video.video_id);
           if (transcriptText) {
             card = await generateVideoSynthesis(video, transcriptText, site, env, stats, video.embed_qualify);
           }
@@ -5026,6 +5027,23 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null,
       }
 
       if (!card) continue;
+
+      // Store raw fact regardless of whether synthesis or embed was used
+      saveSourceFact(env, site.id, {
+        sourceType:  'youtube',
+        sourceName:  video.channel_name,
+        originalUrl: `https://www.youtube.com/watch?v=${video.video_id}`,
+        title:       video.title,
+        content:     transcriptText || null,
+        publishedAt: video.published_at,
+        metadata: {
+          video_id:    video.video_id,
+          channel_id:  video.channel_id,
+          channel_tier: video.channel_tier,
+          video_type:  video.video_type,
+          publish_mode: card.publish_mode,
+        },
+      }).catch(() => {});
 
       const raw     = await env.PITCHOS_CACHE.get('articles:' + site.short_code);
       const current = raw ? JSON.parse(raw) : [];

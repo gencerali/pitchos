@@ -197,6 +197,33 @@ export async function supabase(env, method, path, body, extraHeaders = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+// Upsert a raw source fact. Fire-and-forget — never throws, never blocks the main pipeline.
+// On duplicate (site_id + original_url), silently ignores (existing fact preserved).
+export async function saveSourceFact(env, siteId, {
+  sourceType, sourceName, originalUrl, title,
+  content = null, publishedAt = null, metadata = {},
+}) {
+  try {
+    await supabase(env, 'POST',
+      '/rest/v1/source_facts?on_conflict=site_id,original_url',
+      {
+        site_id:      siteId,
+        source_type:  sourceType,
+        source_name:  sourceName,
+        original_url: originalUrl,
+        title,
+        content,
+        published_at: publishedAt,
+        fetched_at:   new Date().toISOString(),
+        metadata,
+      },
+      { 'Prefer': 'resolution=ignore-duplicates,return=minimal' }
+    );
+  } catch (e) {
+    console.error('saveSourceFact failed:', e.message);
+  }
+}
+
 export async function getActiveSites(env) {
   const res = await supabase(env, 'GET', '/rest/v1/sites?status=eq.live&order=created_at.asc&select=*');
   return res || [];
