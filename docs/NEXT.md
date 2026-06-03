@@ -9,9 +9,11 @@ Update this at the END of every work session. Not the start — the end. Future-
 ## NEXT ACTION
 
 **NEXT**:
-1. Sprint 1 Task 1.1 — Docs reconciliation (ROADMAP.md, NEXT.md, DECISIONS.md). ← this task
-2. Sprint 1 Task 1.2 — Per-source-per-content-type NVS+lifetime config extension in `SCORING_CONFIG_DEFAULTS`
-3. Sprint 1 Task 1.3 — Reorder pipeline so scoring runs AFTER fact extraction (currently scores on RSS metadata only)
+1. Sprint 1 Task 1.3 — Reorder pipeline so scoring runs AFTER fact extraction (currently scores on RSS metadata only). ← this task
+
+**Done / descoped:**
+- Task 1.1 — Docs reconciliation (ROADMAP/NEXT/DECISIONS). ✅ commit `0f64196`
+- Task 1.2 — Per-source-per-content-type NVS+lifetime config. ❌ **descoped 2026-06-03** — existing tier multiplier (source quality) + per-type half-life (content lifetime) already cover it; only real gap is source-blind video scoring, deferred to a one-line `getTrustMultiplier` gate relaxation if ever needed. See DECISIONS.md 2026-06-03.
 
 ---
 

@@ -1812,4 +1812,20 @@ Shipped: `SCORING_CONFIG_DEFAULTS` (exported constant, `src/publisher.js:1216`);
 
 ---
 
+### 2026-06-03 — Sprint 1 Task 1.2 descoped: no per-source-per-content-type NVS/lifetime config
+
+**Decision**: Do **not** build a `source_overrides` (source × content-type → NVS/half-life) layer in `SCORING_CONFIG_DEFAULTS`. Task 1.2 is descoped. The existing scoring levers are sufficient.
+
+**Alternatives considered**:
+- A: `source_overrides` map keyed by `source_name` × content-type, deep-merged over the base per-type maps inside `getEffectiveNVS`/`getHalfLife` — rejected; over-engineered for current scale (~5 RSS + ~5 YouTube channels), duplicates the tier multiplier as a second "source quality" mechanism that can disagree with it, string-keyed by display name (silent breakage on source rename), and editable only as raw KV JSON until the deferred Phase 3 admin UI.
+- B: Relax the `getTrustMultiplier` gate (publisher.js:1321) to also apply to video publish modes, reusing the tier already on the row (`trust_tier: video.channel_tier`) — held in reserve; cheap one-liner, but not applied now because no concrete video mis-ranking has been observed.
+
+**Why this one**: The two axes Task 1.2 targets are already covered. **Source quality** is already applied to RSS rewrites/synthesis via the tier multiplier (T1 1.8× → T4 0.5×); **content lifetime** is already per-type via `video_half_life_by_type`, `template_half_life_by_id`, and `rewrite_half_life_by_category`. The only genuine gap is that video scoring ignores source (multiplier gated to rewrite/synthesis, so an official-channel highlight and a beIN highlight both score NVS 95×1.0). That gap is real but not currently painful — highlights are largely interchangeable footage — and if it ever bites, alternative B fixes it in one line without a new config surface to maintain.
+
+**What would change our mind**: A concrete, observed mis-ranking — a specific source ranking too high or too low for a specific content type that the tier multiplier + per-type half-life cannot express. First response would be alternative B (relax the video multiplier gate) or a nudge to an existing per-type value; only a recurring need across many sources would justify the full `source_overrides` matrix.
+
+**Related**: `src/publisher.js` `getEffectiveNVS` (1278), `getHalfLife` (1298), `getTrustMultiplier` (1320), `computeScore` (1326), `SCORING_CONFIG_DEFAULTS` (1216); `src/youtube.js` channel tiers; `worker-fetch-agent.js:4969` (video `trust_tier`); NEXT.md Sprint 1.
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*
