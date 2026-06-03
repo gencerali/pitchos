@@ -2017,7 +2017,7 @@
   function buildVideoRail(cacheResponse) {
     const articles = cacheResponse.articles || [];
     const fallback = cacheResponse.rail_fallback || [];
-    const allVideos = articles.filter(a => a.publish_mode === 'youtube_embed');
+    const allVideos = articles.filter(a => ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'].includes(a.publish_mode));
     const featured = [...allVideos]
       .sort((a, b) => (b.current_rank || 0) - (a.current_rank || 0))
       .slice(0, 3);

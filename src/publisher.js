@@ -1398,7 +1398,7 @@ export function rankAndEvict(articles, limit = 200, opts = {}) {
   let videoCount = 0;
   const capped = [];
   for (const a of survived) {
-    if (a.publish_mode === 'youtube_embed') {
+    if (['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'].includes(a.publish_mode)) {
       if (videoCount >= MAX_VIDEOS) {
         if (a.slug) evictedReasonMap.set(a.slug, 'video_cap');
         continue;
