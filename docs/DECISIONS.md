@@ -1680,4 +1680,136 @@ Both templates show `image_url` unconditionally. For `youtube_embed` articles, `
 
 ---
 
+### 2026-05-30 — NVS Harmonization P2: core scoring shipped
+
+**Decision**: Shipped config-driven scoring to replace ad-hoc constants across the pipeline.
+
+Shipped: `SCORING_CONFIG_DEFAULTS` (exported constant, `src/publisher.js:1216`); `loadSiteConfig` (reads `config:BJK` KV, falls back to defaults); `getEffectiveNVS`, `getHalfLife`, `getTrustMultiplier`, `computeScore` (all exported); `rankAndEvict` updated to call these functions. `config:BJK` KV written with initial BJK values.
+
+**Why**: Ad-hoc constants scattered across the codebase made per-site tuning impossible without a deploy. Config-driven scoring makes thresholds transparent and adjustable via KV without code changes.
+
+**Alternatives considered**: Per-site code branches — rejected; doesn't scale to multi-tenant. Inline DB calls at rank time — rejected; latency concern inside `rankAndEvict`.
+
+**What would change our mind**: If the KV round-trip in `loadSiteConfig` proves a bottleneck — cache the config object on the `stats` object and pass it through instead of reloading.
+
+**Related**: `src/publisher.js` lines 1216–1438; `docs/nvs-harmonization-assessment-2026-05-30.md`
+
+---
+
+### 2026-05-30 — P4: video rail wiring shipped
+
+**Decision**: Replace the `MOCK_VIDEOS` placeholder in the "Video Öne Çıkanlar" homepage rail with real data. `/cache` now returns `{ articles, rail_fallback }` — `rail_fallback` is a curated slug list drawn from `config.rail_fallback_video_slugs` in the site config.
+
+**Why**: Homepage rail was showing hardcoded placeholder cards. Real rail data needed to unblock AdSense content quality audit and for accurate editorial measurement.
+
+**Alternatives considered**: Compute featured videos dynamically at query time — deferred (VH4 in roadmap); KV-backed curated slug list is lower risk and zero-latency.
+
+**What would change our mind**: VH4 featured ranking logic ships — at that point `rail_fallback` can be replaced with a real scoring query.
+
+**Related**: `worker-fetch-agent.js` lines 398–418
+
+---
+
+### 2026-05-30 — P13: admin scoring visibility shipped
+
+**Decision**: Add Rank / Entry NVS / Now Score / Exit ETA columns to `/admin/icerik` article list. `_exit_eta` is computed at score time: `computeScore` result at current age vs rank floor; pinned articles show "Pinned"; floor-eviction-imminent shows "imminent".
+
+**Why**: Previously impossible to see why a specific article was evicted or how much runway it had left. Operators had to guess from publish timestamp + NVS alone.
+
+**What would change our mind**: Nothing structural — this is observability. ETA formula may be refined as rank floor tuning happens.
+
+**Related**: `worker-fetch-agent.js` lines 3155, 8066–8072
+
+---
+
+### 2026-05-31 — Cost tracking completeness: addUsagePhase on all Claude call sites
+
+**Decision**: Wire `addUsagePhase(stats, usage, model, phase)` into every Claude call site across the pipeline. Sonnet rate updated to $3.00/$15.00 per M tokens. Cache token fields (`cache_creation_input_tokens`, `cache_read_input_tokens`) handled.
+
+**Why**: Previously, only some call sites reported to cost stats. Monthly spend estimates were underestimates. `/admin/financials` UI requires complete data to be trustworthy.
+
+**What would change our mind**: Anthropic rate change — update `MODEL_COSTS` in `src/utils.js`.
+
+**Related**: `src/utils.js` `addUsagePhase`; `worker-fetch-agent.js` lines 5118–5774
+
+---
+
+### 2026-05-31 — Financials breakdown UI at /admin/financials
+
+**Decision**: Add `/admin/financials` admin page: spend breakdown by phase (scout/synthesis/template/verify/embed), by model (Haiku/Sonnet), by template; time period selector (current month, past months); $/article economics tile. Monthly snapshots cached to KV (`financials:{month}`).
+
+**Why**: Operating blind on costs. The cap was set at €30/month but no visibility into which phases drove spend made it hard to optimise.
+
+**Alternatives considered**: Embed in `/admin/cost` — rejected; different audience (cost = current month snapshot, financials = historical breakdown). Supabase table for cost rows — rejected; KV is sufficient for monthly granularity and avoids schema migration.
+
+**What would change our mind**: If cost snapshot granularity needs to drop to per-run rather than per-month, the KV approach would require redesign.
+
+**Related**: `worker-fetch-agent.js` lines 1824–1881, 9181; commit `9c09a66`
+
+---
+
+### 2026-05-31 — Synthesis prompt caching enabled
+
+**Decision**: Add `cache_control: { type: "ephemeral" }` to the static system-prefix parameter in all Sonnet synthesis calls. Enable `anthropic-beta: prompt-caching-2024-07-31` header on all Claude API requests.
+
+**Why**: The system prompt (editorial rules, Turkish voice, prohibited phrases) is identical across all synthesis calls in a session. Caching the static prefix saves ~70% of system-prompt tokens on every repeated call within the 5-minute TTL window. Estimated cost reduction: 20–30% on synthesis-heavy pipeline runs.
+
+**Alternatives considered**: Cache only on some call sites — rejected; the beta header and `cache_control` field are harmless on calls that don't benefit, so apply universally.
+
+**What would change our mind**: Anthropic changes caching semantics or pricing in a way that makes ephemeral caching cost-neutral or negative.
+
+**Related**: `src/utils.js` line 168; commit `4c85d19`
+
+---
+
+### 2026-06-01 — P9: Config admin Phase 1 read-only shipped
+
+**Decision**: Add `/admin/config` route showing all current site config values in read-only form across 6 sections (Scoring, Thresholds, Video, Sources, Leagues, Season). Values read from `loadSiteConfig` (KV + `SCORING_CONFIG_DEFAULTS` fallback) and live Supabase `sites` row.
+
+**Why**: Config values were only visible by reading source code. Operators needed a single place to verify what the running system believes its config is.
+
+**Related**: `worker-fetch-agent.js` line 2863; commit `f634c74`
+
+---
+
+### 2026-06-01 — P10: Config admin Phase 2 editable fields shipped
+
+**Decision**: `/admin/config/save` POST endpoint allows editing Supabase-backed site config fields (scoring thresholds, team/league/season identifiers). Each save: validates field types, applies to Supabase `sites` row, writes to audit log KV key `config_audit:{site_code}` (last 50 entries, timestamp + before/after values). Requires admin session cookie.
+
+**Why**: P9 read-only was insufficient for operator tuning. Editable fields let BJK scoring parameters be adjusted without a code deploy.
+
+**Alternatives considered**: Edit directly in Supabase dashboard — rejected; no audit trail, no validation, no access control for non-technical operators.
+
+**What would change our mind**: If audit log grows beyond KV slot limits (50-entry cap mitigates this), move to Supabase `admin_activity` table (planned in Cockpit spec).
+
+**Related**: `worker-fetch-agent.js` lines 2877–2925; commit `3cfaa59`
+
+---
+
+### 2026-06-01 — P8: Curated push-to-homepage shipped
+
+**Decision**: Add `push_to_homepage`, `manual_nvs`, `manual_half_life`, `push_enabled_at` columns to `content_items`. In `getEffectiveNVS` and `getHalfLife`: if `push_to_homepage=true`, use `manual_nvs` (default 75) and `manual_half_life` (default 12h) instead of computed values. `/admin/curated-video` toggle wired. `push_enabled_at` anchors the article's age for decay — set at push time, not at original publish time, so pushed articles don't immediately decay out.
+
+**Why**: Belgeseller/Unutulmazlar curated videos needed to surface on the homepage without dominating it. A simple boolean + manual NVS override lets an operator pin a video with controlled decay.
+
+**Alternatives considered**: Separate KV list of pinned slugs — rejected; DB columns are queryable and survive KV wipes. Fixed-rank override (no decay) — rejected; creates permanent homepage lock-in even for outdated content.
+
+**What would change our mind**: If `push_enabled_at` age anchor creates confusing editorial semantics — could switch to a fixed expiry datetime instead of a decay anchor.
+
+**Related**: `worker-fetch-agent.js` lines 3351–3432, 1607; `src/publisher.js` `getEffectiveNVS`, `getHalfLife`; commits `37f114c`, `ff554fa`, `46c61e7`
+
+---
+
+### 2026-06-02 — P14: Dedup hardening shipped
+
+**Decision**: Two changes: (1) within-batch dedup on generated article titles — after `generateVideoSynthesis` / `generateVideoEmbed` produce a card, check the generated title against all titles generated earlier in the same pipeline run; skip if similar title already published in this batch. (2) Duhuliye reclassified T3→T4 (aggregator tier) — consistent with its role as an aggregator, not an independent source.
+
+**Why**: Without within-batch dedup, two videos from different channels covering the same match event could produce near-identical articles in the same run. Duhuliye T3 inflated its ranking score relative to actual journalism quality.
+
+**What would change our mind**: (1) If within-batch dedup causes excessive drops of legitimately distinct articles — add a minimum similarity threshold. (2) Duhuliye T4 is a permanent reclassification unless its editorial independence improves substantially.
+
+**Related**: `worker-fetch-agent.js`; commit `baa5b75`
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*

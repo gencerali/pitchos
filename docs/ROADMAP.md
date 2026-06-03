@@ -25,7 +25,7 @@ Full plan: `docs/nvs-harmonization-assessment-2026-05-30.md`
 
 ---
 
-## Current State: v0.95 (shipped 2026-05-18)
+## Current State: Post-NVS-Harmonization (no version tag; feature-complete on that workstream as of 2026-06-02)
 
 ---
 
@@ -35,35 +35,41 @@ These run alongside the sprint sequence. Each is independent unless noted.
 
 ---
 
-### 🔴 NVS Harmonization *(active — critical path before AdSense resubmission)*
+### ✅ NVS Harmonization *(complete — 2026-05-30)*
 
-Goal: Replace ad-hoc scoring constants with a config-driven NVS system; clean up homepage video dominance for AdSense resubmission. One package at a time with verification between each.
-
-**P1 open questions** (to be decided before P2 code starts):
-- Q1: Keep `storyBoost` + `trustMultiplier` for rewrites?
-- Q2: `/tum-haberler` in scope now or later?
-- Q3: Video rail wiring (P4) in same change as P2?
-- Q4: Homepage feed size 15 — dynamic floor on slow days?
-- Q5: Curated video exclusion — category discriminator vs DB columns?
-- Q6: T-OG `template_id` fix — in this change or leave alone?
+Goal: Replace ad-hoc scoring constants with a config-driven NVS system; clean up homepage video dominance for AdSense resubmission. All packages complete.
 
 | Package | Status | Scope | Effort | Deps |
 |---------|--------|-------|--------|------|
-| P0 | 🔲 Next | Pre-flight SQL verification (read-only): published_at backfill, confirm no NULLs in last 14 days, confirm `config:BJK` KV absent | XS | — |
-| P1 | 🔲 Next | Decide Q1–Q6 above (Ali + assistant, no code) | XS | P0 |
-| P2 ⭐ | 🔲 Not started | Core scoring: `getEffectiveNVS`, `getHalfLife`, `loadSiteConfig` with hardcoded fallbacks, updated `rankAndEvict`, write `config:BJK` KV. Files: `src/publisher.js` (lines 984–1031, 1126–1214), `worker-fetch-agent.js` | M | P0, P1 |
-| P4 | 🔲 Not started | Video rail: replace `MOCK_VIDEOS` placeholder in "Video Öne Çıkanlar" rail with real data. Files: `index.html` (~40 lines), possibly new `/featured-videos` endpoint | S | — |
-| P5 | 🔲 Not started | Homepage video cap: at most 3 videos in top 15 post-sort; feed size → 15. Files: `src/publisher.js`, `index.html` | S | P2 |
-| P6 | 🔲 Not started | Curated video exclusion from main feed via category discriminator (`belgeseller` / `unutulmaz`). File: `src/publisher.js` `getEffectiveNVS` | S | P2 |
-| P3 | 🟡 Second wave | T-OG `template_id` fix: `generateGoalFlash` saves `T-OG` for own goals instead of T10 | XS | P2 if Q6=yes |
-| P9 | 🟡 Second wave | Config admin page Phase 1 (read-only `/admin/config` showing all current values). Ref: `docs/config-page-design.md` | S | — |
-| P7 | 🟢 Deferred | `/tum-haberler` server-rendered paginated all-news page | M | content quality progress |
-| P8 | 🟢 Deferred | Curated push-to-homepage toggle: `push_to_homepage`, `manual_nvs`, `manual_half_life` DB columns + admin toggle | M | P6 verified |
-| P10 | 🟢 Deferred | Config admin Phase 2: save buttons for Supabase fields (thresholds, team/league/season) | S | P9 |
-| P11 | 🟢 Deferred | Config admin Phase 3: editable KV runtime overrides via `config:BJK` | S | P2 + P9 |
-| P12 | 🟢 Deferred | Config admin Phase 4: keyword editor for `sites.keyword_config.keywords` | S | P9 |
+| P0  | ✅ Done | Pre-flight SQL verification — run 2026-05-29 | XS | — |
+| P1  | ✅ Done | Q1–Q6 decided 2026-05-30 — no scope creep; T-OG removed; P7 deferred | XS | P0 |
+| P2 ⭐ | ✅ Done | Core scoring: `getEffectiveNVS`, `getHalfLife`, `loadSiteConfig`, `computeScore`, `rankAndEvict` updated; `config:BJK` KV written. `src/publisher.js` lines 1216–1438 | M | P0, P1 |
+| P4  | ✅ Done | Video rail: `MOCK_VIDEOS` replaced; `/cache` returns `{ articles, rail_fallback }` from `rail_fallback_video_slugs` config | S | — |
+| P5  | ✅ Done | Homepage video cap: `MAX_VIDEOS=3` enforced after sort in `rankAndEvict`; excess videos evicted with reason `video_cap`. `src/publisher.js:1397` | S | P2 |
+| P6  | ✅ Done | Curated video exclusion: `curated_video_nvs: { belgeseller: 15, unutulmaz: 15 }` in config; `getEffectiveNVS` returns 15 for those categories → near-zero rank → evicted from homepage KV. `src/publisher.js:1250,1282` | S | P2 |
+| P8  | ✅ Done | Curated push-to-homepage: `push_to_homepage`, `manual_nvs`, `manual_half_life`, `push_enabled_at` DB columns; scoring overrides in `getEffectiveNVS`/`getHalfLife`; `/admin/curated-video` toggle; commits `37f114c`, `ff554fa`, `46c61e7` | M | — |
+| P9  | ✅ Done | Config admin Phase 1: `/admin/config` read-only view (6 sections); commit `f634c74` | S | — |
+| P10 | ✅ Done | Config admin Phase 2: editable Supabase fields, validation, per-field audit log to KV (`config_audit:BJK`); commit `3cfaa59` | S | P9 |
+| P13 | ✅ Done | Admin scoring visibility: Rank / Entry NVS / Now Score / Exit ETA columns in `/admin/icerik`; `worker-fetch-agent.js:3155,8066` | S | P2 |
+| P14 | ✅ Done | Dedup hardening: within-batch dedup on generated article titles; Duhuliye reclassified T3→T4 (aggregator); commit `baa5b75` | S | — |
+| P3  | 🟢 Skipped | T-OG `template_id` fix — T-OG template removed entirely per Q6 decision | XS | — |
+| P7  | 🟢 Skipped | `/tum-haberler` paginated all-news page — deferred indefinitely per Q2 decision | M | — |
+| P11 | 🟢 Parked | Config admin Phase 3: editable KV runtime overrides — admin UX nice-to-have | S | P2 + P9 |
+| P12 | 🟢 Parked | Config admin Phase 4: keyword editor — parked indefinitely | S | P9 |
 
 **Note:** The 10-step incremental scoring redesign (D1–D5) is a separate parked workstream — not part of this harmonization.
+
+---
+
+### ✅ Cost Infrastructure *(complete — 2026-05-31)*
+
+Goal: Track all Claude spend with per-phase granularity; reduce costs through prompt caching; provide operator visibility.
+
+- **Cost tracking completeness** — `addUsagePhase()` wired to all Claude call sites (synthesis, templates, fact extract, verify, embed, scout); Sonnet rate updated to $3.00/$15.00 per M tokens; `cache_creation_input_tokens` / `cache_read_input_tokens` handled
+- **Financials breakdown UI** — `/admin/financials` page: spend by phase, by model, by template; time period selector; $/article economics; monthly snapshots cached to KV
+- **Synthesis prompt caching** — `cache_control: ephemeral` on static system prefix; `anthropic-beta: prompt-caching-2024-07-31` header; estimated 20–30% token cost reduction on synthesis-heavy runs
+
+Session: 2026-05-31. Commit: `9c09a66` (financials), `4c85d19` (prompt caching).
 
 ---
 
@@ -174,6 +180,20 @@ Goal: `/admin/cockpit` — single control room for all operational levers (trigg
 - [ ] Activity log: `admin_activity` table (actor, action_type, action_name, before/after jsonb, result, duration_ms) + scrollable log at page bottom
 
 **Dependencies:** Worker Split Phase 2, Config Phase 0. **Estimated effort:** ~5 days total.
+
+---
+
+### Sprint Plan *(June–October 2026, pre-v1.0 launch)*
+
+Full task-level plan in `docs/kartalix_sprint_plan.txt`. Working method: one task at a time, estimate before implement, verify before next task.
+
+| Sprint | Weeks | Goal | Status |
+|--------|-------|------|--------|
+| 1 | 1–2 | Per-source-per-type NVS/lifetime config extension + scoring-after-content reorder + `utils_old.js` cleanup | 🟡 Active |
+| 2 | 3–4 | Worker Split Phases 1–4 — extract admin handlers + render functions from `worker-fetch-agent.js` (see "Worker Split" parallel workstream) | 🔲 |
+| 3 | 5–6 | Rewrite quality (A1, A2, B1–B3) + editorial voice + image system (Unsplash/Pexels + API-Football photos) + multi-source synthesis (A3) | 🔲 |
+| 4 | 7–8 | Frontend redesign via template customization + design system tokens + auth schema (D0) + launch hardening + **v1.0 ship** | 🔲 |
+| 5–10 | 9–20 | Post-launch: facts pipeline worker separation, gamification (streaks, predictions), analytics, multi-tenant prep | 🔲 |
 
 ---
 
@@ -520,6 +540,20 @@ Requires I3/I4 data to have accumulated. Do not build before 6 weeks of journali
 - Twitter/X auto-post — $100/mo X API Basic. Unblocks when ad revenue covers it.
 - bjk.com.tr content — CAPTCHA-protected. Unblocks with ScrapingBee ($49/mo) or residential proxy.
 - Fixed egress IP for widget API caching — needs a cheap VPS. Unblocks at ~333 page loads/day.
+
+---
+
+## Deferred to 2027
+
+Explicitly out of year-1 scope. Do not plan around these.
+
+- Sportmonks paid xG data (Phase 5, ~€29–129/month)
+- C5/C6 advanced analytics (event data, referee analysis)
+- Phaser mini-games (penalty shootout, etc.)
+- B2B PITCHOS white-label offering
+- Betting affiliate (deliberately off year-1 plan — TR regulatory risk)
+- Cross-tenant tribal ranking
+- Full visual rebuild beyond template customization
 
 ---
 
