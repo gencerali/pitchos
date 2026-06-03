@@ -999,8 +999,9 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
 
     console.log(`SUPABASE INSERT OK: ${publishable.length} articles, ${savedRows.length} returned with IDs`);
 
-    // Store source facts for RSS articles (fire-and-forget, never blocks publish flow)
-    const rssSaved = savedWithIds.filter(a => !String(a.publish_mode || '').startsWith('youtube'));
+    // Store source facts for all publishable RSS articles — use publishable (not savedWithIds)
+    // so facts are stored even when the article already existed in DB (ignore-duplicates upsert).
+    const rssSaved = publishable.filter(a => !String(a.publish_mode || '').startsWith('youtube'));
     if (rssSaved.length > 0) {
       Promise.all(rssSaved.map(a => saveSourceFact(env, siteId, {
         sourceType:  'rss',
