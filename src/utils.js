@@ -233,15 +233,18 @@ export async function getActiveSites(env) {
 // Scopes: 'global' applies everywhere. Narrower scopes: 'match', 'transfer',
 // 'news', 'T01', 'T05', 'T08b', 'T09', 'T10', 'T11', etc.
 // Returns a formatted instruction block to prepend to any Claude prompt.
-export async function getEditorialNotes(env, scopes = []) {
+// IMPORTANT for prompt caching: the editorial notes are stable across a pipeline
+// run, but the voice-pattern examples are picked at RANDOM on every call. When a
+// caller embeds this output inside a `cache_control` system prefix, the random
+// voice patterns change the prefix bytes on every request — busting the cache
+// (write every call at 1.25x, never a 0.1x read). Cached call sites must pass
+// `{ excludeVoicePatterns: true }` here and append getVoicePatterns() to the
+// UNCACHED user turn instead. See synthesizeArticle in publisher.js.
+export async function getEditorialNotes(env, scopes = [], opts = {}) {
   try {
-    const [rawNotes, rawPatterns] = await Promise.all([
-      env.PITCHOS_CACHE.get('editorial:notes'),
-      env.PITCHOS_CACHE.get('editorial:voice_patterns'),
-    ]);
-
     let block = '';
 
+    const rawNotes = await env.PITCHOS_CACHE.get('editorial:notes');
     if (rawNotes) {
       const notes = JSON.parse(rawNotes);
       const relevant = notes.filter(n =>
@@ -253,28 +256,38 @@ export async function getEditorialNotes(env, scopes = []) {
       }
     }
 
-    if (rawPatterns) {
-      const patterns = JSON.parse(rawPatterns);
-      if (patterns.length > 0) {
-        // Pick 3 weighted-random style examples to inject as style guidance
-        const pool = patterns.flatMap(p => Array(Math.max(1, Math.round((p.weight || 1) * 2))).fill(p));
-        const picked = [];
-        const used = new Set();
-        for (let i = 0; i < Math.min(3, patterns.length); i++) {
-          let tries = 0;
-          while (tries++ < 20) {
-            const idx = Math.floor(Math.random() * pool.length);
-            const p = pool[idx];
-            if (!used.has(p.id)) { used.add(p.id); picked.push(p); break; }
-          }
-        }
-        if (picked.length > 0) {
-          block += `YAZIM TARZI ÖRNEKLERİ — aşağıdaki cümle ritmi ve dil tarzını yansıt (içerik değil, sadece ses ve üslup):\n${picked.map(p => `• ${p.example_sentences}`).join('\n')}\n\n`;
-        }
-      }
+    if (!opts.excludeVoicePatterns) {
+      block += await getVoicePatterns(env);
     }
 
     return block;
+  } catch(e) {
+    return '';
+  }
+}
+
+// Returns 3 weighted-random style examples as a style-guidance block. Volatile by
+// design (different pick every call) — keep it OUT of any cache_control prefix.
+export async function getVoicePatterns(env) {
+  try {
+    const rawPatterns = await env.PITCHOS_CACHE.get('editorial:voice_patterns');
+    if (!rawPatterns) return '';
+    const patterns = JSON.parse(rawPatterns);
+    if (patterns.length === 0) return '';
+
+    const pool = patterns.flatMap(p => Array(Math.max(1, Math.round((p.weight || 1) * 2))).fill(p));
+    const picked = [];
+    const used = new Set();
+    for (let i = 0; i < Math.min(3, patterns.length); i++) {
+      let tries = 0;
+      while (tries++ < 20) {
+        const idx = Math.floor(Math.random() * pool.length);
+        const p = pool[idx];
+        if (!used.has(p.id)) { used.add(p.id); picked.push(p); break; }
+      }
+    }
+    if (picked.length === 0) return '';
+    return `YAZIM TARZI ÖRNEKLERİ — aşağıdaki cümle ritmi ve dil tarzını yansıt (içerik değil, sadece ses ve üslup):\n${picked.map(p => `• ${p.example_sentences}`).join('\n')}\n\n`;
   } catch(e) {
     return '';
   }

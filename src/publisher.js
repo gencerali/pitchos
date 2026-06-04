@@ -1,4 +1,4 @@
-﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, addUsagePhase, addCost, flushCostStats, saveSourceFact } from './utils.js';
+﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, getVoicePatterns, addUsagePhase, addCost, flushCostStats, saveSourceFact } from './utils.js';
 import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens } from './processor.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
@@ -584,8 +584,11 @@ export async function synthesizeArticle(article, env, site = null, opts = {}) {
     return { body: null };
   }
 
-  const [editorialCtx, groundingCtx, keyEntities, sourceFacts] = await Promise.all([
-    getEditorialNotes(env, ['general', 'style']),
+  // editorialCtx (stable across the run) goes into the cached system prefix;
+  // voicePatterns (random per call) must stay OUT of the cache — see getEditorialNotes.
+  const [editorialCtx, voicePatterns, groundingCtx, keyEntities, sourceFacts] = await Promise.all([
+    getEditorialNotes(env, ['general', 'style'], { excludeVoicePatterns: true }),
+    getVoicePatterns(env),
     buildGroundingContext(env, site),
     extractKeyEntities(article.title, sourceText, env, _usages),
     extractFactsFromSource(article.title, sourceText, env, _usages),
@@ -627,9 +630,10 @@ Kurallar:
 - Başlık ekleme`;
   const systemPrompt = [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }];
 
-  // Dynamic suffix: per-article content. Not cached — changes every call.
+  // Dynamic suffix: per-article content + random voice patterns. Not cached — changes every call.
+  const voiceBlock = voicePatterns ? `\n\n${voicePatterns.trimEnd()}` : '';
   const userContent = `Kaynak başlık: ${article.title}
-${isOfficial ? `Kaynak metin: ${sourceText}\n${sourceLabel}` : sourceLabel}${factsBlock}${entityBlock}
+${isOfficial ? `Kaynak metin: ${sourceText}\n${sourceLabel}` : sourceLabel}${factsBlock}${entityBlock}${voiceBlock}
 
 ${targetWords} kelime — fazlası yasak. Kaynak kaç bilgi veriyorsa o kadar yaz.`;
 
