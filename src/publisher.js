@@ -393,7 +393,7 @@ Bilmiyorsan null yaz.`;
 // extractFacts is capped at MAX_FACTS_EXTRACTS per run — each is a Claude call.
 // Articles arrive sorted by NVS, so only the highest-value P4 articles get facts.
 export const SYNTHESIS_NVS_THRESHOLD = 30;
-export const SYNTHESIS_CAP_PER_RUN = 18;
+export const SYNTHESIS_CAP_PER_RUN = 12;
 export const MAX_FACTS_EXTRACTS = 5;
 
 async function extractKeyEntities(title, sourceText, env, _usages = null) {
