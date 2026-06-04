@@ -3938,7 +3938,7 @@ Sadece JSON döndür:
       ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env)]));
     } else if (cron === '0 3 * * 1') {
       ctx.waitUntil(redistillEditorialNotes(env));
-    } else if (cron === '0 2 * * 0') {
+    } else if (cron === '0 2 * * 7') {
       ctx.waitUntil(runVoicePatternExtraction(env));
     } else {
       ctx.waitUntil(runAllSites(env, ctx, { cronExpr: event.cron }));
