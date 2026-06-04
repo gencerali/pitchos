@@ -4264,12 +4264,15 @@ Sadece JSON döndür.`;
 
 // ─── ORCHESTRATOR ────────────────────────────────────────────
 async function runAllSites(env, ctx, opts = {}) {
-  // Quiet period: 00:00–06:30 Istanbul (UTC+3) — no RSS runs overnight
+  // Quiet period: 00:00–06:00 Istanbul (UTC+3) — no RSS runs overnight.
+  // Ends at 06:00 (not 06:30) so the 03:00 UTC = 06:00 IST cron tick runs as
+  // the first morning run, instead of slipping to 09:00 IST. This keeps the
+  // overnight gap (21:00 → 06:00 IST = 9h) within the 9h lookback below.
   // Bypassed when called manually via /run (forceRun: true)
   if (!opts.forceRun) {
     const now = new Date();
     const istMin = ((now.getUTCHours() + 3) % 24) * 60 + now.getUTCMinutes();
-    if (istMin < 390) { // 390 = 06:30 in minutes
+    if (istMin < 360) { // 360 = 06:00 in minutes
       const hh = String(Math.floor(istMin / 60)).padStart(2, '0');
       const mm = String(istMin % 60).padStart(2, '0');
       console.log(`QUIET PERIOD: ${hh}:${mm} Istanbul — skipping RSS run`);
@@ -4283,7 +4286,8 @@ async function runAllSites(env, ctx, opts = {}) {
     return { processed: 0, skipped: 'cost_cap' };
   }
 
-  // Minimum 8h to cover quiet-period gap (00:00–06:30 IST = up to 7.5h no runs).
+  // Minimum 8h to cover quiet-period gap (21:00 → 06:00 IST = 9h; the 3h cron's
+  // 9h lookback covers it exactly).
   // Live-match runs pass opts.lookbackMs directly to skip the 8h floor.
   const lookbackMs = opts.lookbackMs != null
     ? opts.lookbackMs
