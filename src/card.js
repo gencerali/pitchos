@@ -71,15 +71,11 @@ function kIcon(x, y, size, main, red) {
     `<rect x="8" y="29" width="12" height="7" fill="${red}"/></g>`;
 }
 
-// Generic spread-wing eagle silhouette — a nod to "Kartal" (eagles). Deliberately NOT the
-// official Beşiktaş crest (trademark); a plain heraldic shape used only as a faint motif.
+// Spread-eagle silhouette — a nod to "Kartal" (eagles). Deliberately NOT the official
+// Beşiktaş crest (trademark); a plain heraldic spread eagle (feathered wings, tail, beak).
+const EAGLE_PATH = 'M0 54L16 42L11 26L22 20L15 13L36 15L27 4L52 9L41 -5L72 1L59 -13L98 -11L87 -23L122 -30L105 -42L64 -35L36 -41L24 -35L22 -46L13 -46L16 -57L7 -60L9 -51L22 -50L9 -47L4 -45L-4 -45L-9 -47L-22 -50L-9 -51L-7 -60L-16 -57L-13 -46L-22 -46L-24 -35L-36 -41L-64 -35L-105 -42L-122 -30L-87 -23L-98 -11L-59 -13L-72 1L-41 -5L-52 9L-27 4L-36 15L-15 13L-22 20L-11 26L-16 42Z';
 function eagleMotif(cx, cy, scale, color, opacity) {
-  return `<g transform="translate(${cx},${cy}) scale(${scale})" fill="${color}" fill-opacity="${opacity}">` +
-    `<path d="M0,-6 C-42,-42 -92,-30 -124,-52 C-92,-22 -70,-18 -80,0 C-50,-14 -28,-8 0,6 Z"/>` +
-    `<path d="M0,-6 C42,-42 92,-30 124,-52 C92,-22 70,-18 80,0 C50,-14 28,-8 0,6 Z"/>` +
-    `<path d="M0,-14 L11,2 L5,34 L-5,34 L-11,2 Z"/>` +
-    `<circle cx="0" cy="-20" r="9"/>` +
-    `<path d="M0,-24 L16,-21 L3,-15 Z"/></g>`;
+  return `<g transform="translate(${cx},${cy}) scale(${scale})"><path d="${EAGLE_PATH}" fill="${color}" fill-opacity="${opacity}"/></g>`;
 }
 
 // The foreground (frame + badge + headline + brand lockup) shared by both modes.
@@ -110,7 +106,6 @@ export function renderArticleCardSVG(article = {}, opts = {}) {
   const v = pickCardVariant(slug || title);
   const cat = categoryLabel(category);
   const lines = wrapTitle(title, 22, 3);
-  const seed = seedOf(slug || title);
 
   // ── Photo mode ──
   if (opts.bgDataUri) {
@@ -122,24 +117,12 @@ ${foreground(v, cat, lines, '#ffffff', '#cbd1d8', '#555555')}
 </svg>`;
   }
 
-  // ── Procedural mode ──
-  const flipped = seed % 2 === 1;
-  const glowAx = flipped ? 1080 : 120, glowBx = flipped ? 120 : 1080;
+  // ── Procedural mode ── clean gradient + faint eagle motif + accent corner wedge.
+  const eagleOp = v.mode === 'light' ? 0.06 : 0.085;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-<defs>
-<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${v.bg0}"/><stop offset="1" stop-color="${v.bg1}"/></linearGradient>
-<radialGradient id="gw" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#ffffff" stop-opacity="0.20"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
-<radialGradient id="ga" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="${v.accent}" stop-opacity="0.33"/><stop offset="1" stop-color="${v.accent}" stop-opacity="0"/></radialGradient>
-<filter id="grain"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope="0.06"/></feComponentTransfer></filter>
-</defs>
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${v.bg0}"/><stop offset="1" stop-color="${v.bg1}"/></linearGradient></defs>
 <rect width="1200" height="630" fill="url(#g)"/>
-<ellipse cx="${glowAx}" cy="60" rx="520" ry="360" fill="url(#gw)"/>
-<ellipse cx="${glowBx}" cy="120" rx="560" ry="420" fill="url(#ga)"/>
-<g fill="none" stroke="${v.text}" stroke-opacity="0.06" stroke-width="3"><circle cx="600" cy="720" r="250"/><path d="M-50 480 Q600 370 1250 480"/><rect x="430" y="610" width="340" height="200"/></g>
-${seed % 2 === 0
-  ? eagleMotif(995, 300, 2.05, v.text, 0.07)
-  : `<g opacity="0.05">${kIcon(840, 150, 360, v.text, v.accent)}</g>`}
-<rect width="1200" height="630" filter="url(#grain)" opacity="0.5"/>
+${eagleMotif(985, 315, 3.4, v.text, eagleOp)}
 <path d="M1200 0 L1200 300 L870 0 Z" fill="${v.accent}" opacity="0.9"/>
 ${foreground(v, cat, lines, v.text, v.mode === 'light' ? '#666666' : '#9aa0a6', v.mode === 'light' ? '#cccccc' : '#3a3a3a')}
 </svg>`;

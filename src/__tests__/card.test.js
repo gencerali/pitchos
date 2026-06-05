@@ -40,9 +40,10 @@ describe('IT6 generated card', () => {
     expect(svg).toContain('url(#scrim)');
   });
 
-  it('procedural mode (no bgDataUri) uses grain + bokeh, no <image>', () => {
+  it('procedural mode uses a clean gradient + eagle motif, no external image', () => {
     const svg = renderArticleCardSVG({ title: 'X', category: 'Match', slug: 'q' });
-    expect(svg).toContain('feTurbulence');     // grain
+    expect(svg).toContain('url(#g)');          // clean linear gradient
+    expect(svg).toContain('M0 54L16 42');      // eagle silhouette path
     expect(svg).not.toContain('<image');
   });
 
@@ -52,15 +53,9 @@ describe('IT6 generated card', () => {
     expect(svg).toContain('KARTALIX');
   });
 
-  it('shows an eagle motif on some slugs and the K watermark on others', () => {
-    let eagle = false, kmark = false;
-    for (let i = 0; i < 40 && !(eagle && kmark); i++) {
-      const svg = renderArticleCardSVG({ title: 'T', category: 'Haber', slug: 's' + i });
-      if (svg.includes('C-42,-42')) eagle = true;       // eagle wing path
-      else kmark = true;                                 // K watermark branch
-    }
-    expect(eagle).toBe(true);
-    expect(kmark).toBe(true);
+  it('every procedural card carries the eagle silhouette motif', () => {
+    const svg = renderArticleCardSVG({ title: 'T', category: 'Haber', slug: 's1' });
+    expect(svg).toContain('M0 54L16 42'); // eagle path present
   });
 
   it('pickBackground: null for empty pool, deterministic pick otherwise', () => {
