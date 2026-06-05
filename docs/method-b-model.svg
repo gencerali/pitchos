@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="1060" viewBox="0 0 1320 1060">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#374151"/></marker></defs>
+<defs><marker id="arrowO" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#EA580C"/></marker></defs>
+<defs><marker id="arrowP" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7C3AED"/></marker></defs>
+<defs><marker id="arrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#16A34A"/></marker></defs>
+<defs><marker id="arrowR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#DC2626"/></marker></defs>
+<rect x="0" y="0" width="1320" height="1060" rx="0" fill="#FBFBFD" stroke="#FBFBFD" stroke-width="0"/>
+<text x="660.0" y="34" font-family="Helvetica,Arial,sans-serif" font-size="19" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Kartalix — Topic-Graph Haber Modeli (trunk-default + 3 kenar + paralel claim-track)</text>
+<rect x="20" y="52" width="1280" height="300" rx="12" fill="#FFFFFF" stroke="#E5E7EB" stroke-width="1.5"/>
+<text x="40" y="78" font-family="Helvetica,Arial,sans-serif" font-size="15" text-anchor="start" fill="#1F2937" font-weight="bold" font-style="">A)  Bir FACT nasıl ARTICLE(lar)a dönüşür</text>
+<rect x="40" y="110" width="120" height="52" rx="8" fill="#E5E7EB" stroke="#6B7280" stroke-width="2"/>
+<text x="100.0" y="132.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">FACT</text>
+<text x="100.0" y="150.0" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="middle" fill="#374151" font-weight="normal" font-style="">tek kaynak / tek an</text>
+<rect x="195" y="110" width="118" height="52" rx="8" fill="#FEF3C7" stroke="#D97706" stroke-width="2"/>
+<text x="254.0" y="132.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">ROUTER</text>
+<text x="254.0" y="150.0" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="middle" fill="#374151" font-weight="normal" font-style="">news_mode?</text>
+<rect x="350" y="86" width="150" height="46" rx="8" fill="#FEE2E2" stroke="#DC2626" stroke-width="2"/>
+<text x="425.0" y="105.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">EVENT / resmî</text>
+<text x="425.0" y="123.0" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="middle" fill="#374151" font-weight="normal" font-style="">tek güvenilir kaynak</text>
+<rect x="540" y="86" width="170" height="46" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="625.0" y="105.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">ARTICLE — ANINDA</text>
+<text x="625.0" y="123.0" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="middle" fill="#374151" font-weight="normal" font-style="">snap / canlı</text>
+<line x1="313" y1="128" x2="350" y2="110" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="500" y1="109" x2="540" y2="109" stroke="#DC2626" stroke-width="2" marker-end="url(#arrowR)"/>
+<rect x="350" y="180" width="150" height="46" rx="8" fill="#DBEAFE" stroke="#2563EB" stroke-width="2"/>
+<text x="425.0" y="199.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">TOPIC</text>
+<text x="425.0" y="217.0" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="middle" fill="#374151" font-weight="normal" font-style="">kalıcı konu ipi</text>
+<rect x="540" y="180" width="150" height="46" rx="8" fill="#CCFBF1" stroke="#0D9488" stroke-width="2"/>
+<text x="615.0" y="199.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">CLAIM-TRACK(ler)</text>
+<text x="615.0" y="217.0" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="middle" fill="#374151" font-weight="normal" font-style="">mevcut doğru</text>
+<rect x="740" y="180" width="120" height="46" rx="8" fill="#FDE68A" stroke="#B45309" stroke-width="2"/>
+<text x="800.0" y="199.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">PHASE</text>
+<text x="800.0" y="217.0" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="middle" fill="#374151" font-weight="normal" font-style="">delta = beat</text>
+<rect x="900" y="180" width="150" height="46" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="975.0" y="199.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">ARTICLE(lar)</text>
+<text x="975.0" y="217.0" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="middle" fill="#374151" font-weight="normal" font-style="">phase başına 1..N</text>
+<line x1="313" y1="150" x2="350" y2="196" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="500" y1="203" x2="540" y2="203" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="690" y1="203" x2="740" y2="203" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="860" y1="203" x2="900" y2="203" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="800" y="170" font-family="Helvetica,Arial,sans-serif" font-size="10" text-anchor="middle" fill="#6B7280" font-weight="normal" font-style="italic">konfirme = sessiz</text>
+<text x="975" y="170" font-family="Helvetica,Arial,sans-serif" font-size="10" text-anchor="middle" fill="#6B7280" font-weight="normal" font-style="italic">fan-out (entity)</text>
+<text x="40" y="262" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#374151" font-weight="bold" font-style="">Kenar tipleri (TOPIC↔TOPIC):</text>
+<line x1="40" y1="280" x2="86" y2="280" stroke="#6B7280" stroke-width="2"/>
+<text x="94" y="284" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="start" fill="#111827" font-weight="normal" font-style="">child_of  (alt-beat)</text>
+<line x1="280" y1="280" x2="326" y2="280" stroke="#EA580C" stroke-width="2" stroke-dasharray="7,5"/>
+<text x="334" y="284" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="start" fill="#111827" font-weight="normal" font-style="">branch_of  (kopar + tip değiştir)</text>
+<line x1="600" y1="280" x2="646" y2="280" stroke="#7C3AED" stroke-width="2" stroke-dasharray="2,5"/>
+<text x="654" y="284" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="start" fill="#111827" font-weight="normal" font-style="">sequel_of  (konu doğurur)</text>
+<rect x="40" y="313" width="20" height="18" rx="8" fill="#E5E7EB" stroke="#6B7280" stroke-width="2"/>
+<text x="50.0" y="327.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style=""></text>
+<text x="68" y="327" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="start" fill="#111827" font-weight="normal" font-style="">FACT</text>
+<rect x="240" y="313" width="20" height="18" rx="8" fill="#FEE2E2" stroke="#DC2626" stroke-width="2"/>
+<text x="250.0" y="327.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style=""></text>
+<text x="268" y="327" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="start" fill="#111827" font-weight="normal" font-style="">EVENT</text>
+<rect x="440" y="313" width="20" height="18" rx="8" fill="#DBEAFE" stroke="#2563EB" stroke-width="2"/>
+<text x="450.0" y="327.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style=""></text>
+<text x="468" y="327" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="start" fill="#111827" font-weight="normal" font-style="">TOPIC</text>
+<rect x="640" y="313" width="20" height="18" rx="8" fill="#CCFBF1" stroke="#0D9488" stroke-width="2"/>
+<text x="650.0" y="327.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style=""></text>
+<text x="668" y="327" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="start" fill="#111827" font-weight="normal" font-style="">CLAIM-TRACK</text>
+<rect x="840" y="313" width="20" height="18" rx="8" fill="#FDE68A" stroke="#B45309" stroke-width="2"/>
+<text x="850.0" y="327.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style=""></text>
+<text x="868" y="327" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="start" fill="#111827" font-weight="normal" font-style="">PHASE</text>
+<rect x="1040" y="313" width="20" height="18" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="1050.0" y="327.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style=""></text>
+<text x="1068" y="327" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="start" fill="#111827" font-weight="normal" font-style="">ARTICLE</text>
+<rect x="20" y="372" width="1280" height="668" rx="12" fill="#FFFFFF" stroke="#E5E7EB" stroke-width="1.5"/>
+<text x="40" y="398" font-family="Helvetica,Arial,sans-serif" font-size="15" text-anchor="start" fill="#1F2937" font-weight="bold" font-style="">B)  Gerçek Türk futbolu örnekleri — 3 topoloji</text>
+<text x="40" y="430" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="start" fill="#1D4ED8" font-weight="bold" font-style="">1) TRUNK — Transfer: Oyuncu X → BJK</text>
+<rect x="40" y="444" width="210" height="40" rx="8" fill="#DBEAFE" stroke="#2563EB" stroke-width="2"/>
+<text x="145.0" y="469.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">TOPIC: Oyuncu X → BJK</text>
+<line x1="100" y1="484" x2="100" y2="498" stroke="#374151" stroke-width="2"/>
+<rect x="40" y="504" width="150" height="40" rx="8" fill="#FDE68A" stroke="#B45309" stroke-width="2"/>
+<text x="115.0" y="529.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">İlgi</text>
+<rect x="210" y="504" width="90" height="40" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="255.0" y="529.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Haber 1</text>
+<line x1="190" y1="524" x2="210" y2="524" stroke="#16A34A" stroke-width="2" marker-end="url(#arrowG)"/>
+<rect x="40" y="566" width="150" height="40" rx="8" fill="#FDE68A" stroke="#B45309" stroke-width="2"/>
+<text x="115.0" y="591.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Anlaşma</text>
+<rect x="210" y="566" width="90" height="40" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="255.0" y="591.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Haber 2</text>
+<line x1="190" y1="586" x2="210" y2="586" stroke="#16A34A" stroke-width="2" marker-end="url(#arrowG)"/>
+<line x1="100" y1="560" x2="100" y2="566" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="40" y="628" width="150" height="40" rx="8" fill="#FDE68A" stroke="#B45309" stroke-width="2"/>
+<text x="115.0" y="653.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Sağlık kontrolü</text>
+<rect x="210" y="628" width="90" height="40" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="255.0" y="653.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Haber 3</text>
+<line x1="190" y1="648" x2="210" y2="648" stroke="#16A34A" stroke-width="2" marker-end="url(#arrowG)"/>
+<line x1="100" y1="622" x2="100" y2="628" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="40" y="690" width="150" height="40" rx="8" fill="#FDE68A" stroke="#B45309" stroke-width="2"/>
+<text x="115.0" y="715.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">İmza &amp; tanıtım</text>
+<rect x="210" y="690" width="90" height="40" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="255.0" y="715.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Haber 4</text>
+<line x1="190" y1="710" x2="210" y2="710" stroke="#16A34A" stroke-width="2" marker-end="url(#arrowG)"/>
+<line x1="100" y1="684" x2="100" y2="690" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+<text x="40" y="758" font-family="Helvetica,Arial,sans-serif" font-size="10.5" text-anchor="start" fill="#6B7280" font-weight="normal" font-style="italic">confirming katkı = sessiz (yeni haber yok)</text>
+<text x="40" y="776" font-family="Helvetica,Arial,sans-serif" font-size="10.5" text-anchor="start" fill="#6B7280" font-weight="normal" font-style="">→ saga başına ~4 doğru-zamanlı haber</text>
+<text x="470" y="430" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="start" fill="#B45309" font-weight="bold" font-style="">2) BRANCH &amp; SEQUEL &amp; FAN-OUT — Derbi → skandal</text>
+<rect x="470" y="444" width="250" height="42" rx="8" fill="#FEE2E2" stroke="#DC2626" stroke-width="2"/>
+<text x="595.0" y="470.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">EVENT: Derbi BJK–GS</text>
+<rect x="770" y="452" width="110" height="30" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="825.0" y="472.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Canlı haber</text>
+<line x1="720" y1="465" x2="770" y2="467" stroke="#DC2626" stroke-width="2" marker-end="url(#arrowR)"/>
+<rect x="470" y="520" width="250" height="42" rx="8" fill="#DBEAFE" stroke="#2563EB" stroke-width="2"/>
+<text x="595.0" y="546.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">TOPIC: Hakem / VAR tartışması</text>
+<line x1="560" y1="486" x2="560" y2="520" stroke="#EA580C" stroke-width="2" stroke-dasharray="7,5" marker-end="url(#arrowO)"/>
+<text x="620" y="510" font-family="Helvetica,Arial,sans-serif" font-size="10" text-anchor="start" fill="#EA580C" font-weight="bold" font-style="">branch_of</text>
+<rect x="470" y="598" width="250" height="42" rx="8" fill="#DBEAFE" stroke="#2563EB" stroke-width="2"/>
+<text x="595.0" y="624.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">TOPIC: TFF / şike soruşturması</text>
+<line x1="560" y1="562" x2="560" y2="598" stroke="#7C3AED" stroke-width="2" stroke-dasharray="2,5" marker-end="url(#arrowP)"/>
+<text x="620" y="588" font-family="Helvetica,Arial,sans-serif" font-size="10" text-anchor="start" fill="#7C3AED" font-weight="bold" font-style="">sequel_of</text>
+<rect x="470" y="676" width="160" height="40" rx="8" fill="#FDE68A" stroke="#B45309" stroke-width="2"/>
+<text x="550.0" y="701.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">PHASE: Karar açıklandı</text>
+<line x1="595" y1="640" x2="550" y2="676" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="660" y="665" width="120" height="34" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="720.0" y="687.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">BJK cephesi</text>
+<line x1="630" y1="696" x2="660" y2="682" stroke="#16A34A" stroke-width="2" marker-end="url(#arrowG)"/>
+<rect x="660" y="712" width="120" height="34" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="720.0" y="734.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Reaksiyonlar</text>
+<line x1="630" y1="696" x2="660" y2="729" stroke="#16A34A" stroke-width="2" marker-end="url(#arrowG)"/>
+<rect x="660" y="759" width="120" height="34" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="720.0" y="781.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Analiz</text>
+<line x1="630" y1="696" x2="660" y2="776" stroke="#16A34A" stroke-width="2" marker-end="url(#arrowG)"/>
+<text x="470" y="772" font-family="Helvetica,Arial,sans-serif" font-size="10.5" text-anchor="start" fill="#6B7280" font-weight="normal" font-style="italic">tek delta → entity'e göre N haber (1:N)</text>
+<text x="470" y="790" font-family="Helvetica,Arial,sans-serif" font-size="10.5" text-anchor="start" fill="#6B7280" font-weight="normal" font-style="">EVENT artık tohum: kopan substory kendi konusu olur</text>
+<text x="910" y="430" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="start" fill="#0D9488" font-weight="bold" font-style="">3) PARALEL CLAIM-TRACK — rakip anlatılar</text>
+<rect x="910" y="444" width="250" height="42" rx="8" fill="#DBEAFE" stroke="#2563EB" stroke-width="2"/>
+<text x="1035.0" y="470.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">TOPIC: Oyuncu X'in geleceği</text>
+<rect x="910" y="520" width="250" height="40" rx="8" fill="#CCFBF1" stroke="#0D9488" stroke-width="2"/>
+<text x="1035.0" y="536.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Track A → BJK</text>
+<text x="1035.0" y="554.0" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="middle" fill="#374151" font-weight="normal" font-style="">status: görüşme</text>
+<rect x="910" y="584" width="250" height="40" rx="8" fill="#CCFBF1" stroke="#0D9488" stroke-width="2"/>
+<text x="1035.0" y="600.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Track B → FB</text>
+<text x="1035.0" y="618.0" font-family="Helvetica,Arial,sans-serif" font-size="11" text-anchor="middle" fill="#374151" font-weight="normal" font-style="">status: teklif</text>
+<line x1="970" y1="486" x2="970" y2="520" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="970" y1="486" x2="1100" y2="584" stroke="#374151" stroke-width="2" marker-end="url(#arrow)"/>
+<rect x="910" y="656" width="250" height="38" rx="8" fill="#FDE68A" stroke="#B45309" stroke-width="2"/>
+<text x="1035.0" y="680.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Phase A2: anlaşma yakın</text>
+<rect x="940" y="704" width="200" height="34" rx="8" fill="#DCFCE7" stroke="#16A34A" stroke-width="2"/>
+<text x="1040.0" y="726.0" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="middle" fill="#111827" font-weight="bold" font-style="">Haber (BJK izi)</text>
+<line x1="1035" y1="560" x2="1035" y2="656" stroke="#0D9488" stroke-width="2" stroke-dasharray="3,4"/>
+<line x1="1035" y1="694" x2="1035" y2="704" stroke="#16A34A" stroke-width="2" marker-end="url(#arrowG)"/>
+<text x="910" y="766" font-family="Helvetica,Arial,sans-serif" font-size="10.5" text-anchor="start" fill="#6B7280" font-weight="normal" font-style="italic">çelişki ≠ üzerine yaz: her track kendi</text>
+<text x="910" y="784" font-family="Helvetica,Arial,sans-serif" font-size="10.5" text-anchor="start" fill="#6B7280" font-weight="normal" font-style="">doğrusunu &amp; phase'ini taşır (thrash yok)</text>
+<rect x="40" y="826" width="1240" height="40" rx="8" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.2"/>
+<text x="60" y="851" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#334155" font-weight="normal" font-style="">Çoklu-parent (DAG):  Sakatlık substory'si İKİ konuya bağlı  →  parent_topic_ids = [ Oyuncu X , Derbi maçı ]   (ağaç değil, yönlü graf — ama %80 hâlâ düz TRUNK).</text>
+<text x="40" y="884" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="start" fill="#1F2937" font-weight="bold" font-style="">Ulusal gazete karşılığı (AP/Reuters 'running story' modeli):</text>
+<text x="40" y="906" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="start" fill="#2563EB" font-weight="bold" font-style="">•</text>
+<text x="56" y="906" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#374151" font-weight="bold" font-style="">FACT</text>
+<text x="200" y="906" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#4B5563" font-weight="normal" font-style="">= ajans geçişi (AA/DHA/Reuters)</text>
+<text x="680" y="906" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="start" fill="#2563EB" font-weight="bold" font-style="">•</text>
+<text x="696" y="906" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#374151" font-weight="bold" font-style="">TOPIC</text>
+<text x="840" y="906" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#4B5563" font-weight="normal" font-style="">= 'running story' / masa dosyası</text>
+<text x="40" y="936" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="start" fill="#2563EB" font-weight="bold" font-style="">•</text>
+<text x="56" y="936" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#374151" font-weight="bold" font-style="">CLAIM-TRACK</text>
+<text x="200" y="936" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#4B5563" font-weight="normal" font-style="">= çelişen raporları tartma</text>
+<text x="680" y="936" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="start" fill="#2563EB" font-weight="bold" font-style="">•</text>
+<text x="696" y="936" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#374151" font-weight="bold" font-style="">PHASE</text>
+<text x="840" y="936" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#4B5563" font-weight="normal" font-style="">= 'write-thru' / gelişme güncellemesi</text>
+<text x="40" y="966" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="start" fill="#2563EB" font-weight="bold" font-style="">•</text>
+<text x="56" y="966" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#374151" font-weight="bold" font-style="">EVENT fire-now</text>
+<text x="200" y="966" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#4B5563" font-weight="normal" font-style="">= snap / haber alarmı / canlı blog</text>
+<text x="680" y="966" font-family="Helvetica,Arial,sans-serif" font-size="13" text-anchor="start" fill="#2563EB" font-weight="bold" font-style="">•</text>
+<text x="696" y="966" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#374151" font-weight="bold" font-style="">branch/sequel</text>
+<text x="840" y="966" font-family="Helvetica,Arial,sans-serif" font-size="12" text-anchor="start" fill="#4B5563" font-weight="normal" font-style="">= yan haber (sidebar) / devam</text>
+</svg>
