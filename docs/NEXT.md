@@ -12,6 +12,53 @@ Update this at the END of every work session. Not the start — the end. Future-
 1. **Deploy & observe** — `npx wrangler deploy -c wrangler-story.toml` + secrets, apply `0014_method_b.sql`, set KV `methodb:enabled=1`, then watch `/admin/pipeline` for a few days. Tune the rules pre-filter, delta prompt, and synthesis voice against real output. ← this task
 2. Step 3 — Haiku judge in `correlateToTopic` + `branch_of`/`sequel_of` edges (derbi→skandal, hoca krizi) + parallel claim-tracks (rakip-kulüp transfers). *(hold until shadow output observed.)*
 
+---
+
+## ⚙️ AT-LAPTOP FOLLOW-UPS (need deploy / credentials / assets — can't be done from a web session)
+
+Everything below is committed & tested on branch `claude/github-file-access-Zqttd`; it just needs a machine with your Cloudflare/Supabase access. Do in order.
+
+### 1. Deploy  *(brings everything from this session live)*
+- [ ] `git pull origin claude/github-file-access-Zqttd`
+- [ ] `./deploy.sh`  — guided: `wrangler login` → secrets → deploys **both** workers. (`./deploy.sh --quick` later = just redeploy.)
+- [ ] Secrets (first time, the script prompts): `SUPABASE_SERVICE_KEY`, `ANTHROPIC_API_KEY` for `wrangler-story.toml`.
+- [ ] **Run the migration** in Supabase SQL editor: `docs/migrations/0014_method_b.sql` (additive). ⚠ **before** arming Method B.
+
+### 2. Verify after deploy  *(things I couldn't check without a live deploy)*
+- [ ] `/admin/config` shows the new **"0. Pipeline (serving)"** toggle card.
+- [ ] `/admin/pipeline` compare page loads.
+- [ ] Open any article → confirm the **IT6 card** shows as hero + `og:image` (view-source the meta tag).
+- [ ] **Homepage feed:** confirm the React widget renders the injected `image_url` cards correctly (the one spot I couldn't see — if layout breaks, revert the `withCards` map in the `/cache` route).
+- [ ] `https://kartalix.com/card/<any-slug>.svg` renders.
+
+### 3. Method B — arm, observe, tune, cut over
+- [ ] Arm: KV `methodb:enabled = 1` (`wrangler kv key put --namespace-id=dedaea653ed542cca25e6cc2551dd1c3 methodb:enabled 1`). *(Migration must be applied first.)*
+- [ ] Watch `/admin/pipeline` a few days: volume, latency, **€/day**, article quality vs legacy.
+- [ ] Tune: rules pre-filter (`worker-story-agent.js` `rulesPreFilterDelta`), delta prompt (`detectDeltaLLM`), synthesis voice (`synthesizePhase`).
+- [ ] When it beats legacy on the gates → **flip** serving to Method B on `/admin/config` (instant, reversible). Per-site canary: BJK first.
+- [ ] Pause anytime: KV `methodb:enabled = 0`.
+
+### 4. IT6 cards — turn on real photos (asset step)
+- [ ] Source ~15 **CC0** stadium/crowd/floodlight photos (Pexels/Pixabay — no attribution needed).
+- [ ] Host them (own domain or Cloudflare R2).
+- [ ] Set KV `card:bg_pool` = JSON array of those URLs → cards become photographic automatically (empty pool = procedural).
+
+### 5. Legal — the budgeted lawyer consult (~€300–500)  *(see ROADMAP stakeholders)*
+- [ ] Confirm **API-Football** licence permits commercial image display + ads (option 3 for player/team photos).
+- [ ] Confirm **AA (Anadolu Ajansı)** subscription terms if you want licensed press photos.
+- [ ] Confirm **Wikimedia** attribution/share-alike mechanics before using CC-BY images.
+- [ ] Decision: **avoid AI-generated player likenesses** (personality-rights risk) — confirmed direction.
+
+### 6. (Optional) Enable connectors for future web sessions
+- [ ] In `claude.ai/code`, enable **Supabase** + **Cloudflare** connectors *for the session* (per-session, not the app's global list) — then I can run migrations / set KV from a web session. See `code.claude.com/docs/.../claude-code-on-the-web`.
+
+### Deferred (tracked, not blocking)
+- IT2 official-embed resolver (next image tier — genuine in-body source imagery).
+- Method B Step 3 (after observation).
+- Tech debt: Turkish-aware dedup (`normalizeTitle` / `KEY_TOKEN_RE`) — see ROADMAP "Known Issues / Tech Debt", v1.1.
+
+---
+
 **Done:**
 - Method B design + diagram (DECISIONS 2026-06-05).
 - Shadow worker scaffold — `worker-story-agent.js`, `wrangler-story.toml`, `0014_method_b.sql` (additive). Inert by default.
