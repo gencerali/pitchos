@@ -1,25 +1,35 @@
 // worker-story-agent.js — Method B shadow worker (pitchos-story-agent).
 //
 // Fact-based news generator, run in parallel to the legacy pipeline. PRODUCER only:
-// it reads already-ingested content_items + their facts, correlates them into topics,
-// and (Step 2+) synthesizes phase articles into a SHADOW KV key. It never serves pages
-// and never writes the live homepage. See docs/method-b-design.md.
+// reads already-ingested content_items + their facts, correlates them into topics,
+// detects material deltas, and synthesizes phase articles into a SHADOW KV pool
+// (`articles:{site}:methodb`). It never serves pages and never writes the live homepage.
+// See docs/method-b-design.md.
 //
-// SAFETY: inert by default. runMethodB() no-ops unless KV flag `methodb:enabled` == "1".
-// Shadow output goes to `articles:{site}:methodb`; the live key `articles:{site}` and the
-// blue/green pointer `pipeline:active` are untouched until an explicit cutover.
+// SAFETY:
+//  - inert by default — runMethodB() no-ops unless KV flag `methodb:enabled` == "1".
+//  - shadow-only — writes ONLY new tables (topics/phases) + shadow KV; never touches
+//    content_items, the live `articles:{site}` key, or the `pipeline:active` pointer.
+//  - budget-bounded — Sonnet synthesis capped per run; honours the shared cost cap;
+//    the rules pre-filter keeps pure confirmations from ever reaching an LLM.
 //
 // Shared CODE, isolated RUNTIME: same ./src/*.js modules as the legacy worker; own cron,
 // own CPU/subrequest budget, own failure domain (design §5).
 
-import { supabase, getActiveSites, addUsagePhase, flushCostStats } from './src/utils.js';
+import {
+  supabase, getActiveSites, callClaude, extractText, addUsagePhase, addCost, checkCostCap,
+  getEditorialNotes, simpleHash, MODEL_FETCH, MODEL_GENERATE,
+} from './src/utils.js';
 
-const ENABLED_KEY = 'methodb:enabled';            // "1" to arm the pipeline
-const cursorKey   = (code) => `methodb:cursor:${code}`;   // ISO timestamp of last processed content_item
-const statusKey   = (code) => `methodb:status:${code}`;   // last-run telemetry (for /status + /admin/pipeline)
-const shadowKey   = (code) => `articles:${code}:methodb`; // shadow homepage pool (blue/green green-side)
+const ENABLED_KEY = 'methodb:enabled';                       // "1" to arm the pipeline
+const cursorKey   = (code) => `methodb:cursor:${code}`;      // ISO ts of last processed content_item
+const statusKey   = (code) => `methodb:status:${code}`;      // last-run telemetry (/status + /admin/pipeline)
+const shadowKey   = (code) => `articles:${code}:methodb`;    // shadow homepage pool (blue/green green-side)
+const costKey     = ()     => `methodb:cost:${new Date().toISOString().slice(0, 7)}`; // monthly methodb-only spend
 
-const BATCH = 50; // content_items processed per site per run during dev
+const BATCH            = 50; // content_items scanned per site per run
+const SHADOW_SYNTH_CAP = 4;  // Sonnet syntheses per site per run (dev budget guardrail, design §6.1)
+const SHADOW_POOL_MAX  = 60; // shadow homepage pool size
 
 export default {
   // Hourly cron (wrangler-story.toml). Reacts to ingested content; no freshness polling.
@@ -33,7 +43,8 @@ export default {
     if (url.pathname === '/status') {
       const sites = await getActiveSites(env);
       const enabled = (await env.PITCHOS_CACHE.get(ENABLED_KEY)) === '1';
-      const out = { enabled, sites: {} };
+      const monthCost = parseFloat((await env.PITCHOS_CACHE.get(costKey())) || '0');
+      const out = { enabled, methodb_month_cost_usd: +monthCost.toFixed(5), sites: {} };
       for (const s of sites) {
         const code = s.short_code;
         const [cursor, status] = await Promise.all([
@@ -44,7 +55,6 @@ export default {
       }
       return Response.json(out);
     }
-    // Manual trigger for dev tuning. Guarded by KV admin key.
     if (url.pathname === '/run' && request.method === 'POST') {
       const key = request.headers.get('x-methodb-key');
       const expected = await env.PITCHOS_CACHE.get('methodb:admin_key');
@@ -62,9 +72,7 @@ export default {
 
 export async function runMethodB(env, ctx, opts = {}) {
   const armed = (await env.PITCHOS_CACHE.get(ENABLED_KEY)) === '1';
-  if (!armed && !opts.force) {
-    return { skipped: 'methodb:enabled != 1' };
-  }
+  if (!armed && !opts.force) return { skipped: 'methodb:enabled != 1' };
   const sites = await getActiveSites(env);
   const results = {};
   for (const site of sites) {
@@ -80,12 +88,10 @@ export async function runMethodB(env, ctx, opts = {}) {
 
 async function processSiteMethodB(site, env) {
   const code = site.short_code;
-  // Per-pipeline cost accounting (design §6.3). No LLM calls in the scaffold → cost ≈ 0;
-  // Step 2 tags every callClaude via addUsagePhase(stats, usage, model, phase).
-  const stats = { pipeline: 'methodb', costEur: 0, phases: {}, models: {} };
+  const stats = { phases: {}, models: {} };
+  const cap = await checkCostCap(env);
 
-  // Cursor: process only content_items newer than last run. Read-only against legacy data
-  // (we never mutate content_items during shadow — the cursor lives in KV).
+  // Cursor: only content_items newer than last run. Read-only against legacy data.
   const cursorIso = (await env.PITCHOS_CACHE.get(cursorKey(code))) || '1970-01-01T00:00:00Z';
   const rows = await supabase(env, 'GET',
     `/rest/v1/content_items?site_id=eq.${site.id}&created_at=gt.${encodeURIComponent(cursorIso)}` +
@@ -99,63 +105,224 @@ async function processSiteMethodB(site, env) {
     return status;
   }
 
-  // Reuse legacy fact extraction: read existing facts rows rather than re-extracting (design §6.1).
+  // Reuse legacy fact extraction: read existing `facts` rows (design §6.1, no re-extraction).
   const ids = rows.map(r => r.id);
   const facts = await supabase(env, 'GET',
     `/rest/v1/facts?content_item_id=in.(${ids.join(',')})&select=content_item_id,story_type,entities,numbers,dates`
   ) || [];
   const factsByItem = new Map(facts.map(f => [f.content_item_id, f]));
 
-  // Tally what the (Step 2) pipeline WOULD do — no LLM spend yet.
-  const tally = { candidates: rows.length, withFacts: 0, eventRoute: 0, possibleDelta: 0, confirmingSkip: 0 };
+  const tally = {
+    candidates: rows.length, withFacts: 0, eventRoute: 0,
+    deltaChecks: 0, materialDelta: 0, confirmingSkip: 0, synthesized: 0, capBlocked: cap.blocked,
+  };
+  const newArticles = [];
+  let synthCount = 0;
 
   for (const item of rows) {
     const f = factsByItem.get(item.id) || null;
     if (f) tally.withFacts++;
 
-    // ── Stage 1: EVENT / ACCRETIVE router (design §2.2) ──
     const mode = routeNewsMode(item, f);
-    if (mode === 'event') { tally.eventRoute++; continue; }
 
-    // ── Stage 2: correlate to topic ──  TODO(Step 2): entity fingerprint + judge → topics row
-    // const topic = await correlateToTopic(item, f, site, env, stats);
+    // Correlate to a topic (needed for the prior claim-track that delta detection diffs against).
+    let topicInfo = null;
+    if (f) {
+      try { topicInfo = await correlateToTopic(item, f, site, env); }
+      catch (e) { console.error(`correlate [${code}]:`, e.message); }
+    }
+    const priorTrack = topicInfo?.priorTrack || null;
 
-    // ── Stage 3: delta detection with the CHEAP RULES PRE-FILTER FIRST (design §6.3) ──
-    // Only a possible-delta would (in Step 2) spend a Haiku call; pure confirmations are free.
-    const priorTrack = null; // TODO(Step 2): load from topic.claim_tracks[trackKey]
-    const pre = rulesPreFilterDelta(priorTrack, f, item);
-    if (pre.possibleDelta) {
-      tally.possibleDelta++;
-      // TODO(Step 2): const delta = await detectDeltaLLM(priorTrack, f, env, stats);
-      //               if (delta.material) { open phase → synthesizePhase(...) into shadow pool }
+    let doSynth = false, trigger = 'update', newTrack = null;
+
+    if (mode === 'event') {
+      tally.eventRoute++;
+      doSynth = true; trigger = 'event';
     } else {
-      tally.confirmingSkip++;
-      // confirming repeat → bump confidence only, no article, no LLM. (Step 2)
+      // Rules pre-filter FIRST — pure confirmations never reach the LLM (cost guardrail §6.3).
+      const pre = rulesPreFilterDelta(priorTrack, f, item);
+      if (pre.possibleDelta) {
+        if (cap.blocked || synthCount >= SHADOW_SYNTH_CAP) {
+          // would spend, but budget/cap reached this run — leave cursor to retry next run
+        } else {
+          tally.deltaChecks++;
+          const delta = await detectDeltaLLM(priorTrack, f, item, env, stats);
+          if (delta?.material) { doSynth = true; trigger = delta.trigger || 'update'; newTrack = delta.new_track || null; tally.materialDelta++; }
+          else tally.confirmingSkip++;
+        }
+      } else {
+        tally.confirmingSkip++;
+      }
+    }
+
+    if (doSynth && !cap.blocked && synthCount < SHADOW_SYNTH_CAP) {
+      const art = await synthesizePhase(topicInfo?.topic, f, item, env, stats, trigger);
+      if (art) {
+        newArticles.push(art);
+        synthCount++; tally.synthesized++;
+        if (topicInfo?.topic) await persistPhase(topicInfo, newTrack, trigger, item, env).catch(() => {});
+      }
     }
   }
 
-  // Advance cursor to the newest row processed.
+  // Merge into the shadow pool (most-recent first, deduped by slug, capped).
+  let pool = [];
+  try { const p = JSON.parse((await env.PITCHOS_CACHE.get(shadowKey(code))) || 'null'); pool = p?.articles || []; } catch {}
+  const seen = new Set(pool.map(a => a.slug));
+  for (const a of newArticles) if (!seen.has(a.slug)) { pool.unshift(a); seen.add(a.slug); }
+  pool = pool.slice(0, SHADOW_POOL_MAX);
+  await env.PITCHOS_CACHE.put(shadowKey(code), JSON.stringify({ ready: pool.length > 0, articles: pool, updated_at: new Date().toISOString() }));
+
+  // Advance cursor.
   const newCursor = rows[rows.length - 1].created_at;
   await env.PITCHOS_CACHE.put(cursorKey(code), newCursor);
 
-  // Shadow pool placeholder. NOT marked ready — Step 2 fills this with real phase articles,
-  // and the cutover gate requires ≥ minPool fresh items (design §7).
-  const existingShadow = await env.PITCHOS_CACHE.get(shadowKey(code));
-  if (!existingShadow) {
-    await env.PITCHOS_CACHE.put(shadowKey(code), JSON.stringify({ ready: false, articles: [], updated_at: new Date().toISOString() }));
+  // Cost: count against the SHARED cap (same Anthropic bill) + a methodb-only counter for the compare page.
+  const costUsd = Object.values(stats.phases).reduce((s, p) => s + (p.cost || 0), 0);
+  if (costUsd > 0) {
+    await addCost(env, costUsd).catch(() => {});
+    const prev = parseFloat((await env.PITCHOS_CACHE.get(costKey())) || '0');
+    await env.PITCHOS_CACHE.put(costKey(), String((prev + costUsd).toFixed(6))).catch(() => {});
   }
 
-  if (stats.costEur > 0) await flushCostStats(env, code, stats).catch(() => {});
-
-  const status = { ts: new Date().toISOString(), cursor: newCursor, ...tally };
+  const status = { ts: new Date().toISOString(), cursor: newCursor, ...tally, costUsd: +costUsd.toFixed(5), poolSize: pool.length, phases: stats.phases };
   await env.PITCHOS_CACHE.put(statusKey(code), JSON.stringify(status));
-  console.log(`Method B [${code}]: ${JSON.stringify(tally)}`);
+  console.log(`Method B [${code}]: ${JSON.stringify(tally)} cost=$${costUsd.toFixed(4)}`);
   return status;
 }
 
+// ─── STAGE 2: CORRELATE TO TOPIC ─────────────────────────────────────────────
+// Entity-fingerprint match against open topics (shared player OR ≥2 shared clubs); creates a
+// new topic on no match. TODO(Step 3): add the Haiku judge + branch_of/sequel_of edges.
+async function correlateToTopic(item, facts, site, env) {
+  const ents = facts?.entities || {};
+  const players = (ents.players || []).map(s => String(s).toLowerCase());
+  const clubs   = (ents.clubs   || []).map(s => String(s).toLowerCase());
+
+  const open = await supabase(env, 'GET',
+    `/rest/v1/topics?site_id=eq.${site.id}&state=eq.open&order=last_event_at.desc&limit=50` +
+    `&select=id,story_type,entities,claim_tracks,title`
+  ) || [];
+
+  const overlaps = (t) => {
+    const te = t.entities || {};
+    const tp = (te.players || []).map(s => String(s).toLowerCase());
+    const tc = (te.clubs   || []).map(s => String(s).toLowerCase());
+    return players.some(p => tp.includes(p)) || clubs.filter(c => tc.includes(c)).length >= 2;
+  };
+
+  let topic = open.find(overlaps) || null;
+  if (!topic) {
+    const created = await supabase(env, 'POST', '/rest/v1/topics', {
+      site_id: site.id, story_type: facts?.story_type || 'other', news_mode: 'accretive',
+      entities: ents, claim_tracks: {}, title: (item.title || '').slice(0, 200),
+    });
+    topic = Array.isArray(created) ? created[0] : created;
+  }
+
+  // Claim-track key: the non-home club (competing-narrative axis), else 'main'.
+  const home = (site.team_name || '').toLowerCase();
+  const other = (ents.clubs || []).find(c => String(c).toLowerCase() !== home && String(c).toLowerCase());
+  const trackKey = other ? String(other).toLowerCase().replace(/\s+/g, '_').slice(0, 40) : 'main';
+  const priorTrack = (topic?.claim_tracks || {})[trackKey] || null;
+  return { topic, trackKey, priorTrack };
+}
+
+// ─── STAGE 3: DELTA DETECTION (Haiku, behind the rules pre-filter) ────────────
+async function detectDeltaLLM(priorTrack, facts, item, env, stats) {
+  const prompt = `You compare a football news fact against a story's CURRENT known state and decide if it is a MATERIAL update.
+
+CURRENT TRACK STATE (may be null = first time):
+${JSON.stringify(priorTrack)}
+
+NEW FACT:
+title: ${item.title || ''}
+type: ${facts?.story_type || ''}
+entities: ${JSON.stringify(facts?.entities || {})}
+numbers: ${JSON.stringify(facts?.numbers || {})}
+dates: ${JSON.stringify(facts?.dates || {})}
+
+Return ONLY JSON:
+{"material": true|false, "trigger": "initial"|"update"|"contradiction", "new_track": {"status": "...", "numbers": {...}, "dates": {...}, "confidence": 0-100}}
+material=true ONLY if the fact changes status, a number/date, or contradicts the current state. A mere repeat = material:false.`;
+  try {
+    const res = await callClaude(env, MODEL_FETCH, prompt, false, 400);
+    addUsagePhase(stats, res.usage, MODEL_FETCH, 'methodb_delta');
+    const m = extractText(res.content).match(/\{[\s\S]*\}/);
+    return m ? JSON.parse(m[0]) : null;
+  } catch (e) { console.error('detectDeltaLLM:', e.message); return null; }
+}
+
+// ─── STAGE 4: SYNTHESIZE FROM STORED FACTS (Sonnet) ──────────────────────────
+// Writes from compact structured facts, NOT by re-fetching source text (design §4/§6).
+async function synthesizePhase(topic, facts, item, env, stats, trigger) {
+  const editorial = await getEditorialNotes(env, ['news', facts?.story_type || '']).catch(() => '');
+  const prompt = `${editorial}Sen Kartalix'in kıdemli spor editörüsün. Aşağıdaki DOĞRULANMIŞ OLGULARDAN özgün bir Türkçe haber yaz.
+
+OLGULAR:
+başlık ipucu: ${item.title || ''}
+tip: ${facts?.story_type || ''}
+varlıklar: ${JSON.stringify(facts?.entities || {})}
+sayılar: ${JSON.stringify(facts?.numbers || {})}
+tarihler: ${JSON.stringify(facts?.dates || {})}
+gelişme tipi: ${trigger}
+
+KURALLAR:
+- Çıktı tam olarak şu formatta:
+BAŞLIK: [Türkçe manşet]
+
+[haber gövdesi]
+- 180–320 kelime, güçlü Kartalix sesi
+- Lede: en son GELİŞMEYİ ilk cümlede ver (delta = ${trigger})
+- Sadece olgulara dayan, uydurma; "habere göre" deme; emoji yok`;
+  try {
+    const res = await callClaude(env, MODEL_GENERATE, prompt, false, 1200);
+    addUsagePhase(stats, res.usage, MODEL_GENERATE, 'methodb_synth');
+    const raw = extractText(res.content).trim();
+    const m = raw.match(/BAŞLIK:\s*(.+?)\n([\s\S]+)/);
+    const title = (m ? m[1] : (item.title || '')).trim().slice(0, 200);
+    const body  = (m ? m[2] : raw).trim();
+    if (!body || body.length < 200) return null;
+    return toShadowKVShape({ title, body, item, facts, topic, trigger });
+  } catch (e) { console.error('synthesizePhase:', e.message); return null; }
+}
+
+// Persist the topic's updated claim-track + a phase row (new tables only — legacy never reads them).
+async function persistPhase(topicInfo, newTrack, trigger, item, env) {
+  const { topic, trackKey } = topicInfo;
+  if (newTrack) {
+    const tracks = { ...(topic.claim_tracks || {}), [trackKey]: newTrack };
+    await supabase(env, 'PATCH', `/rest/v1/topics?id=eq.${topic.id}`, {
+      claim_tracks: tracks, last_event_at: new Date().toISOString(),
+    });
+  }
+  await supabase(env, 'POST', '/rest/v1/phases', {
+    topic_id: topic.id, track_key: trackKey, seq: 0, trigger,
+    delta: newTrack || null,
+  });
+}
+
+// Build an object matching the frozen KV article contract (design §7) — `mb-` slug prefix
+// avoids any collision with legacy slugs during the shadow window.
+function toShadowKVShape({ title, body, item, facts, topic, trigger }) {
+  const published_at = new Date().toISOString();
+  const slug = 'mb-' + simpleHash((title || item.title || '') + published_at);
+  return {
+    title: title || item.title || '',
+    summary: (body || '').replace(/\s+/g, ' ').slice(0, 280),
+    full_body: body || '',
+    source: 'Method B', source_name: item.source_name || '',
+    source_url: '', url: '',
+    category: facts?.story_type || item.category || 'Haber',
+    nvs: 0, trust_tier: item.trust_tier || null,
+    published_at, fetched_at: published_at,
+    is_fresh: true, is_kartalix_content: true,
+    publish_mode: 'methodb_synth', image_url: '', slug,
+    _methodb: { topic_id: topic?.id || null, trigger },
+  };
+}
+
 // ─── STAGE 1: EVENT / ACCRETIVE ROUTER ───────────────────────────────────────
-// One-shot punctual news (goal, card, official announcement) fires immediately;
-// developing news accumulates. TODO(Step 2): fold in source trust for the fire-now decision.
 export function routeNewsMode(item, facts) {
   const st = facts?.story_type || '';
   if (st === 'match_result' || st === 'squad') return 'event';
@@ -164,11 +331,9 @@ export function routeNewsMode(item, facts) {
   return 'accretive';
 }
 
-// ─── STAGE 3: RULES PRE-FILTER BEFORE THE DELTA LLM (design §6.3) ─────────────
-// Pure JS, no tokens. Returns whether the new fact MIGHT be a material change vs the
-// topic's current claim-track. Only a `possibleDelta` is allowed to spend a Haiku diff
-// in Step 2; pure `confirming` repeats never reach the model. This is the cost guardrail
-// that keeps per-fact delta detection from dominating the €16/mo budget.
+// ─── RULES PRE-FILTER BEFORE THE DELTA LLM (design §6.3) ─────────────────────
+// Pure JS, no tokens. Only a `possibleDelta` is allowed to spend a Haiku diff;
+// pure `confirming` repeats never reach the model.
 const STATUS_WORDS = [
   'ilgileniyor', 'görüşme', 'gorusme', 'teklif', 'anlaşma', 'anlasma', 'el sıkış', 'el sikis',
   'sağlık kontrol', 'saglik kontrol', 'imza', 'imzaladı', 'imzaladi', 'resmi', 'resmen',
@@ -183,19 +348,14 @@ export function rulesPreFilterDelta(priorTrack, facts, item) {
   const reasons = [];
   const text = `${item?.title || ''} ${item?.summary || ''}`.toLowerCase();
 
-  // 1) contradiction markers → always a possible delta
   if (CONTRADICTION_WORDS.some(w => text.includes(w))) reasons.push('contradiction_marker');
 
-  // 2) status keyword present that differs from the track's current status
   const presentStatus = STATUS_WORDS.filter(w => text.includes(w));
   if (presentStatus.length) {
     const cur = (priorTrack?.status || '').toLowerCase();
     if (!cur || !presentStatus.some(w => cur.includes(w))) reasons.push('status_change');
   }
 
-  // 3) a new number or date that the track doesn't already hold
-  const nums = facts?.numbers || {};
-  const dates = facts?.dates || {};
   const hasNewValue = (obj, track) => {
     for (const [k, v] of Object.entries(obj || {})) {
       if (v == null) continue;
@@ -204,10 +364,9 @@ export function rulesPreFilterDelta(priorTrack, facts, item) {
     }
     return false;
   };
-  if (hasNewValue(nums, priorTrack?.numbers)) reasons.push('new_number');
-  if (hasNewValue(dates, priorTrack?.dates)) reasons.push('new_date');
+  if (hasNewValue(facts?.numbers, priorTrack?.numbers)) reasons.push('new_number');
+  if (hasNewValue(facts?.dates, priorTrack?.dates)) reasons.push('new_date');
 
-  // No prior track at all = the first contribution = initial phase (a delta by definition).
   if (!priorTrack) reasons.push('initial');
 
   return { possibleDelta: reasons.length > 0, reasons };

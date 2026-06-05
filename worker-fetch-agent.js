@@ -2874,6 +2874,28 @@ Sadece JSON döndür:
       return new Response(renderAdminConfigPage(currentSite, kvConfig, currentSite.short_code, allSites, auditLog), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
+    if (url.pathname === '/admin/pipeline') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      const code = currentSite.short_code;
+      const month = new Date().toISOString().slice(0, 7);
+      const [liveRaw, shadowRaw, statusRaw, enabledRaw, costRaw] = await Promise.all([
+        env.PITCHOS_CACHE.get(`articles:${code}`).catch(() => null),
+        env.PITCHOS_CACHE.get(`articles:${code}:methodb`).catch(() => null),
+        env.PITCHOS_CACHE.get(`methodb:status:${code}`).catch(() => null),
+        env.PITCHOS_CACHE.get('methodb:enabled').catch(() => null),
+        env.PITCHOS_CACHE.get(`methodb:cost:${month}`).catch(() => null),
+      ]);
+      let live = [];   try { live = liveRaw ? JSON.parse(liveRaw) : []; } catch {}
+      let shadow = []; try { const p = shadowRaw ? JSON.parse(shadowRaw) : null; shadow = p?.articles || []; } catch {}
+      const status = statusRaw ? JSON.parse(statusRaw) : null;
+      return new Response(
+        renderPipelineComparePage(currentSite, allSites, live, shadow, status, enabledRaw === '1', parseFloat(costRaw || '0')),
+        { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
     if (url.pathname === '/admin/config/save' && request.method === 'POST') {
       const authed = await checkAdminAuth(request, env);
       if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
@@ -8285,6 +8307,63 @@ loadCounts();
 function resolveSite(url, sites) {
   const code = url.searchParams.get('site');
   return (code && sites.find(s => s.short_code === code)) || sites[0];
+}
+
+// Read-only side-by-side of the live homepage pool vs the Method B shadow pool.
+// This is the human "check it in parallel" view (design §7). Reads KV only; no writes.
+function renderPipelineComparePage(site, allSites, live, shadow, status, enabled, methodbCost) {
+  const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const rel = (iso) => {
+    if (!iso) return '';
+    const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+    if (m < 60) return m + 'dk';
+    const h = Math.floor(m / 60);
+    return h < 24 ? h + 'sa' : Math.floor(h / 24) + 'g';
+  };
+  const card = (a) => `<div class="c">
+      <div class="t">${esc(a.title)}</div>
+      <div class="m">${esc(a.source_name || a.source || '')} · ${esc(a.publish_mode || '')} · NVS ${a.nvs || 0} · ${rel(a.published_at)}</div>
+    </div>`;
+  const tabs = allSites.map(s => `<a href="/admin/pipeline?site=${s.short_code}" class="${s.short_code === site.short_code ? 'on' : ''}">${esc(s.short_code)}</a>`).join('');
+  const tally = status
+    ? [['aday', status.candidates], ['olgulu', status.withFacts], ['event', status.eventRoute],
+       ['delta-kontrol', status.deltaChecks], ['material', status.materialDelta],
+       ['confirm-skip', status.confirmingSkip], ['üretilen', status.synthesized],
+       ['maliyet', '$' + (status.costUsd ?? 0)]].map(([k, v]) => `<b>${k}</b> ${v ?? '-'}`).join(' &nbsp;|&nbsp; ')
+    : 'henüz çalışmadı';
+  return `<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pipeline Compare</title>
+  <style>
+    body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:0;background:#0f1115;color:#e5e7eb}
+    header{padding:14px 18px;background:#161a22;border-bottom:1px solid #232a36}
+    h1{font-size:16px;margin:0 0 6px}
+    .tabs a{display:inline-block;padding:3px 10px;margin-right:6px;border-radius:6px;background:#222a36;color:#cbd5e1;text-decoration:none;font-size:13px}
+    .tabs a.on{background:#2563eb;color:#fff}
+    .meta{font-size:12px;color:#9aa4b2;margin-top:8px;line-height:1.7}
+    .flag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700}
+    .on1{background:#16351f;color:#4ade80}.off1{background:#3a1f1f;color:#f87171}
+    .cols{display:flex;gap:14px;padding:14px;align-items:flex-start}
+    .col{flex:1;min-width:0}
+    .col h2{font-size:13px;color:#9aa4b2;margin:0 0 8px}
+    .c{background:#161a22;border:1px solid #232a36;border-radius:8px;padding:10px 12px;margin-bottom:8px}
+    .c .t{font-size:14px;font-weight:600;line-height:1.35}
+    .c .m{font-size:11px;color:#8b95a4;margin-top:5px}
+    .legend .c{border-left:3px solid #2563eb}.shadow .c{border-left:3px solid #0d9488}
+    @media(max-width:720px){.cols{flex-direction:column}}
+  </style></head><body>
+  <header>
+    <h1>Pipeline Compare — ${esc(site.team_name || site.short_code)}</h1>
+    <div class="tabs">${tabs}</div>
+    <div class="meta">
+      Method B: <span class="flag ${enabled ? 'on1' : 'off1'}">${enabled ? 'ENABLED' : 'INERT'}</span>
+      &nbsp; methodb aylık maliyet: <b>$${(methodbCost || 0).toFixed(4)}</b><br>
+      Son çalışma: ${tally}
+    </div>
+  </header>
+  <div class="cols">
+    <div class="col legend"><h2>LEGACY (canlı) — ${live.length}</h2>${live.slice(0, 60).map(card).join('') || '<div class="c">boş</div>'}</div>
+    <div class="col shadow"><h2>METHOD B (gölge) — ${shadow.length}</h2>${shadow.slice(0, 60).map(card).join('') || '<div class="c">henüz makale yok — worker deploy + methodb:enabled=1</div>'}</div>
+  </div>
+  </body></html>`;
 }
 
 function renderAdminConfigPage(site, kvConfig, siteCode, allSites, auditLog = []) {
