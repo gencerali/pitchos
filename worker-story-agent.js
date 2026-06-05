@@ -91,6 +91,14 @@ async function processSiteMethodB(site, env) {
   const stats = { phases: {}, models: {} };
   const cap = await checkCostCap(env);
 
+  // Out of monthly budget → do nothing and DON'T advance the cursor, so this batch is
+  // retried once budget frees up (rather than silently skipped forever).
+  if (cap.blocked) {
+    const status = { ts: new Date().toISOString(), skipped: 'cost cap reached', cap: cap.cap, spent: +cap.current.toFixed(4) };
+    await env.PITCHOS_CACHE.put(statusKey(code), JSON.stringify(status));
+    return status;
+  }
+
   // Cursor: only content_items newer than last run. Read-only against legacy data.
   const cursorIso = (await env.PITCHOS_CACHE.get(cursorKey(code))) || '1970-01-01T00:00:00Z';
   const rows = await supabase(env, 'GET',

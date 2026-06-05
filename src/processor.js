@@ -122,7 +122,10 @@ const KEY_TOKEN_RE = /\b([A-ZÇĞİÖŞÜa-zçğışöşü]{4,}|\d+-\d+)\b/g;
 
 // Tokens that appear in almost every Beşiktaş article — excluded from story-dedup
 // shared-token counting so they don't falsely mark unrelated articles as dupes.
-const DEDUP_STOPWORDS = new Set(['beşiktaş', 'besiktas', 'bjk', 'siyahbeyaz']);
+// NOTE: KEY_TOKEN_RE uses ASCII word boundaries, so a trailing Turkish "ş" is dropped
+// ("Beşiktaş" → token "beşikta", "Kartal'ın" → "kartal"). The truncated/stem forms below
+// must be listed too, or the stopword never matches the actual token. (Found via tests 2026-06-05.)
+const DEDUP_STOPWORDS = new Set(['beşiktaş', 'beşikta', 'besiktas', 'bjk', 'kartal', 'siyahbeyaz', 'siyah', 'beyaz']);
 
 export function extractKeyTokens(title) {
   return new Set((title.match(KEY_TOKEN_RE) || []).map(t => t.toLowerCase()));
