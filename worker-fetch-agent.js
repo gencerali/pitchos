@@ -15,6 +15,7 @@ import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes,
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
+import { renderArticleCardSVG } from './src/card.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
@@ -414,7 +415,12 @@ export default {
         const allBySlug = new Map([...fromKV.map(a => [a.slug, a]), ...fromDb.map(a => [a.slug, a])]);
         rail_fallback = fallbackSlugs.map(s => allBySlug.get(s)).filter(Boolean);
       }
-      return new Response(JSON.stringify({ articles, rail_fallback }), { headers: h });
+      // IT6 fallback: give imageless non-video articles an owned generated-card image.
+      const withCards = articles.map(a =>
+        (a.image_url || a.publish_mode === 'youtube_embed' || !a.slug)
+          ? a
+          : { ...a, image_url: `${BASE_URL}/card/${encodeURIComponent(a.slug)}.svg` });
+      return new Response(JSON.stringify({ articles: withCards, rail_fallback }), { headers: h });
     }
     if (url.pathname === '/report') {
       const report = await buildReport(env);
@@ -3915,6 +3921,23 @@ Sadece JSON döndür:
       } catch(e) { return Response.json({ ok: false, error: e.message }, { status: 500, headers: h }); }
     }
 
+    // IT6 generated card — fully-owned fallback image for an article (no third-party IP).
+    if (url.pathname.startsWith('/card/') && url.pathname.endsWith('.svg')) {
+      const slug = decodeURIComponent(url.pathname.slice('/card/'.length, -4));
+      let art = null;
+      try {
+        const cached = await env.PITCHOS_CACHE.get('articles:BJK');
+        const pool = cached ? JSON.parse(cached) : [];
+        art = pool.find(a => a.slug === slug) || null;
+      } catch {}
+      if (!art) {
+        const rows = await supabase(env, 'GET',
+          `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&select=title,category&limit=1`).catch(() => null);
+        art = (rows && rows[0]) || { title: slug.replace(/-/g, ' '), category: 'Haber' };
+      }
+      const svg = renderArticleCardSVG({ title: art.title, category: art.category, slug });
+      return new Response(svg, { headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'public, max-age=86400' } });
+    }
     if (url.pathname === '/rss') {
       return serveRSSFeed(env);
     }
@@ -7383,7 +7406,9 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, 
   const slug      = a.slug || '';
   const title     = a.title || 'Haber';
   const desc      = (a.summary || a.full_body || '').replace(/<[^>]+>/g, ' ').slice(0, 200).trim();
-  const image     = a.image_url || '';
+  // Fall back to the IT6 generated card when there's no licensed/embedded image
+  // (covers hero img + og:image + twitter:image, which all read `image`).
+  const image     = a.image_url || (a.publish_mode !== 'youtube_embed' && a.slug ? `${BASE_URL}/card/${encodeURIComponent(a.slug)}.svg` : '');
   const rawSource = a.source || a.source_name || '';
   const isKartalix = !rawSource || rawSource === 'Kartalix' ||
     ['rewrite','original_synthesis','manual'].includes(a.publish_mode) ||
