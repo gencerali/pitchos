@@ -1828,4 +1828,21 @@ Shipped: `SCORING_CONFIG_DEFAULTS` (exported constant, `src/publisher.js:1216`);
 
 ---
 
+### 2026-06-05 — Method B: fact-based news generator as a shadow pipeline (design accepted)
+
+**Decision**: Reframe the pipeline from "RSS-rewriter" to a **fact-based news generator** built on a topic-graph model (FACT → TOPIC → CLAIM-TRACK → PHASE → ARTICLE, with an EVENT/ACCRETIVE router). Build it as **Method B in a separate shadow worker** running in parallel to legacy, and **cut over via a blue/green KV pointer** when objective maturity gates pass. Full design in `docs/method-b-design.md` + diagram `docs/method-b-model.svg`.
+
+**Alternatives considered**:
+- A: Narrow fix — just re-score after fact extraction (original Sprint 1 Task 1.3) — rejected as too small; it patches NVS-on-blurb but leaves the "many stories, few articles" and "one article per story per day" problems untouched.
+- B: Extend the existing story system in-place inside the current worker — rejected for the dev window; a buggy new pipeline co-located with homepage serving + the 5-min fetch tick risks the live site and shares the CPU/subrequest budget that forces `MAX_FACTS_EXTRACTS = 5`.
+- C (chosen): Separate shadow worker, shared code/data, blue/green pointer cutover.
+
+**Why this one**: The story/firewall/confidence subsystem already exists but is a throttled side-channel; promoting + widening it is mostly rewiring, not greenfield. A separate worker isolates *runtime* (cron, budget, failure domain, deploy lifecycle) while *reusing* `firewall.js`/`utils.js`/`story-matcher.js`/the `facts` table as shared libraries — reuse and isolation are orthogonal. The blue/green pointer (`pipeline:active`) + frozen KV schema contract + additive-only migrations make the swap a one-line, instantly-reversible KV write with no data move. Stress-tested against 10 Turkish archetypes: the model holds as a topic *graph* (trunk-default + `branch_of`/`sequel_of`/parallel claim-tracks/fan-out), not a linear story.
+
+**What would change our mind**: If shadow-mode metrics (`/admin/pipeline`: volume, latency, quality, €/day) fail to beat legacy, or if dev-window cost can't be held near +20–40% (fact-reuse + sampling + Haiku judgments + rules-pre-filter-before-delta), Method B stays a side-channel and we fall back to the narrow Task 1.3 re-score. Delta-detection reliability is the make-or-break LLM-judgment piece.
+
+**Related**: `docs/method-b-design.md`, `docs/method-b-model.svg`; `src/firewall.js`, `src/story-matcher.js`, `src/publisher.js` (`synthesizeStory`, `getCachedArticles`, `cacheToKV`), `src/utils.js` cost model; supersedes the scope of Sprint 1 Task 1.3.
+
+---
+
 *Add new entries above this line. Never delete. If a decision is reversed, write a new entry that references the superseded one.*

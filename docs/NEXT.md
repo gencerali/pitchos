@@ -8,12 +8,15 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**:
-1. Sprint 1 Task 1.3 — Reorder pipeline so scoring runs AFTER fact extraction (currently scores on RSS metadata only). ← this task
+**NEXT** (Sprint 1 rescoped around **Method B** — see `docs/method-b-design.md`):
+1. Scaffold the shadow worker — `worker-story-agent.js` + `wrangler-story.toml` (imports shared `./src/*.js`), shadow KV key `articles:{site}:methodb`, `content_items.pipeline` column, polling cursor. ← this task
+2. Trunk + EVENT-router core: facts (read existing `facts` rows) → topic correlate → claim-track delta (with rules-pre-filter before the Haiku diff) → phase → synthesize from stored facts. Add the `pipeline` cost tag to `addUsagePhase`.
+3. `/admin/pipeline` compare view (legacy vs methodb: volume, latency, quality, €/day) + the blue/green `pipeline:active` pointer in `getCachedArticles`.
 
 **Done / descoped:**
 - Task 1.1 — Docs reconciliation (ROADMAP/NEXT/DECISIONS). ✅ commit `0f64196`
-- Task 1.2 — Per-source-per-content-type NVS+lifetime config. ❌ **descoped 2026-06-03** — existing tier multiplier (source quality) + per-type half-life (content lifetime) already cover it; only real gap is source-blind video scoring, deferred to a one-line `getTrustMultiplier` gate relaxation if ever needed. See DECISIONS.md 2026-06-03.
+- Task 1.2 — Per-source-per-content-type NVS+lifetime config. ❌ **descoped 2026-06-03** — tier multiplier + per-type half-life already cover it. See DECISIONS.md 2026-06-03.
+- Task 1.3 — Narrow re-score-after-extraction. ↗ **superseded 2026-06-05** by Method B (the re-score is subsumed by scoring-as-triage in the new pipeline). See DECISIONS.md 2026-06-05.
 
 ---
 
