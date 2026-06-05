@@ -82,7 +82,7 @@ Goal: improve from estimated 60-70% to 85%+ approval probability before reviewer
 **P0 — must land in first week of review window:**
 - [x] **P0.1** Audit thin-content indexing: `noindex` on T10/T11 flash cards, `rss_summary` articles excluded from ads and sitemap; `shouldShowAds()` blocks ad rendering on flash templates
 - [x] **P0.2** Rewrite trust pages with real substance: Editorial Policy live at `/editoryal-politika`, About/Contact/Privacy all live — **copy must be Ali's own writing** *(About page content reviewed and approved 2026-05-26)*
-- [ ] **P0.3** Add consistent byline on every article: "Kartalix Editorial · Ali [Surname]" or equivalent; add visible publication date
+- [x] **P0.3** Add consistent byline on every article: "Kartalix Editorial · Ali [Surname]" or equivalent; add visible publication date *(already live: `worker-fetch-agent.js:7581` byline "Kartalix Editöryel · Ali Gencer", :7582 `<time>` date, :7483 schema author; verified 2026-06-05)*
 
 **P1 — within 2 weeks:**
 - [ ] **P1.1** Read top 20 published articles critically; improve weakest 5 for substance and depth
@@ -90,7 +90,7 @@ Goal: improve from estimated 60-70% to 85%+ approval probability before reviewer
 - [x] **P1.3** Source attribution visible on every article (credit + link to original)
 
 **P2 — when possible:**
-- [ ] **P2.1** Sitemap: exclude rss_summary articles, T10/T11 cards older than 24h, archived articles
+- [x] **P2.1** Sitemap: exclude rss_summary articles, T10/T11 cards older than 24h, archived articles *(largely already live in `serveSitemap` — excludes `rss_summary` + noindex templates T10/T11/T-RED/T-VAR/T-PEN/T-HT; archived never enter the KV pool it reads. 2026-06-05: also excludes thin `copy_source`.)*
 - [x] **P2.2** `/ads.txt` live with correct AdSense publisher ID (`ca-pub-5282305686231853`), served as `text/plain`
 - [ ] **P2.3** Lighthouse: LCP <2.5s, CLS <0.1, INP <200ms mobile
 - [ ] **P2.4** Mobile usability pass — no horizontal scroll, tap targets adequate

@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle, saveSourceFact } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
@@ -390,11 +390,10 @@ export default {
     if (url.pathname === '/cache') {
       const siteCode = url.searchParams.get('site') || 'BJK';
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET' };
-      const [cached, config] = await Promise.all([
-        env.PITCHOS_CACHE.get(`articles:${siteCode}`),
+      const [articles, config] = await Promise.all([
+        getServedArticles(env, siteCode), // blue/green pointer-aware (defaults legacy)
         loadSiteConfig(env, siteCode).catch(() => null),
       ]);
-      const articles = cached ? JSON.parse(cached) : [];
       const fallbackSlugs = config?.rail_fallback_video_slugs || [];
       let rail_fallback = [];
       if (fallbackSlugs.length > 0) {
@@ -2881,19 +2880,34 @@ Sadece JSON döndür:
       const currentSite = resolveSite(url, allSites);
       const code = currentSite.short_code;
       const month = new Date().toISOString().slice(0, 7);
-      const [liveRaw, shadowRaw, statusRaw, enabledRaw, costRaw] = await Promise.all([
+      const [liveRaw, shadowRaw, statusRaw, enabledRaw, costRaw, activeRaw] = await Promise.all([
         env.PITCHOS_CACHE.get(`articles:${code}`).catch(() => null),
         env.PITCHOS_CACHE.get(`articles:${code}:methodb`).catch(() => null),
         env.PITCHOS_CACHE.get(`methodb:status:${code}`).catch(() => null),
         env.PITCHOS_CACHE.get('methodb:enabled').catch(() => null),
         env.PITCHOS_CACHE.get(`methodb:cost:${month}`).catch(() => null),
+        env.PITCHOS_CACHE.get(`pipeline:active:${code}`).catch(() => null),
       ]);
       let live = [];   try { live = liveRaw ? JSON.parse(liveRaw) : []; } catch {}
       let shadow = []; try { const p = shadowRaw ? JSON.parse(shadowRaw) : null; shadow = p?.articles || []; } catch {}
       const status = statusRaw ? JSON.parse(statusRaw) : null;
       return new Response(
-        renderPipelineComparePage(currentSite, allSites, live, shadow, status, enabledRaw === '1', parseFloat(costRaw || '0')),
+        renderPipelineComparePage(currentSite, allSites, live, shadow, status, enabledRaw === '1', parseFloat(costRaw || '0'), activeRaw || 'legacy'),
         { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
+    // Blue/green cutover flip (Method B design §7). Sets the per-site serving pointer.
+    // Default 'legacy' = no change; 'methodb' only serves once its shadow pool is ready
+    // (getServedArticles enforces the cold-start gate). Instantly reversible.
+    if (url.pathname === '/admin/pipeline/flip' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const body = await request.json().catch(() => ({}));
+      const target = body.target === 'methodb' ? 'methodb' : 'legacy';
+      const code = (body.site || 'BJK').toString();
+      await env.PITCHOS_CACHE.put(`pipeline:active:${code}`, target);
+      console.log(`PIPELINE FLIP [${code}] → ${target}`);
+      return Response.json({ ok: true, site: code, active: target });
     }
 
     if (url.pathname === '/admin/config/save' && request.method === 'POST') {
@@ -6466,7 +6480,7 @@ async function serveSitemap(env) {
   const articles = cached ? JSON.parse(cached) : [];
   const SITEMAP_NOINDEX_TEMPLATES = ['T10', 'T11', 'T-RED', 'T-VAR', 'T-PEN', 'T-HT'];
   const articleUrls = articles
-    .filter(a => a.slug && !SITEMAP_NOINDEX_TEMPLATES.includes(a.template_id || '') && a.publish_mode !== 'rss_summary')
+    .filter(a => a.slug && !SITEMAP_NOINDEX_TEMPLATES.includes(a.template_id || '') && a.publish_mode !== 'rss_summary' && a.publish_mode !== 'copy_source')
     .map(a => `  <url>
     <loc>${BASE_URL}/haber/${escXml(a.slug)}</loc>
     <lastmod>${(a.published_at || new Date().toISOString()).slice(0, 10)}</lastmod>
@@ -8311,7 +8325,7 @@ function resolveSite(url, sites) {
 
 // Read-only side-by-side of the live homepage pool vs the Method B shadow pool.
 // This is the human "check it in parallel" view (design §7). Reads KV only; no writes.
-function renderPipelineComparePage(site, allSites, live, shadow, status, enabled, methodbCost) {
+function renderPipelineComparePage(site, allSites, live, shadow, status, enabled, methodbCost, active = 'legacy') {
   const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const rel = (iso) => {
     if (!iso) return '';
@@ -8341,6 +8355,9 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
     .meta{font-size:12px;color:#9aa4b2;margin-top:8px;line-height:1.7}
     .flag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700}
     .on1{background:#16351f;color:#4ade80}.off1{background:#3a1f1f;color:#f87171}
+    .flipbtn{padding:6px 12px;margin-right:8px;border-radius:6px;border:1px solid #334;background:#222a36;color:#cbd5e1;font-size:12px;cursor:pointer}
+    .flipbtn.mb{border-color:#0d8a7a;color:#5eead4}
+    .flipbtn:disabled{opacity:.45;cursor:default}
     .cols{display:flex;gap:14px;padding:14px;align-items:flex-start}
     .col{flex:1;min-width:0}
     .col h2{font-size:13px;color:#9aa4b2;margin:0 0 8px}
@@ -8355,10 +8372,29 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
     <div class="tabs">${tabs}</div>
     <div class="meta">
       Method B: <span class="flag ${enabled ? 'on1' : 'off1'}">${enabled ? 'ENABLED' : 'INERT'}</span>
+      &nbsp; Yayında (serving): <span class="flag ${active === 'methodb' ? 'on1' : 'off1'}">${active === 'methodb' ? 'METHOD B' : 'LEGACY'}</span>
       &nbsp; methodb aylık maliyet: <b>$${(methodbCost || 0).toFixed(4)}</b><br>
       Son çalışma: ${tally}
+      <div style="margin-top:10px">
+        <button class="flipbtn" onclick="flip('legacy')" ${active === 'legacy' ? 'disabled' : ''}>Yayını LEGACY yap</button>
+        <button class="flipbtn mb" onclick="flip('methodb')" ${active === 'methodb' ? 'disabled' : ''}>Yayını METHOD B yap</button>
+        <span id="flipmsg" style="margin-left:8px;font-size:12px"></span>
+      </div>
     </div>
   </header>
+  <script>
+    async function flip(target){
+      const label = target==='methodb' ? 'METHOD B' : 'LEGACY';
+      if(!confirm('Anasayfa yayınını '+label+' yap? (anında geri alınabilir)')) return;
+      document.getElementById('flipmsg').textContent = '...';
+      try{
+        const r = await fetch('/admin/pipeline/flip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site:'${esc(site.short_code)}',target})});
+        const j = await r.json();
+        document.getElementById('flipmsg').textContent = j.ok ? ('✓ yayın: '+j.active) : ('hata: '+(j.error||'?'));
+        if(j.ok) setTimeout(()=>location.reload(),700);
+      }catch(e){ document.getElementById('flipmsg').textContent = 'hata: '+e.message; }
+    }
+  </script>
   <div class="cols">
     <div class="col legend"><h2>LEGACY (canlı) — ${live.length}</h2>${live.slice(0, 60).map(card).join('') || '<div class="c">boş</div>'}</div>
     <div class="col shadow"><h2>METHOD B (gölge) — ${shadow.length}</h2>${shadow.slice(0, 60).map(card).join('') || '<div class="c">henüz makale yok — worker deploy + methodb:enabled=1</div>'}</div>

@@ -10,14 +10,15 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 **NEXT** (Sprint 1 rescoped around **Method B** — see `docs/method-b-design.md`):
 1. **Deploy & observe** — `npx wrangler deploy -c wrangler-story.toml` + secrets, apply `0014_method_b.sql`, set KV `methodb:enabled=1`, then watch `/admin/pipeline` for a few days. Tune the rules pre-filter, delta prompt, and synthesis voice against real output. ← this task
-2. Step 3 — Haiku judge in `correlateToTopic` + `branch_of`/`sequel_of` edges (derbi→skandal, hoca krizi) + parallel claim-tracks (rakip-kulüp transfers).
-3. Cutover seam — blue/green `pipeline:active` pointer in `getCachedArticles`, cache-bust on flip, readiness gate, per-site canary.
+2. Step 3 — Haiku judge in `correlateToTopic` + `branch_of`/`sequel_of` edges (derbi→skandal, hoca krizi) + parallel claim-tracks (rakip-kulüp transfers). *(hold until shadow output observed.)*
 
 **Done:**
 - Method B design + diagram (DECISIONS 2026-06-05).
 - Shadow worker scaffold — `worker-story-agent.js`, `wrangler-story.toml`, `0014_method_b.sql` (additive). Inert by default.
 - Step 2 core — correlate → rules-pre-filter → Haiku delta → Sonnet synthesis-from-facts into shadow pool; cost counted vs shared cap + methodb-only counter; budget-bounded (`SHADOW_SYNTH_CAP`).
-- `/admin/pipeline` compare page (legacy vs methodb side-by-side + last-run tally + methodb cost). 66/66 tests green.
+- `/admin/pipeline` compare page (legacy vs methodb side-by-side + last-run tally + methodb cost).
+- **Cutover seam** — `getServedArticles` blue/green resolver (per-site `pipeline:active` pointer, defaults legacy, cold-start fallback) wired into the `/cache` serving path; `/admin/pipeline/flip` endpoint + flip buttons on the compare page. Instantly reversible, safe-by-default. 72/72 tests green.
+- Laptop-free reconcile: **P0.3** (byline+date) and **P2.1** (sitemap exclusions) were already live; P2.1 also now drops thin `copy_source`.
 
 **Done / descoped:**
 - Task 1.1 — Docs reconciliation (ROADMAP/NEXT/DECISIONS). ✅ commit `0f64196`

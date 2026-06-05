@@ -1540,6 +1540,24 @@ export async function getCachedArticles(env, siteCode) {
   return cached ? JSON.parse(cached) : [];
 }
 
+// Blue/green serving resolver (Method B cutover seam — docs/method-b-design.md §7).
+// Returns the pool the PUBLIC site should serve, honouring the per-site `pipeline:active`
+// pointer. Defaults to 'legacy' (identical to getCachedArticles). If 'methodb' is selected
+// but its shadow pool isn't ready/non-empty, falls back to legacy (cold-start gate) so a
+// premature flip can never serve a blank homepage.
+export async function getServedArticles(env, siteCode) {
+  const active = (await env.PITCHOS_CACHE.get(`pipeline:active:${siteCode}`).catch(() => null)) || 'legacy';
+  if (active === 'methodb') {
+    try {
+      const raw = await env.PITCHOS_CACHE.get(`articles:${siteCode}:methodb`);
+      const p = raw ? JSON.parse(raw) : null;
+      if (p?.ready && Array.isArray(p.articles) && p.articles.length > 0) return p.articles;
+    } catch { /* fall through to legacy */ }
+  }
+  const cached = await env.PITCHOS_CACHE.get(`articles:${siteCode}`);
+  return cached ? JSON.parse(cached) : [];
+}
+
 // mergeAndDedupe: lightweight in-memory dedup+sort used for building the input
 // pool before cacheToKV. Does NOT apply decay — use rankAndEvict / cacheToKV for that.
 export function mergeAndDedupe(articles, limit) {
