@@ -15,7 +15,7 @@ import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes,
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
-import { renderArticleCardSVG } from './src/card.js';
+import { renderArticleCardSVG, pickBackground } from './src/card.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
@@ -3935,7 +3935,26 @@ Sadece JSON döndür:
           `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&select=title,category&limit=1`).catch(() => null);
         art = (rows && rows[0]) || { title: slug.replace(/-/g, ' '), category: 'Haber' };
       }
-      const svg = renderArticleCardSVG({ title: art.title, category: art.category, slug });
+      // Optional CC0 photo background: KV `card:bg_pool` = JSON array of image URLs (or data URIs).
+      // Hash-assigned per slug, fetched + base64-inlined (SVG-as-<img> blocks external fetches).
+      // Empty pool → procedural art. Any failure → procedural (safe-by-default).
+      let bgDataUri = null;
+      try {
+        const poolRaw = await env.PITCHOS_CACHE.get('card:bg_pool');
+        const bgUrl = pickBackground(slug, poolRaw ? JSON.parse(poolRaw) : []);
+        if (bgUrl && bgUrl.startsWith('data:')) {
+          bgDataUri = bgUrl;
+        } else if (bgUrl) {
+          const resp = await fetch(bgUrl, { cf: { cacheTtl: 86400, cacheEverything: true } });
+          if (resp.ok) {
+            const bytes = new Uint8Array(await resp.arrayBuffer());
+            let bin = '';
+            for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+            bgDataUri = `data:${resp.headers.get('content-type') || 'image/jpeg'};base64,${btoa(bin)}`;
+          }
+        }
+      } catch { /* procedural fallback */ }
+      const svg = renderArticleCardSVG({ title: art.title, category: art.category, slug }, { bgDataUri });
       return new Response(svg, { headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'public, max-age=86400' } });
     }
     if (url.pathname === '/rss') {
