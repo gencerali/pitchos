@@ -455,6 +455,18 @@ Cloudflare Worker live, Claude API connected, KV cache, cron trigger, Supabase l
 
 ---
 
+## Known Issues / Tech Debt
+
+Found-but-deferred fixes. Each is documented where it lives and (where risky to change) locked in tests as current behaviour, so the fix is a deliberate, observed change — not a drive-by.
+
+| Issue | Impact | Risk to fix | Target | Notes |
+|-------|--------|-------------|--------|-------|
+| `normalizeTitle` strips Turkish diacritics (`\w` is ASCII-only) — `açıkladı`→`aklad` | Degrades `titleSimilarity` for Turkish; weakens dedup quality | 🟡 Med — changes live dedup results across the pipeline | v1.1 | Locked in `dedup.test.js`. Fix = Unicode-aware normalize (`\p{L}` or explicit TR class); validate dedup deltas in shadow before shipping. Found 2026-06-05. |
+| `KEY_TOKEN_RE` truncates trailing Turkish letters (`Beşiktaş`→`beşikta`) — same ASCII-boundary root cause | Stemmed tokens; needed stopword stems as a workaround | 🟡 Med — affects `sharedStoryTokens` matching | v1.1 | Mitigated 2026-06-05 by adding stem forms to `DEDUP_STOPWORDS` (`beşikta`, `kartal`, `siyah`, `beyaz`). Full fix = Unicode-aware tokenizer; bundle with the `normalizeTitle` fix. |
+
+**Resolved (for traceability):**
+- ✅ 2026-06-05 — Dedup stopword bug: club name `Beşiktaş` counted as a meaningful shared token (stopword never matched the truncated token), biasing dedup toward false matches. Fixed in `src/processor.js`; guarded by `dedup.test.js`.
+
 ## Post-Launch Backlog (v1.1+)
 
 Ordered by value/dependency. Do not start until v1.0 ships.
