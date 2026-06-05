@@ -2864,13 +2864,15 @@ Sadece JSON döndür:
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       const allSites = await getActiveSites(env);
       const currentSite = resolveSite(url, allSites);
-      const [kvRaw, auditRaw] = await Promise.all([
+      const [kvRaw, auditRaw, activeRaw, mbEnabledRaw] = await Promise.all([
         env.PITCHOS_CACHE.get(`config:${currentSite.short_code}`).catch(() => null),
         env.PITCHOS_CACHE.get(`config_audit:${currentSite.short_code}`).catch(() => null),
+        env.PITCHOS_CACHE.get(`pipeline:active:${currentSite.short_code}`).catch(() => null),
+        env.PITCHOS_CACHE.get('methodb:enabled').catch(() => null),
       ]);
       const kvConfig  = kvRaw   ? JSON.parse(kvRaw)   : null;
       const auditLog  = auditRaw ? JSON.parse(auditRaw) : [];
-      return new Response(renderAdminConfigPage(currentSite, kvConfig, currentSite.short_code, allSites, auditLog), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      return new Response(renderAdminConfigPage(currentSite, kvConfig, currentSite.short_code, allSites, auditLog, activeRaw || 'legacy', mbEnabledRaw === '1'), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
     if (url.pathname === '/admin/pipeline') {
@@ -8402,7 +8404,7 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
   </body></html>`;
 }
 
-function renderAdminConfigPage(site, kvConfig, siteCode, allSites, auditLog = []) {
+function renderAdminConfigPage(site, kvConfig, siteCode, allSites, auditLog = [], pipelineActive = 'legacy', methodbEnabled = false) {
   const sc = siteCode;
   const kvId = 'dedaea653ed542cca25e6cc2551dd1c3';
   const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -8459,6 +8461,8 @@ input[type=number]:focus,input[type=text]:focus{border-color:#444}
 .cfg-value{font-size:.83rem;color:#e8e6e0;font-family:'Consolas',monospace;display:flex;align-items:center;flex-wrap:wrap;gap:.25rem}
 .cfg-note{grid-column:2;font-size:.7rem;color:#888;padding-bottom:.25rem}
 .save-status{font-size:.7rem}.save-ok{color:#4ade80}.save-err{color:#f87171}
+.pl-on{font-weight:700;font-size:.72rem;background:#16351f;color:#4ade80;border-radius:10px;padding:2px 9px}
+.pl-off{font-weight:700;font-size:.72rem;background:#3a1f1f;color:#f87171;border-radius:10px;padding:2px 9px}
 .badge-code{font-size:.72rem;font-weight:700;background:#1a1a2a;color:#7c9adb;border:1px solid #2a2a3a;border-radius:3px;padding:1px 5px}
 .badge-ro{font-size:.72rem;font-weight:700;background:#1e1a0a;color:#888;border:1px solid #2a2520;border-radius:3px;padding:1px 5px}
 .section-note{font-size:.75rem;color:#888;margin-bottom:.75rem}
@@ -8472,6 +8476,23 @@ ${adminNav('config', sc, allSites)}
     <div style="font-size:.85rem;font-weight:700;color:#ccc">Settings <span style="color:#777;font-weight:400;font-size:.75rem;margin-left:.5rem">${sc} · site_id=${site.id}</span></div>
     <div style="font-size:.72rem;color:#888;margin-top:.2rem">Sections 1 and 5 save directly to Supabase. Others show hardcoded constants from publisher.js.</div>
     <div style="font-size:.72rem;color:#888;margin-top:.15rem">All edits are validated (type + range + cross-field) and logged in the Audit Trail section below.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title nocollapse">0. Pipeline (serving) <span class="badge-code">KV</span></div>
+    <div class="card-body">
+      <div class="section-note">Hangi pipeline anasayfayı besliyor. <b>legacy</b> = mevcut sistem. <b>methodb</b> = yeni olgu-tabanlı üretici (yalnızca gölge havuzu hazırsa yayınlanır; değilse otomatik legacy'ye düşer). Anında geri alınabilir.</div>
+      <div class="cfg-row">
+        <div class="cfg-label">Yayında olan</div>
+        <div class="cfg-value">
+          <span id="pl-active" class="${pipelineActive === 'methodb' ? 'pl-on' : 'pl-off'}">${pipelineActive === 'methodb' ? 'METHOD B' : 'LEGACY'}</span>
+          <button class="btn btn-sm" style="background:#222a36;color:#cbd5e1;margin-left:.6rem" onclick="flipPipeline('legacy')" ${pipelineActive === 'legacy' ? 'disabled' : ''}>Legacy yap</button>
+          <button class="btn btn-sm" style="background:#0d8a7a;color:#fff" onclick="flipPipeline('methodb')" ${pipelineActive === 'methodb' ? 'disabled' : ''}>Method B yap</button>
+          <span id="pl-msg" class="save-status" style="margin-left:.4rem"></span>
+        </div>
+        <div class="cfg-note">Method B worker durumu: <b>${methodbEnabled ? 'ENABLED' : 'INERT (methodb:enabled≠1)'}</b> · Karşılaştırma: <a href="/admin/pipeline?site=${esc(sc)}" style="color:#7c9adb">/admin/pipeline</a></div>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -8630,6 +8651,19 @@ async function _doSave(field, value) {
   } catch { st.textContent = 'Network error'; st.className = 'save-status save-err'; }
   btn.disabled = false;
 }
+async function flipPipeline(target){
+  const label = target === 'methodb' ? 'METHOD B' : 'LEGACY';
+  if(!confirm('Anasayfa yayınını ' + label + ' yap? (anında geri alınabilir)')) return;
+  const msg = document.getElementById('pl-msg');
+  msg.textContent = '...';
+  try{
+    const r = await fetch('/admin/pipeline/flip', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ site: '${sc}', target }) });
+    const j = await r.json();
+    msg.textContent = j.ok ? ('✓ ' + j.active) : ('hata: ' + (j.error || '?'));
+    if(j.ok) setTimeout(() => location.reload(), 700);
+  }catch(e){ msg.textContent = 'hata: ' + e.message; }
+}
+
 function save(field) {
   const input = document.getElementById('f-' + field);
   const st    = document.getElementById('st-' + field);
