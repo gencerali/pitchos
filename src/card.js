@@ -6,12 +6,13 @@
 
 import { simpleHash } from './utils.js';
 
-// A few on-brand colour schemes; the slug hash picks one so cards vary without per-article work.
+// On-brand schemes designed to STAND OUT on a black site: each card has an accent
+// border frame + a bold corner wedge, and one light variant for maximum contrast.
 const VARIANTS = [
-  { bg0: '#0a0a0a', bg1: '#1c1c1c', accent: '#E30A17' }, // black + red
-  { bg0: '#0b0f14', bg1: '#161d26', accent: '#ffffff' }, // black + white
-  { bg0: '#111111', bg1: '#222222', accent: '#c8a04a' }, // black + gold
-  { bg0: '#0a0a0a', bg1: '#181818', accent: '#9aa0a6' }, // black + silver
+  { mode: 'dark',  bg0: '#171717', bg1: '#262626', accent: '#E30A17', text: '#ffffff' }, // charcoal + red
+  { mode: 'light', bg0: '#f4f4f5', bg1: '#e4e4e7', accent: '#E30A17', text: '#0a0a0a' }, // white + red (pops on black)
+  { mode: 'dark',  bg0: '#1a1a1a', bg1: '#2b2b2b', accent: '#ffffff', text: '#ffffff' }, // charcoal + white
+  { mode: 'dark',  bg0: '#241d0e', bg1: '#3a2f17', accent: '#d9b25a', text: '#ffffff' }, // espresso + gold
 ];
 
 // Turkish category labels for the badge; falls back to the raw category, uppercased.
@@ -51,26 +52,31 @@ export function renderArticleCardSVG(article = {}) {
   const { title = '', category = 'Haber', slug = '' } = article;
   const v = pickCardVariant(slug || title);
   const cat = categoryLabel(category);
-  const lines = wrapTitle(title, 26, 3);
-  const badgeW = 60 + cat.length * 15;
+  const lines = wrapTitle(title, 24, 3);
+  const badgeW = 48 + cat.length * 16;
+  const onAccent = v.accent === '#ffffff' ? '#0a0a0a' : '#ffffff'; // text colour on the accent badge
+  const muted = v.mode === 'light' ? '#666666' : '#9aa0a6';
+  const lineCol = v.mode === 'light' ? '#cccccc' : '#3a3a3a';
 
   let y = 300;
   const headline = lines.map((line) => {
-    const t = `<text x="80" y="${y}" font-family="Georgia,'Times New Roman',serif" font-size="52" font-weight="700" fill="#ffffff">${esc(line)}</text>`;
-    y += 66;
+    const t = `<text x="80" y="${y}" font-family="Georgia,'Times New Roman',serif" font-size="56" font-weight="700" fill="${v.text}">${esc(line)}</text>`;
+    y += 70;
     return t;
   }).join('');
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
 <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${v.bg0}"/><stop offset="1" stop-color="${v.bg1}"/></linearGradient></defs>
 <rect width="1200" height="630" fill="url(#g)"/>
-<g opacity="0.07" fill="#ffffff"><path d="M880 120 L1140 80 L980 230 L1180 210 L900 380 Z"/><path d="M870 300 L1120 360 L940 430 L1130 470 L860 520 Z"/></g>
-<rect x="80" y="150" width="70" height="8" fill="${v.accent}"/>
-<rect x="80" y="180" rx="6" width="${badgeW}" height="44" fill="${v.accent}"/>
-<text x="${80 + badgeW / 2}" y="210" font-family="Arial,Helvetica,sans-serif" font-size="22" font-weight="800" fill="${v.accent === '#ffffff' ? '#0a0a0a' : '#ffffff'}" text-anchor="middle" letter-spacing="2">${esc(cat)}</text>
+<path d="M1200 0 L1200 360 L770 0 Z" fill="${v.accent}" opacity="0.92"/>
+<path d="M1200 360 L1200 470 L1010 0 L860 0 Z" fill="${v.accent}" opacity="0.35"/>
+<rect x="14" y="14" width="1172" height="602" rx="14" fill="none" stroke="${v.accent}" stroke-width="6"/>
+<rect x="80" y="150" width="96" height="10" fill="${v.accent}"/>
+<rect x="80" y="180" rx="6" width="${badgeW}" height="48" fill="${v.accent}"/>
+<text x="${80 + badgeW / 2}" y="212" font-family="Arial,Helvetica,sans-serif" font-size="24" font-weight="800" fill="${onAccent}" text-anchor="middle" letter-spacing="2">${esc(cat)}</text>
 ${headline}
-<line x1="80" y1="540" x2="1120" y2="540" stroke="#333333" stroke-width="1"/>
-<text x="80" y="585" font-family="Arial,Helvetica,sans-serif" font-size="30" font-weight="900" fill="#ffffff">KARTALIX</text>
-<text x="1120" y="585" font-family="Arial,Helvetica,sans-serif" font-size="20" fill="#9aa0a6" text-anchor="end">Kartalix Editöryel</text>
+<line x1="80" y1="544" x2="1010" y2="544" stroke="${lineCol}" stroke-width="1"/>
+<text x="80" y="590" font-family="Arial,Helvetica,sans-serif" font-size="32" font-weight="900" fill="${v.text}">KARTALIX</text>
+<text x="980" y="590" font-family="Arial,Helvetica,sans-serif" font-size="20" fill="${muted}" text-anchor="end">Kartalix Editöryel</text>
 </svg>`;
 }
