@@ -46,6 +46,23 @@ describe('IT6 generated card', () => {
     expect(svg).not.toContain('<image');
   });
 
+  it('inlines the Kartalix K brand mark (self-contained, not an external ref)', () => {
+    const svg = renderArticleCardSVG({ title: 'X', category: 'Match', slug: 'brand' });
+    expect(svg).toContain('points="20,32 56,4 46,4 20,22"'); // K-icon geometry from the brand pack
+    expect(svg).toContain('KARTALIX');
+  });
+
+  it('shows an eagle motif on some slugs and the K watermark on others', () => {
+    let eagle = false, kmark = false;
+    for (let i = 0; i < 40 && !(eagle && kmark); i++) {
+      const svg = renderArticleCardSVG({ title: 'T', category: 'Haber', slug: 's' + i });
+      if (svg.includes('C-42,-42')) eagle = true;       // eagle wing path
+      else kmark = true;                                 // K watermark branch
+    }
+    expect(eagle).toBe(true);
+    expect(kmark).toBe(true);
+  });
+
   it('pickBackground: null for empty pool, deterministic pick otherwise', () => {
     expect(pickBackground('s', [])).toBeNull();
     expect(pickBackground('s', null)).toBeNull();

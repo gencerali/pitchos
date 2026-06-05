@@ -59,7 +59,30 @@ export function pickBackground(slug, pool) {
   return pool[seedOf(slug) % pool.length];
 }
 
-// The foreground (frame + badge + headline + wordmark) shared by both modes.
+// Kartalix "K" brand mark (from Logo and Branding/kartalix-icon-*.svg) inlined so the
+// card SVG stays self-contained (no external fetch). `main` = the white K stroke colour
+// (adapts: white on dark cards, black on light), `red` = the brand accent.
+function kIcon(x, y, size, main, red) {
+  const s = size / 64;
+  return `<g transform="translate(${x},${y}) scale(${s})">` +
+    `<rect x="8" y="4" width="12" height="56" fill="${main}"/>` +
+    `<polygon points="20,32 56,4 46,4 20,22" fill="${main}"/>` +
+    `<polygon points="20,32 58,60 68,60 20,36" fill="${red}"/>` +
+    `<rect x="8" y="29" width="12" height="7" fill="${red}"/></g>`;
+}
+
+// Generic spread-wing eagle silhouette — a nod to "Kartal" (eagles). Deliberately NOT the
+// official Beşiktaş crest (trademark); a plain heraldic shape used only as a faint motif.
+function eagleMotif(cx, cy, scale, color, opacity) {
+  return `<g transform="translate(${cx},${cy}) scale(${scale})" fill="${color}" fill-opacity="${opacity}">` +
+    `<path d="M0,-6 C-42,-42 -92,-30 -124,-52 C-92,-22 -70,-18 -80,0 C-50,-14 -28,-8 0,6 Z"/>` +
+    `<path d="M0,-6 C42,-42 92,-30 124,-52 C92,-22 70,-18 80,0 C50,-14 28,-8 0,6 Z"/>` +
+    `<path d="M0,-14 L11,2 L5,34 L-5,34 L-11,2 Z"/>` +
+    `<circle cx="0" cy="-20" r="9"/>` +
+    `<path d="M0,-24 L16,-21 L3,-15 Z"/></g>`;
+}
+
+// The foreground (frame + badge + headline + brand lockup) shared by both modes.
 function foreground(v, cat, lines, textColor, muted, lineCol, badgeOnPhoto) {
   const badgeW = 48 + cat.length * 16;
   const onAccent = v.accent === '#ffffff' ? '#0a0a0a' : '#ffffff';
@@ -75,7 +98,8 @@ function foreground(v, cat, lines, textColor, muted, lineCol, badgeOnPhoto) {
 <text x="${80 + badgeW / 2}" y="232" font-family="Arial,Helvetica,sans-serif" font-size="24" font-weight="800" fill="${onAccent}" text-anchor="middle" letter-spacing="2">${esc(cat)}</text>
 ${headline}
 <line x1="80" y1="556" x2="1010" y2="556" stroke="${lineCol}" stroke-width="1"/>
-<text x="80" y="600" font-family="Arial,Helvetica,sans-serif" font-size="32" font-weight="900" fill="${textColor}">KARTALIX</text>
+${kIcon(80, 566, 40, textColor, '#E30A17')}
+<text x="134" y="600" font-family="'Barlow Condensed',Impact,'Arial Narrow',sans-serif" font-size="36" font-weight="900" letter-spacing="3" fill="${textColor}">KARTALIX</text>
 <text x="1010" y="600" font-family="Arial,Helvetica,sans-serif" font-size="20" fill="${muted}" text-anchor="end">Kartalix Editöryel</text>`;
 }
 
@@ -87,7 +111,6 @@ export function renderArticleCardSVG(article = {}, opts = {}) {
   const cat = categoryLabel(category);
   const lines = wrapTitle(title, 22, 3);
   const seed = seedOf(slug || title);
-  const wm = cat[0] || 'K';
 
   // ── Photo mode ──
   if (opts.bgDataUri) {
@@ -113,7 +136,9 @@ ${foreground(v, cat, lines, '#ffffff', '#cbd1d8', '#555555')}
 <ellipse cx="${glowAx}" cy="60" rx="520" ry="360" fill="url(#gw)"/>
 <ellipse cx="${glowBx}" cy="120" rx="560" ry="420" fill="url(#ga)"/>
 <g fill="none" stroke="${v.text}" stroke-opacity="0.06" stroke-width="3"><circle cx="600" cy="720" r="250"/><path d="M-50 480 Q600 370 1250 480"/><rect x="430" y="610" width="340" height="200"/></g>
-<text x="1150" y="475" font-family="Arial,Helvetica,sans-serif" font-size="520" font-weight="900" fill="${v.text}" fill-opacity="0.045" text-anchor="end">${esc(wm)}</text>
+${seed % 2 === 0
+  ? eagleMotif(995, 300, 2.05, v.text, 0.07)
+  : `<g opacity="0.05">${kIcon(840, 150, 360, v.text, v.accent)}</g>`}
 <rect width="1200" height="630" filter="url(#grain)" opacity="0.5"/>
 <path d="M1200 0 L1200 300 L870 0 Z" fill="${v.accent}" opacity="0.9"/>
 ${foreground(v, cat, lines, v.text, v.mode === 'light' ? '#666666' : '#9aa0a6', v.mode === 'light' ? '#cccccc' : '#3a3a3a')}
