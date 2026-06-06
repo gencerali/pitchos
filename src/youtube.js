@@ -1,4 +1,5 @@
 import { bjkMatch } from './utils.js';
+import { isRivalSubject } from './processor.js';
 
 // ─── YOUTUBE ATOM FEED FETCHER ────────────────────────────────
 // Public Atom feeds, no auth, no quota.
@@ -150,6 +151,9 @@ export function qualifyYouTubeVideo(video) {
   const t = video.title.toLowerCase();
   if (EXCLUDE_TERMS.some(k => t.includes(k))) return false;
   if (ARCHIVE_SEASON_RE.test(video.title)) return false;
+  // Rival guard — applies even to all_qualify channels (which skip the bjkMatch check below),
+  // e.g. a digital analysis channel covering a rival. Parity with preFilter Stage 1.6. (2026-06-06)
+  if (isRivalSubject(video.title)) return false;
   if (!video.all_qualify && !bjkMatch(video.title)) return false;
   return true;
 }
