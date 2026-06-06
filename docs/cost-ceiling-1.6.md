@@ -1,0 +1,29 @@
+# Cost Ceiling (Module 1.6) — build tracker
+
+Adds **daily** spend tracking, a **daily cap**, and a **month-end trajectory** projection on top
+of the existing monthly cap (`addCost`/`checkCostCap`, `cost:YYYY-MM`, `cost:cap`). Built
+step-by-step with per-step approval; observe-only by default, enforcement flag-gated.
+
+## Operator GUI requirements (locked 2026-06-06)
+- On `/admin/financials` → **"Maliyet"** tab: a **cost-over-time graph** with **time-interval
+  scrolling and/or filters** (day / week / month range).
+- **Warnings** (trajectory on pace to exceed cap, daily overage) shown on that page.
+- **Alarms** go into the **existing alarms section below the reports** — not a new location.
+
+## Steps
+1. ✅ **Daily spend tracking** — `addCost` also increments `cost:day:YYYY-MM-DD` (TTL ~35d).
+   Backend only; no GUI/user impact. Tests: `src/__tests__/cost.test.js`.
+2. ⬜ **Trajectory compute** — pure `costTrajectory(env)` → `{monthSpend, todaySpend, cap,
+   dayOfMonth, daysInMonth, projectedMonthEnd, pctOfCap, onTrack}`. No side effects.
+3. ⬜ **Daily cap + soft alarm** — configurable daily cap (KV `cost:daily_cap`, default
+   `cap/daysInMonth`); observe-only warning when a day or the projection runs hot.
+4. ⬜ **Enforcement (flag-gated, default OFF)** — `checkCostCap` also blocks on daily overage
+   when KV `cost:daily_enforce = 1`.
+5. ⬜ **GUI** — graph + filters + warnings on Maliyet; alarms into the alarms section.
+
+## KV keys
+- `cost:YYYY-MM` — monthly spend (existing)
+- `cost:day:YYYY-MM-DD` — daily spend (Step 1, TTL ~35d)
+- `cost:cap` — monthly cap override (existing)
+- `cost:daily_cap` — daily cap override (Step 3)
+- `cost:daily_enforce` — `"1"` to enable daily blocking (Step 4)

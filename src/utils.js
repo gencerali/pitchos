@@ -456,6 +456,13 @@ export async function addCost(env, usd) {
   const cur = parseFloat((await env.PITCHOS_CACHE.get(key)) || '0');
   const next = cur + usd;
   await env.PITCHOS_CACHE.put(key, String(next.toFixed(6)));
+  // Daily spend (Cost Ceiling 1.6): per-day counter, auto-expires after ~35 days.
+  // Error-guarded so it can never break cost accounting or the pipeline.
+  try {
+    const dayKey = `cost:day:${new Date().toISOString().slice(0, 10)}`;
+    const dayCur = parseFloat((await env.PITCHOS_CACHE.get(dayKey)) || '0');
+    await env.PITCHOS_CACHE.put(dayKey, String((dayCur + usd).toFixed(6)), { expirationTtl: 35 * 24 * 3600 });
+  } catch { /* daily tracking is best-effort */ }
   if (cap > 0) {
     const pct = next / cap * 100;
     const now = new Date().toISOString();
