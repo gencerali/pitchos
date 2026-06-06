@@ -3,6 +3,25 @@ import { simpleHash, callClaude, extractText, MODEL_SCORE, supabase, bjkMatch, b
 export const BJK_REGEX  = /beşiktaş|besiktas|bjk|kartal|siyah.beyaz/i;
 export const CUTOFF_48H = 72 * 60 * 60 * 1000; // kept for any external callers
 
+// Rival clubs — explicit names only (no ambiguous nicknames like "aslan"/"kanarya").
+// Used by isRivalSubject for a deterministic off-topic guard.
+const RIVAL_KEYWORDS = [
+  'fenerbahçe', 'fenerbahce', 'galatasaray', 'trabzonspor',
+  'cimbom', 'sarı-lacivert', 'sari-lacivert', 'sarı-kırmızı', 'sari-kirmizi', 'bordo-mavi',
+];
+
+// True when an article TITLE is led by a rival club AND carries no BJK keyword in the title
+// — i.e. a rival-internal story (board election, rival-only transfer) with no Beşiktaş angle.
+// Deterministic backstop: the LLM relevance scorer alone has let these through
+// (e.g. a Fenerbahçe genel-kurul article published on the BJK site, 2026-06-06).
+export function isRivalSubject(title) {
+  // Substring match (not token) so Turkish suffixes still match: "Fenerbahçe'de" → fenerbahçe.
+  // BJK side uses BJK_REGEX (also suffix-tolerant) so any Beşiktaş angle spares the article.
+  const t = (title || '').toLowerCase();
+  const hasRival = RIVAL_KEYWORDS.some(k => t.includes(k));
+  return hasRival && !BJK_REGEX.test(t);
+}
+
 // ─── PRE-FILTER (pure JS, zero Claude calls) ─────────────────
 // Returns { articles, counts, rejected } with per-stage breakdown.
 // lookbackMs: how far back to accept articles (default 3h; caller derives from cron frequency)
@@ -37,8 +56,22 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
     return true;
   });
 
+  // Stage 1.6: rival-subject rejection — title led by a rival club with no BJK angle.
+  // Deterministic guard; the LLM relevance scorer alone has let rival-internal stories
+  // through (e.g. Fenerbahçe genel kurul on the BJK site, 2026-06-06).
+  const afterRival = afterLiveBlog.filter(a => {
+    if (isRivalSubject(a.title || '')) {
+      rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'rival_subject',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+        drop_detail: 'rival-led title, no BJK keyword' });
+      return false;
+    }
+    return true;
+  });
+
   // Stage 2: BJK keyword + minimum summary length
-  const afterKeyword = afterLiveBlog.filter(a => {
+  const afterKeyword = afterRival.filter(a => {
     const haystack = `${a.title} ${a.summary || ''} ${a.full_text || ''}`.slice(0, 600);
     if (!bjkMatch(haystack)) {
       rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'off_topic',

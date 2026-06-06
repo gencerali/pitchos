@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { preFilter } from '../processor.js';
+import { preFilter, isRivalSubject } from '../processor.js';
 import { rankAndEvict, SCORING_CONFIG_DEFAULTS as CFG } from '../publisher.js';
 import { simpleHash } from '../utils.js';
 
@@ -31,8 +31,8 @@ describe('preFilter — intake gating', () => {
     expect(rejected.some(r => r._stage === 'live_blog_source')).toBe(true);
   });
 
-  it('rejects off-topic (no BJK keyword)', () => {
-    const arts = [{ title: 'Galatasaray transfer', summary: 'yeterince uzun bir özet metni buraya yazıldı tamam.', url: 'https://x/3', published_at: fresh() }];
+  it('rejects off-topic (no BJK keyword, non-rival)', () => {
+    const arts = [{ title: 'Hava durumu raporu yayınlandı', summary: 'yeterince uzun bir özet metni buraya yazıldı tamam.', url: 'https://x/3', published_at: fresh() }];
     const { rejected } = preFilter(arts, new Set());
     expect(rejected.some(r => r._stage === 'off_topic')).toBe(true);
   });
@@ -43,6 +43,13 @@ describe('preFilter — intake gating', () => {
     expect(rejected.some(r => r._stage === 'too_short')).toBe(true);
   });
 
+  it('rejects rival-subject articles (rival-led title, no BJK angle)', () => {
+    const arts = [{ title: 'Fenerbahçede tarihi genel kurul: Aziz Yıldırım ve Hakan Safi yarışıyor', summary: 'Genel kurul öncesi Beşiktaş ve diğer kulüpler de gündemde, uzun özet metni burada.', url: 'https://x/fb', published_at: fresh() }];
+    const { articles, rejected } = preFilter(arts, new Set());
+    expect(articles).toHaveLength(0);
+    expect(rejected.some(r => r._stage === 'rival_subject')).toBe(true);
+  });
+
   it('rejects already-seen hashes', () => {
     const a = { title: 'Beşiktaş transfer haberi', summary: 'yeterince uzun bir özet metni buraya yazıldı tamam.', url: 'https://x/5', published_at: fresh() };
     expect(preFilter([a], new Set()).articles).toHaveLength(1);
@@ -50,6 +57,20 @@ describe('preFilter — intake gating', () => {
     const seen = new Set([simpleHash(a.title + (a.summary || '').slice(0, 100))]);
     const { rejected } = preFilter([a], seen);
     expect(rejected.some(r => r._stage === 'hash_dedup')).toBe(true);
+  });
+});
+
+describe('isRivalSubject — deterministic rival guard', () => {
+  it('flags a rival-led title with no BJK keyword', () => {
+    expect(isRivalSubject('Fenerbahçede tarihi genel kurul')).toBe(true);
+    expect(isRivalSubject('Galatasaray yeni hocasını açıkladı')).toBe(true);
+  });
+  it('does NOT flag when the title also names Beşiktaş (real BJK-vs-rival story)', () => {
+    expect(isRivalSubject('Beşiktaş Fenerbahçe derbisine hazır')).toBe(false);
+  });
+  it('does NOT flag pure BJK or non-rival titles', () => {
+    expect(isRivalSubject('Beşiktaş transfer haberi')).toBe(false);
+    expect(isRivalSubject('Milli takım kampa girdi')).toBe(false);
   });
 });
 

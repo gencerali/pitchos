@@ -463,9 +463,11 @@ Found-but-deferred fixes. Each is documented where it lives and (where risky to 
 |-------|--------|-------------|--------|-------|
 | `normalizeTitle` strips Turkish diacritics (`\w` is ASCII-only) — `açıkladı`→`aklad` | Degrades `titleSimilarity` for Turkish; weakens dedup quality | 🟡 Med — changes live dedup results across the pipeline | v1.1 | Locked in `dedup.test.js`. Fix = Unicode-aware normalize (`\p{L}` or explicit TR class); validate dedup deltas in shadow before shipping. Found 2026-06-05. |
 | `KEY_TOKEN_RE` truncates trailing Turkish letters (`Beşiktaş`→`beşikta`) — same ASCII-boundary root cause | Stemmed tokens; needed stopword stems as a workaround | 🟡 Med — affects `sharedStoryTokens` matching | v1.1 | Mitigated 2026-06-05 by adding stem forms to `DEDUP_STOPWORDS` (`beşikta`, `kartal`, `siyah`, `beyaz`). Full fix = Unicode-aware tokenizer; bundle with the `normalizeTitle` fix. |
+| Relevance is LLM-only for **body-led** rival/off-topic stories (title names no rival) | A rival-centric story whose title doesn't name the rival still relies on the Haiku scorer | 🟡 Med | v1.1 | `isRivalSubject` (2026-06-06) deterministically catches *title-led* rival stories; body-led ones still depend on the scorer. Consider a body-level rival-dominance check or stronger scorer prompt. |
 
 **Resolved (for traceability):**
 - ✅ 2026-06-05 — Dedup stopword bug: club name `Beşiktaş` counted as a meaningful shared token (stopword never matched the truncated token), biasing dedup toward false matches. Fixed in `src/processor.js`; guarded by `dedup.test.js`.
+- ✅ 2026-06-06 — Rival news published on BJK site (Fenerbahçe genel-kurul article). Root cause: loose keyword gate (passing BJK mention) + the LLM relevance scorer misrated it relevant (NVS≥30). Fix: `isRivalSubject` deterministic guard in `preFilter` (Stage 1.6) rejects rival-led titles with no BJK angle; guarded by `rank-and-prefilter.test.js`. Note: same Turkish-suffix matching trap as the dedup bug — guard uses substring + `BJK_REGEX`, not token match.
 
 ## Post-Launch Backlog (v1.1+)
 
