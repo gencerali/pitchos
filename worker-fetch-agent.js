@@ -1926,6 +1926,25 @@ export default {
       for (let i = 1; i <= 2; i++) { const d2 = new Date(now2); d2.setMonth(d2.getMonth()-i); costMonths.push(d2.toISOString().slice(0,7)); }
       const costHistory = await Promise.all(costMonths.map(async m => ({ month: m, usd: parseFloat((await env.PITCHOS_CACHE.get(`cost:${m}`)) || '0') })));
 
+      // Daily series for the cost chart (Cost Ceiling 1.6 / Step 5b): durable archive (long
+      // tail) merged with the last ~35 live daily keys. Plus the month-end trajectory.
+      let dailySeries = [];
+      let trajectory = null;
+      try {
+        const archiveRaw = await env.PITCHOS_CACHE.get('cost:daily_archive');
+        const merged = archiveRaw ? JSON.parse(archiveRaw) : {};
+        for (let i = 0; i < 35; i++) {
+          const dd = new Date(now2); dd.setDate(dd.getDate() - i);
+          const ds = dd.toISOString().slice(0, 10);
+          const v = parseFloat((await env.PITCHOS_CACHE.get(`cost:day:${ds}`)) || '0');
+          if (v > 0) merged[ds] = v;
+        }
+        dailySeries = Object.entries(merged)
+          .map(([date, usd]) => ({ date, usd: +(+usd).toFixed(4) }))
+          .sort((a, b) => (a.date < b.date ? -1 : 1));
+        trajectory = await costTrajectory(env);
+      } catch (e) { console.log('cost daily series failed:', e.message); }
+
       // Aggregate 7-day breakdown from daily keys
       const brk7d = { total: 0, phases: {}, models: {}, runs: 0 };
       const brkDailyParsed = brkDailyRaw.map((r, i) => ({ day: last7[i], data: r ? JSON.parse(r) : null }));
@@ -1959,6 +1978,7 @@ export default {
           today:  brkDailyParsed[0]?.data || null,
         },
         art_count_mtd: (artRows || []).length,
+        daily: dailySeries, trajectory,
       };
       return new Response(
         renderFinancialsPage(monthsData, FIXED_ITEMS, costData, activeTab, sc, allSites),
@@ -9326,7 +9346,15 @@ function renderFinancialsPage(monthsData, fixedItems, costData, activeTab, siteC
   const allManual = monthsData.flatMap(d => d.manual.map(c => ({ ...c, startMonth: d.month })));
 
   // Cost panel data
-  const { current_usd, cap_usd, cap_is_override, pct_used, blocked, history: costHistory, alarms, current_month: costMonth } = costData;
+  const { current_usd, cap_usd, cap_is_override, pct_used, blocked, history: costHistory, alarms, current_month: costMonth, daily = [], trajectory = null } = costData;
+  // Trajectory warning banner (Cost Ceiling 1.6 / Step 5b)
+  const trajBanner = trajectory ? (() => {
+    const proj = trajectory.projectedMonthEnd.toFixed(2), pct = Math.round(trajectory.projectedPctOfCap);
+    if (!trajectory.onTrack) {
+      return `<div class="traj-banner traj-bad">⚠ Aylık projeksiyon $${proj} / $${trajectory.cap.toFixed(2)} (${pct}%) — bütçeyi aşma yolunda <span style="opacity:.7">(${trajectory.projectionBasis})</span></div>`;
+    }
+    return `<div class="traj-banner traj-ok">Aylık projeksiyon $${proj} / $${trajectory.cap.toFixed(2)} (${pct}%) — yolunda</div>`;
+  })() : '';
   const barPct = Math.min(parseFloat(pct_used || 0), 100);
   const barColor = barPct >= 100 ? '#E30A17' : barPct >= 80 ? '#f0a500' : '#3a9a3a';
   const statusCls = blocked ? 'status-blocked' : barPct >= 80 ? 'status-warn' : 'status-ok';
@@ -9408,6 +9436,9 @@ td{padding:6px 8px;border-bottom:1px solid #161616;vertical-align:middle;font-si
 #costPanel .row-btns{display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap}
 #costPanel .cbtn{background:#1a1a1a;border:1px solid #333;color:#ccc;padding:.45rem 1rem;border-radius:4px;font-size:.78rem;cursor:pointer;font-family:inherit}
 #costPanel .cbtn:hover{border-color:#555;color:#fff}
+#costPanel .traj-banner{padding:.7rem 1rem;border-radius:6px;margin-bottom:1rem;font-size:.82rem;font-weight:600}
+#costPanel .traj-bad{background:#2a0e0e;border:1px solid #5a1a1a;color:#f08a8a}
+#costPanel .traj-ok{background:#0e2a14;border:1px solid #1a5a2a;color:#7ad48a}
 #costPanel .cbtn.danger{border-color:#5a1a1a;color:#e07070}
 #costPanel .cbtn.danger:hover{border-color:#E30A17;color:#E30A17}
 #costPanel .cbtn.primary{border-color:#335;color:#aad;background:#1a1a2a}
@@ -9427,7 +9458,7 @@ ${adminNav('financials', siteCode, allSites)}
 <main>
 <div class="tabs">
   <button class="tab-btn${activeTab==='fin'?' active':''}" onclick="showTab('fin')">Finansal Özet</button>
-  <button class="tab-btn${activeTab==='cost'?' active':''}" onclick="showTab('cost')">Claude Maliyeti</button>
+  <button id="costTabBtn" class="tab-btn${activeTab==='cost'?' active':''}" onclick="showTab('cost')">Claude Maliyeti</button>
 </div>
 <div id="finPanel" style="display:${activeTab==='fin'?'block':'none'}">
 <div class="range-bar">
@@ -9499,6 +9530,20 @@ ${adminNav('financials', siteCode, allSites)}
 </div><!-- /finPanel -->
 
 <div id="costPanel" style="display:${activeTab==='cost'?'block':'none'};max-width:640px;margin:0 auto">
+  ${trajBanner}
+  <div class="cost-card">
+    <div class="ch2">Günlük Maliyet</div>
+    <div class="row-btns" id="dcFilters">
+      <button class="cbtn" data-days="7">7g</button>
+      <button class="cbtn" data-days="14">14g</button>
+      <button class="cbtn primary" data-days="30">30g</button>
+      <button class="cbtn" data-days="90">90g</button>
+      <button class="cbtn" data-days="365">1y</button>
+      <button class="cbtn" data-days="730">2y</button>
+    </div>
+    <canvas id="dailyChart" height="90" style="margin-top:1rem"></canvas>
+    <p style="font-size:.68rem;color:#777;margin-top:.5rem">Günlük geçmiş ileriye doğru birikir (geçmiş için aylık grafiğe bakın).</p>
+  </div>
   <div class="cost-card">
     <div class="ch2">This Month — ${costMonth}</div>
     <div>
@@ -9548,6 +9593,36 @@ ${adminNav('financials', siteCode, allSites)}
 </main>
 <div id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+const DAILY = ${JSON.stringify(daily)};
+(function(){
+  let dc, curDays = 30;
+  function draw(days){
+    curDays = days;
+    var ctx = document.getElementById('dailyChart');
+    if (!ctx || !window.Chart) return;
+    var data = DAILY.slice(-days);
+    if (dc) dc.destroy();
+    dc = new Chart(ctx.getContext('2d'), {
+      type: 'bar',
+      data: { labels: data.map(function(d){ return d.date.slice(5); }),
+              datasets: [{ data: data.map(function(d){ return d.usd; }), backgroundColor: '#E30A17' }] },
+      options: { responsive: true, plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color: '#888', maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+                  y: { beginAtZero: true, ticks: { color: '#888' } } } }
+    });
+  }
+  var fb = document.getElementById('dcFilters');
+  if (fb) fb.addEventListener('click', function(e){
+    var b = e.target.closest('[data-days]'); if (!b) return;
+    fb.querySelectorAll('[data-days]').forEach(function(x){ x.classList.remove('primary'); });
+    b.classList.add('primary'); draw(+b.dataset.days);
+  });
+  var ctb = document.getElementById('costTabBtn');           // redraw when the cost tab is opened
+  if (ctb) ctb.addEventListener('click', function(){ setTimeout(function(){ draw(curDays); }, 60); });
+  draw(30);
+})();
+</script>
 <script>
 const ADMIN_SITE = '${siteCode}';
 const _origFetch = window.fetch.bind(window);

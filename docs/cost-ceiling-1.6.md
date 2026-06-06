@@ -28,8 +28,17 @@ step-by-step with per-step approval; observe-only by default, enforcement flag-g
 5a. ✅ **Durable daily archive (2-yr retention)** — `cost:daily_archive` KV doc; `archiveDailyCost`
    rolls live `cost:day:*` into it in the 04:00 cron and prunes >730 days. Pure `rollupDailyCost`
    (merge live-over-archive + prune). History fills forward; past stays monthly. Tests in `cost.test.js`.
-5b. ⬜ **GUI** — daily-spend chart (Chart.js) + 7/14/30/90/365/730 filters + trajectory warning
-   banner on the Maliyet tab. Reads archive + live recent days. (Alarms already in the alarms section.)
+5b. ✅ **GUI** — daily-spend bar chart (Chart.js, reused) + **7/14/30/90/365/730** filters +
+   trajectory **warning banner** on the Maliyet tab; route serves `daily` (archive+live) +
+   `trajectory`. Alarms already in the alarms section (Step 3). **Supervised: eyeball on deploy.**
+
+---
+
+## 1.6 COMPLETE ✅ — how to operate
+- **See it:** `/admin/financials` → "Claude Maliyeti" tab — daily chart + range filters + on/off-track banner. Alarms: `/admin/alarms`.
+- **Tune the daily cap:** `wrangler kv key put --namespace-id=dedaea653ed542cca25e6cc2551dd1c3 cost:daily_cap 0.60` (default = monthly cap / days-in-month).
+- **Arm daily enforcement (default OFF):** `… cost:daily_enforce 1` (blocks AI calls past the daily cap, like the monthly cap). Disarm: set `0`.
+- **Verify after deploy (supervised):** open the Maliyet tab → chart renders, filters switch ranges, banner shows; check `/admin/alarms` shows cost_trajectory when projected > cap.
 
 ## KV keys
 - `cost:YYYY-MM` — monthly spend (existing)
