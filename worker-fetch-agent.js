@@ -417,7 +417,7 @@ export default {
       }
       // IT6 fallback: give imageless non-video articles an owned generated-card image.
       const withCards = articles.map(a =>
-        (a.image_url || a.publish_mode === 'youtube_embed' || !a.slug)
+        (a.image_url || !a.slug || ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'].includes(a.publish_mode))
           ? a
           : { ...a, image_url: `${BASE_URL}/card/${encodeURIComponent(a.slug)}.svg` });
       return new Response(JSON.stringify({ articles: withCards, rail_fallback }), { headers: h });
@@ -2913,6 +2913,8 @@ Sadece JSON döndür:
       const body = await request.json().catch(() => ({}));
       const target = body.target === 'methodb' ? 'methodb' : 'legacy';
       const code = (body.site || 'BJK').toString();
+      const flipSites = await getActiveSites(env);
+      if (!flipSites.some(s => s.short_code === code)) return Response.json({ error: 'unknown site' }, { status: 400 });
       await env.PITCHOS_CACHE.put(`pipeline:active:${code}`, target);
       console.log(`PIPELINE FLIP [${code}] → ${target}`);
       return Response.json({ ok: true, site: code, active: target });
@@ -3944,7 +3946,7 @@ Sadece JSON döndür:
         const bgUrl = pickBackground(slug, poolRaw ? JSON.parse(poolRaw) : []);
         if (bgUrl && bgUrl.startsWith('data:')) {
           bgDataUri = bgUrl;
-        } else if (bgUrl) {
+        } else if (bgUrl && /^https?:\/\//.test(bgUrl)) {
           const resp = await fetch(bgUrl, { cf: { cacheTtl: 86400, cacheEverything: true } });
           if (resp.ok) {
             const bytes = new Uint8Array(await resp.arrayBuffer());
@@ -7427,7 +7429,7 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, 
   const desc      = (a.summary || a.full_body || '').replace(/<[^>]+>/g, ' ').slice(0, 200).trim();
   // Fall back to the IT6 generated card when there's no licensed/embedded image
   // (covers hero img + og:image + twitter:image, which all read `image`).
-  const image     = a.image_url || (a.publish_mode !== 'youtube_embed' && a.slug ? `${BASE_URL}/card/${encodeURIComponent(a.slug)}.svg` : '');
+  const image     = a.image_url || (a.slug && !['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'].includes(a.publish_mode) ? `${BASE_URL}/card/${encodeURIComponent(a.slug)}.svg` : '');
   const rawSource = a.source || a.source_name || '';
   const isKartalix = !rawSource || rawSource === 'Kartalix' ||
     ['rewrite','original_synthesis','manual'].includes(a.publish_mode) ||
