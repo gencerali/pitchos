@@ -51,12 +51,16 @@ else
 fi
 
 # ── 3. Deploy main worker (adds /admin/pipeline + config toggle + cutover seam) ─
-say "3. Deploy main worker (pitchos-fetch-agent)"
-npx wrangler deploy
+SHA="$(git rev-parse --short HEAD)"
+say "3. Deploy main worker (pitchos-fetch-agent) @ $SHA"
+npx wrangler deploy --var BUILD_SHA:"$SHA"
 
 # ── 4. Deploy Method B shadow worker ─────────────────────────────────────────
-say "4. Deploy Method B worker (pitchos-story-agent)"
-npx wrangler deploy -c "$STORY_CFG"
+say "4. Deploy Method B worker (pitchos-story-agent) @ $SHA"
+npx wrangler deploy -c "$STORY_CFG" --var BUILD_SHA:"$SHA"
+
+# Tag this deploy so you can map a live version back to the exact code (git checkout deploy-…).
+git tag -f "deploy-$(date -u +%Y%m%d-%H%M)-$SHA" >/dev/null 2>&1 && echo "  tagged deploy-…-$SHA (push tags: git push --tags)"
 
 # ── 5. Migration (manual — cannot be automated here) ─────────────────────────
 say "5. Supabase migration — RUN THIS BY HAND"

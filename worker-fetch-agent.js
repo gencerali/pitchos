@@ -3925,6 +3925,13 @@ Sadece JSON döndür:
       } catch(e) { return Response.json({ ok: false, error: e.message }, { status: 500, headers: h }); }
     }
 
+    // Version stamp — confirms WHICH build is live (set by deploy.sh --var BUILD_SHA).
+    if (url.pathname === '/version') {
+      return Response.json(
+        { worker: env.BUILD_SHA || 'unknown', ts: new Date().toISOString() },
+        { headers: { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } });
+    }
+
     // IT6 generated card — fully-owned fallback image for an article (no third-party IP).
     if (url.pathname.startsWith('/card/') && url.pathname.endsWith('.svg')) {
       const slug = decodeURIComponent(url.pathname.slice('/card/'.length, -4));
