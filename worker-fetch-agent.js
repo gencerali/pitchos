@@ -18,6 +18,7 @@ import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { renderArticleCardSVG, pickBackground } from './src/card.js';
 import { articleBodyToHtml } from './src/render.js';
 import { isKartalix as isKartalixArticle, videoEmbedHtml } from './src/shared.js';
+import { computeSourceHealth, sourceHealthAlarms } from './src/source-health.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
@@ -2664,6 +2665,14 @@ Sadece JSON döndür:
       return Response.json({ ok: true, id });
     }
 
+    if (url.pathname === '/admin/source-health') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      const raw = await env.PITCHOS_CACHE.get(`source_health:report:${currentSite.short_code}`).catch(() => null);
+      return Response.json(raw ? JSON.parse(raw) : { ts: null, sources: [] }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+
     if (url.pathname === '/admin/alarms') {
       const authErr = await requireOps(request, env); if (authErr) return authErr;
       const SITE = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
@@ -2830,6 +2839,16 @@ Sadece JSON döndür:
           msg: `Today $${state.cost_daily_detail.today} > daily cap $${state.cost_daily_detail.dailyCap}`,
           first_seen: state.alarm_first_seen.cost_daily,
         });
+      }
+
+      // 8. Source health (Module 1.1) — dead/noisy feeds (computed daily by runSourceHealth).
+      const shRaw = await env.PITCHOS_CACHE.get('source_health:alarms').catch(() => null);
+      const sh = shRaw ? JSON.parse(shRaw) : null;
+      if (sh?.dead?.length) {
+        alarms.push({ id: 'source_dead', category: 'major', title: `Dead source(s) (${sh.dead.length})`, msg: sh.dead.join(', '), first_seen: sh.ts });
+      }
+      if (sh?.noisy?.length) {
+        alarms.push({ id: 'source_noisy', category: 'minor', title: `Noisy source(s) (${sh.noisy.length})`, msg: sh.noisy.join(', '), first_seen: sh.ts });
       }
 
       if (stateDirty) {
@@ -4064,7 +4083,7 @@ Sadece JSON döndür:
       }
       ctx.waitUntil(Promise.all(work));
     } else if (cron === '0 4 * * *') {
-      ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env), archiveDailyCost(env)]));
+      ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env), archiveDailyCost(env), runSourceHealth(env)]));
     } else if (cron === '0 3 * * 1') {
       ctx.waitUntil(redistillEditorialNotes(env));
     } else if (cron === '0 2 * * 0') {
@@ -4238,6 +4257,36 @@ async function archiveDailyCost(env) {
     await env.PITCHOS_CACHE.put('cost:daily_archive', JSON.stringify(merged));
     console.log(`COST ARCHIVE: ${Object.keys(merged).length} days retained`);
   } catch (e) { console.log('archiveDailyCost failed:', e.message); }
+}
+
+// Source Health (Module 1.1) — daily per-source pass-rate / dead-feed report.
+// Stores a report per site, a compact alarm payload (for /admin/alarms), and — only when
+// KV flag source_health:auto_disable='1' — disables feeds dead for ≥3 consecutive days.
+async function runSourceHealth(env) {
+  try {
+    const sites = await getActiveSites(env);
+    const autoDisable = (await env.PITCHOS_CACHE.get('source_health:auto_disable')) === '1';
+    const since = new Date(Date.now() - 7 * 86400000).toISOString();
+    const allAlarms = { dead: [], noisy: [], ts: new Date().toISOString() };
+    for (const site of sites) {
+      const [rows, sources] = await Promise.all([
+        supabase(env, 'GET', `/rest/v1/pipeline_log?site_id=eq.${site.id}&run_at=gte.${encodeURIComponent(since)}&select=source_name,stage,run_at&limit=5000`).catch(() => null),
+        supabase(env, 'GET', `/rest/v1/source_configs?site_id=eq.${site.id}&is_active=eq.true&select=name,source_type`).catch(() => null),
+      ]);
+      const report = computeSourceHealth(rows || [], sources || [], { now: new Date() });
+      await env.PITCHOS_CACHE.put(`source_health:report:${site.short_code}`, JSON.stringify({ ts: new Date().toISOString(), sources: report }), { expirationTtl: 14 * 86400 }).catch(() => {});
+      const a = sourceHealthAlarms(report);
+      allAlarms.dead.push(...a.dead); allAlarms.noisy.push(...a.noisy);
+      if (autoDisable) {
+        for (const s of report.filter((x) => x.status === 'dead' && x.knownActive)) {
+          await supabase(env, 'PATCH', `/rest/v1/source_configs?site_id=eq.${site.id}&name=eq.${encodeURIComponent(s.name)}`, { is_active: false }).catch(() => {});
+          console.warn(`SOURCE HEALTH: auto-disabled dead source "${s.name}" (${s.zeroDays}d zero) [${site.short_code}]`);
+        }
+      }
+    }
+    await env.PITCHOS_CACHE.put('source_health:alarms', JSON.stringify(allAlarms), { expirationTtl: 3 * 86400 }).catch(() => {});
+    console.log(`SOURCE HEALTH: dead=${allAlarms.dead.length} noisy=${allAlarms.noisy.length} (auto_disable=${autoDisable})`);
+  } catch (e) { console.log('runSourceHealth failed:', e.message); }
 }
 
 async function runDailyArchival(env) {
