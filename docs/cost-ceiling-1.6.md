@@ -13,8 +13,11 @@ step-by-step with per-step approval; observe-only by default, enforcement flag-g
 ## Steps
 1. ✅ **Daily spend tracking** — `addCost` also increments `cost:day:YYYY-MM-DD` (TTL ~35d).
    Backend only; no GUI/user impact. Tests: `src/__tests__/cost.test.js`.
-2. ⬜ **Trajectory compute** — pure `costTrajectory(env)` → `{monthSpend, todaySpend, cap,
-   dayOfMonth, daysInMonth, projectedMonthEnd, pctOfCap, onTrack}`. No side effects.
+2. ✅ **Trajectory compute** — pure `costTrajectory(env, now?)` projects month-end from
+   **max(month-to-date avg, trailing-7-day avg)** so a recent spike isn't masked by a cheap
+   early month. Returns `{monthSpend, todaySpend, cap, dayOfMonth, daysInMonth, avgPerDayMTD,
+   avg7d, projMTD, proj7d, projectedMonthEnd, projectionBasis, pctOfCap, projectedPctOfCap,
+   onTrack}`. No side effects, no callers acting on it yet. Tests in `cost.test.js`.
 3. ⬜ **Daily cap + soft alarm** — configurable daily cap (KV `cost:daily_cap`, default
    `cap/daysInMonth`); observe-only warning when a day or the projection runs hot.
 4. ⬜ **Enforcement (flag-gated, default OFF)** — `checkCostCap` also blocks on daily overage

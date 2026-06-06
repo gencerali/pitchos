@@ -524,6 +524,47 @@ export async function checkCostCap(env) {
   return { blocked: current >= cap, current, cap };
 }
 
+// ─── COST CEILING 1.6 / Step 2: month-end trajectory (pure read; no side effects) ──
+// Projects month-end spend from BOTH the month-to-date average and a trailing-7-day
+// average, then uses the HIGHER (more conservative) projection — so a recent spike
+// (e.g. Method B turning on) isn't masked by a cheap early month. Nothing acts on this
+// yet; Step 3 (alarm) and Step 5 (graph/warnings) consume it. `now` is injectable for tests.
+export async function costTrajectory(env, now = new Date()) {
+  const month = now.toISOString().slice(0, 7);
+  const today = now.toISOString().slice(0, 10);
+  const num = async (k) => parseFloat((await env.PITCHOS_CACHE.get(k)) || '0');
+
+  const monthSpend = await num(`cost:${month}`);
+  const todaySpend = await num(`cost:day:${today}`);
+  const capRaw = await env.PITCHOS_CACHE.get('cost:cap');
+  const cap = parseFloat(capRaw || env.MONTHLY_CLAUDE_CAP || '8');
+
+  const dayOfMonth = now.getUTCDate();
+  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+
+  // trailing 7 calendar days (incl. today); daily keys persist across months (TTL ~35d)
+  let sum7 = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now.getTime() - i * 86400000).toISOString().slice(0, 10);
+    sum7 += await num(`cost:day:${d}`);
+  }
+  const avgPerDayMTD = dayOfMonth > 0 ? monthSpend / dayOfMonth : 0;
+  const avg7d = sum7 / 7;
+
+  const projMTD = avgPerDayMTD * daysInMonth;
+  const proj7d = avg7d * daysInMonth;
+  const projectedMonthEnd = Math.max(projMTD, proj7d);
+  const projectionBasis = proj7d > projMTD ? '7d' : 'mtd';
+
+  return {
+    monthSpend, todaySpend, cap, dayOfMonth, daysInMonth,
+    avgPerDayMTD, avg7d, projMTD, proj7d, projectedMonthEnd, projectionBasis,
+    pctOfCap: cap > 0 ? (monthSpend / cap) * 100 : 0,
+    projectedPctOfCap: cap > 0 ? (projectedMonthEnd / cap) * 100 : 0,
+    onTrack: projectedMonthEnd <= cap,
+  };
+}
+
 // ─── MISC ─────────────────────────────────────────────────────
 export function simpleHash(str) {
   str = String(str || '');
