@@ -8403,9 +8403,6 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
     .meta{font-size:12px;color:#9aa4b2;margin-top:8px;line-height:1.7}
     .flag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700}
     .on1{background:#16351f;color:#4ade80}.off1{background:#3a1f1f;color:#f87171}
-    .flipbtn{padding:6px 12px;margin-right:8px;border-radius:6px;border:1px solid #334;background:#222a36;color:#cbd5e1;font-size:12px;cursor:pointer}
-    .flipbtn.mb{border-color:#0d8a7a;color:#5eead4}
-    .flipbtn:disabled{opacity:.45;cursor:default}
     .cols{display:flex;gap:14px;padding:14px;align-items:flex-start}
     .col{flex:1;min-width:0}
     .col h2{font-size:13px;color:#9aa4b2;margin:0 0 8px}
@@ -8423,26 +8420,9 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
       &nbsp; Yayında (serving): <span class="flag ${active === 'methodb' ? 'on1' : 'off1'}">${active === 'methodb' ? 'METHOD B' : 'LEGACY'}</span>
       &nbsp; methodb aylık maliyet: <b>$${(methodbCost || 0).toFixed(4)}</b><br>
       Son çalışma: ${tally}
-      <div style="margin-top:10px">
-        <button class="flipbtn" onclick="flip('legacy')" ${active === 'legacy' ? 'disabled' : ''}>Yayını LEGACY yap</button>
-        <button class="flipbtn mb" onclick="flip('methodb')" ${active === 'methodb' ? 'disabled' : ''}>Yayını METHOD B yap</button>
-        <span id="flipmsg" style="margin-left:8px;font-size:12px"></span>
-      </div>
+      <div style="margin-top:8px;font-size:12px;color:#9aa4b2">Yayını değiştirmek için: <a href="/admin/config?site=${esc(site.short_code)}" style="color:#7c9adb">/admin/config</a> → "0. Pipeline (serving)"</div>
     </div>
   </header>
-  <script>
-    async function flip(target){
-      const label = target==='methodb' ? 'METHOD B' : 'LEGACY';
-      if(!confirm('Anasayfa yayınını '+label+' yap? (anında geri alınabilir)')) return;
-      document.getElementById('flipmsg').textContent = '...';
-      try{
-        const r = await fetch('/admin/pipeline/flip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({site:'${esc(site.short_code)}',target})});
-        const j = await r.json();
-        document.getElementById('flipmsg').textContent = j.ok ? ('✓ yayın: '+j.active) : ('hata: '+(j.error||'?'));
-        if(j.ok) setTimeout(()=>location.reload(),700);
-      }catch(e){ document.getElementById('flipmsg').textContent = 'hata: '+e.message; }
-    }
-  </script>
   <div class="cols">
     <div class="col legend"><h2>LEGACY (canlı) — ${live.length}</h2>${live.slice(0, 60).map(card).join('') || '<div class="c">boş</div>'}</div>
     <div class="col shadow"><h2>METHOD B (gölge) — ${shadow.length}</h2>${shadow.slice(0, 60).map(card).join('') || '<div class="c">henüz makale yok — worker deploy + methodb:enabled=1</div>'}</div>
