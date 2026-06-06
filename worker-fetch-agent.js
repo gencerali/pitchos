@@ -9,7 +9,7 @@
  *   4. Caches articles to KV (fan site reads from here)
  *   5. Logs cost + results to Supabase
  */
-import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, costTrajectory, costAlarmConditions, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle, saveSourceFact } from './src/utils.js';
+import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, costTrajectory, costAlarmConditions, rollupDailyCost, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle, saveSourceFact } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
@@ -4044,7 +4044,7 @@ Sadece JSON döndür:
       }
       ctx.waitUntil(Promise.all(work));
     } else if (cron === '0 4 * * *') {
-      ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env)]));
+      ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env), archiveDailyCost(env)]));
     } else if (cron === '0 3 * * 1') {
       ctx.waitUntil(redistillEditorialNotes(env));
     } else if (cron === '0 2 * * 0') {
@@ -4195,6 +4195,31 @@ async function runSourceTests(env) {
 }
 
 // ─── DAILY ARCHIVAL ──────────────────────────────────────────
+// Cost Ceiling 1.6 / Step 5a — roll finalized daily spend into the durable archive
+// (cost:daily_archive), pruning entries older than 730 days. Runs in the 04:00 cron.
+async function archiveDailyCost(env) {
+  try {
+    const archiveRaw = await env.PITCHOS_CACHE.get('cost:daily_archive').catch(() => null);
+    const archive = archiveRaw ? JSON.parse(archiveRaw) : {};
+    // Gather the live daily keys (≤35 of them, TTL-bounded) and merge into the archive.
+    const daily = {};
+    let cursor;
+    do {
+      const list = await env.PITCHOS_CACHE.list({ prefix: 'cost:day:', cursor });
+      for (const k of list.keys) {
+        const date = k.name.slice('cost:day:'.length);
+        const v = parseFloat((await env.PITCHOS_CACHE.get(k.name)) || '0');
+        if (v > 0) daily[date] = v;
+      }
+      cursor = list.list_complete ? null : list.cursor;
+    } while (cursor);
+    const today = new Date().toISOString().slice(0, 10);
+    const merged = rollupDailyCost(archive, daily, today, 730);
+    await env.PITCHOS_CACHE.put('cost:daily_archive', JSON.stringify(merged));
+    console.log(`COST ARCHIVE: ${Object.keys(merged).length} days retained`);
+  } catch (e) { console.log('archiveDailyCost failed:', e.message); }
+}
+
 async function runDailyArchival(env) {
   const sites = await getActiveSites(env);
   if (!sites || sites.length === 0) return;

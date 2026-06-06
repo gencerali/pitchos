@@ -590,6 +590,19 @@ export function costAlarmConditions(traj, dailyCapOverride) {
   };
 }
 
+// Cost Ceiling 1.6 / Step 5a: pure daily-archive roll-up. Merges recent live daily entries
+// over the archive (live wins) and prunes anything older than `retentionDays` from `today`.
+export function rollupDailyCost(archive = {}, daily = {}, today, retentionDays = 730) {
+  const merged = { ...archive, ...daily };
+  const cutoff = new Date(`${today}T00:00:00Z`).getTime() - retentionDays * 86400000;
+  const out = {};
+  for (const [d, v] of Object.entries(merged)) {
+    const t = new Date(`${d}T00:00:00Z`).getTime();
+    if (!Number.isNaN(t) && t >= cutoff) out[d] = v;
+  }
+  return out;
+}
+
 // ─── MISC ─────────────────────────────────────────────────────
 export function simpleHash(str) {
   str = String(str || '');

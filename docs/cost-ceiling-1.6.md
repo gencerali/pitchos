@@ -25,7 +25,11 @@ step-by-step with per-step approval; observe-only by default, enforcement flag-g
 4. ✅ **Enforcement (flag-gated, default OFF)** — `checkCostCap` also blocks AI calls on daily
    overage **only** when KV `cost:daily_enforce = "1"`; returns `reason: 'monthly'|'daily'`.
    Default OFF = zero behavior change. Tests in `cost.test.js`.
-5. ⬜ **GUI** — graph + filters + warnings on Maliyet; alarms into the alarms section.
+5a. ✅ **Durable daily archive (2-yr retention)** — `cost:daily_archive` KV doc; `archiveDailyCost`
+   rolls live `cost:day:*` into it in the 04:00 cron and prunes >730 days. Pure `rollupDailyCost`
+   (merge live-over-archive + prune). History fills forward; past stays monthly. Tests in `cost.test.js`.
+5b. ⬜ **GUI** — daily-spend chart (Chart.js) + 7/14/30/90/365/730 filters + trajectory warning
+   banner on the Maliyet tab. Reads archive + live recent days. (Alarms already in the alarms section.)
 
 ## KV keys
 - `cost:YYYY-MM` — monthly spend (existing)

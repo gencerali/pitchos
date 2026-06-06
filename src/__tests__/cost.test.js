@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addCost, costTrajectory, costAlarmConditions, checkCostCap } from '../utils.js';
+import { addCost, costTrajectory, costAlarmConditions, checkCostCap, rollupDailyCost } from '../utils.js';
 
 // KV mock that records puts (and their options).
 function mkEnv() {
@@ -150,5 +150,22 @@ describe('checkCostCap — daily enforcement (Step 4, default OFF)', () => {
     env.store[`cost:day:${day}`] = '0.10';      // under daily cap
     const r = await checkCostCap(env);
     expect(r.blocked).toBe(false);
+  });
+});
+
+describe('rollupDailyCost — archive merge + prune (Step 5a)', () => {
+  it('merges live daily over archive (live wins) and keeps recent days', () => {
+    const archive = { '2026-06-01': 0.10, '2026-06-05': 0.20 };
+    const daily = { '2026-06-05': 0.25, '2026-06-06': 0.40 };
+    const out = rollupDailyCost(archive, daily, '2026-06-06', 730);
+    expect(out['2026-06-05']).toBe(0.25); // live overrides archive
+    expect(out['2026-06-06']).toBe(0.40); // new day added
+    expect(out['2026-06-01']).toBe(0.10); // archive kept
+  });
+  it('prunes entries older than retentionDays', () => {
+    const archive = { '2026-01-01': 1.0, '2026-06-01': 2.0 };
+    const out = rollupDailyCost(archive, {}, '2026-06-06', 30); // 30-day window
+    expect(out['2026-01-01']).toBeUndefined(); // ~156 days old → pruned
+    expect(out['2026-06-01']).toBe(2.0);       // 5 days old → kept
   });
 });
