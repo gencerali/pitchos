@@ -16,6 +16,7 @@ import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArt
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { renderArticleCardSVG, pickBackground } from './src/card.js';
+import { articleBodyToHtml } from './src/render.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
@@ -7509,11 +7510,8 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, 
   })();
 
   const bodyText  = a.full_body || a.summary || '';
-  const bodyHtml  = bodyText.includes('<') ? bodyText :
-    bodyText.split('\n').map(l => {
-      const stripped = l.trim().replace(/^#+\s*/, '');
-      return stripped ? `<p>${escHtml(stripped)}</p>` : '';
-    }).join('');
+  // Markdown→HTML: paragraphs, **bold**, gated ## subheads. Shared with the SPA (index.html).
+  const bodyHtml  = articleBodyToHtml(bodyText, { publishMode: a.publish_mode });
 
   const ytEmbedId = a.publish_mode === 'youtube_embed' && srcUrl
     ? (srcUrl.match(/(?:youtu\.be\/|[?&]v=)([a-zA-Z0-9_-]{11})/)?.[1] || null)
@@ -7588,6 +7586,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
 .article-img{width:100%;max-height:420px;object-fit:cover;border-radius:6px;margin-bottom:1.5rem;display:block}
 .article-body{color:#d0cec8;font-size:1rem;line-height:1.8}
 .article-body p{margin-bottom:1.6rem}
+.article-body p:first-of-type::first-letter{float:left;font-size:3.4rem;font-weight:900;line-height:0.8;margin:0.1rem 0.5rem 0 0;color:#E30A17;font-family:'Barlow Condensed',sans-serif}
 .article-body h2{color:#fff;font-size:1.2rem;font-weight:700;margin:2rem 0 0.75rem;line-height:1.3}
 .article-body h3{color:#e8e6e0;font-size:1.05rem;font-weight:600;margin:1.5rem 0 0.5rem}
 .article-body h4{color:#aaa;font-size:0.95rem;font-weight:600;margin:1.25rem 0 0.4rem}

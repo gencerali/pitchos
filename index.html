@@ -1234,14 +1234,31 @@
       });
   }
 
-  function buildBodyHtml(bodyRaw) {
+  // Markdown→HTML: paragraphs, **bold**, gated ## subheads. Mirrors worker src/render.js
+  // (articleBodyToHtml) so SPA + server + crawler render identically. Drop-cap relies on the
+  // first block being a <p>, so subheads are never first.
+  const LONGFORM_MODES = ['rewrite','synthesis','original_synthesis','synthesis_generated','youtube_synthesis','youtube_embed_synthesis'];
+  function inlineMd(escaped){ return escaped.replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>'); }
+  function buildBodyHtml(bodyRaw, publishMode) {
     if (!bodyRaw) return '';
-    if (/<(p|h[1-6]|ul|ol|img|blockquote|figure|svg)\b/i.test(bodyRaw)) {
+    if (/<(p|h[1-6]|ul|ol|li|img|blockquote|figure|table|iframe)\b/i.test(bodyRaw)) {
       return sanitizeForView(bodyRaw);
     }
-    const clean = bodyRaw.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-    return clean.split(/\n\n+/).filter(p=>p.trim().length>10)
-      .map(p=>`<p>${esc(p.trim())}</p>`).join('') || `<p>${esc(clean)}</p>`;
+    let blocks = bodyRaw.split(/\n\s*\n+/).map(b=>b.trim()).filter(Boolean);
+    if (blocks.length === 1 && /\n/.test(bodyRaw)) blocks = bodyRaw.split(/\n+/).map(b=>b.trim()).filter(Boolean);
+    const words = bodyRaw.replace(/\s+/g,' ').trim().split(' ').filter(Boolean).length;
+    const allowSub = LONGFORM_MODES.includes(publishMode) && words >= 350 && blocks.length >= 5;
+    let sub = 0;
+    return blocks.map((b, idx) => {
+      const h = b.match(/^(#{2,3})\s+(.+)$/);
+      if (h && allowSub && idx > 0 && sub < 3) {
+        sub++;
+        const tag = h[1].length === 2 ? 'h2' : 'h3';
+        return `<${tag}>${inlineMd(esc(h[2].trim()))}</${tag}>`;
+      }
+      const text = b.replace(/^#{1,6}\s*/,'').replace(/\s+/g,' ').trim();
+      return text ? `<p>${inlineMd(esc(text))}</p>` : '';
+    }).join('');
   }
 
   function firstSentence(bodyRaw) {
@@ -1282,7 +1299,7 @@
       : `background:${catGrad(a)}`;
 
     // Body HTML
-    const bodyHtml = buildBodyHtml(bodyRaw);
+    const bodyHtml = buildBodyHtml(bodyRaw, a.publish_mode);
 
     // YouTube embed: generate iframe from URL if full_body doesn't already have one
     const ytEmbedId = isVideoEmbed && srcUrl

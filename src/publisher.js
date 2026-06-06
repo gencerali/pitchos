@@ -1,5 +1,6 @@
 ﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, addUsagePhase, addCost, flushCostStats, saveSourceFact } from './utils.js';
 import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens } from './processor.js';
+import { articleBodyToHtml } from './render.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
 // Note: getBJKLastLineupData + getOpponentLastLineup imported by caller (worker) to avoid circular deps
@@ -624,7 +625,9 @@ Kurallar:
 - Kaynak metinde tırnak içinde alıntı varsa kelimesi kelimesine koru
 - DOĞRULANMIŞ VERİLER arka plan bilgisidir: sezon bağlamını habere işle ama birebir aktarma
 - Paragraflar arası boş satır bırak
-- Başlık ekleme`;
+- Haber 350 kelimeyi aşarsa konuyu bölen EN FAZLA 2 kısa ara başlık kullan: kendi satırında "## Ara Başlık", ASLA ilk paragraftan önce. Daha kısa haberlerde ara başlık yok.
+- Çok önemli bir ifadeyi **kalın** yapabilirsin (nadiren)
+- Ana başlık (H1) ekleme`;
   const systemPrompt = [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }];
 
   // Dynamic suffix: per-article content. Not cached — changes every call.
@@ -3151,6 +3154,9 @@ KURALLAR:
 - Ardından boş bir satır bırak
 - Transkriptteki önemli tüm bilgileri kapsa; içerik ne kadar önemliyse o kadar uzun yaz. Gereksiz tekrardan kaçın ama bilgiyi kısaltma.
 - Önemli alıntıları ve kilit argümanları öne çıkar
+- Paragraflar arası boş satır bırak
+- Haber 350 kelimeyi aşarsa konuyu bölen EN FAZLA 2 kısa ara başlık kullan: kendi satırında "## Ara Başlık", ASLA ilk paragraftan önce. Daha kısa haberlerde ara başlık yok.
+- Çok önemli bir ifadeyi **kalın** yapabilirsin (nadiren kullan)
 - ${video.channel_name}'e atıf yaparak aktarım yap
 - Sade, bilgilendirici haber dili. Emoji yok.`;
 
@@ -3165,11 +3171,8 @@ KURALLAR:
   if (bodyText.length < 100) return null;
 
   const slug = generateSlug(title, video.published_at);
-  const bodyHtml = bodyText
-    .split(/\n\n+/)
-    .map(p => `<p>${p.trim()}</p>`)
-    .filter(p => p.length > 7)
-    .join('\n');
+  // Shared converter: paragraphs + **bold** + gated ## subheads (same as the renderers).
+  const bodyHtml = articleBodyToHtml(bodyText, { publishMode: includeEmbed ? 'youtube_embed_synthesis' : 'youtube_synthesis' });
   const embedHtml = includeEmbed
     ? `\n<div class="yt-embed" style="margin:1.5rem 0"><iframe width="100%" height="380" src="https://www.youtube.com/embed/${video.video_id}" frameborder="0" allowfullscreen loading="lazy" style="border-radius:6px;display:block"></iframe></div>`
     : '';

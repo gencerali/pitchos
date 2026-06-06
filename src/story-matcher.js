@@ -483,6 +483,8 @@ BAŞLIK: [Türkçe manşet buraya]
 - Kaynakların çerçevesinden bağımsız kendi Kartalix açını bul
 - Rakam ve tarih bilgilerini doğru kullan, yorumlarda özgün ol
 - "Kaynağa göre", "habere göre" gibi referans ifadeleri KULLANMA
+- Paragraflar arası boş satır bırak; konuyu bölen EN FAZLA 2 kısa ara başlık kullan: kendi satırında "## Ara Başlık", ASLA ilk paragraftan önce
+- Çok önemli bir ifadeyi **kalın** yapabilirsin (nadiren)
 - Emoji yok`;
 
   let body = '';
