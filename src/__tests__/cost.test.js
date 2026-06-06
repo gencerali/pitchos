@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addCost, costTrajectory } from '../utils.js';
+import { addCost, costTrajectory, costAlarmConditions } from '../utils.js';
 
 // KV mock that records puts (and their options).
 function mkEnv() {
@@ -86,5 +86,25 @@ describe('costTrajectory — month-end projection (Step 2)', () => {
     const t = await costTrajectory(env, new Date('2026-06-10T00:00:00Z'));
     expect(t.projectedMonthEnd).toBeLessThan(t.cap); // 0.20/day * 30 = 6 < 16
     expect(t.onTrack).toBe(true);
+  });
+});
+
+describe('costAlarmConditions — Step 3 decision (defaults)', () => {
+  const traj = { cap: 16, daysInMonth: 30, todaySpend: 0.42, onTrack: false };
+
+  it('defaults daily cap to cap / daysInMonth', () => {
+    const c = costAlarmConditions(traj, NaN);
+    expect(c.dailyCap).toBeCloseTo(16 / 30, 6); // ~0.533
+  });
+  it('uses an override daily cap when provided', () => {
+    expect(costAlarmConditions(traj, 1.0).dailyCap).toBe(1.0);
+  });
+  it('trajectoryOver mirrors !onTrack', () => {
+    expect(costAlarmConditions({ ...traj, onTrack: false }, NaN).trajectoryOver).toBe(true);
+    expect(costAlarmConditions({ ...traj, onTrack: true }, NaN).trajectoryOver).toBe(false);
+  });
+  it('dailyOver true only when today exceeds the daily cap', () => {
+    expect(costAlarmConditions({ ...traj, todaySpend: 0.42 }, NaN).dailyOver).toBe(false); // 0.42 < 0.533
+    expect(costAlarmConditions({ ...traj, todaySpend: 0.80 }, NaN).dailyOver).toBe(true);  // 0.80 > 0.533
   });
 });

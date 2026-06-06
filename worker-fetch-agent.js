@@ -9,7 +9,7 @@
  *   4. Caches articles to KV (fan site reads from here)
  *   5. Logs cost + results to Supabase
  */
-import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle, saveSourceFact } from './src/utils.js';
+import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, costTrajectory, costAlarmConditions, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle, saveSourceFact } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
@@ -2794,6 +2794,24 @@ Sadece JSON döndür:
         stateDirty = true;
       }
 
+      // 7. Cost trajectory + daily overage (Cost Ceiling 1.6) — detected in runAlarmChecks.
+      if (state.cost_traj_detail) {
+        alarms.push({
+          id: 'cost_trajectory', category: 'major',
+          title: `Cost on pace to exceed cap (${state.cost_traj_detail.pct}%)`,
+          msg: `Projected month-end $${state.cost_traj_detail.projected} of $${state.cost_traj_detail.cap} cap (${state.cost_traj_detail.basis} basis)`,
+          first_seen: state.alarm_first_seen.cost_trajectory,
+        });
+      }
+      if (state.cost_daily_detail) {
+        alarms.push({
+          id: 'cost_daily', category: 'minor',
+          title: 'Daily cost over budget',
+          msg: `Today $${state.cost_daily_detail.today} > daily cap $${state.cost_daily_detail.dailyCap}`,
+          first_seen: state.alarm_first_seen.cost_daily,
+        });
+      }
+
       if (stateDirty) {
         env.PITCHOS_CACHE.put('alarms:state', JSON.stringify(state), { expirationTtl: 86400 * 7 }).catch(() => {});
       }
@@ -4095,6 +4113,28 @@ async function runAlarmChecks(env) {
 
     // 3. Self-heartbeat timestamp
     state.heartbeat_last = now;
+
+    // 4. Cost Ceiling 1.6 / Step 3 — observe-only trajectory + daily-overage detection.
+    //    Sets first_seen + detail in state; /admin/alarms renders them. Blocks nothing.
+    try {
+      const traj = await costTrajectory(env);
+      const dailyCapOverride = parseFloat(await env.PITCHOS_CACHE.get('cost:daily_cap').catch(() => null) || '');
+      const cond = costAlarmConditions(traj, dailyCapOverride);
+      if (cond.trajectoryOver) {
+        if (!state.alarm_first_seen.cost_trajectory) state.alarm_first_seen.cost_trajectory = now;
+        state.cost_traj_detail = { projected: +traj.projectedMonthEnd.toFixed(2), cap: traj.cap, pct: Math.round(traj.projectedPctOfCap), basis: traj.projectionBasis };
+        console.warn(`COST TRAJECTORY: on pace for $${traj.projectedMonthEnd.toFixed(2)} of $${traj.cap} (${Math.round(traj.projectedPctOfCap)}%, ${traj.projectionBasis})`);
+      } else {
+        delete state.alarm_first_seen.cost_trajectory; delete state.alarm_acked.cost_trajectory; delete state.cost_traj_detail;
+      }
+      if (cond.dailyOver) {
+        if (!state.alarm_first_seen.cost_daily) state.alarm_first_seen.cost_daily = now;
+        state.cost_daily_detail = { today: +traj.todaySpend.toFixed(2), dailyCap: +cond.dailyCap.toFixed(2) };
+        console.warn(`COST DAILY: today $${traj.todaySpend.toFixed(2)} > daily cap $${cond.dailyCap.toFixed(2)}`);
+      } else {
+        delete state.alarm_first_seen.cost_daily; delete state.alarm_acked.cost_daily; delete state.cost_daily_detail;
+      }
+    } catch (e) { console.log('cost trajectory check failed:', e.message); }
 
     await env.PITCHOS_CACHE.put('alarms:state', JSON.stringify(state), { expirationTtl: 86400 * 7 });
   } catch (e) {

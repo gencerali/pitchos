@@ -565,6 +565,17 @@ export async function costTrajectory(env, now = new Date()) {
   };
 }
 
+// Cost Ceiling 1.6 / Step 3: pure alarm-condition decision from a trajectory snapshot.
+// Daily cap defaults to an even spread (cap / daysInMonth) unless overridden.
+export function costAlarmConditions(traj, dailyCapOverride) {
+  const dailyCap = dailyCapOverride > 0 ? dailyCapOverride : (traj.daysInMonth > 0 ? traj.cap / traj.daysInMonth : traj.cap);
+  return {
+    dailyCap,
+    trajectoryOver: !traj.onTrack,             // projected month-end > cap
+    dailyOver: traj.todaySpend > dailyCap,     // today already past the daily slice
+  };
+}
+
 // ─── MISC ─────────────────────────────────────────────────────
 export function simpleHash(str) {
   str = String(str || '');
