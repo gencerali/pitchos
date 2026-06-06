@@ -24,3 +24,19 @@ describe('qualifyYouTubeVideo — rival guard parity', () => {
     expect(qualifyYouTubeVideo({ title: 'Antrenman görüntüleri', all_qualify: true })).toBe(true);
   });
 });
+
+describe('qualifyYouTubeVideo — live-stream rejection (dead-embed fix)', () => {
+  it('rejects "Canlı Yayın" live streams even on the official (all_qualify) channel', () => {
+    expect(qualifyYouTubeVideo({ title: 'İmza Töreni | Canlı Yayın', all_qualify: true })).toBe(false);
+  });
+  it('rejects english live-stream + 🔴 titles', () => {
+    expect(qualifyYouTubeVideo({ title: 'Press conference LIVE STREAM', all_qualify: true })).toBe(false);
+    expect(qualifyYouTubeVideo({ title: '🔴 Beşiktaş basın toplantısı', all_qualify: true })).toBe(false);
+  });
+  it('rejects /live/ URL form regardless of title', () => {
+    expect(qualifyYouTubeVideo({ title: 'Beşiktaş', all_qualify: true, url: 'https://www.youtube.com/live/nE4u4QEY19Y' })).toBe(false);
+  });
+  it('keeps a normal (non-live) official video', () => {
+    expect(qualifyYouTubeVideo({ title: 'İmza töreni özeti', all_qualify: true })).toBe(true);
+  });
+});
