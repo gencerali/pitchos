@@ -512,16 +512,30 @@ export async function flushCostStats(env, siteCode, stats) {
 }
 
 export async function checkCostCap(env) {
-  const key = `cost:${new Date().toISOString().slice(0, 7)}`;
+  const now = new Date();
+  const key = `cost:${now.toISOString().slice(0, 7)}`;
   const current = parseFloat((await env.PITCHOS_CACHE.get(key)) || '0');
   const capRaw = await env.PITCHOS_CACHE.get('cost:cap');
   const cap = parseFloat(capRaw || env.MONTHLY_CLAUDE_CAP || '8');
-  if (current >= cap) {
+  let blocked = current >= cap;
+  let reason = blocked ? 'monthly' : null;
+  if (blocked) {
     console.warn(`COST CAP: $${current.toFixed(4)} of $${cap.toFixed(2)} used — AI calls blocked`);
   } else if (current >= cap * 0.8) {
     console.warn(`COST WARN: $${current.toFixed(4)} of $${cap.toFixed(2)} used (${(current / cap * 100).toFixed(0)}%) — approaching cap`);
   }
-  return { blocked: current >= cap, current, cap };
+  // Daily enforcement (Cost Ceiling 1.6 / Step 4) — opt-in via cost:daily_enforce=1. Default OFF.
+  if (!blocked && (await env.PITCHOS_CACHE.get('cost:daily_enforce')) === '1') {
+    const todaySpend = parseFloat((await env.PITCHOS_CACHE.get(`cost:day:${now.toISOString().slice(0, 10)}`)) || '0');
+    const capOverride = parseFloat((await env.PITCHOS_CACHE.get('cost:daily_cap')) || '');
+    const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+    const dailyCap = capOverride > 0 ? capOverride : cap / daysInMonth;
+    if (todaySpend >= dailyCap) {
+      blocked = true; reason = 'daily';
+      console.warn(`COST DAILY CAP: $${todaySpend.toFixed(4)} of $${dailyCap.toFixed(2)} daily — AI calls blocked`);
+    }
+  }
+  return { blocked, current, cap, reason };
 }
 
 // ─── COST CEILING 1.6 / Step 2: month-end trajectory (pure read; no side effects) ──

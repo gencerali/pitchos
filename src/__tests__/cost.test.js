@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { addCost, costTrajectory, costAlarmConditions } from '../utils.js';
+import { addCost, costTrajectory, costAlarmConditions, checkCostCap } from '../utils.js';
 
 // KV mock that records puts (and their options).
 function mkEnv() {
@@ -106,5 +106,49 @@ describe('costAlarmConditions — Step 3 decision (defaults)', () => {
   it('dailyOver true only when today exceeds the daily cap', () => {
     expect(costAlarmConditions({ ...traj, todaySpend: 0.42 }, NaN).dailyOver).toBe(false); // 0.42 < 0.533
     expect(costAlarmConditions({ ...traj, todaySpend: 0.80 }, NaN).dailyOver).toBe(true);  // 0.80 > 0.533
+  });
+});
+
+describe('checkCostCap — daily enforcement (Step 4, default OFF)', () => {
+  const month = new Date().toISOString().slice(0, 7);
+  const day = new Date().toISOString().slice(0, 10);
+
+  it('default OFF: never daily-blocks even if today is huge', async () => {
+    const env = mkEnv();
+    env.store['cost:cap'] = '16';
+    env.store[`cost:${month}`] = '2.00';        // under monthly
+    env.store[`cost:day:${day}`] = '99.00';     // way over any daily cap
+    const r = await checkCostCap(env);           // no cost:daily_enforce
+    expect(r.blocked).toBe(false);
+  });
+
+  it('monthly block still works and is reported as reason "monthly"', async () => {
+    const env = mkEnv();
+    env.store['cost:cap'] = '16';
+    env.store[`cost:${month}`] = '16.00';
+    const r = await checkCostCap(env);
+    expect(r.blocked).toBe(true);
+    expect(r.reason).toBe('monthly');
+  });
+
+  it('flag ON + daily over (monthly under): blocks with reason "daily"', async () => {
+    const env = mkEnv();
+    env.store['cost:cap'] = '16';
+    env.store['cost:daily_enforce'] = '1';
+    env.store[`cost:${month}`] = '2.00';        // under monthly
+    env.store[`cost:day:${day}`] = '5.00';      // over daily cap (~0.53 default)
+    const r = await checkCostCap(env);
+    expect(r.blocked).toBe(true);
+    expect(r.reason).toBe('daily');
+  });
+
+  it('flag ON + daily under: not blocked', async () => {
+    const env = mkEnv();
+    env.store['cost:cap'] = '16';
+    env.store['cost:daily_enforce'] = '1';
+    env.store[`cost:${month}`] = '2.00';
+    env.store[`cost:day:${day}`] = '0.10';      // under daily cap
+    const r = await checkCostCap(env);
+    expect(r.blocked).toBe(false);
   });
 });

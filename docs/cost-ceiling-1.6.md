@@ -22,8 +22,9 @@ step-by-step with per-step approval; observe-only by default, enforcement flag-g
    (daily cap default `cap/daysInMonth`; trajectory alarm at >100% projected). Detected in
    `runAlarmChecks` (sets `alarm_first_seen.cost_trajectory`/`cost_daily` + detail), rendered
    in `/admin/alarms` (the alarms section). Blocks nothing. Tests in `cost.test.js`.
-4. ⬜ **Enforcement (flag-gated, default OFF)** — `checkCostCap` also blocks on daily overage
-   when KV `cost:daily_enforce = 1`.
+4. ✅ **Enforcement (flag-gated, default OFF)** — `checkCostCap` also blocks AI calls on daily
+   overage **only** when KV `cost:daily_enforce = "1"`; returns `reason: 'monthly'|'daily'`.
+   Default OFF = zero behavior change. Tests in `cost.test.js`.
 5. ⬜ **GUI** — graph + filters + warnings on Maliyet; alarms into the alarms section.
 
 ## KV keys
