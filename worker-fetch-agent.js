@@ -17,6 +17,7 @@ import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchSto
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { renderArticleCardSVG, pickBackground } from './src/card.js';
 import { articleBodyToHtml } from './src/render.js';
+import { isKartalix as isKartalixArticle, videoEmbedHtml } from './src/shared.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
@@ -7432,9 +7433,7 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, 
   // (covers hero img + og:image + twitter:image, which all read `image`).
   const image     = a.image_url || (a.slug && !['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'].includes(a.publish_mode) ? `${BASE_URL}/card/${encodeURIComponent(a.slug)}.svg` : '');
   const rawSource = a.source || a.source_name || '';
-  const isKartalix = !rawSource || rawSource === 'Kartalix' ||
-    ['rewrite','original_synthesis','manual'].includes(a.publish_mode) ||
-    (a.publish_mode && a.publish_mode.startsWith('template'));
+  const isKartalix = isKartalixArticle(a); // shared with the SPA (src/shared.js)
   const source    = isKartalix ? 'Kartalix' : rawSource;
   const category  = a.category || 'Haber';
   const nvs       = a.nvs || a.nvs_score || 0;
@@ -7517,7 +7516,7 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, 
     ? (srcUrl.match(/(?:youtu\.be\/|[?&]v=)([a-zA-Z0-9_-]{11})/)?.[1] || null)
     : null;
   const videoHtml = ytEmbedId && !bodyHtml.includes('<iframe')
-    ? `<div class="yt-embed"><iframe src="https://www.youtube.com/embed/${ytEmbedId}" allowfullscreen loading="lazy" frameborder="0" title="${escHtml(a.title || '')}"></iframe></div>`
+    ? videoEmbedHtml(ytEmbedId, a.title || '') // shared with the SPA (src/shared.js)
     : '';
 
   const relatedHtml = related.length ? `<div class="related-vids">

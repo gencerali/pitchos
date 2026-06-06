@@ -52,6 +52,14 @@ Everything below is committed & tested on branch `claude/github-file-access-Zqtt
 ### 6. (Optional) Enable connectors for future web sessions
 - [ ] In `claude.ai/code`, enable **Supabase** + **Cloudflare** connectors *for the session* (per-session, not the app's global list) — then I can run migrations / set KV from a web session. See `code.claude.com/docs/.../claude-code-on-the-web`.
 
+### 7. (Supervised) Finish the shared-presentation DRY refactor
+Worker + SPA duplicate render logic (two artifacts, two deploys → "fix twice"). Prepared on the worker side; the SPA side needs a browser check, so do it at a desk.
+- **Done (worker side, 2026-06-06):** `src/shared.js` is the single source — `esc`, `isKartalix`, `videoEmbedHtml`, re-exported `articleBodyToHtml`, + staged `badgeFor`/`TEMPLATE_BADGES`/`BADGE_CLASS`/`BADGE_COLOR`/`CAT_ICONS`/`TRUST_LABELS`. Worker now imports `isKartalix` + `videoEmbedHtml` from it (no behavior change).
+- [ ] **C (supervised):** make Pages serve `src/shared.js` at a stable URL (e.g. `/shared.js` via `_routes.json`/copy), then in `index.html` `<script type="module">import {...} from '/shared.js'` and replace the SPA's `AV_BADGE_MAP`→`badgeFor`+`BADGE_COLOR`, `isKartalix`, `CAT_ICONS`/`TRUST_LABELS`, and `buildBodyHtml`→`articleBodyToHtml`. Browser-check the article + homepage after. ⚠ deploy **both** artifacts.
+- [ ] **A (supervised):** switch the worker's local `BADGE_MAP`/category badge logic to `badgeFor`+`BADGE_CLASS` (so worker + SPA share the badge decision). Verify badges unchanged on the server article page.
+- [ ] (Optional, low prio) Unify the per-page client-side `esc` copies via one injected `SHARED_JS` snippet — low value, skip unless tidying.
+- ❌ **B (server-render/SPA-hydrate) — parked**, not a todo (A captures ~80% at far less risk).
+
 ### Deferred (tracked, not blocking)
 - IT2 official-embed resolver (next image tier — genuine in-body source imagery).
 - Method B Step 3 (after observation).
