@@ -26,6 +26,10 @@ pattern = "kartalix.com/card/*"
 zone_name = "kartalix.com"
 
 [[routes]]
+pattern = "kartalix.com/version"
+zone_name = "kartalix.com"
+
+[[routes]]
 pattern = "kartalix.com/rss"
 zone_name = "kartalix.com"
 
