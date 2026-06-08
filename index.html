@@ -468,6 +468,12 @@
       position: relative; height: 160px;
       overflow: hidden; background: var(--surface); flex-shrink: 0;
     }
+    .card-img-wrap .card-eagle {
+      width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      background: radial-gradient(circle at 50% 40%, #1c1c1c 0%, #0d0d0d 72%);
+    }
+    .card-img-wrap .card-eagle svg { width: 55%; max-width: 130px; height: auto; opacity: 0.16; }
     .card-img-wrap div {
       width: 100%; height: 100%;
       background-size: cover; background-position: center;
@@ -1220,6 +1226,13 @@
       : `${base}background:${catGrad(a)}`;
   }
 
+  // Card media: real image, or the eagle silhouette placeholder when image-less.
+  function cardMediaHTML(a) {
+    return a.image_url
+      ? `${cardMediaHTML(a)}`
+      : `<div class="card-eagle">${EAGLE_SVG}</div>`;
+  }
+
   // ── INIT ─────────────────────────────────────────────────────
   // ── ARTICLE PAGE (client-side routing) ──────────────────────
 
@@ -1879,7 +1892,7 @@
 
       el.innerHTML = `
         <div class="card-img-wrap">
-          <div style="${cardImgStyle(a)}"></div>
+          ${cardMediaHTML(a)}
           <span class="card-cat-badge" style="background:${'0508b09'.includes(a.template_id||'') ? '#E30A17' : catColor(a)}">${
             a.template_id === '05' ? 'MAÇ GÜNÜ' :
             a.template_id === '08b' ? 'MUHTEMEL 11' :
@@ -2011,7 +2024,7 @@
       return `
         <div class="card" style="border-left:3px solid ${cc}" onclick="openArticle(_articles[${idx}])">
           <div class="card-img-wrap">
-            <div style="${cardImgStyle(a)}"></div>
+            ${cardMediaHTML(a)}
             <span class="card-cat-badge" style="background:${cc}">
               <span class="sport-tag ${a.sport||''}">${esc(sportLabel)}</span>
             </span>
