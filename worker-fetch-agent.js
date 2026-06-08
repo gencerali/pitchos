@@ -390,11 +390,13 @@ export default {
     if (url.pathname === '/cache') {
       const siteCode = url.searchParams.get('site') || 'BJK';
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET' };
-      const [cached, config] = await Promise.all([
+      const [cached, config, railRaw] = await Promise.all([
         env.PITCHOS_CACHE.get(`articles:${siteCode}`),
         loadSiteConfig(env, siteCode).catch(() => null),
+        env.PITCHOS_CACHE.get(`videorail:${siteCode}`).catch(() => null),
       ]);
       const articles = cached ? JSON.parse(cached) : [];
+      const rail_recent = railRaw ? JSON.parse(railRaw) : [];   // 15 most recent videos, refreshed each cron
       const fallbackSlugs = config?.rail_fallback_video_slugs || [];
       let rail_fallback = [];
       if (fallbackSlugs.length > 0) {
@@ -415,7 +417,7 @@ export default {
         const allBySlug = new Map([...fromKV.map(a => [a.slug, a]), ...fromDb.map(a => [a.slug, a])]);
         rail_fallback = fallbackSlugs.map(s => allBySlug.get(s)).filter(Boolean);
       }
-      return new Response(JSON.stringify({ articles, rail_fallback }), { headers: h });
+      return new Response(JSON.stringify({ articles, rail_fallback, rail_recent }), { headers: h });
     }
     if (url.pathname === '/report') {
       const report = await buildReport(env);
@@ -5087,6 +5089,19 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null,
     const summary = embedFailures.map(f => `[${f.id}] ${f.err}`).join(' | ');
     await recordPipelineFailures(env, site.short_code, [], `YT embed failed ${embedFailures.length}×: ${summary}`).catch(() => {});
   }
+
+  // Refresh the homepage video rail: 15 most recent published videos, cached in KV so
+  // /cache serves them without a per-request DB hit. The main pool only keeps the top-3
+  // videos (MAX_VIDEOS cap) and older ones age out, so recency must be sourced here.
+  try {
+    const recentVids = await supabase(env, 'GET',
+      `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=in.(youtube_embed,youtube_synthesis,youtube_embed_synthesis)&status=eq.published&select=slug,title,image_url,published_at,source_name,publish_mode,category,video_type&order=published_at.desc&limit=15`
+    ).catch(() => []);
+    if (recentVids && recentVids.length) {
+      await env.PITCHOS_CACHE.put(`videorail:${site.short_code}`, JSON.stringify(recentVids), { expirationTtl: 7 * 24 * 3600 });
+    }
+  } catch (e) { console.error('video rail refresh failed:', e.message); }
+
   console.log(`YT INTAKE: ${published} published, ${embedFailures.length} embed failures`);
   return published;
 }
