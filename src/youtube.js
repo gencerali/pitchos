@@ -1,4 +1,4 @@
-import { bjkMatch } from './utils.js';
+import { bjkMatch, BJK_KEYWORDS } from './utils.js';
 
 // ─── YOUTUBE ATOM FEED FETCHER ────────────────────────────────
 // Public Atom feeds, no auth, no quota.
@@ -18,8 +18,10 @@ export const YOUTUBE_CHANNELS = [
   { id: 'UCJElRTCNEmLemgirqvsW63Q', name: 'A Spor',             tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
   { id: 'UCebdo7-2NdjcktKzco64iNw', name: 'TRT Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
 
-  // Digital / analysis — Fırat Günayer videos on Rabona; transcript synthesis only, no embed
-  { id: 'UCpj3LeIWetKktdIJQcBx-uw', name: 'Rabona Digital',     tier: 'digital',    all_qualify: true,  embed_qualify: false, transcript_qualify: true  },
+  // Digital / analysis — Fırat Günayer videos on Rabona; transcript synthesis only, no embed.
+  // all_qualify=false: Rabona is a general Turkish-football channel (covers FB/GS, human-interest),
+  // NOT a BJK-only channel, so every video must pass the keyword relevance check.
+  { id: 'UCpj3LeIWetKktdIJQcBx-uw', name: 'Rabona Digital',     tier: 'digital',    all_qualify: false, embed_qualify: false, transcript_qualify: true  },
 
   // Additional channels — add channel IDs below (find via youtube.com/@handle → About → Share → Copy channel ID)
   // { id: 'UC___NTVSpor___',    name: 'NTV Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
@@ -145,12 +147,15 @@ export async function fetchYouTubeTranscript(videoId) {
 }
 
 // Hard pre-filter — drops shorts, archive re-uploads, and off-topic content.
-// For broadcast/digital channels (all_qualify=false), title must mention Beşiktaş.
-export function qualifyYouTubeVideo(video) {
+// all_qualify channels (e.g. official BJK) are pre-vetted: every video is relevant.
+// For all other channels, run the SAME relevance check as the RSS pipeline — the
+// site's editable keyword_config list (passed in as `keywords`, falling back to
+// BJK_KEYWORDS) against title + description — so there is one keyword list to maintain.
+export function qualifyYouTubeVideo(video, keywords = BJK_KEYWORDS) {
   const t = video.title.toLowerCase();
   if (EXCLUDE_TERMS.some(k => t.includes(k))) return false;
   if (ARCHIVE_SEASON_RE.test(video.title)) return false;
-  if (!video.all_qualify && !bjkMatch(video.title)) return false;
+  if (!video.all_qualify && !bjkMatch(`${video.title} ${video.description || ''}`, keywords)) return false;
   return true;
 }
 

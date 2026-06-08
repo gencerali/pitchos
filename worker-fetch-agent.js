@@ -1062,11 +1062,12 @@ export default {
 
         for (const channel of channels) {
           const videos    = await fetchYouTubeChannel(channel, since).catch(() => []);
+          const ytKeywords = site.keyword_config?.keywords;
           const qualified = videos.filter(v => {
             const watchUrl = `https://www.youtube.com/watch?v=${v.video_id}`;
-            return qualifyYouTubeVideo(v) && !seenUrls.has(watchUrl);
+            return qualifyYouTubeVideo(v, ytKeywords) && !seenUrls.has(watchUrl);
           });
-          const skipped   = videos.filter(v => !qualifyYouTubeVideo(v)).map(v => v.title);
+          const skipped   = videos.filter(v => !qualifyYouTubeVideo(v, ytKeywords)).map(v => v.title);
 
           if (doPublish) {
             for (const video of qualified.slice(0, 2)) {
@@ -4984,21 +4985,26 @@ function videoToArticle(video) {
 async function processYouTubeVideos(site, env, seenUrls, channelOverride = null, stats = null) {
   const channels = (channelOverride && channelOverride.length > 0) ? channelOverride : YOUTUBE_CHANNELS;
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
+  const keywords = site.keyword_config?.keywords;   // shared with RSS; undefined → BJK_KEYWORDS default
   const feeds = await Promise.all(channels.map(ch => fetchYouTubeChannel(ch, since).catch(() => [])));
 
   let published = 0;
+  let synthCount = 0;        // total YouTube syntheses this run — capped at SYNTHESIS_CAP_PER_RUN
   let storyMatchCount = 0;   // cap Claude calls: 3 story-match attempts per run
   const embedFailures = [];
 
   // Pre-fetch open stories once for the whole YouTube pass
   let openStories = null;
 
-  for (let i = 0; i < channels.length; i++) {
-    const channel  = channels[i];
-    const videos   = feeds[i];
+  // Official channels first so they claim the synthesis budget before broadcast/digital.
+  const channelFeeds = channels
+    .map((channel, i) => ({ channel, videos: feeds[i] }))
+    .sort((a, b) => (b.channel.tier === 'official' ? 1 : 0) - (a.channel.tier === 'official' ? 1 : 0));
+
+  for (const { channel, videos } of channelFeeds) {
     const newVids  = videos.filter(v => {
       const watchUrl = `https://www.youtube.com/watch?v=${v.video_id}`;
-      return qualifyYouTubeVideo(v) && !seenUrls.has(watchUrl);
+      return qualifyYouTubeVideo(v, keywords) && !seenUrls.has(watchUrl);
     });
     console.log(`YT ${channel.name}: ${videos.length} fetched → ${newVids.length} qualified`);
 
@@ -5007,20 +5013,22 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null,
 
       let card = null;
 
-      // 1. Synthesis path — transcript available → summary article (+ embed if embed_qualify)
+      // 1. Synthesis path — only while under the per-run synthesis cap. Once the cap is
+      //    hit, transcript-qualified videos fall through to embed-only (if eligible).
       let transcriptText = null;
-      if (video.transcript_qualify) {
+      if (video.transcript_qualify && synthCount < SYNTHESIS_CAP_PER_RUN) {
         try {
           transcriptText = await fetchYouTubeTranscript(video.video_id);
           if (transcriptText) {
             card = await generateVideoSynthesis(video, transcriptText, site, env, stats, video.embed_qualify);
+            if (card) synthCount++;
           }
         } catch (e) {
           console.error(`YT synthesis failed [${video.video_id}]:`, e.message);
         }
       }
 
-      // 2. Embed fallback — synthesis produced nothing (no transcript or Claude failure)
+      // 2. Embed fallback — synthesis skipped (cap reached), produced nothing, or failed.
       if (!card && video.embed_qualify) {
         try {
           card = await generateVideoEmbed(video, site, env, stats);
