@@ -91,23 +91,83 @@
     .ticker-sep { color: #555; padding: 0 0.5rem; }
     @keyframes scroll { from{transform:translateX(0)} to{transform:translateX(-50%)} }
 
-    /* ── CATEGORY NAV ── */
-    .cat-nav {
-      background: #111; border-bottom: 1px solid #1e1e1e;
-      display: flex; align-items: center; gap: 0; overflow-x: auto;
-      scrollbar-width: none; padding: 0 1rem;
+    /* ── MAIN NAV (responsive mega-menu) ── */
+    .mainnav { background: #111; border-bottom: 1px solid #1e1e1e; position: relative; z-index: 90; }
+    .mainnav-inner { display: flex; align-items: center; max-width: 1280px; margin: 0 auto; padding: 0 1rem; }
+    .nav-toggle {
+      display: none; background: none; border: 0; color: #fff; cursor: pointer;
+      padding: .7rem .4rem; align-items: center; gap: .5rem;
+      font-family: 'Barlow Condensed', sans-serif; font-weight: 700; letter-spacing: .1em;
+      text-transform: uppercase; font-size: .8rem;
     }
-    .cat-nav::-webkit-scrollbar { display: none; }
-    .cat-nav a {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.78rem; font-weight: 700; letter-spacing: 0.1em;
-      text-transform: uppercase; text-decoration: none;
-      color: #777; padding: 0.6rem 0.9rem;
-      border-bottom: 2px solid transparent;
-      white-space: nowrap; transition: color .15s, border-color .15s;
+    .nav-toggle .bars { width: 20px; height: 14px; position: relative; display: inline-block; }
+    .nav-toggle .bars::before, .nav-toggle .bars::after, .nav-toggle .bars i {
+      content: ''; position: absolute; left: 0; width: 100%; height: 2px; background: #fff; transition: .2s;
     }
-    .cat-nav a:hover { color: #ddd; }
-    .cat-nav a.active { color: #fff; border-bottom-color: var(--accent); }
+    .nav-toggle .bars::before { top: 0; } .nav-toggle .bars i { top: 6px; } .nav-toggle .bars::after { top: 12px; }
+    .nav-list { display: flex; align-items: center; list-style: none; margin: 0; padding: 0; }
+    .nav-li { position: relative; }
+    .nav-link, .nav-trigger {
+      font-family: 'Barlow Condensed', sans-serif; font-size: .82rem; font-weight: 700;
+      letter-spacing: .1em; text-transform: uppercase; color: #999; background: none; border: 0;
+      cursor: pointer; padding: .7rem .95rem; display: inline-flex; align-items: center; gap: .35rem;
+      white-space: nowrap; border-bottom: 2px solid transparent; transition: color .15s, border-color .15s;
+      text-decoration: none;
+    }
+    .nav-link:hover, .nav-trigger:hover, .nav-li:hover > .nav-trigger { color: #fff; }
+    .nav-link.active, .nav-li.open > .nav-trigger { color: #fff; border-bottom-color: var(--accent); }
+    .nav-trigger .caret { font-size: .55rem; opacity: .65; transition: transform .15s; }
+    .nav-li:hover > .nav-trigger .caret, .nav-li.open > .nav-trigger .caret { transform: rotate(180deg); }
+    .nav-mega {
+      position: absolute; top: 100%; left: 0; min-width: 250px; background: #16181c;
+      border: 1px solid #2a2d33; border-top: 2px solid var(--accent); border-radius: 0 0 6px 6px;
+      box-shadow: 0 18px 40px rgba(0,0,0,.55); padding: .45rem; z-index: 95;
+      opacity: 0; visibility: hidden; transform: translateY(4px); transition: opacity .15s, transform .15s;
+    }
+    .nav-li:hover > .nav-mega, .nav-li.open > .nav-mega { opacity: 1; visibility: visible; transform: translateY(0); }
+    .nav-mega a { display: flex; flex-direction: column; gap: .12rem; padding: .55rem .7rem; border-radius: 4px; text-decoration: none; }
+    .nav-mega a:hover { background: #22252b; }
+    .nav-mega a b {
+      font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: .9rem;
+      letter-spacing: .04em; text-transform: uppercase; color: #fff;
+    }
+    .nav-mega a span { font-size: .72rem; color: #8b8f97; font-family: 'Inter', sans-serif; }
+    .nav-li.gold > .nav-mega { border-top-color: var(--accent-gold); }
+    .nav-soon {
+      font-family: 'Barlow Condensed', sans-serif; font-size: .5rem; font-weight: 800;
+      letter-spacing: .1em; color: #0d0d0d; background: var(--accent-gold); padding: .07rem .3rem;
+      border-radius: 3px; margin-left: .45rem; align-self: flex-start;
+    }
+    .nav-backdrop { display: none; }
+    .nav-toast {
+      position: fixed; left: 50%; bottom: 1.5rem; transform: translateX(-50%) translateY(20px);
+      background: #16181c; color: #fff; border: 1px solid var(--accent); border-radius: 4px;
+      padding: .7rem 1.1rem; font-family: 'Barlow Condensed', sans-serif; font-weight: 600;
+      letter-spacing: .04em; font-size: .85rem; z-index: 400; opacity: 0; pointer-events: none;
+      transition: opacity .2s, transform .2s;
+    }
+    .nav-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    /* tablet + mobile: hamburger drawer with accordion submenus */
+    @media (max-width: 900px) {
+      .nav-toggle { display: inline-flex; }
+      .nav-list {
+        position: fixed; top: 0; left: 0; bottom: 0; width: 84%; max-width: 330px;
+        background: #0d0d0d; flex-direction: column; align-items: stretch; padding: 1rem 0 2rem;
+        overflow-y: auto; transform: translateX(-100%); transition: transform .25s ease;
+        z-index: 210; border-right: 1px solid #222;
+      }
+      .mainnav.open .nav-list { transform: translateX(0); }
+      .mainnav.open .nav-backdrop { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 200; }
+      .nav-li { border-bottom: 1px solid #1c1c1c; }
+      .nav-link, .nav-trigger { width: 100%; justify-content: space-between; padding: .95rem 1.3rem; font-size: .95rem; }
+      .nav-mega {
+        position: static; min-width: 0; border: 0; box-shadow: none; background: #141414;
+        border-radius: 0; padding: 0; opacity: 1; visibility: visible; transform: none;
+        max-height: 0; overflow: hidden; transition: max-height .25s ease;
+      }
+      .nav-li.open > .nav-mega { max-height: 600px; }
+      .nav-mega a { padding: .7rem 1.6rem; }
+    }
 
     /* ── MATCH DAY BANNER ── */
     .matchday {
@@ -827,12 +887,64 @@
 </div>
 
 <!-- ── CATEGORY NAV ── -->
-<nav class="cat-nav">
-  <a href="/" class="active" id="catAll">Tümü</a>
-  <a href="/konu/transfer">Transfer</a>
-  <a href="/konu/mac">Maç</a>
-  <a href="/konu/videolar">Videolar</a>
+<nav class="mainnav" id="mainNav" aria-label="Ana menü">
+  <div class="nav-backdrop" id="navBackdrop"></div>
+  <div class="mainnav-inner">
+    <button class="nav-toggle" id="navToggle" aria-label="Menü" aria-expanded="false" aria-controls="navList">
+      <span class="bars"><i></i></span> Menü
+    </button>
+    <ul class="nav-list" id="navList">
+      <li class="nav-li"><a class="nav-link active" href="/" data-filter="all" id="catAll">Ana Sayfa</a></li>
+
+      <li class="nav-li">
+        <button class="nav-trigger" aria-haspopup="true" aria-expanded="false">Haberler <span class="caret">▾</span></button>
+        <div class="nav-mega" role="menu">
+          <a role="menuitem" href="#" data-filter="all"><b>Tümü</b><span>En güncel haberler</span></a>
+          <a role="menuitem" href="#" data-filter="transfer"><b>Transfer</b><span>Transfer haberleri ve dedikodular</span></a>
+          <a role="menuitem" href="#" data-filter="match"><b>Maç</b><span>Maç önü, sonrası ve raporlar</span></a>
+          <a role="menuitem" href="#" data-filter="club"><b>Kulüp</b><span>Yönetim ve kulüp gündemi</span></a>
+          <a role="menuitem" href="#" data-filter="injury"><b>Sakatlık</b><span>Sakatlık ve sağlık haberleri</span></a>
+          <a role="menuitem" href="#" data-filter="european"><b>Avrupa</b><span>Avrupa kupaları</span></a>
+          <a role="menuitem" href="#" data-soon><b>Yazarlar <span class="nav-soon">Yakında</span></b><span>Köşe yazıları ve analizler</span></a>
+          <a role="menuitem" href="#" data-scroll="otherSportsSection"><b>Diğer Branşlar</b><span>Basketbol, voleybol, hentbol</span></a>
+        </div>
+      </li>
+
+      <li class="nav-li">
+        <button class="nav-trigger" aria-haspopup="true" aria-expanded="false">Videolar <span class="caret">▾</span></button>
+        <div class="nav-mega" role="menu">
+          <a role="menuitem" href="#" data-scroll="videoGrid"><b>Güncel Videolar</b><span>En yeni klipler</span></a>
+          <a role="menuitem" href="#" data-soon><b>Maç Özetleri <span class="nav-soon">Yakında</span></b><span>Geniş maç özetleri</span></a>
+          <a role="menuitem" href="#" data-soon><b>Röportajlar <span class="nav-soon">Yakında</span></b><span>Oyuncu ve teknik ekip</span></a>
+          <a role="menuitem" href="#" data-soon><b>Basın Toplantısı <span class="nav-soon">Yakında</span></b><span>Maç önü açıklamalar</span></a>
+          <a role="menuitem" href="#" data-soon><b>Unutulmazlar <span class="nav-soon">Yakında</span></b><span>Arşivden seçmeler</span></a>
+          <a role="menuitem" href="#" data-soon><b>Belgeseller <span class="nav-soon">Yakında</span></b><span>Uzun metraj içerikler</span></a>
+        </div>
+      </li>
+
+      <li class="nav-li">
+        <button class="nav-trigger" aria-haspopup="true" aria-expanded="false">Analiz <span class="caret">▾</span></button>
+        <div class="nav-mega" role="menu">
+          <a role="menuitem" href="#" data-soon><b>Sezon Performansı <span class="nav-soon">Yakında</span></b><span>Form, puan, sıralama</span></a>
+          <a role="menuitem" href="#" data-soon><b>Maç Analizi <span class="nav-soon">Yakında</span></b><span>Sıradaki maç ve kazanma ihtimali</span></a>
+          <a role="menuitem" href="#" data-soon><b>Puan Durumu <span class="nav-soon">Yakında</span></b><span>Süper Lig tablosu</span></a>
+          <a role="menuitem" href="#" data-soon><b>Karşılaştırma <span class="nav-soon">Yakında</span></b><span>Takım ve H2H kıyas</span></a>
+        </div>
+      </li>
+
+      <li class="nav-li gold">
+        <button class="nav-trigger" aria-haspopup="true" aria-expanded="false">Tribün <span class="caret">▾</span></button>
+        <div class="nav-mega" role="menu">
+          <a role="menuitem" href="#" data-soon><b>Tahmin Oyunu <span class="nav-soon">Yakında</span></b><span>Maç sonucunu tahmin et</span></a>
+          <a role="menuitem" href="#" data-soon><b>Lider Tablosu <span class="nav-soon">Yakında</span></b><span>Haftalık ve tüm zamanlar</span></a>
+          <a role="menuitem" href="#" data-soon><b>Görevler <span class="nav-soon">Yakında</span></b><span>Beğen, yorumla, paylaş, puan kazan</span></a>
+          <a role="menuitem" href="#" data-soon><b>Rozetlerim <span class="nav-soon">Yakında</span></b><span>Kazandığın rozetler</span></a>
+        </div>
+      </li>
+    </ul>
+  </div>
 </nav>
+<div class="nav-toast" id="navToast">Bu bölüm çok yakında 🦅</div>
 
 <!-- ── MATCH DAY ── -->
 <div class="matchday" id="matchdayBanner">
@@ -1735,6 +1847,7 @@
     if (expiredRow) expiredRow.style.display = 'none';
 
     const footballArticles = visible.filter(a => !a.sport || a.sport === 'football');
+    _footballArticles = footballArticles;   // kept for client-side nav category filtering
     const otherArticles    = visible.filter(a => a.sport && a.sport !== 'football');
 
     renderCarousel(footballArticles.slice(0, 8));
@@ -1807,6 +1920,7 @@
   // ── CAROUSEL ─────────────────────────────────────────────────
   let _carouselIdx   = 0;
   let _carouselItems = [];
+  let _footballArticles = [];   // set in init(); source for nav category filters
   let _carouselTimer = null;
 
   function renderCarousel(items) {
@@ -2372,6 +2486,111 @@
     }
   }
 
+  // ── MAIN NAV (mega-menu) behaviour ───────────────────────────
+  function navToast(msg) {
+    const t = document.getElementById('navToast');
+    if (!t) return;
+    if (msg) t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(navToast._t);
+    navToast._t = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  function filterNews(cat, label) {
+    const grid = document.getElementById('newsGrid');
+    if (!grid) return;
+    const all = _footballArticles || [];
+    const list = (cat === 'all')
+      ? all.slice(4)                                   // homepage default (hero takes first 4)
+      : all.filter(a => (a.category || '').toLowerCase().includes(cat));
+    if (typeof renderGrid === 'function') renderGrid(list, 0);
+    if (cat !== 'all' && !list.length) {
+      grid.innerHTML = '<p style="color:var(--muted);padding:2rem 0;text-align:center;grid-column:1/-1">' +
+        'Bu kategoride şu an haber yok.</p>';
+    }
+    // section header hint
+    const lu = document.getElementById('lastUpdate');
+    if (lu && cat !== 'all') lu.textContent = (label || '') + ' — ' + list.length + ' haber';
+    grid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function setupNav() {
+    const nav = document.getElementById('mainNav');
+    if (!nav) return;
+    const toggle   = document.getElementById('navToggle');
+    const backdrop = document.getElementById('navBackdrop');
+    const isMobile = () => window.matchMedia('(max-width: 900px)').matches;
+
+    // hamburger drawer
+    function closeDrawer() {
+      nav.classList.remove('open');
+      if (toggle) toggle.setAttribute('aria-expanded', 'false');
+      nav.querySelectorAll('.nav-li.open').forEach(li => {
+        li.classList.remove('open');
+        const t = li.querySelector('.nav-trigger');
+        if (t) t.setAttribute('aria-expanded', 'false');
+      });
+    }
+    if (toggle) toggle.addEventListener('click', () => {
+      const open = nav.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+    if (backdrop) backdrop.addEventListener('click', closeDrawer);
+
+    // submenu triggers (click works for touch + keyboard; hover handles desktop pointer)
+    nav.querySelectorAll('.nav-trigger').forEach(trigger => {
+      trigger.addEventListener('click', e => {
+        e.preventDefault();
+        const li = trigger.closest('.nav-li');
+        const willOpen = !li.classList.contains('open');
+        // accordion: close siblings
+        nav.querySelectorAll('.nav-li.open').forEach(o => {
+          if (o !== li) { o.classList.remove('open'); const t = o.querySelector('.nav-trigger'); if (t) t.setAttribute('aria-expanded','false'); }
+        });
+        li.classList.toggle('open', willOpen);
+        trigger.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      });
+    });
+
+    // mega-menu item actions
+    nav.querySelectorAll('.nav-mega a, .nav-link[data-filter]').forEach(a => {
+      a.addEventListener('click', e => {
+        const soon   = a.hasAttribute('data-soon');
+        const filter = a.getAttribute('data-filter');
+        const scroll = a.getAttribute('data-scroll');
+        if (soon)   { e.preventDefault(); navToast('Bu bölüm çok yakında 🦅'); closeDrawer(); return; }
+        if (filter) {
+          e.preventDefault();
+          filterNews(filter, a.querySelector('b') ? a.querySelector('b').childNodes[0].textContent.trim() : '');
+          nav.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+          const home = document.getElementById('catAll'); if (home && filter === 'all') home.classList.add('active');
+          closeDrawer();
+          return;
+        }
+        if (scroll) {
+          e.preventDefault();
+          const el = document.getElementById(scroll);
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          else navToast('Bu bölüm çok yakında 🦅');
+          closeDrawer();
+          return;
+        }
+      });
+    });
+
+    // Esc closes; outside click closes desktop dropdowns
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+    document.addEventListener('click', e => {
+      if (!isMobile() && !nav.contains(e.target)) {
+        nav.querySelectorAll('.nav-li.open').forEach(li => {
+          li.classList.remove('open');
+          const t = li.querySelector('.nav-trigger'); if (t) t.setAttribute('aria-expanded','false');
+        });
+      }
+    });
+  }
+
+  try { setupNav(); } catch (e) { console.error('nav setup:', e); }
   init();
 
   // ── STANDINGS WIDGET ────────────────────────────────────────
