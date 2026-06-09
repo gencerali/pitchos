@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Analiz — Kartalix (Mock)</title>
+<meta name="description" content="Beşiktaş sezon performansı, form ve sıradaki maç kazanma ihtimali — Kartalix Analiz (mockup, yer tutucu veri)." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="theme.css" />
+<style>
+  .page-title { margin: 1.8rem 0 .4rem; }
+  .page-title .kicker { display:block; margin-bottom:.3rem; }
+  .page-title h1 { font-family:var(--font-display); font-weight:800; text-transform:uppercase; font-size:clamp(1.8rem,4vw,2.8rem); line-height:1; margin:0; }
+  .page-sub { color:var(--muted); font-size:.9rem; margin:.4rem 0 0; }
+
+  .tiles { display:grid; grid-template-columns:repeat(5,1fr); gap:1rem; margin:1.4rem 0; }
+  @media(max-width:760px){ .tiles{ grid-template-columns:repeat(2,1fr);} }
+  .tile { background:var(--paper); border:1px solid var(--line); border-radius:var(--radius); padding:1rem; }
+  .tile .lab { font-family:var(--font-display); font-weight:700; font-size:.66rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .tile .val { font-family:var(--font-display); font-weight:800; font-size:2.1rem; line-height:1; margin-top:.3rem; color:var(--ink); }
+  .tile .val small { font-size:.9rem; color:var(--muted); }
+  .tile.accent { background:var(--red); border-color:var(--red); }
+  .tile.accent .lab, .tile.accent .val { color:#fff; }
+
+  .cols { display:grid; grid-template-columns:1.4fr 1fr; gap:1.4rem; align-items:start; }
+  @media(max-width:900px){ .cols{ grid-template-columns:1fr; } }
+
+  .chart-x { display:flex; justify-content:space-between; margin-top:.5rem; font-family:var(--font-display); font-weight:700; font-size:.6rem; letter-spacing:.04em; color:var(--muted-2); text-transform:uppercase; }
+
+  .goal-row { display:flex; align-items:center; gap:.7rem; margin:.7rem 0; font-size:.82rem; }
+  .goal-row .gl { width:84px; font-family:var(--font-display); font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-2); font-size:.72rem; }
+  .goal-bar { flex:1; height:14px; background:var(--paper-3); border-radius:7px; overflow:hidden; }
+  .goal-bar > span { display:block; height:100%; }
+  .goal-bar .for { background:var(--gold); }
+  .goal-bar .ag { background:var(--red); }
+  .goal-row .gv { width:28px; text-align:right; font-family:var(--font-display); font-weight:800; color:var(--ink); }
+
+  .h2h { display:flex; gap:.4rem; margin-top:.6rem; }
+  .h2h .pill { width:26px; height:26px; }
+  .note { font-size:.78rem; color:var(--muted); line-height:1.5; margin-top:.7rem; }
+  .model-tag { font-family:var(--font-display); font-weight:700; font-size:.62rem; letter-spacing:.1em; text-transform:uppercase; color:var(--gold-ink); background:var(--gold-tint); border:1px solid #f1dcae; padding:.12rem .45rem; border-radius:3px; }
+  .back { display:inline-block; margin:1rem 0; font-family:var(--font-display); font-weight:700; letter-spacing:.06em; text-transform:uppercase; font-size:.78rem; color:var(--muted); }
+  .back:hover{ color:var(--red); }
+</style>
+</head>
+<body>
+
+<div class="mockbar">MOCKUP · Yön A — Dark Broadcast · <b>/analiz</b> · yer tutucu veri</div>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="index.html"><span class="mark">KARTAL<b>IX</b></span><span class="tag">Beşiktaş Haber Ağı</span></a>
+    <div class="topbar-right"><span class="topdate">9 Haziran 2026</span><span class="live-pill"><span class="dot"></span> Canlı</span></div>
+  </div>
+</header>
+
+<nav class="catnav" aria-label="Kategoriler">
+  <div class="catnav-inner">
+    <a href="index.html">Tümü</a>
+    <a href="/konu/transfer">Transfer</a>
+    <a href="/konu/mac">Maç</a>
+    <a href="/konu/videolar">Videolar</a>
+    <a href="/analiz" class="active">Analiz</a>
+    <a href="/tahmin">Tahmin</a>
+  </div>
+</nav>
+
+<main class="wrap">
+  <a class="back" href="index.html">← Ana Sayfa</a>
+
+  <div class="page-title">
+    <span class="kicker">Analiz</span>
+    <h1>Beşiktaş — Sezon Performansı</h1>
+    <p class="page-sub">Süper Lig · 14 hafta sonu · veriler API-Football entegrasyonundan beslenecek (mock).</p>
+  </div>
+
+  <!-- STAT TILES -->
+  <section class="tiles" aria-label="Sezon özeti">
+    <div class="tile accent"><div class="lab">Lig Sırası</div><div class="val">3<small>.</small></div></div>
+    <div class="tile"><div class="lab">Puan</div><div class="val">34</div></div>
+    <div class="tile"><div class="lab">Averaj</div><div class="val">+15</div></div>
+    <div class="tile"><div class="lab">Maç / Puan Ort.</div><div class="val">2.4</div></div>
+    <div class="tile">
+      <div class="lab">Son 5 Maç</div>
+      <div class="form-row" style="margin-top:.5rem"><span class="pill W">G</span><span class="pill W">G</span><span class="pill D">B</span><span class="pill L">M</span><span class="pill W">G</span></div>
+    </div>
+  </section>
+
+  <div class="cols">
+    <!-- LEFT: form momentum + goals -->
+    <div style="display:flex;flex-direction:column;gap:1.4rem">
+      <section class="panel">
+        <div class="panel-head"><h3>Form İvmesi <span style="font-weight:400;color:var(--muted);font-size:.7rem;letter-spacing:.04em">· son 10 maç</span></h3></div>
+        <div class="panel-body">
+          <svg viewBox="0 0 600 160" width="100%" height="auto" role="img" aria-label="Son 10 maç form ivmesi grafiği" preserveAspectRatio="none" style="display:block">
+            <defs>
+              <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#E30A17" stop-opacity="0.22"/>
+                <stop offset="1" stop-color="#E30A17" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <!-- gridlines -->
+            <line x1="0" y1="40" x2="600" y2="40" stroke="#e7e3da"/>
+            <line x1="0" y1="90" x2="600" y2="90" stroke="#e7e3da"/>
+            <line x1="0" y1="140" x2="600" y2="140" stroke="#e7e3da"/>
+            <path d="M30,140 L30,120 L90,100 L150,130 L210,90 L270,70 L330,95 L390,60 L450,110 L510,55 L570,40 L570,140 Z" fill="url(#area)"/>
+            <polyline points="30,120 90,100 150,130 210,90 270,70 330,95 390,60 450,110 510,55 570,40" fill="none" stroke="#E30A17" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+            <g fill="#F5A623" stroke="#fff" stroke-width="1.5">
+              <circle cx="30" cy="120" r="4"/><circle cx="90" cy="100" r="4"/><circle cx="150" cy="130" r="4"/><circle cx="210" cy="90" r="4"/><circle cx="270" cy="70" r="4"/><circle cx="330" cy="95" r="4"/><circle cx="390" cy="60" r="4"/><circle cx="450" cy="110" r="4"/><circle cx="510" cy="55" r="4"/><circle cx="570" cy="40" r="4"/>
+            </g>
+          </svg>
+          <div class="chart-x"><span>FB</span><span>ANT</span><span>SVS</span><span>KAS</span><span>BJŞ</span><span>GS</span><span>KON</span><span>ALA</span><span>HAT</span><span>GFK</span></div>
+          <p class="note">Yükselen eğri = puan ivmesi artıyor. Son 4 maçta 10 puan toplandı.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h3 class="gh">Gol İstatistikleri</h3></div>
+        <div class="panel-body">
+          <div class="goal-row"><span class="gl">Attığı (Ev)</span><div class="goal-bar"><span class="for" style="width:80%"></span></div><span class="gv">16</span></div>
+          <div class="goal-row"><span class="gl">Attığı (Dep)</span><div class="goal-bar"><span class="for" style="width:50%"></span></div><span class="gv">10</span></div>
+          <div class="goal-row"><span class="gl">Yediği (Ev)</span><div class="goal-bar"><span class="ag" style="width:20%"></span></div><span class="gv">4</span></div>
+          <div class="goal-row"><span class="gl">Yediği (Dep)</span><div class="goal-bar"><span class="ag" style="width:35%"></span></div><span class="gv">7</span></div>
+          <p class="note">Toplam 26 gol · 11 yenilen gol · maç başı 1.86 gol ortalaması.</p>
+        </div>
+      </section>
+    </div>
+
+    <!-- RIGHT: next match win prob -->
+    <div style="display:flex;flex-direction:column;gap:1.4rem">
+      <section class="panel">
+        <div class="panel-head"><h3>Sıradaki Maç</h3></div>
+        <div class="panel-body">
+          <div style="display:flex;align-items:center;justify-content:space-between;font-family:var(--font-display);font-weight:800;text-transform:uppercase;font-size:1.15rem;margin-bottom:.2rem">
+            <span>Beşiktaş</span><span style="color:var(--muted);font-size:.8rem">Pazar 19:00</span>
+          </div>
+          <div style="font-family:var(--font-display);font-weight:700;color:var(--muted-2);text-transform:uppercase;font-size:.9rem;margin-bottom:.9rem">vs Trabzonspor · Ev</div>
+
+          <div style="font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.35rem;display:flex;justify-content:space-between;align-items:center">
+            <span>Kazanma İhtimali</span> <span class="model-tag">Kartalix Model</span>
+          </div>
+          <div class="wp" style="height:36px"><span class="h" style="flex:54">%54</span><span class="d" style="flex:26">%26</span><span class="a" style="flex:20">%20</span></div>
+          <div class="wp-legend"><span>Ev galibiyeti</span><span>Beraberlik</span><span>Deplasman</span></div>
+
+          <div style="margin-top:1rem;font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:.4rem">Son 5 Karşılaşma (H2H)</div>
+          <div class="h2h"><span class="pill W">G</span><span class="pill W">G</span><span class="pill L">M</span><span class="pill D">B</span><span class="pill W">G</span></div>
+          <p class="note">Model; form ivmesi, ev/deplasman gücü ve H2H verisini birleştirir. Gerçek sürümde <b>buildMatchStats</b> + API-Football beslemesinden hesaplanır.</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h3>Puan Durumu</h3></div>
+        <div class="panel-body">
+          <table class="standtab">
+            <thead><tr><th>#</th><th>Takım</th><th class="n">O</th><th class="n">A</th><th class="n">Pts</th></tr></thead>
+            <tbody>
+              <tr><td class="n">1</td><td class="team">Galatasaray</td><td class="n">14</td><td class="n">+22</td><td class="pts">38</td></tr>
+              <tr><td class="n">2</td><td class="team">Fenerbahçe</td><td class="n">14</td><td class="n">+18</td><td class="pts">36</td></tr>
+              <tr class="us"><td class="n">3</td><td class="team">Beşiktaş</td><td class="n">14</td><td class="n">+15</td><td class="pts">34</td></tr>
+              <tr><td class="n">4</td><td class="team">Trabzonspor</td><td class="n">14</td><td class="n">+9</td><td class="pts">27</td></tr>
+              <tr><td class="n">5</td><td class="team">Başakşehir</td><td class="n">14</td><td class="n">+6</td><td class="pts">24</td></tr>
+              <tr><td class="n">6</td><td class="team">Samsunspor</td><td class="n">14</td><td class="n">+3</td><td class="pts">22</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer class="foot-wrap">
+  <div class="foot-inner">
+    <div class="mark">KARTAL<b>IX</b></div>
+    <p>© 2026 Kartalix · Analiz verileri yer tutucudur. Gerçek sürümde mevcut API-Football entegrasyonundan beslenir.</p>
+    <nav class="foot-links"><a href="index.html">Ana Sayfa</a><a href="/analiz">Analiz</a><a href="/tahmin">Tahmin</a></nav>
+  </div>
+</footer>
+
+</body>
+</html>
