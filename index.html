@@ -2045,25 +2045,16 @@
   // ── RENDER VIDEOS ────────────────────────────────────────────
   function buildVideoRail(cacheResponse) {
     const RAIL_SIZE = 15;
-    // rail_recent = 15 most recent videos (refreshed each cron, served from KV).
-    // Older format / cold cache may not carry it — fall back to videos in the pool.
+    // "Güncel Videolar" = recent videos ONLY. No curated/unutulmazlar backfill —
+    // a section titled "current" should never be padded with old classics, even
+    // when fewer than 15 recent videos exist. rail_recent is served from KV each
+    // cron; older/cold cache falls back to the video-type articles in the pool.
     const recent = (cacheResponse.rail_recent && cacheResponse.rail_recent.length)
       ? cacheResponse.rail_recent.slice()
       : (cacheResponse.articles || [])
           .filter(a => ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'].includes(a.publish_mode))
           .sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
-    let rail = recent.slice(0, RAIL_SIZE);
-    // If fewer than 15 recent videos, pad randomly from curated (unutulmazlar/belgeseller).
-    if (rail.length < RAIL_SIZE) {
-      const placed = new Set(rail.map(v => v.slug));
-      const available = (cacheResponse.rail_fallback || []).filter(v => !placed.has(v.slug));
-      for (let i = available.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [available[i], available[j]] = [available[j], available[i]];
-      }
-      rail = rail.concat(available.slice(0, RAIL_SIZE - rail.length));
-    }
-    return rail.slice(0, RAIL_SIZE);
+    return recent.slice(0, RAIL_SIZE);
   }
 
   function renderVideoCard(v) {
