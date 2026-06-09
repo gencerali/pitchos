@@ -147,26 +147,29 @@
       transition: opacity .2s, transform .2s;
     }
     .nav-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-    /* tablet + mobile: hamburger drawer with accordion submenus */
+    /* tablet + mobile */
     @media (max-width: 900px) {
-      .nav-toggle { display: inline-flex; }
-      .nav-list {
-        position: fixed; top: 0; left: 0; bottom: 0; width: 84%; max-width: 330px;
-        background: #0d0d0d; flex-direction: column; align-items: stretch; padding: 1rem 0 2rem;
-        overflow-y: auto; transform: translateX(-100%); transition: transform .25s ease;
-        z-index: 210; border-right: 1px solid #222;
-      }
-      .mainnav.open .nav-list { transform: translateX(0); }
-      .mainnav.open .nav-backdrop { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 200; }
-      .nav-li { border-bottom: 1px solid #1c1c1c; }
+      /* no-JS fallback: full stacked menu, every item visible (no hamburger needed) */
+      .nav-list { flex-direction: column; align-items: stretch; }
       .nav-link, .nav-trigger { width: 100%; justify-content: space-between; padding: .95rem 1.3rem; font-size: .95rem; }
+      .nav-li { border-bottom: 1px solid #1c1c1c; }
       .nav-mega {
         position: static; min-width: 0; border: 0; box-shadow: none; background: #141414;
-        border-radius: 0; padding: 0; opacity: 1; visibility: visible; transform: none;
-        max-height: 0; overflow: hidden; transition: max-height .25s ease;
+        border-radius: 0; padding: 0 0 .4rem; opacity: 1; visibility: visible; transform: none;
       }
-      .nav-li.open > .nav-mega { max-height: 600px; }
       .nav-mega a { padding: .7rem 1.6rem; }
+
+      /* JS-enhanced: hamburger drawer + accordion submenus */
+      .mainnav.js .nav-toggle { display: inline-flex; }
+      .mainnav.js .nav-list {
+        position: fixed; top: 0; left: 0; bottom: 0; width: 84%; max-width: 330px;
+        background: #0d0d0d; padding: 1rem 0 2rem; overflow-y: auto;
+        transform: translateX(-100%); transition: transform .25s ease; z-index: 210; border-right: 1px solid #222;
+      }
+      .mainnav.js.open .nav-list { transform: translateX(0); }
+      .mainnav.js.open .nav-backdrop { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 200; }
+      .mainnav.js .nav-mega { max-height: 0; overflow: hidden; padding: 0; transition: max-height .25s ease; }
+      .mainnav.js .nav-li.open > .nav-mega { max-height: 600px; }
     }
 
     /* ── MATCH DAY BANNER ── */
@@ -2517,6 +2520,7 @@
   function setupNav() {
     const nav = document.getElementById('mainNav');
     if (!nav) return;
+    nav.classList.add('js');   // enables the hamburger-drawer enhancement (no-JS = stacked menu)
     const toggle   = document.getElementById('navToggle');
     const backdrop = document.getElementById('navBackdrop');
     const isMobile = () => window.matchMedia('(max-width: 900px)').matches;
