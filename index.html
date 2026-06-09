@@ -1229,7 +1229,7 @@
   // Card media: real image, or the eagle silhouette placeholder when image-less.
   function cardMediaHTML(a) {
     return a.image_url
-      ? `${cardMediaHTML(a)}`
+      ? `<div style="${cardImgStyle(a)}"></div>`
       : `<div class="card-eagle">${EAGLE_SVG}</div>`;
   }
 
