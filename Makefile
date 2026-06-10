@@ -16,6 +16,9 @@ test-frontend:
 parity-selftest:
 	node scripts/parity-check.cjs --self-test
 
+nav-check:
+	node scripts/nav-check.mjs
+
 parity:
 	node scripts/parity-check.cjs --old $(OLD) --new $(NEW) $(if $(NEWHOST),--new-host $(NEWHOST),)
 

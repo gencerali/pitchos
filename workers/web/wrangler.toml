@@ -1,0 +1,32 @@
+# pitchos-web — public read/render worker (strangler base).
+# Deploys to a *.workers.dev URL only — NO production routes here yet, so a
+# deploy cannot affect kartalix.com. Routes are added one at a time, after the
+# matching route passes `make parity`, by uncommenting the [[routes]] block and
+# REMOVING that pattern from the monolith's wrangler.toml in the same change.
+
+name = "pitchos-web"
+main = "index.js"
+compatibility_date = "2024-09-01"
+workers_dev = true
+
+# Same KV namespace as the monolith — both read the same article cache.
+[[kv_namespaces]]
+binding = "PITCHOS_CACHE"
+id = "dedaea653ed542cca25e6cc2551dd1c3"
+
+[vars]
+SUPABASE_URL = "https://qfgstxswcsodaaksjztz.supabase.co"
+
+# ── Production routes: keep COMMENTED until each is parity-verified. ──
+# Move these here from the monolith's wrangler.toml one at a time.
+# [[routes]]
+# pattern = "kartalix.com/konu/videolar"
+# zone_name = "kartalix.com"
+#
+# [[routes]]
+# pattern = "kartalix.com/konu/*"
+# zone_name = "kartalix.com"
+#
+# [[routes]]
+# pattern = "kartalix.com/haber/*"
+# zone_name = "kartalix.com"
