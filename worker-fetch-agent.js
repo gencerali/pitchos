@@ -6492,6 +6492,10 @@ async function serveSitemap(env) {
   <url><loc>${BASE_URL}/editoryal-politika</loc><changefreq>monthly</changefreq><priority>0.4</priority></url>
   <url><loc>${BASE_URL}/gizlilik</loc><changefreq>yearly</changefreq><priority>0.2</priority></url>
   <url><loc>${BASE_URL}/kosullar</loc><changefreq>yearly</changefreq><priority>0.2</priority></url>
+  <url><loc>${BASE_URL}/kaynak-atif</loc><changefreq>yearly</changefreq><priority>0.2</priority></url>
+  <url><loc>${BASE_URL}/konu/videolar</loc><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>${BASE_URL}/konu/transfer</loc><changefreq>daily</changefreq><priority>0.6</priority></url>
+  <url><loc>${BASE_URL}/konu/mac</loc><changefreq>daily</changefreq><priority>0.6</priority></url>
 ${articleUrls}
 </urlset>`;
 
