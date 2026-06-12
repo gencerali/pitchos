@@ -7162,17 +7162,6 @@ async function renderVideoHubPage(tip, env) {
   const pageTitle = pageTitleMap[activeTip] || 'Videolar';
   const canonical = activeTip ? `/konu/videolar?tip=${activeTip}` : '/konu/videolar';
 
-  const tabs = [
-    { key: '', label: 'Tümü' },
-    { key: 'haber', label: 'Haber' },
-    { key: 'mac', label: 'Maç Özetleri' },
-    { key: 'roportaj', label: 'Röportajlar' },
-    ..._VH_CURATED_SECTIONS.map(s => ({ key: s.value, label: s.label })),
-  ].map(t => {
-    const href = t.key ? `/konu/videolar?tip=${t.key}` : '/konu/videolar';
-    return `<a class="vh-tab${t.key === activeTip ? ' vh-tab-active' : ''}" href="${href}">${t.label}</a>`;
-  }).join('');
-
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -7188,11 +7177,6 @@ async function renderVideoHubPage(tip, env) {
     :root{--accent:#E30A17;--bg:#1a1a1a;--surface:#0f0f0f;--text-on-dark:#fff;--border:#222}
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
     body{background:var(--bg);color:var(--text-on-dark);font-family:'Inter',sans-serif;min-height:100vh}
-    .vh-tabs{display:flex;overflow-x:auto;scrollbar-width:none;background:#111;border-bottom:1px solid var(--border);padding:0 1rem;gap:.1rem}
-    .vh-tabs::-webkit-scrollbar{display:none}
-    .vh-tab{font-family:'Barlow Condensed',sans-serif;font-size:.8rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;color:#666;padding:.65rem 1rem;border-bottom:2px solid transparent;white-space:nowrap;transition:color .15s,border-color .15s}
-    .vh-tab:hover{color:#ccc}
-    .vh-tab-active{color:#fff;border-bottom-color:var(--accent)}
     .vh-ad-top{padding:.75rem 1.25rem}
     .vh-section{padding:1.25rem 1.25rem .75rem;overflow-x:hidden}
     .vh-sec-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem;border-left:3px solid var(--accent);padding-left:.75rem}
@@ -7228,19 +7212,10 @@ async function renderVideoHubPage(tip, env) {
 </head>
 <body>
 ${siteHeader('/konu/videolar')}
-<nav class="vh-tabs">${tabs}</nav>
 <div class="vh-ad-top">${_vhAdSlot('leaderboard', 'top')}</div>
 ${sectionsHtml}
 ${siteFooter()}
 <script>
-document.querySelectorAll('.vh-tab').forEach(a => {
-  a.addEventListener('click', e => {
-    e.preventDefault();
-    history.pushState({}, '', a.href);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    window.location = a.href;
-  });
-});
 document.querySelectorAll('.vh-reveal-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const grid = btn.previousElementSibling;
