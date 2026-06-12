@@ -19,6 +19,7 @@ import { renderArticleCardSVG, pickBackground } from './src/card.js';
 import { articleBodyToHtml } from './src/render.js';
 import { isKartalix as isKartalixArticle, videoEmbedHtml } from './src/shared.js';
 import { computeSourceHealth, sourceHealthAlarms } from './src/source-health.js';
+import { buildNav } from './src/shared/nav.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
@@ -7516,11 +7517,27 @@ header{background:#0d0d0d;border-bottom:2px solid #E30A17;height:60px;display:fl
 .live-pill{display:flex;align-items:center;gap:.4rem;font-family:'Barlow Condensed',sans-serif;font-size:.65rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#E30A17;border:1px solid #E30A17;padding:.3rem .7rem;border-radius:2px}
 .live-dot{width:6px;height:6px;border-radius:50%;background:#E30A17;animation:blink 1.4s ease-in-out infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
-.site-cat-nav{background:#111;border-bottom:1px solid #1e1e1e;display:flex;align-items:center;overflow-x:auto;scrollbar-width:none;padding:0 1rem}
-.site-cat-nav::-webkit-scrollbar{display:none}
-.site-cat-nav a{font-family:'Barlow Condensed',sans-serif;font-size:.78rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;text-decoration:none;color:#777;padding:.6rem .9rem;border-bottom:2px solid transparent;white-space:nowrap;transition:color .15s,border-color .15s}
-.site-cat-nav a:hover{color:#ddd}
-.site-cat-nav a.active{color:#fff;border-bottom-color:#E30A17}
+.mainnav{background:#111;border-bottom:1px solid #1e1e1e;position:relative;z-index:90}
+.mainnav .nav-list{display:flex;align-items:center;list-style:none;margin:0 auto;padding:0 1rem;max-width:1280px}
+.mainnav .nav-li{position:relative}
+.mainnav .nav-link,.mainnav .nav-trigger{font-family:'Barlow Condensed',sans-serif;font-size:.82rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#999;background:none;border:0;cursor:pointer;padding:.7rem .95rem;display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap;border-bottom:2px solid transparent;text-decoration:none}
+.mainnav .nav-link:hover,.mainnav .nav-trigger:hover,.mainnav .nav-li:hover>.nav-trigger{color:#fff}
+.mainnav .nav-link.active{color:#fff;border-bottom-color:#E30A17}
+.mainnav .nav-link--soon{color:#777;cursor:default}
+.mainnav .caret{font-size:.55rem;opacity:.65}
+.mainnav .nav-mega{position:absolute;top:100%;left:0;min-width:230px;background:#16181c;border:1px solid #2a2d33;border-top:2px solid #E30A17;border-radius:0 0 6px 6px;box-shadow:0 18px 40px rgba(0,0,0,.55);padding:.45rem;z-index:95;opacity:0;visibility:hidden;transform:translateY(4px);transition:opacity .15s,transform .15s}
+.mainnav .nav-li:hover>.nav-mega{opacity:1;visibility:visible;transform:translateY(0)}
+.mainnav .nav-li.gold>.nav-mega{border-top-color:#F5A623}
+.mainnav .nav-mega-item{display:flex;align-items:center;padding:.5rem .7rem;border-radius:4px;text-decoration:none;color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:.9rem;letter-spacing:.04em;text-transform:uppercase}
+.mainnav .nav-mega-item:hover{background:#22252b}
+.mainnav .nav-mega-item--soon{color:#8b8f97;cursor:default}
+.mainnav .nav-soon{font-family:'Barlow Condensed',sans-serif;font-size:.5rem;font-weight:800;letter-spacing:.1em;color:#0d0d0d;background:#F5A623;padding:.07rem .3rem;border-radius:3px;margin-left:.4rem}
+@media(max-width:900px){
+  .mainnav .nav-list{flex-direction:column;align-items:stretch;padding:0}
+  .mainnav .nav-link,.mainnav .nav-trigger{width:100%;justify-content:space-between;padding:.9rem 1.2rem;font-size:.95rem;border-bottom:1px solid #1c1c1c}
+  .mainnav .nav-mega{position:static;opacity:1;visibility:visible;transform:none;border:0;box-shadow:none;background:#141414;border-radius:0;min-width:0;padding:.2rem 0 .5rem}
+  .mainnav .nav-mega-item{padding:.6rem 1.6rem}
+}
 .site-footer{border-top:1px solid #222;padding:1.5rem;text-align:center;font-size:.72rem;color:#555;background:#0d0d0d;margin-top:3rem}
 .site-footer a{color:#666;margin:0 .6rem;text-decoration:none}
 .site-footer a:hover{color:#E30A17}`;
@@ -7536,21 +7553,11 @@ const SITE_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 
 </svg>`;
 
 function siteHeader(activePath = '/') {
-  const tabs = [
-    { href: '/',              label: 'Tümü' },
-    { href: '/konu/transfer', label: 'Transfer' },
-    { href: '/konu/mac',      label: 'Maç' },
-    { href: '/konu/videolar', label: 'Videolar' },
-  ];
-  const navLinks = tabs.map(({ href, label }) => {
-    const active = activePath === href || (href !== '/' && activePath.startsWith(href));
-    return `<a href="${href}"${active ? ' class="active"' : ''}>${label}</a>`;
-  }).join('');
   return `<header>
   <a href="/" class="logo-link">${SITE_LOGO_SVG}</a>
   <div class="header-right"><div class="live-pill"><div class="live-dot"></div>Canlı</div></div>
 </header>
-<nav class="site-cat-nav">${navLinks}</nav>`;
+${buildNav(activePath)}`;
 }
 
 function siteFooter() {
