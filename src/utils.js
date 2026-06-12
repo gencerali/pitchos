@@ -4,9 +4,9 @@ export const MODEL_SCORE    = 'claude-haiku-4-5-20251001';
 export const MODEL_SUMMARY  = 'claude-sonnet-4-6';
 export const MODEL_GENERATE = 'claude-sonnet-4-6'; // synthesis generation — full articles
 
-// ─── COST ESTIMATES (EUR per 1M tokens) ──────────────────────
+// ─── COST ESTIMATES (USD per 1M tokens) ──────────────────────
 const COST = {
-  'claude-haiku-4-5-20251001': { input: 0.80, output: 4.00 },
+  'claude-haiku-4-5-20251001': { input: 1.00, output: 5.00 },
   'claude-sonnet-4-6':         { input: 3.00, output: 15.00 },
 };
 

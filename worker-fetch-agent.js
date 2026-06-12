@@ -5228,9 +5228,11 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null,
 
       let card = null;
 
-      // 1. Synthesis path — transcript available → summary article (+ embed if embed_qualify)
+      // 1. Synthesis path — gated by KV flag yt_synthesis:enabled=1 to control API cost.
+      // When disabled, falls through to the embed fallback below (no LLM call).
       let transcriptText = null;
-      if (video.transcript_qualify) {
+      const ytSynthEnabled = (await env.PITCHOS_CACHE.get('yt_synthesis:enabled')) === '1';
+      if (ytSynthEnabled && video.transcript_qualify) {
         try {
           transcriptText = await fetchYouTubeTranscript(video.video_id);
           if (transcriptText) {
