@@ -1567,7 +1567,7 @@
       </div>
 
       <div class="av-hero av-slide-in" style="${heroStyle}">
-        ${!image ? `<div class="av-hero-icon">${EAGLE_SVG}</div>` : ''}
+        ${(!image || isVideoEmbed) ? `<div class="av-hero-icon">${EAGLE_SVG}</div>` : ''}
         <div class="av-hero-content">
           <div class="av-cat-pill" style="background:${badgeBg};color:${badgeTextColor}">${esc(badgeLabel)}</div>
           <div class="av-title">${esc(title)}</div>
