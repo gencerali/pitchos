@@ -17,7 +17,7 @@
       --accent:       #E30A17;
       --accent-gold:  #F5A623;
       --accent-dim:   rgba(227,10,23,0.1);
-      --bg:           #1a1a1a;
+      --bg:           #f4f2ee;
       --surface:      #ffffff;
       --panel:        #ffffff;
       --panel-dark:   #111111;
@@ -34,7 +34,7 @@
 
     body {
       background: var(--bg);
-      color: var(--text-on-dark);
+      color: var(--text);
       font-family: 'Inter', sans-serif;
       min-height: 100vh;
       position: relative;
@@ -437,17 +437,17 @@
     }
     .sidebar .radar-item {
       white-space: normal; flex-wrap: wrap;
-      border-bottom: 1px solid #333;
+      border-bottom: 1px solid var(--border);
       padding: 0.6rem 0; cursor: pointer;
-      font-size: 0.8rem; color: var(--muted-dark); transition: color 0.15s;
+      font-size: 0.8rem; color: var(--muted); transition: color 0.15s;
       display: flex; align-items: flex-start; gap: 0.5rem;
     }
     .sidebar .radar-item:last-child { border-bottom: none; }
-    .sidebar .radar-item:hover { color: #fff; }
+    .sidebar .radar-item:hover { color: var(--text); }
     .sidebar .pulse-items { display: flex; flex-direction: column; gap: 0; }
     .sidebar .pulse-item {
       font-size: 0.82rem; padding: 0.5rem 0;
-      border-bottom: 1px solid #333; color: var(--muted-dark);
+      border-bottom: 1px solid var(--border); color: var(--muted);
     }
     .sidebar .pulse-item:last-child { border-bottom: none; }
     .sidebar-ad-box { min-height: 250px; }
@@ -486,7 +486,7 @@
       display: flex; align-items: center; gap: 0.75rem;
       margin: 1.5rem 0 1rem;
     }
-    .section-line { flex: 1; height: 1px; background: #444; }
+    .section-line { flex: 1; height: 1px; background: var(--border2); }
     .section-title {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.75rem; font-weight: 700;
