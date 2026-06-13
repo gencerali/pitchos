@@ -61,7 +61,28 @@ export function buildNav(activePath = '/', { config = NAV_CONFIG } = {}) {
     return `<li class="nav-li${gold}"><button class="nav-trigger" aria-haspopup="true" aria-expanded="false">${label} <span class="caret">▾</span></button><div class="nav-mega" role="menu">${sub}</div></li>`;
   };
 
-  return `<nav class="mainnav" aria-label="Ana menü"><ul class="nav-list">${config.map(item).join('')}</ul></nav>`;
+  const items = config.map(item).join('');
+  return `<nav class="mainnav" id="mainNav" aria-label="Ana menü">`
+    + `<div class="nav-backdrop" id="navBackdrop"></div>`
+    + `<div class="mainnav-inner">`
+    + `<button class="nav-toggle" id="navToggle" aria-label="Menü" aria-expanded="false"><span class="bars"></span> Menü</button>`
+    + `<ul class="nav-list">${items}</ul>`
+    + `</div></nav>`
+    + `<script>${NAV_SCRIPT}</script>`;
 }
+
+// Mobile enhancement: hamburger drawer + accordion submenus. Progressive — if
+// this never runs, CSS leaves the menu as a visible stacked list.
+const NAV_SCRIPT = `(function(){var n=document.getElementById('mainNav');if(!n)return;n.classList.add('js');`
+  + `var t=document.getElementById('navToggle'),b=document.getElementById('navBackdrop');`
+  + `function c(){n.classList.remove('open');if(t)t.setAttribute('aria-expanded','false');`
+  + `n.querySelectorAll('.nav-li.open').forEach(function(x){x.classList.remove('open');});}`
+  + `if(t)t.addEventListener('click',function(){var o=n.classList.toggle('open');t.setAttribute('aria-expanded',o?'true':'false');});`
+  + `if(b)b.addEventListener('click',c);`
+  + `n.querySelectorAll('.nav-trigger').forEach(function(tr){tr.addEventListener('click',function(e){e.preventDefault();`
+  + `var li=tr.closest('.nav-li'),was=li.classList.contains('open');`
+  + `n.querySelectorAll('.nav-li.open').forEach(function(o){if(o!==li)o.classList.remove('open');});`
+  + `li.classList.toggle('open',!was);});});`
+  + `document.addEventListener('keydown',function(e){if(e.key==='Escape')c();});})();`;
 
 export default { NAV_CONFIG, buildNav };
