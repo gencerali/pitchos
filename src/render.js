@@ -10,7 +10,8 @@ const LONGFORM_MODES = new Set([
   'rewrite', 'synthesis', 'original_synthesis', 'synthesis_generated',
   'youtube_synthesis', 'youtube_embed_synthesis',
 ]);
-const BLOCK_TAG_RE = /<(p|h[1-6]|ul|ol|li|img|blockquote|figure|table|iframe)\b/i;
+const BLOCK_TAG_RE = /<(p|h[1-6]|ul|ol|li|blockquote|table)\b/i;   // real structured HTML → trust as-is
+const MEDIA_TAG_RE = /<(img|iframe|figure)\b/i;                    // embeddable media to keep inline
 const SUBHEAD_MIN_WORDS = 350;
 const SUBHEAD_MIN_BLOCKS = 5;
 const SUBHEAD_MAX = 3;
@@ -34,8 +35,9 @@ function inlineMd(escaped) {
 export function articleBodyToHtml(bodyRaw, opts = {}) {
   const raw = bodyRaw || '';
   if (!raw.trim()) return '';
-  // Already-HTML bodies (e.g. templates): pass through, sanitized.
-  if (BLOCK_TAG_RE.test(raw)) return sanitize(raw);
+  // Structured-HTML bodies (templates, rich bodies): trust their structure; still convert any
+  // literal **bold** that slipped in (safe — these bodies don't otherwise use ** markers).
+  if (BLOCK_TAG_RE.test(raw)) return inlineMd(sanitize(raw));
 
   // Split into paragraph blocks on blank lines; fall back to single newlines if the model
   // didn't double-space (otherwise the whole body collapses into one paragraph).
@@ -47,6 +49,8 @@ export function articleBodyToHtml(bodyRaw, opts = {}) {
 
   let subheads = 0;
   return blocks.map((b, idx) => {
+    // Embedded media (img/iframe/figure): keep as raw HTML, don't escape or wrap in <p>.
+    if (MEDIA_TAG_RE.test(b)) return sanitize(b);
     const h = b.match(/^(#{2,3})\s+(.+)$/);
     if (h && allowSubheads && idx > 0 && subheads < SUBHEAD_MAX) {
       subheads++;

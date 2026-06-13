@@ -1383,14 +1383,27 @@
       });
   }
 
-  function buildBodyHtml(bodyRaw) {
-    if (!bodyRaw) return '';
-    if (/<(p|h[1-6]|ul|ol|img|blockquote|figure|svg)\b/i.test(bodyRaw)) {
-      return sanitizeForView(bodyRaw);
-    }
-    const clean = bodyRaw.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-    return clean.split(/\n\n+/).filter(p=>p.trim().length>10)
-      .map(p=>`<p>${esc(p.trim())}</p>`).join('') || `<p>${esc(clean)}</p>`;
+  // Mirrors the worker's articleBodyToHtml (src/shared render): blank-line paragraphs,
+  // **bold**, gated ## subheads, embedded media preserved.
+  function inlineMd(escaped) { return escaped.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>'); }
+  const _LONGFORM_MODES = new Set(['rewrite','synthesis','original_synthesis','synthesis_generated','youtube_synthesis','youtube_embed_synthesis']);
+  function buildBodyHtml(bodyRaw, publishMode) {
+    const raw = bodyRaw || '';
+    if (!raw.trim()) return '';
+    // structured HTML (templates/rich bodies) → trust it; still convert any literal **bold**
+    if (/<(p|h[1-6]|ul|ol|li|blockquote|table)\b/i.test(raw)) return inlineMd(sanitizeForView(raw));
+    let blocks = raw.split(/\n\s*\n+/).map(b=>b.trim()).filter(Boolean);
+    if (blocks.length===1 && /\n/.test(raw)) blocks = raw.split(/\n+/).map(b=>b.trim()).filter(Boolean);
+    const words = raw.replace(/\s+/g,' ').trim().split(' ').filter(Boolean).length;
+    const allowSub = _LONGFORM_MODES.has(publishMode) && words>=350 && blocks.length>=5;
+    let sub=0;
+    return blocks.map((b,idx)=>{
+      if (/<(img|iframe|figure)\b/i.test(b)) return sanitizeForView(b);   // keep embedded media
+      const h=b.match(/^(#{2,3})\s+(.+)$/);
+      if (h && allowSub && idx>0 && sub<3){ sub++; const tag=h[1].length===2?'h2':'h3'; return `<${tag}>${inlineMd(esc(h[2].trim()))}</${tag}>`; }
+      const text=b.replace(/^#{1,6}\s*/,'').replace(/\s+/g,' ').trim();
+      return text?`<p>${inlineMd(esc(text))}</p>`:'';
+    }).join('');
   }
 
   function firstSentence(bodyRaw) {
@@ -1431,7 +1444,7 @@
       : `background:${catGrad(a)}`;
 
     // Body HTML
-    const bodyHtml = buildBodyHtml(bodyRaw);
+    const bodyHtml = buildBodyHtml(bodyRaw, a.publish_mode);
 
     // YouTube embed: generate iframe from URL if full_body doesn't already have one
     const ytEmbedId = isVideoEmbed && srcUrl
