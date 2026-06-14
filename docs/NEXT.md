@@ -6,6 +6,19 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ---
 
+## GAMIFICATION BACKLOG
+
+Items deferred from the gamification build session (2026-06-14):
+
+- **Social login (Google / Apple / X)** — UI removed, code ready to re-add. Needs OAuth credentials in each provider's console + Supabase Dashboard → Auth → Providers. Google is easiest; Apple requires $99/yr developer account. Wire up with `sb.auth.signInWithOAuth({ provider, options: { redirectTo: 'https://kartalix.com' } })`.
+- **XP Admin Panel** — `/admin/gamification`: edit XP values per action, economy simulator, level threshold editor, shadow-ban list, audit log.
+- **Set super-admin** — run `UPDATE public.profiles SET role = 'admin' WHERE id = (SELECT id FROM auth.users WHERE email = 'gencerali@gmail.com');` once first login is confirmed.
+- **Smoke test XP flow** — log in → read article 30s → confirm XP in `/api/leaderboard/alltime`.
+- **Sound design** — royalty-free XP / level-up sounds (default OFF, user toggle).
+- **Push notifications** — post-launch.
+
+---
+
 ## NEXT ACTION
 
 **NEXT** (Sprint 1 rescoped around **Method B** — see `docs/method-b-design.md`):
