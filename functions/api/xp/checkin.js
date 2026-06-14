@@ -1,34 +1,31 @@
 import { getUser, json, err, corsHeaders } from '../_shared/auth.js';
+import { getSiteId } from '../_shared/site.js';
 import { awardXP, getStreak, sbGet, sbPost, sbPatch, streakMultiplier } from '../_shared/xp.js';
 
 export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return corsHeaders();
   if (request.method !== 'POST') return err('Method not allowed', 405);
 
-  const user = await getUser(request, env);
+  const [user, site_id] = await Promise.all([getUser(request, env), getSiteId(request, env)]);
   if (!user) return err('Unauthorized', 401);
+  if (!site_id) return err('Site not found', 404);
 
-  const todayUTC = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  const todayUTC = new Date().toISOString().slice(0, 10);
+  const streak = await getStreak(env, user.id, site_id);
 
-  // ── Idempotency: already checked in today? ────────────────
-  const streak = await getStreak(env, user.id);
   if (streak.last_checkin_date === todayUTC) {
     return json({ already_checked_in: true, current_streak: streak.current_streak });
   }
 
-  // ── Determine new streak value ────────────────────────────
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
   let new_streak;
   let shield_consumed = false;
 
   if (streak.last_checkin_date === yesterday) {
-    // Consecutive day
     new_streak = (streak.current_streak ?? 0) + 1;
-  } else if (streak.last_checkin_date === null) {
-    // First ever check-in
+  } else if (!streak.last_checkin_date) {
     new_streak = 1;
   } else {
-    // Gap — check if shield can absorb it
     const daysBehind = Math.floor(
       (Date.now() - new Date(streak.last_checkin_date).getTime()) / 86400000
     );
@@ -43,10 +40,13 @@ export async function onRequest({ request, env }) {
   const new_longest = Math.max(new_streak, streak.longest_streak ?? 0);
   const started_at = new_streak === 1 ? new Date().toISOString() : streak.streak_started_at;
 
-  // ── Update streak row ─────────────────────────────────────
-  const streakExists = await sbGet(env, `user_streaks?user_id=eq.${user.id}&select=user_id&limit=1`);
+  const streakExists = await sbGet(
+    env,
+    `user_streaks?user_id=eq.${user.id}&site_id=eq.${site_id}&select=user_id&limit=1`
+  );
+
   if (streakExists.length) {
-    await sbPatch(env, `user_streaks?user_id=eq.${user.id}`, {
+    await sbPatch(env, `user_streaks?user_id=eq.${user.id}&site_id=eq.${site_id}`, {
       current_streak: new_streak,
       longest_streak: new_longest,
       last_checkin_date: todayUTC,
@@ -57,6 +57,7 @@ export async function onRequest({ request, env }) {
   } else {
     await sbPost(env, 'user_streaks', {
       user_id: user.id,
+      site_id,
       current_streak: new_streak,
       longest_streak: new_longest,
       last_checkin_date: todayUTC,
@@ -65,21 +66,20 @@ export async function onRequest({ request, env }) {
     });
   }
 
-  // ── Award base check-in XP ────────────────────────────────
-  const result = await awardXP(env, user.id, 'daily_checkin');
+  const result = await awardXP(env, user.id, site_id, 'daily_checkin');
 
-  // ── Award 5-day streak bonus if applicable ────────────────
   let streak_bonus = null;
   if (new_streak > 0 && new_streak % 5 === 0) {
-    streak_bonus = await awardXP(env, user.id, 'streak_5_bonus');
+    streak_bonus = await awardXP(env, user.id, site_id, 'streak_5_bonus');
   }
 
-  // ── Streak shield award at day 15 ────────────────────────
   let shield_awarded = false;
   if (new_streak === 15) {
-    const currentStreak = await getStreak(env, user.id);
-    if (!currentStreak.shield_active) {
-      await sbPatch(env, `user_streaks?user_id=eq.${user.id}`, { shield_active: true });
+    const fresh = await getStreak(env, user.id, site_id);
+    if (!fresh.shield_active) {
+      await sbPatch(env, `user_streaks?user_id=eq.${user.id}&site_id=eq.${site_id}`, {
+        shield_active: true,
+      });
       shield_awarded = true;
     }
   }
