@@ -3066,12 +3066,10 @@ Sadece JSON döndür:
       const sites = await getActiveSites(env);
       const site = resolveSite(url, sites);
       if (!site) return Response.json({ error: 'no site' }, { status: 500 });
-      const VIDEO_MODES = ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'];
-      const modeFilter = VIDEO_MODES.map(m => `publish_mode.eq.${m}`).join(',');
       const rows = await supabase(env, 'GET',
-        `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&or=(${modeFilter})&select=slug,title,image_url,published_at,source_name,publish_mode,video_id,category,url&order=published_at.desc&limit=15`
-      ).catch(() => null);
-      if (!Array.isArray(rows)) return Response.json({ error: 'supabase query failed' }, { status: 500 });
+        `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(youtube_embed,youtube_synthesis,youtube_embed_synthesis)&select=slug,title,image_url,published_at,source_name,publish_mode,video_id,category,url&order=published_at.desc&limit=15`
+      ).catch(e => ({ _err: e.message }));
+      if (!Array.isArray(rows)) return Response.json({ error: 'supabase query failed', detail: rows?._err, site_id: site.id }, { status: 500 });
       await env.PITCHOS_CACHE.put(`video-rail:${siteCode}`, JSON.stringify(rows), { expirationTtl: 43200 });
       return Response.json({ ok: true, count: rows.length, titles: rows.map(v => v.title) });
     }
