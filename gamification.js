@@ -327,7 +327,7 @@
             site_id: config.site_id,
             full_name: fd.get('username'),
           },
-          emailRedirectTo: window.location.origin,
+          emailRedirectTo: 'https://kartalix.com',
         },
       });
 
@@ -341,10 +341,30 @@
       const { data: { session: newSession } } = await sb.auth.getSession();
 
       if (!newSession) {
-        // Email confirmation required — show message, don't close modal
-        errEl.style.color = '#22c55e';
-        errEl.textContent = 'Kayıt başarılı! E-postanı kontrol et ve onay bağlantısına tıkla, ardından giriş yap.';
-        btn.disabled = false; btn.textContent = 'Üye Ol';
+        // Email confirmation required — replace form with a clear success screen
+        const panel = modal.querySelector('.kx-auth-panel');
+        panel.innerHTML = `
+          <div style="text-align:center;display:flex;flex-direction:column;align-items:center;gap:1rem;padding:.5rem 0">
+            <div style="font-size:2.5rem">📬</div>
+            <div style="font-family:'Oswald',sans-serif;font-size:1.2rem;font-weight:700;
+              text-transform:uppercase;letter-spacing:.04em;color:#fff">
+              E-postanı Kontrol Et
+            </div>
+            <div style="font-size:.85rem;color:#9ca3af;line-height:1.6;max-width:300px;text-align:center">
+              <strong style="color:#fff">${fd.get('email')}</strong> adresine onay bağlantısı gönderdik.
+              Bağlantıya tıklayarak hesabını aktifleştir ve Kartalix'e giriş yap.
+            </div>
+            <div style="font-size:.75rem;color:#555;margin-top:.25rem">
+              E-posta gelmediyse spam klasörünü kontrol et.
+            </div>
+            <button onclick="this.closest('.kx-auth-modal').remove()" style="
+              margin-top:.5rem;padding:.7rem 2rem;
+              background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;
+              color:#9ca3af;font-family:'Barlow Condensed',sans-serif;
+              font-size:.85rem;font-weight:700;letter-spacing:.06em;
+              text-transform:uppercase;cursor:pointer;width:100%;
+            ">Tamam</button>
+          </div>`;
         return;
       }
 
