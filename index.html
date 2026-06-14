@@ -186,6 +186,7 @@
 
     /* ── HERO CAROUSEL (all screen sizes) ── */
     .hero-carousel {
+      display: none;   /* replaced by the lead+stack hero (.hero-split) */
       position: relative; overflow: hidden;
       background: #0a0a0a; border-bottom: 1px solid #2a2a2a;
     }
@@ -309,15 +310,17 @@
 
     /* ── HERO SPLIT (desktop only) ── */
     .hero-split {
-      display: none;
-      border-bottom: 1px solid #2a2a2a;
+      display: grid; grid-template-columns: 1.6fr 1fr;
+      border-bottom: 1px solid var(--border); overflow: hidden;
     }
+    @media (max-width: 760px) { .hero-split { grid-template-columns: 1fr; } }
 
     .hero-main {
       position: relative; overflow: hidden;
       background-size: cover; background-position: center;
-      background-color: #0a0a0a; cursor: pointer;
+      background-color: #0a0a0a; cursor: pointer; min-height: 380px;
     }
+    @media (max-width: 760px) { .hero-main { min-height: 280px; } }
     .hero-main .slide-gradient {
       position: absolute; inset: 0;
       background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.35) 55%, rgba(0,0,0,0.05) 100%);
@@ -333,7 +336,7 @@
     .hero-main-title {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 2rem; font-weight: 800; line-height: 1.05;
-      color: var(--text); letter-spacing: 0.02em; text-transform: uppercase;
+      color: #ffffff; letter-spacing: 0.02em; text-transform: uppercase;
       text-shadow: 0 2px 12px rgba(0,0,0,0.8); margin-bottom: 0.5rem;
       display: -webkit-box; -webkit-line-clamp: 3;
       -webkit-box-orient: vertical; overflow: hidden;
@@ -353,18 +356,19 @@
 
     .hero-side {
       display: flex; flex-direction: column;
-      border-left: 1px solid rgba(255,255,255,0.08);
-      background: #0d0d0d; overflow: hidden;
+      border-left: 1px solid var(--border);
+      background: var(--surface); overflow: hidden;
     }
+    @media (max-width: 760px) { .hero-side { border-left: none; border-top: 1px solid var(--border); } }
     .hero-side-item {
       flex: 1; display: flex; flex-direction: column; justify-content: center;
-      padding: 0.75rem 1rem;
+      padding: 0.85rem 1rem; min-height: 84px;
       cursor: pointer;
-      border-bottom: 1px solid rgba(255,255,255,0.08);
-      transition: background 0.15s; overflow: hidden; min-height: 0;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s; overflow: hidden;
     }
     .hero-side-item:last-child { border-bottom: none; }
-    .hero-side-item:hover { background: rgba(255,255,255,0.04); }
+    .hero-side-item:hover { background: var(--section-alt); }
     .hero-side-item:hover .hero-side-title { color: var(--accent); }
     .side-category {
       font-family: 'Barlow Condensed', sans-serif;
@@ -375,14 +379,14 @@
     .hero-side-title {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 1rem; font-weight: 700;
-      line-height: 1.2; color: #ffffff; transition: color 0.15s;
+      line-height: 1.2; color: var(--text); transition: color 0.15s;
       display: -webkit-box; -webkit-line-clamp: 2;
       -webkit-box-orient: vertical; overflow: hidden;
       margin-bottom: 0.3rem;
     }
     .hero-side-meta {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.65rem; color: var(--muted-dark); letter-spacing: 0.04em;
+      font-size: 0.65rem; color: var(--muted); letter-spacing: 0.04em;
     }
 
     /* ── AD SLOTS ── */
@@ -832,7 +836,7 @@
     .share-tw:hover { background: #1DA1F2; color: #fff; }
 
     /* ── RESPONSIVE ── */
-    .hero-split { display: none !important; }
+    /* .hero-split is the active hero (lead + stack) — shown by default now */
     @media(min-width: 1024px) {
       .content-with-sidebar { grid-template-columns: 1fr 300px; }
     }
