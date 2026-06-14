@@ -198,6 +198,32 @@
           <button class="kx-auth-tab" data-tab="register">Üye Ol</button>
         </div>
 
+        <!-- Social login (shown on login + register tabs) -->
+        <div class="kx-auth-social" id="kxSocialBtns">
+          <button type="button" class="kx-social-btn" data-provider="google">
+            <svg width="16" height="16" viewBox="0 0 18 18" aria-hidden="true">
+              <path d="M9 3.48c1.69 0 2.83.73 3.48 1.34l2.54-2.48C13.46.89 11.43 0 9 0 5.48 0 2.44 2.02.96 4.96l2.91 2.26C4.6 5.05 6.62 3.48 9 3.48z" fill="#EA4335"/>
+              <path d="M17.64 9.2c0-.74-.06-1.28-.19-1.84H9v3.34h4.96c-.1.83-.64 2.08-1.84 2.92l2.84 2.2c1.7-1.57 2.68-3.88 2.68-6.62z" fill="#4285F4"/>
+              <path d="M3.88 10.78A5.54 5.54 0 0 1 3.58 9c0-.62.11-1.22.29-1.78L.96 4.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.04l2.92-2.26z" fill="#FBBC05"/>
+              <path d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.84-2.2c-.76.53-1.78.9-3.12.9-2.38 0-4.4-1.57-5.12-3.74L.97 13.04C2.45 15.98 5.48 18 9 18z" fill="#34A853"/>
+            </svg>
+            Google ile devam et
+          </button>
+          <button type="button" class="kx-social-btn" data-provider="apple">
+            <svg width="16" height="16" viewBox="0 0 814 1000" fill="currentColor" aria-hidden="true">
+              <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.3-164-39.3c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57.8-155.5-127.4C46 600.3 0 490.6 0 385.6 0 201.3 116.4 101.5 228.4 101.5c61.6 0 113.3 40.3 148.4 40.3 33.6 0 92.3-42.8 161.3-42.8 26 0 108.2 2.6 166.3 79.6zm-143.3-141.2c-28.6-34.4-82.1-60.3-131.4-60.3-4.5 0-9 .6-13.5.6 1.3 50.9 22.1 101.2 54.9 136.6 32.2 34.4 84.1 60.3 130.7 60.3 3.9 0 7.7-.6 11.6-.6-1.3-49-19.5-99.3-52.3-136.6z"/>
+            </svg>
+            Apple ile devam et
+          </button>
+          <button type="button" class="kx-social-btn" data-provider="twitter">
+            <svg width="16" height="16" viewBox="0 0 300 300" fill="currentColor" aria-hidden="true">
+              <path d="M178.57 127.15 290.27 0h-26.46l-97.03 110.38L89.34 0H0l117.13 166.93L0 300.25h26.46l102.4-116.59 81.8 116.59h89.34M36.01 19.54H76.66l187.13 262.13h-40.66"/>
+            </svg>
+            X ile devam et
+          </button>
+        </div>
+        <div class="kx-auth-divider" id="kxSocialDivider"><span>ya da e-posta ile</span></div>
+
         <!-- Login form -->
         <form class="kx-auth-form" id="kxLoginForm" data-panel="login">
           <div class="kx-auth-field">
@@ -275,12 +301,29 @@
       modal.querySelector('#kxAuthTitle').textContent =
         name === 'login' ? 'Kartalix\'e Giriş Yap' :
         name === 'register' ? 'Kartalix\'e Üye Ol' : 'Şifre Sıfırla';
+      const showSocial = name !== 'forgot';
+      modal.querySelector('#kxSocialBtns').style.display = showSocial ? 'flex' : 'none';
+      modal.querySelector('#kxSocialDivider').style.display = showSocial ? '' : 'none';
     }
     tabs.forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
 
     // Forgot password link
     modal.querySelector('#kxForgotLink').addEventListener('click', () => switchTab('forgot'));
     modal.querySelector('#kxBackToLogin').addEventListener('click', () => switchTab('login'));
+
+    // ── Social login ──────────────────────────────────────────
+    modal.querySelectorAll('.kx-social-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const provider = btn.dataset.provider;
+        const origContent = btn.innerHTML;
+        btn.disabled = true; btn.textContent = 'Yönlendiriliyor…';
+        const { error } = await sb.auth.signInWithOAuth({
+          provider,
+          options: { redirectTo: 'https://kartalix.com' },
+        });
+        if (error) { btn.disabled = false; btn.innerHTML = origContent; }
+      });
+    });
 
     // ── Login submit ──────────────────────────────────────────
     modal.querySelector('#kxLoginForm').addEventListener('submit', async e => {
@@ -332,7 +375,17 @@
       });
 
       if (error) {
-        errEl.textContent = error.message;
+        errEl.textContent = error.message.toLowerCase().includes('already')
+          ? 'Bu e-posta adresi zaten kayıtlı. Giriş yapmayı dene.'
+          : error.message;
+        btn.disabled = false; btn.textContent = 'Üye Ol';
+        return;
+      }
+
+      // Supabase returns user with empty identities when email already exists
+      // (enumeration protection — no explicit error is thrown)
+      if (data?.user?.identities?.length === 0) {
+        errEl.textContent = 'Bu e-posta adresi zaten kayıtlı. Giriş yapmayı dene.';
         btn.disabled = false; btn.textContent = 'Üye Ol';
         return;
       }

@@ -1020,6 +1020,26 @@
     .kx-auth-check a { color: var(--accent-gold); }
     .kx-auth-hint { font-size: 0.8rem; color: var(--muted-dark); line-height: 1.5; }
 
+    .kx-auth-social {
+      display: flex; flex-direction: column; gap: 0.5rem;
+    }
+    .kx-social-btn {
+      display: flex; align-items: center; justify-content: center; gap: 0.55rem;
+      width: 100%; padding: 0.65rem 1rem;
+      background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 4px;
+      color: var(--text); font-family: 'Inter', sans-serif;
+      font-size: 0.85rem; cursor: pointer; transition: background 0.15s, border-color 0.15s;
+    }
+    .kx-social-btn:hover { background: #222; border-color: #3a3a3a; }
+    .kx-social-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .kx-auth-divider {
+      display: flex; align-items: center; gap: 0.75rem;
+      color: #444; font-size: 0.72rem;
+    }
+    .kx-auth-divider::before, .kx-auth-divider::after {
+      content: ''; flex: 1; height: 1px; background: #242424;
+    }
+
     .kx-profile-drop {
       position: absolute; z-index: 200;
       background: #141414; border: 1px solid #242424;
