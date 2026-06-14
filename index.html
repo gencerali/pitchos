@@ -59,7 +59,8 @@
       position: sticky; top: 0; z-index: 100;
     }
     .logo-link { text-decoration: none; display: flex; align-items: center; }
-    .header-right { display: flex; align-items: center; gap: 1rem; }
+    .header-left { display: flex; align-items: center; gap: 0.85rem; }
+    .header-right { display: flex; align-items: center; gap: 0.75rem; }
     .live-pill {
       display: flex; align-items: center; gap: 0.4rem;
       font-family: 'Barlow Condensed', sans-serif;
@@ -1074,16 +1075,19 @@
 
 <!-- ── HEADER ── -->
 <header>
-  <a href="/" class="logo-link" style="text-decoration:none;display:flex;align-items:center;gap:0">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" height="44">
-      <rect x="0" y="2" width="8" height="40" fill="#ffffff"/>
-      <polygon points="8,22 36,2 29,2 8,16" fill="#ffffff"/>
-      <polygon points="8,22 38,42 46,42 8,25" fill="#D90414"/>
-      <rect x="0" y="20" width="8" height="5" fill="#D90414"/>
-      <text x="54" y="28" font-family="'Barlow Condensed',Impact,Arial Narrow,sans-serif" font-size="24" font-weight="900" letter-spacing="3" fill="#ffffff">KARTALIX</text>
-      <text x="55" y="40" font-family="Arial,Helvetica,sans-serif" font-size="7" letter-spacing="2" fill="#666666">BEŞİKTAŞ HABERLERİ</text>
-    </svg>
-  </a>
+  <div class="header-left">
+    <a href="/" class="logo-link" aria-label="Kartalix Ana Sayfa">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" height="40" aria-hidden="true">
+        <rect x="0" y="2" width="8" height="40" fill="#ffffff"/>
+        <polygon points="8,22 36,2 29,2 8,16" fill="#ffffff"/>
+        <polygon points="8,22 38,42 46,42 8,25" fill="#D90414"/>
+        <rect x="0" y="20" width="8" height="5" fill="#D90414"/>
+        <text x="54" y="28" font-family="'Barlow Condensed',Impact,Arial Narrow,sans-serif" font-size="24" font-weight="900" letter-spacing="3" fill="#ffffff">KARTALIX</text>
+        <text x="55" y="40" font-family="Arial,Helvetica,sans-serif" font-size="7" letter-spacing="2" fill="#666666">BEŞİKTAŞ HABERLERİ</text>
+      </svg>
+    </a>
+    <div class="live-pill" aria-label="Canlı içerik"><div class="live-dot"></div>Canlı</div>
+  </div>
   <div class="header-right">
     <div class="user-widget" id="userWidget">
       <div class="user-sync-dot"></div>
@@ -1093,7 +1097,6 @@
         <div class="user-rank-label" id="userRankLabel">Lvl 1 • Kartal</div>
       </div>
     </div>
-    <div class="live-pill"><div class="live-dot"></div>Canlı</div>
   </div>
 </header>
 
@@ -1109,9 +1112,6 @@
 <nav class="mainnav" id="mainNav" aria-label="Ana menü">
   <div class="nav-backdrop" id="navBackdrop"></div>
   <div class="mainnav-inner">
-    <button class="nav-toggle" id="navToggle" aria-label="Menü" aria-expanded="false" aria-controls="navList">
-      <span class="bars"><i></i></span> Menü
-    </button>
     <ul class="nav-list" id="navList">
       <li class="nav-li"><a class="nav-link active" href="/" id="catAll">Ana Sayfa</a></li>
 
@@ -2853,6 +2853,7 @@
     if (overlay) overlay.classList.remove('open');
     document.body.style.overflow = '';
   }
+  document.addEventListener('DOMContentLoaded', function() {
   (function initSideDrawer() {
     const overlay  = document.getElementById('sideDrawerOverlay');
     const closeBtn = document.getElementById('drawerClose');
@@ -2988,6 +2989,7 @@
       widget.classList.add('visible');
     }
   })();
+  }); // end DOMContentLoaded
 
   // ── STANDINGS WIDGET ────────────────────────────────────────
   (async function initSidebarWidgets() {
