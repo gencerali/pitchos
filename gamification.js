@@ -325,19 +325,27 @@
         return;
       }
 
-      // Claim guest XP after registration
-      if (guestXp > 0) {
-        const { data: { session: newSession } } = await sb.auth.getSession();
-        if (newSession?.access_token) {
-          fetch('/api/xp/guest-claim', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${newSession.access_token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ guest_xp: guestXp }),
-          }).catch(() => {});
-        }
+      // Check if email confirmation is required (session won't exist yet if so)
+      const { data: { session: newSession } } = await sb.auth.getSession();
+
+      if (!newSession) {
+        // Email confirmation required — show message, don't close modal
+        errEl.style.color = '#22c55e';
+        errEl.textContent = 'Kayıt başarılı! E-postanı kontrol et ve onay bağlantısına tıkla, ardından giriş yap.';
+        btn.disabled = false; btn.textContent = 'Üye Ol';
+        return;
+      }
+
+      // Auto-confirmed — claim guest XP immediately
+      if (guestXp > 0 && newSession?.access_token) {
+        fetch('/api/xp/guest-claim', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${newSession.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ guest_xp: guestXp }),
+        }).catch(() => {});
         try { localStorage.removeItem('kx_user'); } catch {}
       }
 
