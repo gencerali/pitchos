@@ -10,24 +10,24 @@
   <meta property="og:type" content="website" />
   <meta name="robots" content="index, follow" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Inter:wght@300;400;500&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
 
   <style>
     :root {
-      --accent:       #E30A17;
+      --accent:       #D90414;
       --accent-gold:  #F5A623;
-      --accent-dim:   rgba(227,10,23,0.1);
-      --bg:           #f4f2ee;
-      --surface:      #ffffff;
-      --panel:        #ffffff;
-      --panel-dark:   #111111;
-      --border:       #e5e7eb;
-      --border2:      #d1d5db;
-      --text:         #111111;
+      --accent-dim:   rgba(217,4,20,0.15);
+      --bg:           #0A0A0A;
+      --surface:      #141414;
+      --panel:        #141414;
+      --panel-dark:   #0A0A0A;
+      --border:       #1A1A1A;
+      --border2:      #242424;
+      --text:         #f0ede6;
       --text-on-dark: #ffffff;
       --muted:        #6b7280;
       --muted-dark:   #9ca3af;
-      --section-alt:  #f5f3ef;
+      --section-alt:  #141414;
     }
 
     *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
@@ -291,7 +291,7 @@
     }
     @media(min-width: 768px)  { .carousel-arrow { top: 160px; } }
     @media(min-width: 1024px) { .carousel-arrow { top: 200px; } }
-    .carousel-arrow:hover { background: rgba(227,10,23,0.7); }
+    .carousel-arrow:hover { background: rgba(217,4,20,0.7); }
     .carousel-arrow.prev { left: 1rem; }
     .carousel-arrow.next { right: 1rem; }
     .carousel-dots {
@@ -368,7 +368,7 @@
       transition: background 0.15s; overflow: hidden;
     }
     .hero-side-item:last-child { border-bottom: none; }
-    .hero-side-item:hover { background: var(--section-alt); }
+    .hero-side-item:hover { background: #1a1a1a; }
     .hero-side-item:hover .hero-side-title { color: var(--accent); }
     .side-category {
       font-family: 'Barlow Condensed', sans-serif;
@@ -470,7 +470,7 @@
       display: grid; grid-template-columns: 38px 1fr auto;
       align-items: center; gap: 0.4rem;
       padding: 0.45rem 0; border-bottom: 1px solid var(--border);
-      font-size: 0.78rem; color: #3a3833;
+      font-size: 0.78rem; color: var(--muted-dark);
     }
     .fixture-row:last-child { border-bottom: none; }
     .fixture-date { color: var(--muted); font-size: 0.7rem; line-height: 1.3; text-align: center; }
@@ -515,18 +515,18 @@
 
     /* ── CARD ── */
     .card {
-      background: #ffffff;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+      background: #141414;
+      border: 1px solid #1A1A1A;
+      border-radius: 6px;
+      box-shadow: none;
       display: flex; flex-direction: column;
       cursor: pointer;
       animation: up 0.4s ease both;
-      text-decoration: none; color: #111111;
-      transition: box-shadow 0.15s, border-color 0.15s;
+      text-decoration: none; color: var(--text);
+      transition: box-shadow 0.2s, border-color 0.15s;
       overflow: hidden;
     }
-    .card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.15); border-color: var(--accent); }
+    .card:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.5); border-color: var(--accent); }
     .card:hover .card-title { color: var(--accent); }
 
     @keyframes up {
@@ -581,27 +581,28 @@
       display: flex; flex-direction: column; gap: 0.45rem; flex: 1;
     }
     .card-title {
-      font-family: 'Barlow Condensed', Impact, sans-serif;
-      font-size: 1rem; font-weight: 700;
-      line-height: 1.3; color: #111111;
+      font-family: 'Oswald', 'Barlow Condensed', Impact, sans-serif;
+      font-size: 0.98rem; font-weight: 600;
+      line-height: 1.25; color: var(--text);
+      text-transform: uppercase; letter-spacing: 0.01em;
       transition: color 0.15s;
       display: -webkit-box; -webkit-line-clamp: 3;
       -webkit-box-orient: vertical; overflow: hidden;
     }
     .card-summary {
       font-family: 'Inter', sans-serif;
-      font-size: 0.78rem; font-weight: 400;
-      color: var(--muted); line-height: 1.5; flex: 1;
+      font-size: 0.75rem; font-weight: 400;
+      color: var(--muted-dark); line-height: 1.45; flex: 1;
       display: -webkit-box; -webkit-line-clamp: 2;
       -webkit-box-orient: vertical; overflow: hidden;
     }
     .card-source-line {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.68rem; color: var(--muted);
+      font-size: 0.62rem; color: var(--muted);
       letter-spacing: 0.04em; margin-top: 0.15rem;
       display: flex; align-items: center; gap: 0.35rem;
     }
-    .card-source-line span { color: #111111; font-weight: 600; }
+    .card-source-line span { color: var(--text); font-weight: 600; }
 
     /* ── TRUST DOT ── */
     .src-dot {
@@ -615,14 +616,14 @@
       font-size: 0.58rem; padding: 0.1rem 0.35rem;
       border-radius: 1px; font-weight: 700;
     }
-    .nvs-badge.high { background: rgba(227,10,23,0.15); color: var(--accent); }
+    .nvs-badge.high { background: rgba(217,4,20,0.15); color: var(--accent); }
     .nvs-badge.med  { background: rgba(245,166,35,0.12); color: var(--accent-gold); }
     .score-badge { font-size: 0.72rem; line-height: 1; }
     .radar-nvs {
       font-size: 0.62rem; padding: 0.1rem 0.35rem;
       border-radius: 2px; font-weight: 700; flex-shrink: 0;
     }
-    .radar-nvs.high { background: rgba(227,10,23,0.2); color: var(--accent); }
+    .radar-nvs.high { background: rgba(217,4,20,0.2); color: var(--accent); }
     .radar-nvs.med  { background: rgba(245,166,35,0.15); color: var(--accent-gold); }
 
     /* ── DİĞER SPORLAR ── */
@@ -774,36 +775,36 @@
       overscroll-behavior: contain;
       -webkit-overflow-scrolling: touch;
       touch-action: pan-y;
-      color: #111111;
+      color: var(--text);
     }
-    .modal-body p, .modal-body div { color: #111111; }
+    .modal-body p, .modal-body div { color: var(--text); }
     #modalOverlay .modal {
       overscroll-behavior: contain;
     }
     .modal-headline {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 1.65rem; font-weight: 800;
-      line-height: 1.2; color: #0d0d0d !important;
+      font-family: 'Oswald', 'Barlow Condensed', sans-serif;
+      font-size: 1.65rem; font-weight: 700;
+      line-height: 1.2; color: var(--text-on-dark) !important;
       margin-bottom: 0.7rem; text-transform: uppercase;
       letter-spacing: 0.01em;
     }
     .modal-source-line {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.7rem; color: #555555; letter-spacing: 0.06em;
+      font-size: 0.7rem; color: var(--muted); letter-spacing: 0.06em;
       display: flex; align-items: center; gap: 0.5rem;
       margin-bottom: 1.25rem;
-      padding-bottom: 0.9rem; border-bottom: 1px solid var(--border);
+      padding-bottom: 0.9rem; border-bottom: 1px solid var(--border2);
     }
     .modal-article p {
       font-family: 'Inter', sans-serif;
       font-size: 0.9rem; line-height: 1.75;
-      color: #111111 !important; margin-bottom: 1rem;
+      color: var(--muted-dark) !important; margin-bottom: 1rem;
     }
     .modal-article p:last-child { margin-bottom: 0; }
     .modal-sources {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.68rem; color: #555555; letter-spacing: 0.06em;
-      border-top: 1px solid var(--border);
+      font-size: 0.68rem; color: var(--muted); letter-spacing: 0.06em;
+      border-top: 1px solid var(--border2);
       padding-top: 0.9rem; margin-top: 1.1rem;
     }
     .modal-footer {
@@ -857,6 +858,140 @@
       .card-img-wrap { height: 130px; }
       .page-container { padding: 0 1rem; }
     }
+
+    /* ── HEADER USER WIDGET ── */
+    .user-widget {
+      display: none;
+      align-items: center; gap: 0.45rem;
+      padding: 0.3rem 0.6rem 0.3rem 0.5rem;
+      border: 1px solid #242424; border-radius: 6px;
+      background: #141414; position: relative; cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .user-widget.visible { display: flex; }
+    .user-widget:hover { border-color: #333; }
+    .user-sync-dot {
+      position: absolute; top: 4px; right: 4px;
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.7);
+      animation: pulse-sync 2.5s ease-in-out infinite;
+    }
+    @keyframes pulse-sync {
+      0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(34,197,94,0.7); }
+      50% { opacity: 0.5; box-shadow: 0 0 3px rgba(34,197,94,0.3); }
+    }
+    .user-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--accent); display: flex; align-items: center;
+      justify-content: center; font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 800; font-size: 0.85rem; color: #fff; flex-shrink: 0;
+    }
+    .user-info { display: flex; flex-direction: column; gap: 0; }
+    .user-name-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.72rem; font-weight: 700; color: var(--text); line-height: 1.2;
+    }
+    .user-rank-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.55rem; color: var(--accent-gold); letter-spacing: 0.04em;
+    }
+
+    /* ── CARD META ROW (source pill + time + yz bar) ── */
+    .card-meta-row {
+      display: flex; align-items: center; gap: 0.4rem;
+      flex-wrap: nowrap; overflow: hidden; margin-top: auto;
+    }
+    .src-pill {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.58rem; font-weight: 700; letter-spacing: 0.05em;
+      padding: 0.15rem 0.5rem; border-radius: 999px;
+      border: 1px solid #242424; color: var(--muted-dark);
+      white-space: nowrap; flex-shrink: 0;
+      max-width: 88px; overflow: hidden; text-overflow: ellipsis;
+    }
+    .src-pill--kartalix { border-color: rgba(217,4,20,0.45); color: var(--accent); }
+    .card-time {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.58rem; color: #555; letter-spacing: 0.03em; flex-shrink: 0;
+    }
+    .yz-bar-wrap {
+      display: flex; align-items: center; gap: 0.3rem;
+      margin-left: auto; flex-shrink: 0;
+    }
+    .yz-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.5rem; color: #555; letter-spacing: 0.06em;
+      text-transform: uppercase; white-space: nowrap;
+    }
+    .yz-bar-bg {
+      width: 28px; height: 3px; background: #242424; border-radius: 2px;
+      overflow: hidden;
+    }
+    .yz-bar-fill { height: 100%; border-radius: 2px; }
+
+    /* ── SECTION FILTER CHIPS ── */
+    .filter-strip {
+      display: none;
+      overflow-x: auto; gap: 0.5rem; padding: 0.6rem 1rem;
+      background: #0d0d0d; border-bottom: 1px solid #1A1A1A;
+      scrollbar-width: none; position: sticky; top: 60px; z-index: 80;
+      flex-wrap: nowrap;
+    }
+    .filter-strip::-webkit-scrollbar { display: none; }
+    .filter-strip.visible { display: flex; }
+    .chip {
+      flex-shrink: 0; background: #141414; border: 1px solid #1A1A1A;
+      border-radius: 999px; padding: 0.3rem 0.85rem;
+      font-family: 'Barlow Condensed', sans-serif; font-size: 0.7rem;
+      font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+      color: #555; cursor: pointer; white-space: nowrap;
+      transition: color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .chip.active, .chip:hover {
+      color: var(--text); border-color: var(--accent);
+      background: rgba(217,4,20,0.12);
+    }
+
+    /* ── MOBILE BOTTOM NAVIGATION DOCK ── */
+    .bottom-dock {
+      display: none;
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 150;
+      background: #0d0d0d; border-top: 1px solid #1A1A1A;
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    @media (max-width: 900px) {
+      .bottom-dock { display: flex; align-items: stretch; }
+      body { padding-bottom: 60px; }
+    }
+    .dock-btn {
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 2px; flex: 1; min-height: 56px;
+      padding: 7px 4px; background: none; border: none; color: #484848;
+      cursor: pointer; text-decoration: none;
+      font-family: 'Barlow Condensed', sans-serif; font-size: 0.5rem;
+      font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
+      transition: color 0.15s;
+    }
+    .dock-btn:hover, .dock-btn.active { color: #f0ede6; }
+    .dock-btn.active { color: var(--accent); }
+    .dock-btn svg { width: 20px; height: 20px; flex-shrink: 0; }
+    .dock-btn--hero {
+      flex: 0 0 56px; align-self: center;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 18px rgba(217,4,20,0.55), 0 4px 14px rgba(0,0,0,0.7);
+      color: #fff; border: 3px solid #0d0d0d;
+      margin: 0 2px; position: relative; top: -6px;
+      font-size: 0.46rem; padding: 5px;
+    }
+    .dock-btn--hero svg { width: 22px; height: 16px; opacity: 0.9; }
+    .dock-btn--hero:hover { color: #fff; background: #b5030f; box-shadow: 0 0 22px rgba(217,4,20,0.7); }
+
+    /* ── SECTION TITLE (Oswald) ── */
+    .section-title {
+      font-family: 'Oswald', 'Barlow Condensed', sans-serif;
+      font-size: 0.72rem; font-weight: 600;
+    }
   </style>
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-3QK6G366J3"></script>
@@ -875,13 +1010,21 @@
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" height="44">
       <rect x="0" y="2" width="8" height="40" fill="#ffffff"/>
       <polygon points="8,22 36,2 29,2 8,16" fill="#ffffff"/>
-      <polygon points="8,22 38,42 46,42 8,25" fill="#E30A17"/>
-      <rect x="0" y="20" width="8" height="5" fill="#E30A17"/>
+      <polygon points="8,22 38,42 46,42 8,25" fill="#D90414"/>
+      <rect x="0" y="20" width="8" height="5" fill="#D90414"/>
       <text x="54" y="28" font-family="'Barlow Condensed',Impact,Arial Narrow,sans-serif" font-size="24" font-weight="900" letter-spacing="3" fill="#ffffff">KARTALIX</text>
       <text x="55" y="40" font-family="Arial,Helvetica,sans-serif" font-size="7" letter-spacing="2" fill="#666666">BEŞİKTAŞ HABERLERİ</text>
     </svg>
   </a>
   <div class="header-right">
+    <div class="user-widget" id="userWidget">
+      <div class="user-sync-dot"></div>
+      <div class="user-avatar" id="userAvatar">K</div>
+      <div class="user-info">
+        <div class="user-name-label" id="userNameLabel">Taraftar</div>
+        <div class="user-rank-label" id="userRankLabel">Lvl 1 • Kartal</div>
+      </div>
+    </div>
     <div class="live-pill"><div class="live-dot"></div>Canlı</div>
   </div>
 </header>
@@ -935,6 +1078,23 @@
   </div>
 </nav>
 <div class="nav-toast" id="navToast">Bu bölüm çok yakında 🦅</div>
+
+<!-- ── ANALIZ FILTER STRIP ── -->
+<div class="filter-strip" id="analizStrip" role="tablist" aria-label="Analiz kategorileri">
+  <button class="chip active" data-acat="takim" role="tab">TAKIM</button>
+  <button class="chip" data-acat="oyuncular" role="tab">OYUNCULAR</button>
+  <button class="chip" data-acat="maclar" role="tab">MAÇLAR</button>
+  <button class="chip" data-acat="lig" role="tab">LİG</button>
+</div>
+
+<!-- ── VİDEOLAR FILTER STRIP ── -->
+<div class="filter-strip" id="videoStrip" role="tablist" aria-label="Video kategorileri">
+  <button class="chip active" data-vtip="" role="tab">Tümü</button>
+  <button class="chip" data-vtip="mac" role="tab">Maç Özeti</button>
+  <button class="chip" data-vtip="roportaj" role="tab">Basın Toplantısı</button>
+  <button class="chip" data-vtip="unutulmaz" role="tab">Unutulmazlar</button>
+  <button class="chip" data-vtip="belgeseller" role="tab">Belgeseller</button>
+</div>
 
 <!-- ── MATCH DAY ── -->
 <div class="matchday" id="matchdayBanner">
@@ -1083,7 +1243,7 @@
 </div><!-- /page-container -->
 
 <!-- ── ARTICLE PAGE VIEW ── -->
-<div id="articleView" style="display:none;position:fixed;inset:0;background:#fbfaf8;overflow-y:auto;z-index:200"></div>
+<div id="articleView" style="display:none;position:fixed;inset:0;background:#0A0A0A;overflow-y:auto;z-index:200"></div>
 
 <!-- ── ARTICLE MODAL ── -->
 <div class="modal-overlay" id="modalOverlay" role="dialog" aria-modal="true" aria-labelledby="modalHeadline">
@@ -1108,17 +1268,17 @@
 
       <!-- Reactions -->
       <div class="reactions" style="display:flex;gap:1rem;padding:1rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:1.5rem 0">
-        <button id="btn-like" onclick="react('like')" style="display:flex;align-items:center;gap:0.5rem;background:#f0fdf4;border:1px solid #86efac;color:#166534;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">
+        <button id="btn-like" onclick="react('like')" style="display:flex;align-items:center;gap:0.5rem;background:#0d2a1a;border:1px solid #166534;color:#4ade80;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">
           👍 <span id="like-count">0</span>
         </button>
-        <button id="btn-dislike" onclick="react('dislike')" style="display:flex;align-items:center;gap:0.5rem;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">
+        <button id="btn-dislike" onclick="react('dislike')" style="display:flex;align-items:center;gap:0.5rem;background:#2e0d0d;border:1px solid #7f1d1d;color:#f87171;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">
           👎 <span id="dislike-count">0</span>
         </button>
       </div>
 
       <!-- Comments -->
       <div style="margin-top:1.5rem">
-        <h3 style="font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:700;letter-spacing:0.05em;margin-bottom:1rem;color:#0d0d0d">YORUMLAR <span id="comment-count" style="color:#555555;font-weight:400"></span></h3>
+        <h3 style="font-family:'Oswald','Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:600;letter-spacing:0.05em;margin-bottom:1rem;color:var(--text)">YORUMLAR <span id="comment-count" style="color:var(--muted);font-weight:400"></span></h3>
 
         <div id="comments-list" style="margin-bottom:1.5rem"></div>
 
@@ -1126,10 +1286,10 @@
         <div style="background:var(--section-alt,#f5f3ef);border-radius:8px;padding:1.25rem">
           <h4 style="font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:1rem;color:var(--text)">YORUM YAP</h4>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem">
-            <input id="comment-name" placeholder="Adınız *" maxlength="50" style="padding:0.6rem 0.75rem;border:1px solid var(--border);border-radius:6px;font-size:0.875rem;background:white;color:#111;outline:none"/>
-            <input id="comment-surname" placeholder="Soyadınız" maxlength="50" style="padding:0.6rem 0.75rem;border:1px solid var(--border);border-radius:6px;font-size:0.875rem;background:white;color:#111;outline:none"/>
+            <input id="comment-name" placeholder="Adınız *" maxlength="50" style="padding:0.6rem 0.75rem;border:1px solid #242424;border-radius:6px;font-size:0.875rem;background:#0d0d0d;color:#f0ede6;outline:none"/>
+            <input id="comment-surname" placeholder="Soyadınız" maxlength="50" style="padding:0.6rem 0.75rem;border:1px solid #242424;border-radius:6px;font-size:0.875rem;background:#0d0d0d;color:#f0ede6;outline:none"/>
           </div>
-          <textarea id="comment-text" placeholder="Yorumunuz... (max 500 karakter)" maxlength="500" rows="3" style="width:100%;padding:0.6rem 0.75rem;border:1px solid var(--border);border-radius:6px;font-size:0.875rem;resize:vertical;background:white;color:#111;outline:none;box-sizing:border-box"></textarea>
+          <textarea id="comment-text" placeholder="Yorumunuz... (max 500 karakter)" maxlength="500" rows="3" style="width:100%;padding:0.6rem 0.75rem;border:1px solid #242424;border-radius:6px;font-size:0.875rem;resize:vertical;background:#0d0d0d;color:#f0ede6;outline:none;box-sizing:border-box"></textarea>
           <!-- Honeypot hidden field -->
           <input id="comment-honeypot" style="display:none" tabindex="-1" autocomplete="off"/>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.75rem">
@@ -1179,7 +1339,7 @@
 
   // ── CATEGORY & TRUST COLOR SYSTEMS ──────────────────────────
   const CATEGORY_COLORS = {
-    'Match':    '#E30A17',
+    'Match':    '#D90414',
     'Transfer': '#3B82F6',
     'Injury':   '#F59E0B',
     'Club':     '#10B981',
@@ -1500,13 +1660,13 @@
 
     av.innerHTML = `
       <style>
-        #articleView .av-progress{position:fixed;top:0;left:0;height:3px;background:#E30A17;width:0%;z-index:9999;transition:width 0.1s linear}
+        #articleView .av-progress{position:fixed;top:0;left:0;height:3px;background:#D90414;width:0%;z-index:9999;transition:width 0.1s linear}
         #articleView .av-header{background:#0d0d0d;border-bottom:1px solid #1f1f1f;padding:0 1.5rem;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
         #articleView .av-logo{font-size:1.3rem;font-weight:900;letter-spacing:-0.04em;color:#fff;text-decoration:none;font-family:'Barlow Condensed',sans-serif}
-        #articleView .av-logo span{color:#E30A17}
+        #articleView .av-logo span{color:#D90414}
         #articleView .av-breadcrumb{font-size:0.7rem;color:#666;letter-spacing:0.06em;display:flex;align-items:center;gap:0.4rem}
         #articleView .av-breadcrumb a{color:#666;text-decoration:none}
-        #articleView .av-breadcrumb a:hover{color:#E30A17}
+        #articleView .av-breadcrumb a:hover{color:#D90414}
         #articleView .av-hero{min-height:52vw;max-height:70vh;display:flex;align-items:flex-end;padding:2.5rem 1.5rem 2rem;position:relative}
         @media(min-width:640px){#articleView .av-hero{min-height:340px;max-height:480px}}
         #articleView .av-hero-icon{position:absolute;top:50%;left:50%;transform:translate(-50%,-55%);opacity:0.14;pointer-events:none;user-select:none;line-height:1;width:min(46vw,300px)}
@@ -1514,48 +1674,48 @@
         #articleView .av-hero-content{position:relative;z-index:2;max-width:720px;margin:0 auto;width:100%}
         #articleView .av-cat-pill{display:inline-block;padding:3px 12px;border-radius:2px;font-size:0.6rem;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;margin-bottom:0.75rem}
         #articleView .av-title{font-size:clamp(1.4rem,4vw,2rem);font-weight:900;line-height:1.2;color:#fff;font-family:'Barlow Condensed',sans-serif;letter-spacing:-0.01em}
-        #articleView .av-meta-strip{max-width:720px;margin:0 auto;padding:0.875rem 1.5rem;border-bottom:1px solid #e7e3da;display:flex;flex-wrap:wrap;align-items:center;gap:0.75rem;font-size:0.72rem;color:#6b6660}
+        #articleView .av-meta-strip{max-width:720px;margin:0 auto;padding:0.875rem 1.5rem;border-bottom:1px solid #1A1A1A;display:flex;flex-wrap:wrap;align-items:center;gap:0.75rem;font-size:0.72rem;color:#6b7280}
         #articleView .av-src-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;display:inline-block}
         #articleView .av-trust-badge{padding:2px 8px;border-radius:3px;font-size:0.6rem;font-weight:700;letter-spacing:0.1em;border:1px solid currentColor}
         #articleView .av-nvs-wrap{display:flex;align-items:center;gap:0.4rem;margin-left:auto}
         #articleView .av-nvs-bar-bg{width:50px;height:4px;background:#e0ddd5;border-radius:2px;overflow:hidden}
         #articleView .av-nvs-bar-fill{height:100%;border-radius:2px;transition:width 0.6s ease}
         #articleView .av-body-wrap{max-width:720px;margin:0 auto;padding:2rem 1.5rem 1rem}
-        #articleView .av-quote{border-left:3px solid #E30A17;background:#fdf4e3;padding:1rem 1.25rem;border-radius:0 4px 4px 0;margin-bottom:2rem;font-size:0.95rem;line-height:1.65;color:#3a3833;font-style:italic}
-        #articleView .av-body{color:#2a2622;font-size:0.975rem;line-height:1.85}
+        #articleView .av-quote{border-left:3px solid #D90414;background:#1a0a06;padding:1rem 1.25rem;border-radius:0 4px 4px 0;margin-bottom:2rem;font-size:0.95rem;line-height:1.65;color:#c8c4bc;font-style:italic}
+        #articleView .av-body{color:#c4c0b8;font-size:0.975rem;line-height:1.85}
         #articleView .av-body p{margin-bottom:1.1rem}
-        #articleView .av-body p:first-of-type::first-letter{float:left;font-size:3.6rem;font-weight:900;line-height:0.8;margin:0.1rem 0.2rem 0 0;color:#E30A17;font-family:'Barlow Condensed',sans-serif}
-        #articleView .av-body h2{color:#16140f;font-size:1.2rem;font-weight:700;margin:2rem 0 0.6rem;line-height:1.3;font-family:'Barlow Condensed',sans-serif;letter-spacing:0.02em;text-transform:uppercase}
-        #articleView .av-body h3{color:#2a2622;font-size:1.05rem;font-weight:600;margin:1.5rem 0 0.5rem;line-height:1.35}
-        #articleView .av-body h4{color:#3a3833;font-size:0.95rem;font-weight:600;margin:1.25rem 0 0.4rem}
+        #articleView .av-body p:first-of-type::first-letter{float:left;font-size:3.6rem;font-weight:900;line-height:0.8;margin:0.1rem 0.2rem 0 0;color:#D90414;font-family:'Oswald','Barlow Condensed',sans-serif}
+        #articleView .av-body h2{color:#f0ede6;font-size:1.2rem;font-weight:700;margin:2rem 0 0.6rem;line-height:1.3;font-family:'Oswald','Barlow Condensed',sans-serif;letter-spacing:0.02em;text-transform:uppercase}
+        #articleView .av-body h3{color:#d4d0c8;font-size:1.05rem;font-weight:600;margin:1.5rem 0 0.5rem;line-height:1.35}
+        #articleView .av-body h4{color:#c0bcb4;font-size:0.95rem;font-weight:600;margin:1.25rem 0 0.4rem}
         #articleView .av-body img{max-width:100%;height:auto;border-radius:6px;margin:1.25rem 0;display:block}
         #articleView .av-body figure{margin:1.5rem 0}
-        #articleView .av-body figcaption{font-size:0.72rem;color:#8a857c;margin-top:0.4rem;font-style:italic}
+        #articleView .av-body figcaption{font-size:0.72rem;color:#6b7280;margin-top:0.4rem;font-style:italic}
         #articleView .av-body ul,#articleView .av-body ol{padding-left:1.5rem;margin:0.75rem 0 1rem}
         #articleView .av-body li{margin-bottom:0.4rem}
-        #articleView .av-body a{color:#E30A17;text-decoration:underline;text-decoration-color:rgba(227,10,23,0.35)}
-        #articleView .av-body blockquote{border-left:3px solid #d8d3c9;padding:0.75rem 1rem;background:#f3f1ec;margin:1.5rem 0;border-radius:0 4px 4px 0;color:#4a463f;font-style:italic}
+        #articleView .av-body a{color:#D90414;text-decoration:underline;text-decoration-color:rgba(217,4,20,0.4)}
+        #articleView .av-body blockquote{border-left:3px solid #333;padding:0.75rem 1rem;background:#141414;margin:1.5rem 0;border-radius:0 4px 4px 0;color:#9ca3af;font-style:italic}
         #articleView .yt-embed{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:6px;margin-bottom:1.5rem;background:#000}
         #articleView .yt-embed iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
-        #articleView .av-attr{max-width:720px;margin:0 auto;padding:1rem 1.5rem 1.5rem;border-top:1px solid #e7e3da;font-size:0.72rem;color:#8a857c;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap}
-        #articleView .av-share{max-width:720px;margin:0 auto;padding:1.5rem;background:#f3f1ec;border-top:1px solid #e7e3da;border-bottom:1px solid #e7e3da}
-        #articleView .av-share-label{font-size:0.65rem;letter-spacing:0.15em;text-transform:uppercase;color:#8a857c;margin-bottom:0.875rem;font-family:'Barlow Condensed',sans-serif}
+        #articleView .av-attr{max-width:720px;margin:0 auto;padding:1rem 1.5rem 1.5rem;border-top:1px solid #1A1A1A;font-size:0.72rem;color:#6b7280;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap}
+        #articleView .av-share{max-width:720px;margin:0 auto;padding:1.5rem;background:#141414;border-top:1px solid #1A1A1A;border-bottom:1px solid #1A1A1A}
+        #articleView .av-share-label{font-size:0.65rem;letter-spacing:0.15em;text-transform:uppercase;color:#6b7280;margin-bottom:0.875rem;font-family:'Barlow Condensed',sans-serif}
         #articleView .av-share-btns{display:flex;gap:0.6rem;flex-wrap:wrap}
         #articleView .av-share-btn{padding:8px 18px;border-radius:4px;font-size:0.78rem;font-weight:700;text-decoration:none;font-family:'Barlow Condensed',sans-serif;letter-spacing:0.05em;border:none;cursor:pointer;transition:opacity 0.15s}
         #articleView .av-share-btn:hover{opacity:0.85}
         #articleView .av-related{max-width:720px;margin:0 auto;padding:2rem 1.5rem}
-        #articleView .av-related-title{font-family:'Barlow Condensed',sans-serif;font-size:0.75rem;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:#8a857c;margin-bottom:1.25rem;display:flex;align-items:center;gap:0.75rem}
-        #articleView .av-related-title::after{content:'';flex:1;height:1px;background:#e7e3da}
+        #articleView .av-related-title{font-family:'Oswald','Barlow Condensed',sans-serif;font-size:0.75rem;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:#6b7280;margin-bottom:1.25rem;display:flex;align-items:center;gap:0.75rem}
+        #articleView .av-related-title::after{content:'';flex:1;height:1px;background:#1A1A1A}
         #articleView .av-related-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.875rem}
-        #articleView .av-rel-card{background:#fff;border:1px solid #e7e3da;border-radius:4px;overflow:hidden;cursor:pointer;transition:border-color 0.15s}
-        #articleView .av-rel-card:hover{border-color:#d8d3c9}
+        #articleView .av-rel-card{background:#141414;border:1px solid #1A1A1A;border-radius:6px;overflow:hidden;cursor:pointer;transition:border-color 0.15s}
+        #articleView .av-rel-card:hover{border-color:#333}
         #articleView .av-rel-thumb{height:100px;background-size:cover;background-position:center}
         #articleView .av-rel-body{padding:0.75rem}
-        #articleView .av-rel-ttl{font-size:0.82rem;font-weight:700;color:#16140f;line-height:1.35;margin-bottom:0.4rem}
-        #articleView .av-rel-src{font-size:0.65rem;color:#8a857c}
+        #articleView .av-rel-ttl{font-size:0.82rem;font-weight:700;color:#f0ede6;line-height:1.35;margin-bottom:0.4rem}
+        #articleView .av-rel-src{font-size:0.65rem;color:#6b7280}
         #articleView .av-back{max-width:720px;margin:0 auto;padding:1rem 1.5rem 3rem}
-        #articleView .av-back a{font-size:0.75rem;color:#8a857c;letter-spacing:0.06em;text-decoration:none;font-family:'Barlow Condensed',sans-serif}
-        #articleView .av-back a:hover{color:#E30A17}
+        #articleView .av-back a{font-size:0.75rem;color:#6b7280;letter-spacing:0.06em;text-decoration:none;font-family:'Barlow Condensed',sans-serif}
+        #articleView .av-back a:hover{color:#D90414}
         #articleView .av-slide-in{opacity:0;transform:translateY(18px);transition:opacity 0.35s ease,transform 0.35s ease}
         #articleView .av-slide-in.av-visible{opacity:1;transform:translateY(0)}
       </style>
@@ -1609,11 +1769,11 @@
       <div class="av-attr av-slide-in">
         <span class="av-src-dot" style="background:${tc}"></span>
         ${['youtube_embed','video_embed','rabona_digest'].includes(a.publish_mode) && srcUrl
-          ? `<span>Video kaynağı: <a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#E30A17"><strong>${esc(source||'Kaynak')}</strong> →</a></span>`
+          ? `<span>Video kaynağı: <a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#D90414"><strong>${esc(source||'Kaynak')}</strong> →</a></span>`
           : !isKartalix && srcUrl
-          ? `<span>Kaynak: <a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#E30A17"><strong>${esc(source)}</strong> →</a></span>`
+          ? `<span>Kaynak: <a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#D90414"><strong>${esc(source)}</strong> →</a></span>`
           : a.publish_mode === 'rewrite' && srcUrl
-          ? `<span>Kaynak temel alınarak Kartalix editörleri tarafından üretildi: <a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#E30A17"><strong>${esc(source||'Kaynak')}</strong> →</a></span>`
+          ? `<span>Kaynak temel alınarak Kartalix editörleri tarafından üretildi: <a href="${esc(srcUrl)}" target="_blank" rel="noopener" style="color:#D90414"><strong>${esc(source||'Kaynak')}</strong> →</a></span>`
           : ['synthesis','original_synthesis'].includes(a.publish_mode)
           ? `<span>Birden fazla kaynaktan derlenerek Kartalix editörleri tarafından üretildi.</span>`
           : `<span>Bu içerik <strong style="color:#888">${esc(source||'Kartalix')}</strong> tarafından üretildi.</span>`}
@@ -1759,7 +1919,7 @@
               const hv = s.home ?? 0; const av = s.away ?? 0;
               const hp = pct(hv); const ap = pct(av);
               const barHtml = hp !== null ? `<div style="display:flex;align-items:center;gap:6px;margin-top:3px">
-                <div style="flex:1;background:#1a1a1a;border-radius:3px;height:5px;overflow:hidden"><div style="width:${hp}%;background:#E30A17;height:100%"></div></div>
+                <div style="flex:1;background:#1a1a1a;border-radius:3px;height:5px;overflow:hidden"><div style="width:${hp}%;background:#D90414;height:100%"></div></div>
                 <div style="flex:1;background:#1a1a1a;border-radius:3px;height:5px;overflow:hidden;transform:scaleX(-1)"><div style="width:${ap}%;background:#555;height:100%"></div></div>
               </div>` : '';
               return `<tr>
@@ -2033,25 +2193,33 @@
       const ageMs  = Date.now() - new Date(a.published_at || 0).getTime();
       const isNew  = ageMs > 0 && ageMs < 30 * 60 * 1000;
 
+      const yzScore = a.nvs || 0;
+      const yzColor = yzScore >= 70 ? '#10B981' : yzScore >= 40 ? '#F5A623' : '#6B7280';
+      const yzBarHtml = yzScore >= 30
+        ? `<div class="yz-bar-wrap" title="${a.is_kartalix_content ? 'Doğruluk Payı' : 'YZ Destekli'}: ${yzScore}"><span class="yz-label">${a.is_kartalix_content ? 'Doğruluk' : 'YZ'}</span><div class="yz-bar-bg"><div class="yz-bar-fill" style="width:${Math.min(100,yzScore)}%;background:${yzColor}"></div></div></div>`
+        : '';
+      const sourcePillHtml = a.is_kartalix_content
+        ? `<span class="src-pill src-pill--kartalix">${esc(a.source_emoji||'🦅')} ${esc(a.source_name||a.source||'Kartalix')}</span>`
+        : `<span class="src-pill">${esc(a.source||'')}</span>`;
+
       el.innerHTML = `
         <div class="card-img-wrap${cover ? ' is-cover' : ''}">
           ${cover ? `<div class="cover-fill" style="background-image:url('${esc(a.image_url)}')"></div>` : cardMediaHTML(a)}
-          ${cover ? '' : `<span class="card-cat-badge" style="background:${'0508b09'.includes(a.template_id||'') ? '#E30A17' : catColor(a)}">${
+          ${cover ? '' : `<span class="card-cat-badge" style="background:${'0508b09'.includes(a.template_id||'') ? '#D90414' : catColor(a)}">${
             a.template_id === '05' ? 'MAÇ GÜNÜ' :
             a.template_id === '08b' ? 'MUHTEMEL 11' :
             a.template_id === '09' ? '11 BELLİ OLDU' :
             esc(a.category || 'Haber')}</span>`}
-          ${isNew ? `<span style="position:absolute;top:6px;right:6px;background:#E30A17;color:#fff;font-size:0.55rem;font-weight:800;letter-spacing:0.12em;padding:2px 7px;border-radius:10px;font-family:'Barlow Condensed',sans-serif;text-transform:uppercase;box-shadow:0 1px 4px rgba(0,0,0,0.4)">YENİ</span>` : ''}
+          ${isNew ? `<span style="position:absolute;top:6px;right:6px;background:#D90414;color:#fff;font-size:0.55rem;font-weight:800;letter-spacing:0.12em;padding:2px 7px;border-radius:10px;font-family:'Barlow Condensed',sans-serif;text-transform:uppercase;box-shadow:0 1px 6px rgba(217,4,20,0.5)">YENİ</span>` : ''}
           ${scoreHTML}
         </div>
         <div class="card-body">
           ${cover ? '' : `<div class="card-title">${esc(cleanForDisplay(a.title))}</div>
           <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || '').slice(0, 120))}</div>`}
-          <div class="card-source-line">
-            ${a.is_kartalix_content
-              ? `<span style="font-weight:700;color:#E30A17">${esc(a.source_emoji||'🦅')} ${esc(a.source_name||a.source||'')}</span> · ${timeAgo(a.published_at)}`
-              : `<span class="src-dot" style="background:${trustColor(a)}"></span><span>${esc(a.source||'')}</span> · ${timeAgo(a.published_at)}`
-            }
+          <div class="card-meta-row">
+            ${sourcePillHtml}
+            <span class="card-time">${timeAgo(a.published_at)}</span>
+            ${yzBarHtml}
           </div>
         </div>`;
 
@@ -2177,9 +2345,9 @@
           <div class="card-body">
             ${cover ? '' : `<div class="card-title">${esc(cleanForDisplay(a.title))}</div>
             <div class="card-summary">${esc(cleanForDisplay(a.summary || a.full_body || '').slice(0, 120))}</div>`}
-            <div class="card-source-line">
-              <span class="src-dot" style="background:${tc}"></span>
-              <span>${esc(a.source || '')}</span> · ${timeAgo(a.published_at)}
+            <div class="card-meta-row">
+              <span class="src-pill">${esc(a.source || '')}</span>
+              <span class="card-time">${timeAgo(a.published_at)}</span>
             </div>
           </div>
         </div>`;
@@ -2423,13 +2591,13 @@
     const btnDislike = document.getElementById('btn-dislike');
     if (!btnLike || !btnDislike) return;
 
-    btnLike.style.background = active === 'like' ? '#166534' : '#f0fdf4';
-    btnLike.style.color = active === 'like' ? 'white' : '#166534';
-    btnLike.style.borderColor = active === 'like' ? '#166534' : '#86efac';
+    btnLike.style.background = active === 'like' ? '#166534' : '#0d2a1a';
+    btnLike.style.color = active === 'like' ? '#fff' : '#4ade80';
+    btnLike.style.borderColor = active === 'like' ? '#22c55e' : '#166534';
 
-    btnDislike.style.background = active === 'dislike' ? '#991b1b' : '#fef2f2';
-    btnDislike.style.color = active === 'dislike' ? 'white' : '#991b1b';
-    btnDislike.style.borderColor = active === 'dislike' ? '#991b1b' : '#fca5a5';
+    btnDislike.style.background = active === 'dislike' ? '#7f1d1d' : '#2e0d0d';
+    btnDislike.style.color = active === 'dislike' ? '#fff' : '#f87171';
+    btnDislike.style.borderColor = active === 'dislike' ? '#ef4444' : '#7f1d1d';
   }
 
   async function react(type) {
@@ -2463,8 +2631,8 @@
     const honeypot = document.getElementById('comment-honeypot').value;
     const msg = document.getElementById('comment-msg');
 
-    if (!name) { msg.style.color='#E30A17'; msg.textContent='Lütfen adınızı girin.'; return; }
-    if (comment.length < 3) { msg.style.color='#E30A17'; msg.textContent='Yorum en az 3 karakter olmalı.'; return; }
+    if (!name) { msg.style.color='#D90414'; msg.textContent='Lütfen adınızı girin.'; return; }
+    if (comment.length < 3) { msg.style.color='#D90414'; msg.textContent='Yorum en az 3 karakter olmalı.'; return; }
 
     msg.style.color='var(--muted)'; msg.textContent='Gönderiliyor...';
 
@@ -2482,10 +2650,10 @@
         document.getElementById('comment-text').value = '';
         setTimeout(() => loadReactions(_currentArticle), 500);
       } else {
-        msg.style.color='#E30A17'; msg.textContent='Hata: ' + (data.error || 'Tekrar deneyin');
+        msg.style.color='#D90414'; msg.textContent='Hata: ' + (data.error || 'Tekrar deneyin');
       }
     } catch(e) {
-      msg.style.color='#E30A17'; msg.textContent='Bağlantı hatası.';
+      msg.style.color='#D90414'; msg.textContent='Bağlantı hatası.';
     }
   }
 
@@ -2597,6 +2765,123 @@
   try { setupNav(); } catch (e) { console.error('nav setup:', e); }
   init();
 
+  // ── BOTTOM DOCK ──────────────────────────────────────────────
+  (function setupBottomDock() {
+    const dockMenu   = document.getElementById('dockMenu');
+    const dockTribun = document.getElementById('dockTribun');
+    const dockAnaliz = document.getElementById('dock-analiz');
+    const nav        = document.getElementById('mainNav');
+    const navToggle  = document.getElementById('navToggle');
+
+    // "Menü" opens the sidebar drawer
+    if (dockMenu && nav) {
+      dockMenu.addEventListener('click', () => {
+        const isOpen = nav.classList.toggle('open');
+        if (navToggle) navToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      });
+    }
+
+    // "Tribün" — coming soon toast
+    if (dockTribun) {
+      dockTribun.addEventListener('click', () => navToast('Tribün çok yakında! 🦅'));
+    }
+
+    // "Analiz" — show filter strip + filter section label + toast
+    if (dockAnaliz) {
+      dockAnaliz.addEventListener('click', () => {
+        const strip = document.getElementById('analizStrip');
+        const isVisible = strip && strip.classList.contains('visible');
+        // Hide video strip if open
+        const vstrip = document.getElementById('videoStrip');
+        if (vstrip) vstrip.classList.remove('visible');
+        // Toggle analiz strip
+        if (strip) strip.classList.toggle('visible', !isVisible);
+        // Update dock active state
+        document.querySelectorAll('.dock-btn').forEach(b => b.classList.remove('active'));
+        if (!isVisible) dockAnaliz.classList.add('active');
+        else document.getElementById('dock-home') && document.getElementById('dock-home').classList.add('active');
+        // Filter news by analiz chip active category
+        if (!isVisible) {
+          const activeChip = document.querySelector('#analizStrip .chip.active');
+          const cat = activeChip ? activeChip.dataset.acat : 'takim';
+          navToast('Analiz bölümü çok yakında 🦅');
+        }
+      });
+    }
+
+    // Dock: "Ana Sayfa" resets dock active state
+    const dockHome = document.getElementById('dock-home');
+    if (dockHome) {
+      dockHome.addEventListener('click', () => {
+        document.querySelectorAll('.dock-btn').forEach(b => b.classList.remove('active'));
+        dockHome.classList.add('active');
+        ['analizStrip','videoStrip'].forEach(id => {
+          const s = document.getElementById(id);
+          if (s) s.classList.remove('visible');
+        });
+      });
+    }
+
+    // "Videolar" dock shows video filter strip
+    const dockVideolar = document.getElementById('dock-videolar');
+    if (dockVideolar) {
+      dockVideolar.addEventListener('click', () => {
+        document.querySelectorAll('.dock-btn').forEach(b => b.classList.remove('active'));
+        dockVideolar.classList.add('active');
+        const strip = document.getElementById('videoStrip');
+        if (strip) strip.classList.add('visible');
+        const analizStrip = document.getElementById('analizStrip');
+        if (analizStrip) analizStrip.classList.remove('visible');
+      });
+    }
+
+    // Analiz filter chips
+    document.querySelectorAll('#analizStrip .chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('#analizStrip .chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        navToast('Analiz bölümü çok yakında 🦅');
+      });
+    });
+
+    // Videolar filter chips — filter the video section
+    document.querySelectorAll('#videoStrip .chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        document.querySelectorAll('#videoStrip .chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+        const vtip = chip.dataset.vtip;
+        const grid = document.getElementById('videoGrid');
+        if (!grid) return;
+        const cards = grid.querySelectorAll('.video-card');
+        cards.forEach(card => {
+          if (!vtip) { card.style.display = ''; return; }
+          const src = (card.href || card.getAttribute('href') || '');
+          card.style.display = src.includes('tip=' + vtip) || !vtip ? '' : 'none';
+        });
+      });
+    });
+  })();
+
+  // ── USER WIDGET (mock / session-aware) ───────────────────────
+  (function initUserWidget() {
+    const widget = document.getElementById('userWidget');
+    if (!widget) return;
+    const stored = (() => {
+      try { return JSON.parse(localStorage.getItem('kx_user') || 'null'); } catch { return null; }
+    })();
+    if (stored && stored.name) {
+      document.getElementById('userAvatar').textContent  = stored.name.charAt(0).toUpperCase();
+      document.getElementById('userNameLabel').textContent = stored.name;
+      document.getElementById('userRankLabel').textContent = stored.rank || 'Lvl 1 • Kartal';
+      widget.classList.add('visible');
+    } else {
+      // First-visit: create a guest session and show mock rank
+      const guestData = { name: 'Taraftar', rank: 'Lvl 1 • Kartal', ts: Date.now() };
+      try { localStorage.setItem('kx_user', JSON.stringify(guestData)); } catch {}
+      widget.classList.add('visible');
+    }
+  })();
+
   // ── STANDINGS WIDGET ────────────────────────────────────────
   (async function initSidebarWidgets() {
     try {
@@ -2689,13 +2974,37 @@
   }
 </script>
 
-<div id="cookie-banner" style="position:fixed;bottom:0;left:0;right:0;background:#111;border-top:2px solid #E30A17;padding:1rem 1.5rem;z-index:999;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;display:none">
+<!-- ── MOBILE BOTTOM NAVIGATION DOCK ── -->
+<nav class="bottom-dock" id="bottomDock" aria-label="Alt gezinti">
+  <a href="/" class="dock-btn active" id="dock-home" title="Ana Sayfa">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    <span>Ana Sayfa</span>
+  </a>
+  <a href="/konu/videolar" class="dock-btn" id="dock-videolar" title="Videolar">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+    <span>Videolar</span>
+  </a>
+  <button class="dock-btn dock-btn--hero" id="dockTribun" title="Tribün">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="currentColor" aria-hidden="true"><circle cx="120" cy="28" r="11"/><polygon points="111,24 97,29 111,34"/><path d="M120,36 C111,46 109,68 113,92 C116,114 120,132 120,132 C120,132 124,114 127,92 C131,68 129,46 120,36Z"/><polygon points="116,46 30,26 48,50 62,40 74,60 88,48 100,66 116,58"/><polygon points="124,46 210,26 192,50 178,40 166,60 152,48 140,66 124,58"/></svg>
+    <span>Tribün</span>
+  </button>
+  <button class="dock-btn" id="dock-analiz" title="Analiz">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    <span>Analiz</span>
+  </button>
+  <button class="dock-btn" id="dockMenu" title="Menü">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    <span>Menü</span>
+  </button>
+</nav>
+
+<div id="cookie-banner" style="position:fixed;bottom:0;left:0;right:0;background:#111;border-top:2px solid #D90414;padding:1rem 1.5rem;z-index:999;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;display:none">
   <p style="color:#ccc;font-size:0.8rem;margin:0;flex:1">
     Bu site deneyiminizi iyileştirmek için çerezler kullanmaktadır.
     Siteyi kullanmaya devam ederek çerez politikamızı kabul etmiş olursunuz.
-    <a href="/gizlilik" style="color:#E30A17;text-decoration:none">Gizlilik Politikası</a>
+    <a href="/gizlilik" style="color:#D90414;text-decoration:none">Gizlilik Politikası</a>
   </p>
-  <button onclick="acceptCookies()" style="background:#E30A17;color:white;border:none;padding:0.5rem 1.25rem;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;cursor:pointer;white-space:nowrap">KABUL ET</button>
+  <button onclick="acceptCookies()" style="background:#D90414;color:white;border:none;padding:0.5rem 1.25rem;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;cursor:pointer;white-space:nowrap">KABUL ET</button>
 </div>
 
 <script>
