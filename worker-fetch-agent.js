@@ -3063,16 +3063,17 @@ Sadece JSON döndür:
     if (url.pathname === '/admin/seed-video-rail') {
       const authErr = await requireOps(request, env); if (authErr) return authErr;
       const siteCode = url.searchParams.get('site') || 'BJK';
-      const raw = await env.PITCHOS_CACHE.get(`articles:${siteCode}`);
-      if (!raw) return Response.json({ error: 'no articles in KV' }, { status: 404 });
+      const sites = await getActiveSites(env);
+      const site = resolveSite(url, sites);
+      if (!site) return Response.json({ error: 'no site' }, { status: 500 });
       const VIDEO_MODES = ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'];
-      const all = JSON.parse(raw);
-      const rail = all
-        .filter(a => VIDEO_MODES.includes(a.publish_mode))
-        .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
-        .slice(0, 15);
-      await env.PITCHOS_CACHE.put(`video-rail:${siteCode}`, JSON.stringify(rail), { expirationTtl: 43200 });
-      return Response.json({ ok: true, count: rail.length, titles: rail.map(v => v.title) });
+      const modeFilter = VIDEO_MODES.map(m => `publish_mode.eq.${m}`).join(',');
+      const rows = await supabase(env, 'GET',
+        `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&or=(${modeFilter})&select=slug,title,image_url,published_at,source_name,publish_mode,video_id,category,url&order=published_at.desc&limit=15`
+      ).catch(() => null);
+      if (!Array.isArray(rows)) return Response.json({ error: 'supabase query failed' }, { status: 500 });
+      await env.PITCHOS_CACHE.put(`video-rail:${siteCode}`, JSON.stringify(rows), { expirationTtl: 43200 });
+      return Response.json({ ok: true, count: rows.length, titles: rows.map(v => v.title) });
     }
 
     if (url.pathname === '/admin/tools') {
