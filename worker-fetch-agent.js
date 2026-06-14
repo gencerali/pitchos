@@ -3060,6 +3060,21 @@ Sadece JSON döndür:
       return Response.json({ ok: true });
     }
 
+    if (url.pathname === '/admin/seed-video-rail') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const siteCode = url.searchParams.get('site') || 'BJK';
+      const raw = await env.PITCHOS_CACHE.get(`articles:${siteCode}`);
+      if (!raw) return Response.json({ error: 'no articles in KV' }, { status: 404 });
+      const VIDEO_MODES = ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'];
+      const all = JSON.parse(raw);
+      const rail = all
+        .filter(a => VIDEO_MODES.includes(a.publish_mode))
+        .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
+        .slice(0, 15);
+      await env.PITCHOS_CACHE.put(`video-rail:${siteCode}`, JSON.stringify(rail), { expirationTtl: 43200 });
+      return Response.json({ ok: true, count: rail.length, titles: rail.map(v => v.title) });
+    }
+
     if (url.pathname === '/admin/tools') {
       const cookie = request.headers.get('cookie') || '';
       const authed = await checkAdminAuth(request, env);
