@@ -3,12 +3,40 @@
 // XP particle animations, and login/register modals.
 
 (async function kxGamification() {
+  // ── 0. Wire DOM elements immediately (before any async work) ──
+  const widget    = document.getElementById('userWidget');
+  const avatarEl  = document.getElementById('userAvatar');
+  const nameEl    = document.getElementById('userNameLabel');
+  const rankEl    = document.getElementById('userRankLabel');
+  const flameEl   = document.getElementById('kxStreakFlame');
+  const flameNum  = document.getElementById('kxStreakCount');
+  const loginBtn  = document.getElementById('kxLoginBtn');
+
+  // Button opens modal immediately; modal init happens below once Supabase is ready
+  if (loginBtn) {
+    loginBtn.addEventListener('click', () => {
+      if (window.kxAuth) { window.kxAuth.showLogin(); return; }
+      // Supabase not ready yet — show a loading state on the button
+      loginBtn.textContent = 'Yükleniyor…';
+    });
+  }
+  if (widget) {
+    widget.addEventListener('click', () => {
+      if (widget.dataset.auth === 'true' && window.kxAuth) showProfileDropdown();
+      else if (window.kxAuth) window.kxAuth.showLogin();
+    });
+  }
+
   // ── 1. Public config (Supabase credentials + site_id) ────────
   const config = await fetch('/api/config')
     .then(r => r.ok ? r.json() : null)
     .catch(() => null);
 
-  if (!config?.supabase_url || !config?.supabase_anon_key) return;
+  if (!config?.supabase_url || !config?.supabase_anon_key) {
+    // Restore button text if config failed
+    if (loginBtn) loginBtn.textContent = 'Giriş Yap';
+    return;
+  }
 
   // ── 2. Load Supabase JS SDK ───────────────────────────────────
   await new Promise((resolve, reject) => {
@@ -41,15 +69,6 @@
     requestAnimationFrame(() => el.classList.add('kx-xp-particle--rise'));
     setTimeout(() => el.remove(), 520);
   };
-
-  // ── 4. Widget elements ────────────────────────────────────────
-  const widget    = document.getElementById('userWidget');
-  const avatarEl  = document.getElementById('userAvatar');
-  const nameEl    = document.getElementById('userNameLabel');
-  const rankEl    = document.getElementById('userRankLabel');
-  const flameEl   = document.getElementById('kxStreakFlame');
-  const flameNum  = document.getElementById('kxStreakCount');
-  const loginBtn  = document.getElementById('kxLoginBtn');
 
   // ── 5. Render authenticated user state ───────────────────────
   async function loadAuthUser(accessToken) {
@@ -360,21 +379,8 @@
     config,
   };
 
-  // ── 8. Wire up login button ───────────────────────────────────
-  if (loginBtn) {
-    loginBtn.addEventListener('click', () => window.kxAuth.showLogin());
-  }
-
-  // Wire up widget click for auth users (show dropdown or logout)
-  if (widget) {
-    widget.addEventListener('click', () => {
-      if (widget.dataset.auth === 'true') {
-        showProfileDropdown();
-      } else {
-        window.kxAuth.showLogin();
-      }
-    });
-  }
+  // ── 8. Update button text now that kxAuth is ready ───────────
+  if (loginBtn) loginBtn.textContent = 'Giriş Yap';
 
   function showProfileDropdown() {
     if (document.getElementById('kxProfileDrop')) return;
