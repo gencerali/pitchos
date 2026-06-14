@@ -40,7 +40,7 @@ All XP, streaks, and leaderboard data is meaningless without a stable identity l
 - KVKK consent checkbox — mandatory, non-pre-ticked, links to full policy page.
 - On submit: create account in `pending_verification` state. Send verification email.
 - In `pending_verification` state: user can browse but cannot earn XP, comment, or appear on leaderboards.
-- Social login paths (Google OAuth, Apple Sign-In) bypass email verification step; email is considered verified via the provider.
+- Social login paths (Google OAuth, Apple Sign-In, X/Twitter OAuth) bypass email verification step; email is considered verified via the provider.
 - If a social login email matches an existing password account, present an account-linking prompt rather than creating a duplicate.
 
 **Acceptance Criteria:**
@@ -471,15 +471,15 @@ Three concurrent leaderboards tracked simultaneously:
 | Board | Scope | Reset |
 |---|---|---|
 | All-Time | Lifetime XP | Never |
-| Seasonal | Current Süper Lig season | August 1 each year |
+| Seasonal | Current Süper Lig season | **June 1** each year (after season ends) |
 | Monthly | Calendar month XP | 1st of each month, 00:00 UTC |
-| Weekly | Calendar week XP | Monday 00:00 UTC |
-| Streak | Longest current streak | Never (live, breaks on miss) |
+| Weekly | Calendar week XP | Monday 00:00 UTC — **in MVP** |
+| Streak | Current streak + personal best | Never (live) |
 
 **Acceptance Criteria:**
 - [ ] Monthly board resets to zero for all users at 00:00 UTC on the 1st.
 - [ ] Weekly board resets at 00:00 UTC every Monday.
-- [ ] Seasonal board resets on August 1.
+- [ ] Seasonal board resets on June 1.
 - [ ] A user who joins mid-month sees a clean monthly slate immediately competitive.
 - [ ] Users with `leaderboard_visibility = private` on their profile are excluded from all board displays.
 - [ ] Top 100 users shown per board. User's own rank always shown even if outside top 100 ("Sen: #342").
@@ -488,10 +488,11 @@ Three concurrent leaderboards tracked simultaneously:
 
 ### 4.2 Streak Leaderboard
 
-Ranks users by current active streak length. Tie-broken by streak start date (longer-running streak ranks higher).
+Shows two columns side by side: **Current Streak** (active days, resets to 0 on miss) and **Personal Best** (highest streak ever achieved by that user). Ranked by Current Streak descending; Personal Best is informational. Tie-broken by streak start date (longer-running streak ranks higher).
 
 **Acceptance Criteria:**
-- [ ] User breaks streak → immediately drops off the top streak positions.
+- [ ] User breaks streak → Current Streak column resets to 0 immediately; Personal Best column unchanged.
+- [ ] Personal Best updates only when current streak exceeds it.
 - [ ] Streak board clearly labeled as separate from XP boards in UI (tab or section, not scroll).
 
 ---
@@ -844,17 +845,19 @@ At 70% engagement (active user): ~3,056 XP/month.
 
 ---
 
-## Open Questions
+## Decisions Log
 
-| # | Question | Owner | Priority |
-|---|---|---|---|
-| 1 | Which social auth providers beyond Google + Apple? (Facebook?) | Product | Medium |
-| 2 | Is seasonal leaderboard reset on August 1 or end of Süper Lig season (May)? | Product | High |
-| 3 | What is the exact match kickoff data source for score prediction lock? (api-football.js exists) | Dev | High |
-| 4 | Are push notifications in scope for MVP or post-launch? | Product | Medium |
-| 5 | Does the Streak Leaderboard rank by current streak only, or best-ever streak? | Product | Low |
-| 6 | Sound assets: who produces them? Original recording or licensed library? | Product | High |
-| 7 | KVKK data export (Article 20 right of access) — in MVP scope or post-launch? | Legal | High |
-| 8 | Admin panel: who has access? Single super-admin or role-based? | Product | Medium |
-| 9 | After Day 30 streak — does the 1.5× multiplier persist indefinitely or is there a new milestone? | Product | Low |
-| 10 | Weekly leaderboard included in MVP or post-launch? | Product | Low |
+All open questions resolved 2026-06-14.
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Social auth providers beyond Google + Apple? | **Google + Apple + X (Twitter)** |
+| 2 | Seasonal leaderboard reset date? | **June 1** (after Süper Lig season ends in May) |
+| 3 | Match kickoff data source for prediction lock? | **api-football.js** — reuse existing integration |
+| 4 | Push notifications in MVP? | **Post-launch** |
+| 5 | Streak Leaderboard ranking metric? | **Both columns** — current active streak + personal best all-time |
+| 6 | Sound asset production? | **Licensed royalty-free library** (Freesound / Epidemic Sound / Pixabay) |
+| 7 | KVKK data export in MVP? | **Yes — MVP**. Basic JSON export of profile + XP history on day one |
+| 8 | Admin panel access model? | **Single super-admin** for now |
+| 9 | Post-Day-30 streak multiplier? | **1.5× persists indefinitely** as long as streak holds. No further milestones. |
+| 10 | Weekly leaderboard in MVP? | **Yes — MVP**. Resets every Monday 00:00 UTC |
