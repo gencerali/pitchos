@@ -36,7 +36,12 @@ function cronToIntervalMs(cron) {
 
 // ─── PIPELINE FAILURE LOG ────────────────────────────────────
 const FAILURES_KEY = 'pipeline:failures';
-const FAILURES_TTL = 7 * 24 * 3600; // 7 days
+const FAILURES_TTL = 7 * 24 * 3600; // 7 days (raw retention for diagnostics)
+// Recovery window: the admin banner only surfaces failures newer than this. The main
+// pipeline runs every 5 min and publishing crons every ≤3h, so a persistent problem keeps
+// producing fresh records and stays visible — but once it's fixed (e.g. API credits topped
+// up), no new failures arrive and the banner self-heals within the window. No manual clear.
+const FAILURES_DISPLAY_WINDOW = 6 * 3600 * 1000; // 6h, in ms
 
 // ─── NEXT MATCH CONFIG ────────────────────────────────────────
 const NEXT_MATCH = {
@@ -3762,7 +3767,16 @@ Sadece JSON döndür:
     if (url.pathname === '/admin/pipeline-failures') {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       if (request.method === 'GET') {
-        const failures = JSON.parse(await env.PITCHOS_CACHE.get(FAILURES_KEY) || '[]');
+        const all = JSON.parse(await env.PITCHOS_CACHE.get(FAILURES_KEY) || '[]');
+        // Self-heal: only surface recent failures. Stale entries (problem already resolved)
+        // age out of the window so the banner clears on its own — no manual "Temizle" needed.
+        const cutoff = Date.now() - FAILURES_DISPLAY_WINDOW;
+        const failures = all.filter(f => f.ts && new Date(f.ts).getTime() >= cutoff);
+        // Shrink the stored list so it doesn't grow unbounded once entries expire from view.
+        if (failures.length !== all.length) {
+          if (failures.length === 0) await env.PITCHOS_CACHE.delete(FAILURES_KEY);
+          else await env.PITCHOS_CACHE.put(FAILURES_KEY, JSON.stringify(failures), { expirationTtl: FAILURES_TTL });
+        }
         return new Response(JSON.stringify({ failures }), { headers: h });
       }
       if (request.method === 'DELETE') {
@@ -8277,12 +8291,20 @@ async function load(page) {
   if (sf === 'live') params.set('live', '1');
   else if (sf === 'yayinda') params.set('yayinda', '1');
   else if (sf) params.set('status', sf);
-  const res = await fetch('/admin/content-data?' + params);
-  const data = await res.json();
+  const list = document.getElementById('artList');
+  let data;
+  try {
+    const res = await fetch('/admin/content-data?' + params);
+    data = await res.json();
+  } catch(e) {
+    // Don't let a transient fetch/JSON error leave the list stuck on "Yükleniyor…".
+    list.innerHTML = '<p style="padding:1rem;color:#c0392b">Liste yüklenemedi: ' + esc(e.message || 'bağlantı hatası') +
+      ' <button class="btn btn-secondary btn-sm" onclick="load(currentPage)" style="margin-left:.5rem">Tekrar dene</button></p>';
+    return;
+  }
   let articles = data.articles || [];
   if (sf === 'yayinda') articles = articles.filter(a => !liveSlugSet.has(a.slug));
   const has_more = data.has_more || false;
-  const list = document.getElementById('artList');
   if (data.error) { list.innerHTML = '<p style="padding:1rem;color:#c0392b">Hata: ' + esc(data.error) + '</p>'; return; }
   if (!articles.length) { list.innerHTML = '<p style="padding:1rem;color:#777">Haber bulunamadı.</p>'; }
   else {
