@@ -3066,7 +3066,7 @@ Sadece JSON döndür:
       const sites = await getActiveSites(env);
       const site = resolveSite(url, sites);
       if (!site) return Response.json({ error: 'no site' }, { status: 500 });
-      const sbPath = `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(youtube_embed,youtube_synthesis,youtube_embed_synthesis)&select=slug,title,image_url,published_at,source_name,publish_mode,category,url&order=published_at.desc&limit=15`;
+      const sbPath = `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&publish_mode=in.(youtube_embed,youtube_synthesis,youtube_embed_synthesis)&select=slug,title,image_url,published_at,source_name,publish_mode,category,original_url&order=published_at.desc&limit=15`;
       const sbRes = await fetch(`${env.SUPABASE_URL}${sbPath}`, {
         headers: { 'apikey': env.SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}` },
       });
