@@ -400,9 +400,10 @@ export default {
     if (url.pathname === '/cache') {
       const siteCode = url.searchParams.get('site') || 'BJK';
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET' };
-      const [articles, config] = await Promise.all([
+      const [articles, config, videoRailRaw] = await Promise.all([
         getServedArticles(env, siteCode), // blue/green pointer-aware (defaults legacy)
         loadSiteConfig(env, siteCode).catch(() => null),
+        env.PITCHOS_CACHE.get(`video-rail:${siteCode}`),
       ]);
       const fallbackSlugs = config?.rail_fallback_video_slugs || [];
       let rail_fallback = [];
@@ -429,11 +430,18 @@ export default {
         (a.image_url || !a.slug || ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'].includes(a.publish_mode))
           ? a
           : { ...a, image_url: `${BASE_URL}/card/${encodeURIComponent(a.slug)}.svg` });
-      const VIDEO_MODES = ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'];
-      const rail_recent = withCards
-        .filter(a => VIDEO_MODES.includes(a.publish_mode))
-        .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
-        .slice(0, 15);
+      // video-rail KV key holds up to 15 videos before the main-feed cap; fall back to
+      // filtering the (capped) served pool only if the dedicated key hasn't been written yet.
+      let rail_recent;
+      if (videoRailRaw) {
+        rail_recent = JSON.parse(videoRailRaw);
+      } else {
+        const VIDEO_MODES = ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'];
+        rail_recent = withCards
+          .filter(a => VIDEO_MODES.includes(a.publish_mode))
+          .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
+          .slice(0, 15);
+      }
       return new Response(JSON.stringify({ articles: withCards, rail_fallback, rail_recent }), { headers: h });
     }
     if (url.pathname === '/report') {

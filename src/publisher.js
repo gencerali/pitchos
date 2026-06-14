@@ -1400,12 +1400,19 @@ export function rankAndEvict(articles, limit = 200, opts = {}) {
   }
   survived.sort((a, b) => b._rank - a._rank);
 
+  // Capture video rail (up to 15) before main-feed cap so the rail KV key has full coverage.
+  const VIDEO_MODES_SET = new Set(['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis']);
+  const videoRail = survived
+    .filter(a => VIDEO_MODES_SET.has(a.publish_mode))
+    .slice(0, 15)
+    .map(({ _rank, ...rest }) => ({ ...rest, current_rank: _rank }));
+
   // Apply video cap after sort
   const MAX_VIDEOS = config?.homepage?.max_videos_in_main_feed ?? 3;
   let videoCount = 0;
   const capped = [];
   for (const a of survived) {
-    if (['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'].includes(a.publish_mode)) {
+    if (VIDEO_MODES_SET.has(a.publish_mode)) {
       if (videoCount >= MAX_VIDEOS) {
         if (a.slug) evictedReasonMap.set(a.slug, 'video_cap');
         continue;
@@ -1437,13 +1444,14 @@ export function rankAndEvict(articles, limit = 200, opts = {}) {
   return {
     articles: capped.slice(0, limit).map(({ _rank, ...rest }) => ({ ...rest, current_rank: _rank })),
     evictedReasonMap,
+    videoRail,
   };
 }
 
 export async function cacheToKV(env, siteCode, articles, opts = {}) {
   try {
     const config = await loadSiteConfig(env, siteCode);
-    const { articles: ranked, evictedReasonMap } = rankAndEvict(articles, 200, { minPool: 20, ...opts, config });
+    const { articles: ranked, evictedReasonMap, videoRail } = rankAndEvict(articles, 200, { minPool: 20, ...opts, config });
     const key = `articles:${siteCode}`;
     const timelineKey = `kv:timeline:${siteCode}`;
     const now = new Date().toISOString();
@@ -1509,6 +1517,7 @@ export async function cacheToKV(env, siteCode, articles, opts = {}) {
     await Promise.all([
       env.PITCHOS_CACHE.put(key, value, { expirationTtl: 43200 }), // 12h — covers 00:00–06:30 IST quiet period
       env.PITCHOS_CACHE.put(timelineKey, JSON.stringify(timeline), { expirationTtl: 86400 * 90 }),
+      env.PITCHOS_CACHE.put(`video-rail:${siteCode}`, JSON.stringify(videoRail), { expirationTtl: 43200 }),
     ]);
     // Pool composition time-series — awaited so quiet crons (no new articles) also write snapshots.
     // Fire-and-forget was silently dropped when the scheduled handler returned before the GET→PUT chain completed.
