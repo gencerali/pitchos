@@ -1,4 +1,4 @@
-﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, addUsagePhase, addCost, flushCostStats, saveSourceFact } from './utils.js';
+﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, getVoicePatterns, addUsagePhase, addCost, flushCostStats, saveSourceFact } from './utils.js';
 import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens } from './processor.js';
 import { articleBodyToHtml } from './render.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
@@ -394,7 +394,7 @@ Bilmiyorsan null yaz.`;
 // extractFacts is capped at MAX_FACTS_EXTRACTS per run — each is a Claude call.
 // Articles arrive sorted by NVS, so only the highest-value P4 articles get facts.
 export const SYNTHESIS_NVS_THRESHOLD = 30;
-export const SYNTHESIS_CAP_PER_RUN = 18;
+export const SYNTHESIS_CAP_PER_RUN = 12;
 export const MAX_FACTS_EXTRACTS = 5;
 
 async function extractKeyEntities(title, sourceText, env, _usages = null) {
@@ -585,8 +585,11 @@ export async function synthesizeArticle(article, env, site = null, opts = {}) {
     return { body: null };
   }
 
-  const [editorialCtx, groundingCtx, keyEntities, sourceFacts] = await Promise.all([
-    getEditorialNotes(env, ['general', 'style']),
+  // editorialCtx (stable across the run) goes into the cached system prefix;
+  // voicePatterns (random per call) must stay OUT of the cache — see getEditorialNotes.
+  const [editorialCtx, voicePatterns, groundingCtx, keyEntities, sourceFacts] = await Promise.all([
+    getEditorialNotes(env, ['general', 'style'], { excludeVoicePatterns: true }),
+    getVoicePatterns(env),
     buildGroundingContext(env, site),
     extractKeyEntities(article.title, sourceText, env, _usages),
     extractFactsFromSource(article.title, sourceText, env, _usages),
@@ -630,9 +633,10 @@ Kurallar:
 - Ana başlık (H1) ekleme`;
   const systemPrompt = [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }];
 
-  // Dynamic suffix: per-article content. Not cached — changes every call.
+  // Dynamic suffix: per-article content + random voice patterns. Not cached — changes every call.
+  const voiceBlock = voicePatterns ? `\n\n${voicePatterns.trimEnd()}` : '';
   const userContent = `Kaynak başlık: ${article.title}
-${isOfficial ? `Kaynak metin: ${sourceText}\n${sourceLabel}` : sourceLabel}${factsBlock}${entityBlock}
+${isOfficial ? `Kaynak metin: ${sourceText}\n${sourceLabel}` : sourceLabel}${factsBlock}${entityBlock}${voiceBlock}
 
 ${targetWords} kelime — fazlası yasak. Kaynak kaç bilgi veriyorsa o kadar yaz.`;
 

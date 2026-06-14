@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tahmin — Çarşı Ligi (Mock)</title>
+<meta name="description" content="Maç sonucu tahmin et, Çarşı Ligi'nde yarış — Kartalix Tahmin (mockup, yer tutucu veri)." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="theme.css" />
+<style>
+  .page-title { margin: 1.8rem 0 .4rem; }
+  .page-title .kicker { display:block; margin-bottom:.3rem; }
+  .page-title h1 { font-family:var(--font-display); font-weight:800; text-transform:uppercase; font-size:clamp(1.8rem,4vw,2.8rem); line-height:1; margin:0; }
+  .page-sub { color:var(--muted); font-size:.9rem; margin:.4rem 0 0; }
+  .back { display:inline-block; margin:1rem 0; font-family:var(--font-display); font-weight:700; letter-spacing:.06em; text-transform:uppercase; font-size:.78rem; color:var(--muted); }
+  .back:hover{ color:var(--red); }
+
+  .cols { display:grid; grid-template-columns:1.2fr 1fr; gap:1.4rem; align-items:start; }
+  @media(max-width:900px){ .cols{ grid-template-columns:1fr; } }
+
+  /* predictor */
+  .predict { background:var(--shell); color:#fff; border-radius:var(--radius); overflow:hidden; }
+  .predict .ph { padding:1rem 1.2rem; border-bottom:1px solid rgba(255,255,255,.08); display:flex; justify-content:space-between; align-items:center; }
+  .predict .ph .lg { font-family:var(--font-display); font-weight:700; font-size:.7rem; letter-spacing:.1em; text-transform:uppercase; color:var(--gold); }
+  .predict .ph .dt { font-size:.78rem; color:rgba(255,255,255,.6); }
+  .predict .teams { padding:1.4rem 1.2rem .6rem; display:flex; align-items:center; justify-content:center; gap:1.2rem; font-family:var(--font-display); font-weight:800; text-transform:uppercase; font-size:1.5rem; }
+  .predict .teams .vs { color:var(--gold); font-size:1rem; }
+  .predict .opts { display:grid; grid-template-columns:repeat(3,1fr); gap:.6rem; padding:1rem 1.2rem; }
+  .opt {
+    background:#fff; color:var(--ink); border:2px solid transparent; border-radius:8px;
+    padding:.9rem .4rem; cursor:pointer; text-align:center; transition:transform .12s;
+  }
+  .opt:hover{ transform:translateY(-2px); }
+  .opt .ot { font-family:var(--font-display); font-weight:800; text-transform:uppercase; font-size:1.1rem; }
+  .opt .op { font-family:var(--font-display); font-weight:800; font-size:1.6rem; color:var(--red); margin-top:.2rem; }
+  .opt .ol { font-size:.62rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+  .opt.sel { border-color:var(--red); box-shadow:0 0 0 4px var(--red-tint); }
+  .opt.sel .ot { color:var(--red); }
+  .predict .save { margin:.2rem 1.2rem 1.3rem; }
+  .btn-save { width:100%; padding:.9rem; border:none; border-radius:8px; background:var(--red); color:#fff; font-family:var(--font-display); font-weight:800; letter-spacing:.08em; text-transform:uppercase; font-size:.95rem; cursor:pointer; }
+  .btn-save:hover{ background:var(--red-ink); }
+  .predict .pn { padding:0 1.2rem 1.2rem; font-size:.74rem; color:rgba(255,255,255,.55); line-height:1.5; }
+
+  .streak-card { display:flex; align-items:center; gap:1rem; background:linear-gradient(90deg,var(--gold-tint),#fff 70%); border:1px solid #f1dcae; border-radius:var(--radius); padding:1rem 1.2rem; }
+  .streak-card .big { font-family:var(--font-display); font-weight:800; font-size:2.2rem; line-height:1; color:var(--gold-ink); }
+  .streak-card .meta { font-family:var(--font-display); font-weight:700; text-transform:uppercase; letter-spacing:.06em; font-size:.8rem; color:var(--ink); }
+  .streak-card .meta small { display:block; color:var(--muted); font-weight:400; letter-spacing:0; text-transform:none; font-size:.74rem; margin-top:.15rem; }
+  .streak-card .flame { font-size:2.4rem; }
+
+  /* leaderboard */
+  .podium { display:flex; align-items:flex-end; gap:.6rem; padding:1rem .9rem .2rem; }
+  .pod { flex:1; text-align:center; }
+  .pod .ava { width:44px; height:44px; border-radius:50%; margin:0 auto .4rem; display:grid; place-items:center; font-family:var(--font-display); font-weight:800; color:#fff; }
+  .pod .nm { font-family:var(--font-display); font-weight:700; font-size:.78rem; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pod .pt { font-family:var(--font-display); font-weight:800; color:var(--gold-ink); font-size:.9rem; }
+  .pod .bar { border-radius:6px 6px 0 0; margin-top:.4rem; display:grid; place-items:start center; padding-top:.3rem; font-family:var(--font-display); font-weight:800; color:rgba(255,255,255,.9); }
+  .pod.p1 .ava{ background:var(--gold); } .pod.p1 .bar{ background:var(--gold); height:74px; color:#fff; }
+  .pod.p2 .ava{ background:#9b9486; } .pod.p2 .bar{ background:#b6afa3; height:54px; }
+  .pod.p3 .ava{ background:var(--red); } .pod.p3 .bar{ background:#d36b71; height:40px; }
+
+  .lb-item { display:flex; align-items:center; gap:.7rem; padding:.65rem .9rem; border-bottom:1px solid var(--line); font-size:.88rem; }
+  .lb-item:last-child{ border-bottom:none; }
+  .lb-item .rk { width:24px; font-family:var(--font-display); font-weight:800; color:var(--muted); text-align:center; }
+  .lb-item .ava { width:28px; height:28px; border-radius:50%; background:var(--paper-3); display:grid; place-items:center; font-family:var(--font-display); font-weight:800; font-size:.7rem; color:var(--ink-2); flex-shrink:0; }
+  .lb-item .nm { flex:1; color:var(--ink); font-weight:500; }
+  .lb-item .pt { font-family:var(--font-display); font-weight:800; color:var(--ink); }
+  .lb-item.me { background:var(--red-tint); }
+  .lb-item.me .nm { color:var(--red-ink); font-weight:700; }
+  .lb-item.me .rk { color:var(--red); }
+</style>
+</head>
+<body>
+
+<div class="mockbar">MOCKUP · Yön B — Editorial Light · <b>/tahmin</b> · yer tutucu veri (giriş + skor sahte)</div>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="index.html"><span class="mark">KARTAL<b>IX</b></span><span class="tag">Beşiktaş Haber Ağı</span></a>
+    <div class="topbar-right"><span class="topdate">9 Haziran 2026</span><span class="live-pill"><span class="dot"></span> Canlı</span></div>
+  </div>
+</header>
+
+<nav class="catnav" aria-label="Kategoriler">
+  <div class="catnav-inner">
+    <a href="index.html">Tümü</a>
+    <a href="/konu/transfer">Transfer</a>
+    <a href="/konu/mac">Maç</a>
+    <a href="/konu/videolar">Videolar</a>
+    <a href="/analiz">Analiz</a>
+    <a href="/tahmin" class="active">Tahmin</a>
+  </div>
+</nav>
+
+<main class="wrap">
+  <a class="back" href="index.html">← Ana Sayfa</a>
+
+  <div class="page-title">
+    <span class="kicker">Tahmin</span>
+    <h1>Çarşı Ligi</h1>
+    <p class="page-sub">Maçı tahmin et, seriyi sürdür, lider tablosunda yüksel. (Giriş ve puanlar mock — gerçek sürümde Supabase Auth + oyunlaştırma tabloları.)</p>
+  </div>
+
+  <div class="cols">
+    <!-- LEFT: predictor + streak -->
+    <div style="display:flex;flex-direction:column;gap:1.4rem">
+      <section class="predict">
+        <div class="ph"><span class="lg">Süper Lig · 15. Hafta</span><span class="dt">Pazar 19:00</span></div>
+        <div class="teams"><span>Beşiktaş</span><span class="vs">VS</span><span>Trabzonspor</span></div>
+        <div class="opts" role="group" aria-label="Maç sonucu tahmini">
+          <button class="opt sel"><div class="ot">Ev</div><div class="op">%54</div><div class="ol">Model</div></button>
+          <button class="opt"><div class="ot">Berabere</div><div class="op">%26</div><div class="ol">Model</div></button>
+          <button class="opt"><div class="ot">Dep</div><div class="op">%20</div><div class="ol">Model</div></button>
+        </div>
+        <div class="save"><button class="btn-save">Tahmini Kaydet · +10 Puan</button></div>
+        <p class="pn">Modelin kazanma ihtimali her seçeneğin altında gösterilir (Kartalix Model — Analiz sayfasıyla aynı hesap). Doğru tahmin seriyi büyütür.</p>
+      </section>
+
+      <div class="streak-card">
+        <span class="flame">🔥</span>
+        <span class="big">7</span>
+        <span class="meta">Günlük Seri<small>Her doğru tahmin seriyi sürdürür. En iyi serin: 14 gün.</small></span>
+      </div>
+
+      <section class="panel">
+        <div class="panel-head"><h3 class="gh">Geçen Hafta Sonuçların</h3></div>
+        <div class="panel-body">
+          <div class="fix"><span class="dt">Sivasspor</span><span class="opp">Tahmin: Ev · Sonuç: Ev 2-0</span><span class="ha" style="color:#1f9d55">+10</span></div>
+          <div class="fix"><span class="dt">Konyaspor</span><span class="opp">Tahmin: Ev · Sonuç: Ber 1-1</span><span class="ha" style="color:var(--red)">+0</span></div>
+          <div class="fix"><span class="dt">Alanya</span><span class="opp">Tahmin: Dep · Sonuç: Dep 0-1</span><span class="ha" style="color:#1f9d55">+10</span></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- RIGHT: leaderboard -->
+    <div>
+      <section class="panel">
+        <div class="panel-head"><h3>Çarşı Ligi · Lider Tablosu</h3></div>
+
+        <div class="podium">
+          <div class="pod p2"><div class="ava">MK</div><div class="nm">manyak_kartal</div><div class="pt">1.840</div><div class="bar">2</div></div>
+          <div class="pod p1"><div class="ava">19</div><div class="nm">1903_efsane</div><div class="pt">2.310</div><div class="bar">1</div></div>
+          <div class="pod p3"><div class="ava">ÇK</div><div class="nm">carsi_kartal</div><div class="pt">1.690</div><div class="bar">3</div></div>
+        </div>
+
+        <div>
+          <div class="lb-item"><span class="rk">4</span><span class="ava">BJ</span><span class="nm">bjk_forever</span><span class="pt">1.520</span></div>
+          <div class="lb-item"><span class="rk">5</span><span class="ava">KT</span><span class="nm">kartal_yuvasi</span><span class="pt">1.475</span></div>
+          <div class="lb-item"><span class="rk">6</span><span class="ava">SR</span><span class="nm">siyah_beyaz</span><span class="pt">1.402</span></div>
+          <div class="lb-item"><span class="rk">7</span><span class="ava">VK</span><span class="nm">vodafone_park</span><span class="pt">1.388</span></div>
+          <div class="lb-item"><span class="rk">8</span><span class="ava">GD</span><span class="nm">guvercin</span><span class="pt">1.310</span></div>
+          <div class="lb-item me"><span class="rk">42</span><span class="ava">SE</span><span class="nm">sen (bu hafta +30)</span><span class="pt">980</span></div>
+        </div>
+      </section>
+
+      <p class="note" style="font-size:.78rem;color:var(--muted);line-height:1.5;margin-top:1rem">
+        Not: Giriş, puanlar ve lider tablosu yer tutucudur. Gerçek sürümde <b>Supabase Auth</b> + oyunlaştırma tabloları gerektirir (ayrı iş kalemi).
+      </p>
+    </div>
+  </div>
+</main>
+
+<footer class="foot-wrap">
+  <div class="foot-inner">
+    <div class="mark">KARTAL<b>IX</b></div>
+    <p>© 2026 Kartalix · Tahmin/oyun verileri yer tutucudur. Gerçek sürüm Supabase Auth + oyunlaştırma altyapısına bağlıdır.</p>
+    <nav class="foot-links"><a href="index.html">Ana Sayfa</a><a href="/analiz">Analiz</a><a href="/tahmin">Tahmin</a></nav>
+  </div>
+</footer>
+
+</body>
+</html>
