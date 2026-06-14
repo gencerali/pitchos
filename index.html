@@ -3238,6 +3238,7 @@
     // ── GUEST CONVERSION BOTTOM SHEET ────────────────────────
     function showGuestSheet() {
       if (!session.isGuest) return;
+      if (window.kxToken) return; // logged in via Supabase
       if (document.getElementById('guestConvSheet')) return;
       const xp = session.xp || 0;
       const xpPct = Math.min(100, (xp / 100) * 100);
