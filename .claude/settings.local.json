@@ -22,7 +22,9 @@
       "WebFetch(domain:pitchos-fetch-agent.gencerali.workers.dev)",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('Pool size:', len\\(d\\)\\); [print\\(a.get\\('slug','?'\\), a.get\\('published_at','?'\\)[:16]\\) for a in d[:3]]\")",
       "Bash(python -c \"import sys,json; data=json.load\\(sys.stdin\\); [print\\(f\\\\\"{a.get\\('publish_mode','?'\\)} | {a.get\\('source','?'\\)} | {a.get\\('slug','?'\\)[:60]}\\\\\"\\) for a in data[:30]]\")",
-      "Bash(python -c \"import sys,json; keys=json.load\\(sys.stdin\\); [print\\(k['name']\\) for k in keys[:30]]\")"
+      "Bash(python -c \"import sys,json; keys=json.load\\(sys.stdin\\); [print\\(k['name']\\) for k in keys[:30]]\")",
+      "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__list_tables",
+      "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__apply_migration"
     ]
   }
 }
