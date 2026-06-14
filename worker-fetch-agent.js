@@ -7785,7 +7785,7 @@ ${siteHeader('/haber/')}
       <span style="color:#555;font-size:0.68rem">YZ destekli</span>
       ${attrHtml}
     </div>
-    ${image && a.publish_mode !== 'youtube_embed' ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
+    ${image && !((a.publish_mode || '').startsWith('youtube') || a.publish_mode === 'video_embed') ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
     ${videoHtml}
     <div class="article-body">${bodyHtml}</div>
     ${relatedHtml}

@@ -1443,7 +1443,7 @@
     const nvsColor = nvs >= 70 ? '#10B981' : nvs >= 40 ? '#F59E0B' : '#6B7280';
 
     // Hero: video articles use gradient only — iframe in body is the visual anchor
-    const isVideoEmbed = a.publish_mode === 'youtube_embed';
+    const isVideoEmbed = (a.publish_mode || '').startsWith('youtube') || a.publish_mode === 'video_embed';
     const heroStyle = (image && !isVideoEmbed)
       ? `background:linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.78) 100%), url('${esc(image)}') top center/cover no-repeat`
       : `background:${catGrad(a)}`;
@@ -1572,7 +1572,7 @@
       </div>
 
       <div class="av-hero av-slide-in" style="${heroStyle}">
-        ${(!image || isVideoEmbed) ? `<div class="av-hero-icon">${EAGLE_SVG}</div>` : ''}
+        ${(!image && !isVideoEmbed) ? `<div class="av-hero-icon">${EAGLE_SVG}</div>` : ''}
         <div class="av-hero-content">
           <div class="av-cat-pill" style="background:${badgeBg};color:${badgeTextColor}">${esc(badgeLabel)}</div>
           <div class="av-title">${esc(title)}</div>
