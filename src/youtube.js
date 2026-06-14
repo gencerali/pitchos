@@ -30,8 +30,15 @@ export const YOUTUBE_CHANNELS = [
 ];
 
 const EXCLUDE_TERMS = ['#shorts', ' shorts '];
-// Matches "YYYY/YYYY" season notation for pre-2024 seasons (e.g. "2016/2017", "2022/2023")
-const ARCHIVE_SEASON_RE = /\b20(0[0-9]|1[0-9]|2[0-3])\/20\d{2}\b/;
+// Any "YYYY/YYYY" season tag. We drop tags OLDER than the current season — derived from the
+// clock, so there is NO hardcoded year to maintain (see currentSeasonStartYear).
+const SEASON_TAG_RE = /\b(20\d{2})\/20\d{2}\b/;
+const HIGHLIGHT_RE  = /özet|highlights/i;
+const HIGHLIGHT_MAX_AGE_DAYS = 14;            // a match highlight older than this is archive / re-surfaced
+// Süper Lig (and most European) seasons start ~August; before July we are still in the prior season.
+function currentSeasonStartYear(now = new Date()) {
+  return now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+}
 // Live streams (e.g. "… | Canlı Yayın") — embedding them produces a dead "live stream
 // offline" player once the broadcast ends, so they must not become embed articles. (2026-06-06)
 const LIVE_STREAM_RE = /canlı yayın|canli yayin|live\s?stream|livestream|🔴/i;
@@ -150,10 +157,15 @@ export async function fetchYouTubeTranscript(videoId) {
 
 // Hard pre-filter — drops shorts, archive re-uploads, and off-topic content.
 // For broadcast/digital channels (all_qualify=false), title must mention Beşiktaş.
-export function qualifyYouTubeVideo(video) {
+export function qualifyYouTubeVideo(video, now = new Date()) {
   const t = video.title.toLowerCase();
   if (EXCLUDE_TERMS.some(k => t.includes(k))) return false;
-  if (ARCHIVE_SEASON_RE.test(video.title)) return false;
+  // Older-season catalog upload (self-updating: title's season tag vs the current season).
+  const seasonTag = video.title.match(SEASON_TAG_RE);
+  if (seasonTag && Number(seasonTag[1]) < currentSeasonStartYear(now)) return false;
+  // Stale match highlight: relevant ~2 weeks; an older upload is an archive / re-surfaced clip.
+  if (HIGHLIGHT_RE.test(t) && video.published_at &&
+      (now - new Date(video.published_at)) / 86400000 > HIGHLIGHT_MAX_AGE_DAYS) return false;
   if (LIVE_STREAM_RE.test(video.title)) return false; // live broadcasts → dead embed when they end
   if (video.url && /youtube\.com\/live\//i.test(video.url)) return false; // /live/ URL form
   // Rival guard — applies even to all_qualify channels (which skip the bjkMatch check below),
