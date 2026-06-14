@@ -469,6 +469,13 @@ export async function addCost(env, usd) {
   const cur = parseFloat((await env.PITCHOS_CACHE.get(key)) || '0');
   const next = cur + usd;
   await env.PITCHOS_CACHE.put(key, String(next.toFixed(6)));
+  // Daily spend (Cost Ceiling 1.6): per-day counter, auto-expires after ~35 days.
+  // Error-guarded so it can never break cost accounting or the pipeline.
+  try {
+    const dayKey = `cost:day:${new Date().toISOString().slice(0, 10)}`;
+    const dayCur = parseFloat((await env.PITCHOS_CACHE.get(dayKey)) || '0');
+    await env.PITCHOS_CACHE.put(dayKey, String((dayCur + usd).toFixed(6)), { expirationTtl: 35 * 24 * 3600 });
+  } catch { /* daily tracking is best-effort */ }
   if (cap > 0) {
     const pct = next / cap * 100;
     const now = new Date().toISOString();
@@ -518,16 +525,95 @@ export async function flushCostStats(env, siteCode, stats) {
 }
 
 export async function checkCostCap(env) {
-  const key = `cost:${new Date().toISOString().slice(0, 7)}`;
+  const now = new Date();
+  const key = `cost:${now.toISOString().slice(0, 7)}`;
   const current = parseFloat((await env.PITCHOS_CACHE.get(key)) || '0');
   const capRaw = await env.PITCHOS_CACHE.get('cost:cap');
   const cap = parseFloat(capRaw || env.MONTHLY_CLAUDE_CAP || '8');
-  if (current >= cap) {
+  let blocked = current >= cap;
+  let reason = blocked ? 'monthly' : null;
+  if (blocked) {
     console.warn(`COST CAP: $${current.toFixed(4)} of $${cap.toFixed(2)} used — AI calls blocked`);
   } else if (current >= cap * 0.8) {
     console.warn(`COST WARN: $${current.toFixed(4)} of $${cap.toFixed(2)} used (${(current / cap * 100).toFixed(0)}%) — approaching cap`);
   }
-  return { blocked: current >= cap, current, cap };
+  // Daily enforcement (Cost Ceiling 1.6 / Step 4) — opt-in via cost:daily_enforce=1. Default OFF.
+  if (!blocked && (await env.PITCHOS_CACHE.get('cost:daily_enforce')) === '1') {
+    const todaySpend = parseFloat((await env.PITCHOS_CACHE.get(`cost:day:${now.toISOString().slice(0, 10)}`)) || '0');
+    const capOverride = parseFloat((await env.PITCHOS_CACHE.get('cost:daily_cap')) || '');
+    const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+    const dailyCap = capOverride > 0 ? capOverride : cap / daysInMonth;
+    if (todaySpend >= dailyCap) {
+      blocked = true; reason = 'daily';
+      console.warn(`COST DAILY CAP: $${todaySpend.toFixed(4)} of $${dailyCap.toFixed(2)} daily — AI calls blocked`);
+    }
+  }
+  return { blocked, current, cap, reason };
+}
+
+// ─── COST CEILING 1.6 / Step 2: month-end trajectory (pure read; no side effects) ──
+// Projects month-end spend from BOTH the month-to-date average and a trailing-7-day
+// average, then uses the HIGHER (more conservative) projection — so a recent spike
+// (e.g. Method B turning on) isn't masked by a cheap early month. Nothing acts on this
+// yet; Step 3 (alarm) and Step 5 (graph/warnings) consume it. `now` is injectable for tests.
+export async function costTrajectory(env, now = new Date()) {
+  const month = now.toISOString().slice(0, 7);
+  const today = now.toISOString().slice(0, 10);
+  const num = async (k) => parseFloat((await env.PITCHOS_CACHE.get(k)) || '0');
+
+  const monthSpend = await num(`cost:${month}`);
+  const todaySpend = await num(`cost:day:${today}`);
+  const capRaw = await env.PITCHOS_CACHE.get('cost:cap');
+  const cap = parseFloat(capRaw || env.MONTHLY_CLAUDE_CAP || '8');
+
+  const dayOfMonth = now.getUTCDate();
+  const daysInMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate();
+
+  // trailing 7 calendar days (incl. today); daily keys persist across months (TTL ~35d)
+  let sum7 = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now.getTime() - i * 86400000).toISOString().slice(0, 10);
+    sum7 += await num(`cost:day:${d}`);
+  }
+  const avgPerDayMTD = dayOfMonth > 0 ? monthSpend / dayOfMonth : 0;
+  const avg7d = sum7 / 7;
+
+  const projMTD = avgPerDayMTD * daysInMonth;
+  const proj7d = avg7d * daysInMonth;
+  const projectedMonthEnd = Math.max(projMTD, proj7d);
+  const projectionBasis = proj7d > projMTD ? '7d' : 'mtd';
+
+  return {
+    monthSpend, todaySpend, cap, dayOfMonth, daysInMonth,
+    avgPerDayMTD, avg7d, projMTD, proj7d, projectedMonthEnd, projectionBasis,
+    pctOfCap: cap > 0 ? (monthSpend / cap) * 100 : 0,
+    projectedPctOfCap: cap > 0 ? (projectedMonthEnd / cap) * 100 : 0,
+    onTrack: projectedMonthEnd <= cap,
+  };
+}
+
+// Cost Ceiling 1.6 / Step 3: pure alarm-condition decision from a trajectory snapshot.
+// Daily cap defaults to an even spread (cap / daysInMonth) unless overridden.
+export function costAlarmConditions(traj, dailyCapOverride) {
+  const dailyCap = dailyCapOverride > 0 ? dailyCapOverride : (traj.daysInMonth > 0 ? traj.cap / traj.daysInMonth : traj.cap);
+  return {
+    dailyCap,
+    trajectoryOver: !traj.onTrack,             // projected month-end > cap
+    dailyOver: traj.todaySpend > dailyCap,     // today already past the daily slice
+  };
+}
+
+// Cost Ceiling 1.6 / Step 5a: pure daily-archive roll-up. Merges recent live daily entries
+// over the archive (live wins) and prunes anything older than `retentionDays` from `today`.
+export function rollupDailyCost(archive = {}, daily = {}, today, retentionDays = 730) {
+  const merged = { ...archive, ...daily };
+  const cutoff = new Date(`${today}T00:00:00Z`).getTime() - retentionDays * 86400000;
+  const out = {};
+  for (const [d, v] of Object.entries(merged)) {
+    const t = new Date(`${d}T00:00:00Z`).getTime();
+    if (!Number.isNaN(t) && t >= cutoff) out[d] = v;
+  }
+  return out;
 }
 
 // ─── MISC ─────────────────────────────────────────────────────

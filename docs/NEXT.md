@@ -8,26 +8,90 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT**:
-1. Sprint 1 Task 1.1 — Docs reconciliation (ROADMAP.md, NEXT.md, DECISIONS.md). ← this task
-2. Sprint 1 Task 1.2 — Per-source-per-content-type NVS+lifetime config extension in `SCORING_CONFIG_DEFAULTS`
-3. Sprint 1 Task 1.3 — Reorder pipeline so scoring runs AFTER fact extraction (currently scores on RSS metadata only)
+**NEXT** (Sprint 1 rescoped around **Method B** — see `docs/method-b-design.md`):
+1. **Deploy & observe** — `npx wrangler deploy -c wrangler-story.toml` + secrets, apply `0014_method_b.sql`, set KV `methodb:enabled=1`, then watch `/admin/pipeline` for a few days. Tune the rules pre-filter, delta prompt, and synthesis voice against real output. ← this task
+2. Step 3 — Haiku judge in `correlateToTopic` + `branch_of`/`sequel_of` edges (derbi→skandal, hoca krizi) + parallel claim-tracks (rakip-kulüp transfers). *(hold until shadow output observed.)*
 
 ---
 
-## OPEN TODOs — branch `claude/pipeline-didnt-run-HiGSZ` (added 2026-06-08)
+## ⚙️ AT-LAPTOP FOLLOW-UPS (need deploy / credentials / assets — can't be done from a web session)
 
-Outstanding follow-ups from the pipeline/cost/YouTube fixes on this branch. These are committed to code but NOT yet live or need manual steps:
+Everything below is committed & tested on branch `claude/github-file-access-Zqttd`; it just needs a machine with your Cloudflare/Supabase access. Do in order.
 
-- [ ] **DEPLOY the branch** (`npm run deploy`). Everything below lives in the deployed Worker, not the repo — none of it is live until deploy: quiet-period 06:30→06:00 fix, Sunday cron `0 2 * * 7` fix, prompt-cache fix (random voice patterns moved out of cached prefix), `SYNTHESIS_CAP_PER_RUN` 18→12, YouTube shared-keyword relevance check + per-run YT synthesis cap + official-first ordering.
-- [ ] **Flip Rabona `all_qualify` → false in the DB** via `/admin/sources` (the `all_qualify` checkbox). Runtime reads the flag from `source_configs` (DB) via `configsToYTChannels`; the hardcoded default in `src/youtube.js` is only the seed/fallback. Until the DB row is flipped, Rabona videos still bypass the keyword check.
-- [ ] **Clean up the 2 off-topic published articles** (set `status` off `published` + evict from KV pool `articles:BJK`):
-  - `2026-06-08-yuzmeden-kurege-genc-paralimpik-sampiyon-yigit-dogukan-bozkurtun-ilham`
-  - `2026-06-08-fenerbahcede-aziz-yildirim-donemi-yeniden-basliyor-kongre-guvenli-lima`
-- [ ] **Verify caching after deploy**: check `usage.cache_read_input_tokens` > 0 on synthesis calls (admin `/financials`). If still 0, the cached prefix is under Sonnet's 2048-token minimum — either consolidate stable text into the prefix or drop `cache_control` to stop paying write premiums.
-- [ ] **Homepage video rail bug** (in progress): "Video Öne Çıkanlar" 7-slot list pulls curated `rail_fallback_video_slugs` (unutulmazlar) instead of the 7 most-recent videos, because the main pool is capped at 3 videos (`rankAndEvict` MAX_VIDEOS) so `buildVideoRail`'s recency pass has nothing left and falls through to the curated fallback. Fix = supply recent videos to the rail without a per-request DB hit.
+### 1. Deploy  *(brings everything from this session live)*
+- [ ] `git pull origin claude/github-file-access-Zqttd`
+- [ ] `./deploy.sh`  — guided: `wrangler login` → secrets → deploys **both** workers. (`./deploy.sh --quick` later = just redeploy.)
+- [ ] Secrets (first time, the script prompts): `SUPABASE_SERVICE_KEY`, `ANTHROPIC_API_KEY` for `wrangler-story.toml`.
+- [ ] **Run the migration** in Supabase SQL editor: `docs/migrations/0014_method_b.sql` (additive). ⚠ **before** arming Method B.
+
+### 2. Verify after deploy  *(things I couldn't check without a live deploy)*
+- [ ] `/admin/config` shows the new **"0. Pipeline (serving)"** toggle card.
+- [ ] `/admin/pipeline` compare page loads.
+- [ ] Open any article → confirm the **IT6 card** shows as hero + `og:image` (view-source the meta tag).
+- [ ] **Homepage feed:** confirm the React widget renders the injected `image_url` cards correctly (the one spot I couldn't see — if layout breaks, revert the `withCards` map in the `/cache` route).
+- [ ] `https://kartalix.com/card/<any-slug>.svg` renders.
+
+### 3. Method B — arm, observe, tune, cut over
+- [ ] Arm: KV `methodb:enabled = 1` (`wrangler kv key put --namespace-id=dedaea653ed542cca25e6cc2551dd1c3 methodb:enabled 1`). *(Migration must be applied first.)*
+- [ ] Watch `/admin/pipeline` a few days: volume, latency, **€/day**, article quality vs legacy.
+- [ ] Tune: rules pre-filter (`worker-story-agent.js` `rulesPreFilterDelta`), delta prompt (`detectDeltaLLM`), synthesis voice (`synthesizePhase`).
+- [ ] When it beats legacy on the gates → **flip** serving to Method B on `/admin/config` (instant, reversible). Per-site canary: BJK first.
+- [ ] Pause anytime: KV `methodb:enabled = 0`.
+
+### 4. IT6 cards — turn on real photos (asset step)
+- [ ] Source ~15 **CC0** stadium/crowd/floodlight photos (Pexels/Pixabay — no attribution needed).
+- [ ] Host them (own domain or Cloudflare R2).
+- [ ] Set KV `card:bg_pool` = JSON array of those URLs → cards become photographic automatically (empty pool = procedural).
+
+### 5. Legal — the budgeted lawyer consult (~€300–500)  *(see ROADMAP stakeholders)*
+- [ ] Confirm **API-Football** licence permits commercial image display + ads (option 3 for player/team photos).
+- [ ] Confirm **AA (Anadolu Ajansı)** subscription terms if you want licensed press photos.
+- [ ] Confirm **Wikimedia** attribution/share-alike mechanics before using CC-BY images.
+- [ ] Decision: **avoid AI-generated player likenesses** (personality-rights risk) — confirmed direction.
+
+### 6. (Optional) Enable connectors for future web sessions
+- [ ] In `claude.ai/code`, enable **Supabase** + **Cloudflare** connectors *for the session* (per-session, not the app's global list) — then I can run migrations / set KV from a web session. See `code.claude.com/docs/.../claude-code-on-the-web`.
+
+### 7. (Supervised) Finish the shared-presentation DRY refactor
+Worker + SPA duplicate render logic (two artifacts, two deploys → "fix twice"). Prepared on the worker side; the SPA side needs a browser check, so do it at a desk.
+- **Done (worker side, 2026-06-06):** `src/shared.js` is the single source — `esc`, `isKartalix`, `videoEmbedHtml`, re-exported `articleBodyToHtml`, + staged `badgeFor`/`TEMPLATE_BADGES`/`BADGE_CLASS`/`BADGE_COLOR`/`CAT_ICONS`/`TRUST_LABELS`. Worker now imports `isKartalix` + `videoEmbedHtml` from it (no behavior change).
+- [ ] **C (supervised):** make Pages serve `src/shared.js` at a stable URL (e.g. `/shared.js` via `_routes.json`/copy), then in `index.html` `<script type="module">import {...} from '/shared.js'` and replace the SPA's `AV_BADGE_MAP`→`badgeFor`+`BADGE_COLOR`, `isKartalix`, `CAT_ICONS`/`TRUST_LABELS`, and `buildBodyHtml`→`articleBodyToHtml`. Browser-check the article + homepage after. ⚠ deploy **both** artifacts.
+- [ ] **A (supervised):** switch the worker's local `BADGE_MAP`/category badge logic to `badgeFor`+`BADGE_CLASS` (so worker + SPA share the badge decision). Verify badges unchanged on the server article page.
+- [ ] (Optional, low prio) Unify the per-page client-side `esc` copies via one injected `SHARED_JS` snippet — low value, skip unless tidying.
+- ❌ **B (server-render/SPA-hydrate) — parked**, not a todo (A captures ~80% at far less risk).
+
+### Deferred (tracked, not blocking)
+- IT2 official-embed resolver (next image tier — genuine in-body source imagery).
+- Method B Step 3 (after observation).
+- Tech debt: Turkish-aware dedup (`normalizeTitle` / `KEY_TOKEN_RE`) — see ROADMAP "Known Issues / Tech Debt", v1.1.
 
 ---
+
+**Done:**
+- Method B design + diagram (DECISIONS 2026-06-05).
+- Shadow worker scaffold — `worker-story-agent.js`, `wrangler-story.toml`, `0014_method_b.sql` (additive). Inert by default.
+- Step 2 core — correlate → rules-pre-filter → Haiku delta → Sonnet synthesis-from-facts into shadow pool; cost counted vs shared cap + methodb-only counter; budget-bounded (`SHADOW_SYNTH_CAP`).
+- `/admin/pipeline` compare page (legacy vs methodb side-by-side + last-run tally + methodb cost).
+- **Cutover seam** — `getServedArticles` blue/green resolver (per-site `pipeline:active` pointer, defaults legacy, cold-start fallback) wired into the `/cache` serving path; `/admin/pipeline/flip` endpoint driven by the **`/admin/config` "0. Pipeline (serving)" toggle** (the `/admin/pipeline` compare page is read-only and links to config). Instantly reversible, safe-by-default.
+- Laptop-free reconcile: **P0.3** (byline+date) and **P2.1** (sitemap exclusions) were already live; P2.1 also now drops thin `copy_source`.
+- **IT6 generated cards** (imageless-news fix) — `src/card.js` owned SVG card (headline + category + BJK colours + Kartalix mark + generic motif, no third-party IP, €0, AdSense-safe). `/card/{slug}.svg` route; wired as fallback `image_url` on the article page (hero + og:image + twitter:image) and the `/cache` homepage feed (non-video, imageless only). Needs no lawyer consult (pure own-work). Licensed/embed tiers (IT2/API-Football/AA/Wikimedia) remain for deliberate upgrade — see ROADMAP Visual Assets + lawyer consult.
+  - **Procedural style** (grain + floodlight bokeh + pitch lines + watermark) + 6 seed-varied colour variants — less "PPT", more designed news image.
+  - **CC0 photo mode**: set KV `card:bg_pool` = JSON array of CC0 image URLs (host on own domain/R2). The route hash-assigns one per slug, fetches + base64-inlines it (SVG-as-`<img>` blocks external fetches), with a dark scrim + headline overlay. Empty pool / any failure → procedural (safe-by-default). **Asset step:** source ~15 CC0 stadium/crowd photos (Pexels/Pixabay).
+
+**Done / descoped:**
+- Task 1.1 — Docs reconciliation (ROADMAP/NEXT/DECISIONS). ✅ commit `0f64196`
+- Task 1.2 — Per-source-per-content-type NVS+lifetime config. ❌ **descoped 2026-06-03** — tier multiplier + per-type half-life already cover it. See DECISIONS.md 2026-06-03.
+- Task 1.3 — Narrow re-score-after-extraction. ↗ **superseded 2026-06-05** by Method B (the re-score is subsumed by scoring-as-triage in the new pipeline). See DECISIONS.md 2026-06-05.
+
+---
+
+## Reconciliation & hardening (2026-06-05)
+
+- **Roadmap reconciled.** Three "open" items were already shipped: Task 1.2 (descoped), **P0.3** byline+date (live at `worker:7581/7582/7483`), **P2.1** sitemap exclusions (`serveSitemap` already drops rss_summary + transient templates; also added thin `copy_source`). Worker-split / cockpit / Lighthouse / mobile items confirmed genuinely open.
+- **Test safety net added** (no prior coverage): `scoring-core.test.js` (getEffectiveNVS/getHalfLife/getTrustMultiplier/computeScore) + `dedup.test.js` (normalizeTitle/titleSimilarity/sharedStoryTokens/dedupeByTitle/dedupeByStory). Suite now 100 tests.
+- **Bug found + fixed via tests:** the dedup tokenizer truncates a trailing Turkish `ş` (ASCII word boundary), so `Beşiktaş`→`beşikta` and the stopword `beşiktaş` never matched — BJK club name was counting as a meaningful shared token, nudging unrelated articles toward false dedup. Fixed by adding stem forms to `DEDUP_STOPWORDS` (`beşikta`, `kartal`, `siyah`, `beyaz`).
+- **Known limitation documented (NOT changed — would shift live dedup):** `normalizeTitle` strips all Turkish diacritics (`\w` is ASCII-only), so `açıkladı`→`aklad`. Degrades titleSimilarity for Turkish. Locked in tests as current behaviour; fix deliberately, with observation, later.
+- **Shadow worker hardened:** Method B now returns early (no cursor advance) when the monthly cost cap is hit, so a budget-blocked batch is retried rather than silently skipped.
 
 ## Recent sessions summary (2026-05-29 – 2026-06-03)
 

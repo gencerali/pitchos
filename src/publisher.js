@@ -1,5 +1,6 @@
 ﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, getVoicePatterns, addUsagePhase, addCost, flushCostStats, saveSourceFact } from './utils.js';
 import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens } from './processor.js';
+import { articleBodyToHtml } from './render.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
 // Note: getBJKLastLineupData + getOpponentLastLineup imported by caller (worker) to avoid circular deps
@@ -627,7 +628,9 @@ Kurallar:
 - Kaynak metinde tırnak içinde alıntı varsa kelimesi kelimesine koru
 - DOĞRULANMIŞ VERİLER arka plan bilgisidir: sezon bağlamını habere işle ama birebir aktarma
 - Paragraflar arası boş satır bırak
-- Başlık ekleme`;
+- Haber 350 kelimeyi aşarsa konuyu bölen EN FAZLA 2 kısa ara başlık kullan: kendi satırında "## Ara Başlık", ASLA ilk paragraftan önce. Daha kısa haberlerde ara başlık yok.
+- Çok önemli bir ifadeyi **kalın** yapabilirsin (nadiren)
+- Ana başlık (H1) ekleme`;
   const systemPrompt = [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }];
 
   // Dynamic suffix: per-article content + random voice patterns. Not cached — changes every call.
@@ -1540,6 +1543,24 @@ export async function cacheToKV(env, siteCode, articles, opts = {}) {
 }
 
 export async function getCachedArticles(env, siteCode) {
+  const cached = await env.PITCHOS_CACHE.get(`articles:${siteCode}`);
+  return cached ? JSON.parse(cached) : [];
+}
+
+// Blue/green serving resolver (Method B cutover seam — docs/method-b-design.md §7).
+// Returns the pool the PUBLIC site should serve, honouring the per-site `pipeline:active`
+// pointer. Defaults to 'legacy' (identical to getCachedArticles). If 'methodb' is selected
+// but its shadow pool isn't ready/non-empty, falls back to legacy (cold-start gate) so a
+// premature flip can never serve a blank homepage.
+export async function getServedArticles(env, siteCode) {
+  const active = (await env.PITCHOS_CACHE.get(`pipeline:active:${siteCode}`).catch(() => null)) || 'legacy';
+  if (active === 'methodb') {
+    try {
+      const raw = await env.PITCHOS_CACHE.get(`articles:${siteCode}:methodb`);
+      const p = raw ? JSON.parse(raw) : null;
+      if (p?.ready && Array.isArray(p.articles) && p.articles.length > 0) return p.articles;
+    } catch { /* fall through to legacy */ }
+  }
   const cached = await env.PITCHOS_CACHE.get(`articles:${siteCode}`);
   return cached ? JSON.parse(cached) : [];
 }
@@ -3137,6 +3158,9 @@ KURALLAR:
 - Ardından boş bir satır bırak
 - Transkriptteki önemli tüm bilgileri kapsa; içerik ne kadar önemliyse o kadar uzun yaz. Gereksiz tekrardan kaçın ama bilgiyi kısaltma.
 - Önemli alıntıları ve kilit argümanları öne çıkar
+- Paragraflar arası boş satır bırak
+- Haber 350 kelimeyi aşarsa konuyu bölen EN FAZLA 2 kısa ara başlık kullan: kendi satırında "## Ara Başlık", ASLA ilk paragraftan önce. Daha kısa haberlerde ara başlık yok.
+- Çok önemli bir ifadeyi **kalın** yapabilirsin (nadiren kullan)
 - ${video.channel_name}'e atıf yaparak aktarım yap
 - Sade, bilgilendirici haber dili. Emoji yok.`;
 
@@ -3151,11 +3175,8 @@ KURALLAR:
   if (bodyText.length < 100) return null;
 
   const slug = generateSlug(title, video.published_at);
-  const bodyHtml = bodyText
-    .split(/\n\n+/)
-    .map(p => `<p>${p.trim()}</p>`)
-    .filter(p => p.length > 7)
-    .join('\n');
+  // Shared converter: paragraphs + **bold** + gated ## subheads (same as the renderers).
+  const bodyHtml = articleBodyToHtml(bodyText, { publishMode: includeEmbed ? 'youtube_embed_synthesis' : 'youtube_synthesis' });
   const embedHtml = includeEmbed
     ? `\n<div class="yt-embed" style="margin:1.5rem 0"><iframe width="100%" height="380" src="https://www.youtube.com/embed/${video.video_id}" frameborder="0" allowfullscreen loading="lazy" style="border-radius:6px;display:block"></iframe></div>`
     : '';

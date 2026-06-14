@@ -1,4 +1,5 @@
-import { bjkMatch, BJK_KEYWORDS } from './utils.js';
+import { bjkMatch } from './utils.js';
+import { isRivalSubject } from './processor.js';
 
 // ─── YOUTUBE ATOM FEED FETCHER ────────────────────────────────
 // Public Atom feeds, no auth, no quota.
@@ -18,10 +19,8 @@ export const YOUTUBE_CHANNELS = [
   { id: 'UCJElRTCNEmLemgirqvsW63Q', name: 'A Spor',             tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
   { id: 'UCebdo7-2NdjcktKzco64iNw', name: 'TRT Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
 
-  // Digital / analysis — Fırat Günayer videos on Rabona; transcript synthesis only, no embed.
-  // all_qualify=false: Rabona is a general Turkish-football channel (covers FB/GS, human-interest),
-  // NOT a BJK-only channel, so every video must pass the keyword relevance check.
-  { id: 'UCpj3LeIWetKktdIJQcBx-uw', name: 'Rabona Digital',     tier: 'digital',    all_qualify: false, embed_qualify: false, transcript_qualify: true  },
+  // Digital / analysis — Fırat Günayer videos on Rabona; transcript synthesis only, no embed
+  { id: 'UCpj3LeIWetKktdIJQcBx-uw', name: 'Rabona Digital',     tier: 'digital',    all_qualify: true,  embed_qualify: false, transcript_qualify: true  },
 
   // Additional channels — add channel IDs below (find via youtube.com/@handle → About → Share → Copy channel ID)
   // { id: 'UC___NTVSpor___',    name: 'NTV Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
@@ -31,8 +30,18 @@ export const YOUTUBE_CHANNELS = [
 ];
 
 const EXCLUDE_TERMS = ['#shorts', ' shorts '];
-// Matches "YYYY/YYYY" season notation for pre-2024 seasons (e.g. "2016/2017", "2022/2023")
-const ARCHIVE_SEASON_RE = /\b20(0[0-9]|1[0-9]|2[0-3])\/20\d{2}\b/;
+// Any "YYYY/YYYY" season tag. We drop tags OLDER than the current season — derived from the
+// clock, so there is NO hardcoded year to maintain (see currentSeasonStartYear).
+const SEASON_TAG_RE = /\b(20\d{2})\/20\d{2}\b/;
+const HIGHLIGHT_RE  = /özet|highlights/i;
+const HIGHLIGHT_MAX_AGE_DAYS = 14;            // a match highlight older than this is archive / re-surfaced
+// Süper Lig (and most European) seasons start ~August; before July we are still in the prior season.
+function currentSeasonStartYear(now = new Date()) {
+  return now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+}
+// Live streams (e.g. "… | Canlı Yayın") — embedding them produces a dead "live stream
+// offline" player once the broadcast ends, so they must not become embed articles. (2026-06-06)
+const LIVE_STREAM_RE = /canlı yayın|canli yayin|live\s?stream|livestream|🔴/i;
 
 // ─── MATCH VIDEO CLASSIFICATION ───────────────────────────────
 // Returns a match video type when the video is clearly linked to a Süper Lig
@@ -147,15 +156,22 @@ export async function fetchYouTubeTranscript(videoId) {
 }
 
 // Hard pre-filter — drops shorts, archive re-uploads, and off-topic content.
-// all_qualify channels (e.g. official BJK) are pre-vetted: every video is relevant.
-// For all other channels, run the SAME relevance check as the RSS pipeline — the
-// site's editable keyword_config list (passed in as `keywords`, falling back to
-// BJK_KEYWORDS) against title + description — so there is one keyword list to maintain.
-export function qualifyYouTubeVideo(video, keywords = BJK_KEYWORDS) {
+// For broadcast/digital channels (all_qualify=false), title must mention Beşiktaş.
+export function qualifyYouTubeVideo(video, now = new Date()) {
   const t = video.title.toLowerCase();
   if (EXCLUDE_TERMS.some(k => t.includes(k))) return false;
-  if (ARCHIVE_SEASON_RE.test(video.title)) return false;
-  if (!video.all_qualify && !bjkMatch(`${video.title} ${video.description || ''}`, keywords)) return false;
+  // Older-season catalog upload (self-updating: title's season tag vs the current season).
+  const seasonTag = video.title.match(SEASON_TAG_RE);
+  if (seasonTag && Number(seasonTag[1]) < currentSeasonStartYear(now)) return false;
+  // Stale match highlight: relevant ~2 weeks; an older upload is an archive / re-surfaced clip.
+  if (HIGHLIGHT_RE.test(t) && video.published_at &&
+      (now - new Date(video.published_at)) / 86400000 > HIGHLIGHT_MAX_AGE_DAYS) return false;
+  if (LIVE_STREAM_RE.test(video.title)) return false; // live broadcasts → dead embed when they end
+  if (video.url && /youtube\.com\/live\//i.test(video.url)) return false; // /live/ URL form
+  // Rival guard — applies even to all_qualify channels (which skip the bjkMatch check below),
+  // e.g. a digital analysis channel covering a rival. Parity with preFilter Stage 1.6. (2026-06-06)
+  if (isRivalSubject(video.title)) return false;
+  if (!video.all_qualify && !bjkMatch(video.title)) return false;
   return true;
 }
 

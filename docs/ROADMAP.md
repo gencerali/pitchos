@@ -82,7 +82,7 @@ Goal: improve from estimated 60-70% to 85%+ approval probability before reviewer
 **P0 — must land in first week of review window:**
 - [x] **P0.1** Audit thin-content indexing: `noindex` on T10/T11 flash cards, `rss_summary` articles excluded from ads and sitemap; `shouldShowAds()` blocks ad rendering on flash templates
 - [x] **P0.2** Rewrite trust pages with real substance: Editorial Policy live at `/editoryal-politika`, About/Contact/Privacy all live — **copy must be Ali's own writing** *(About page content reviewed and approved 2026-05-26)*
-- [ ] **P0.3** Add consistent byline on every article: "Kartalix Editorial · Ali [Surname]" or equivalent; add visible publication date
+- [x] **P0.3** Add consistent byline on every article: "Kartalix Editorial · Ali [Surname]" or equivalent; add visible publication date *(already live: `worker-fetch-agent.js:7581` byline "Kartalix Editöryel · Ali Gencer", :7582 `<time>` date, :7483 schema author; verified 2026-06-05)*
 
 **P1 — within 2 weeks:**
 - [ ] **P1.1** Read top 20 published articles critically; improve weakest 5 for substance and depth
@@ -90,7 +90,7 @@ Goal: improve from estimated 60-70% to 85%+ approval probability before reviewer
 - [x] **P1.3** Source attribution visible on every article (credit + link to original)
 
 **P2 — when possible:**
-- [ ] **P2.1** Sitemap: exclude rss_summary articles, T10/T11 cards older than 24h, archived articles
+- [x] **P2.1** Sitemap: exclude rss_summary articles, T10/T11 cards older than 24h, archived articles *(largely already live in `serveSitemap` — excludes `rss_summary` + noindex templates T10/T11/T-RED/T-VAR/T-PEN/T-HT; archived never enter the KV pool it reads. 2026-06-05: also excludes thin `copy_source`.)*
 - [x] **P2.2** `/ads.txt` live with correct AdSense publisher ID (`ca-pub-5282305686231853`), served as `text/plain`
 - [ ] **P2.3** Lighthouse: LCP <2.5s, CLS <0.1, INP <200ms mobile
 - [ ] **P2.4** Mobile usability pass — no horizontal scroll, tap targets adequate
@@ -454,6 +454,26 @@ KV ceiling, Supabase dedup, age penalty, 7-band NVS, story dedup.
 Cloudflare Worker live, Claude API connected, KV cache, cron trigger, Supabase logging.
 
 ---
+
+## Known Issues / Tech Debt
+
+Found-but-deferred fixes. Each is documented where it lives and (where risky to change) locked in tests as current behaviour, so the fix is a deliberate, observed change — not a drive-by.
+
+| Issue | Impact | Risk to fix | Target | Notes |
+|-------|--------|-------------|--------|-------|
+| `normalizeTitle` strips Turkish diacritics (`\w` is ASCII-only) — `açıkladı`→`aklad` | Degrades `titleSimilarity` for Turkish; weakens dedup quality | 🟡 Med — changes live dedup results across the pipeline | v1.1 | Locked in `dedup.test.js`. Fix = Unicode-aware normalize (`\p{L}` or explicit TR class); validate dedup deltas in shadow before shipping. Found 2026-06-05. |
+| `KEY_TOKEN_RE` truncates trailing Turkish letters (`Beşiktaş`→`beşikta`) — same ASCII-boundary root cause | Stemmed tokens; needed stopword stems as a workaround | 🟡 Med — affects `sharedStoryTokens` matching | v1.1 | Mitigated 2026-06-05 by adding stem forms to `DEDUP_STOPWORDS` (`beşikta`, `kartal`, `siyah`, `beyaz`). Full fix = Unicode-aware tokenizer; bundle with the `normalizeTitle` fix. |
+| Relevance is LLM-only for **body-led** rival/off-topic stories (title names no rival) | A rival-centric story whose title doesn't name the rival still relies on the Haiku scorer | 🟡 Med | v1.1 | `isRivalSubject` (2026-06-06) deterministically catches *title-led* rival stories (articles + videos); body-led ones still depend on the scorer, which only sees title + `summary[:200]`. Consider a body-level rival-dominance check or feeding more body text to the scorer. |
+| `bjkMatch` token-match misses agglutinated Turkish suffixes (`Beşiktaşlı`, `Kartallar`, `Beşiktaşa`) | False **negatives** — legit BJK articles dropped as off_topic (`tokenSet` splits on punctuation/apostrophes but not pure agglutination) | 🟡 Med | v1.1 | Same Turkish-morphology root as the dedup/rival bugs. Partly mitigated by listing common plurals in `BJK_KEYWORDS`. Full fix = stem-aware match. |
+| `nvs_hint` sources bypass `scoreArticles` relevance scoring | Any source with `nvs_hint` set (all videos; RSS if configured) skips the `relevant`/`rival_pov` caps and publishes at the preset NVS | 🟡 Med | v1.1 | By design for videos (now backstopped by the `qualifyYouTubeVideo` rival guard). Risk if `nvs_hint` is set on a general RSS source — no relevance gate then except preFilter. Document/guard before using on RSS. |
+
+| `sanitize` strips only *quoted* event handlers (`on*="…"`) | An unquoted handler (`onerror=1`) inside an HTML-passthrough body would survive sanitize | 🟢 Low — article bodies are LLM-generated, not user input | v1.1 | Found 2026-06-06 while building `src/render.js`. Tighten the handler regex (`/\son\w+\s*=\s*[^\s>]+/`) if untrusted HTML ever reaches the body. |
+
+**Resolved (for traceability):**
+- ✅ 2026-06-06 — YouTube live streams (e.g. "… | Canlı Yayın" signing ceremonies) ingested as embeds, then showed "live stream offline" once the broadcast ended. Fix: `qualifyYouTubeVideo` rejects live-stream titles (`canlı yayın`/`live stream`/🔴) and `/live/` URLs — even on the all_qualify official channel. Guarded by `youtube-qualify.test.js`. *(Existing dead live articles need manual cleanup — they aren't auto-removed.)*
+- ✅ 2026-06-05 — Dedup stopword bug: club name `Beşiktaş` counted as a meaningful shared token (stopword never matched the truncated token), biasing dedup toward false matches. Fixed in `src/processor.js`; guarded by `dedup.test.js`.
+- ✅ 2026-06-06 — Rival news published on BJK site (Fenerbahçe genel-kurul article). Root cause: loose keyword gate (passing BJK mention) + the LLM relevance scorer misrated it relevant (NVS≥30). Fix: `isRivalSubject` deterministic guard in `preFilter` (Stage 1.6) rejects rival-led titles with no BJK angle; guarded by `rank-and-prefilter.test.js`. Note: same Turkish-suffix matching trap as the dedup bug — guard uses substring + `BJK_REGEX`, not token match.
+- ✅ 2026-06-06 — Video path parity (audit follow-up): YouTube videos bypass `preFilter` + `scoreArticles` (publish at `nvs_hint` NVS 72); their only gate was `qualifyYouTubeVideo`, and `all_qualify` channels (e.g. a digital analysis channel) skipped even the `bjkMatch` check — a rival-topic video could publish. Fix: `qualifyYouTubeVideo` now applies `isRivalSubject` to all channels; guarded by `youtube-qualify.test.js`.
 
 ## Post-Launch Backlog (v1.1+)
 

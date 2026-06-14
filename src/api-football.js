@@ -8,7 +8,14 @@ import { supabase } from './utils.js';
 const BASE_URL  = 'https://v3.football.api-sports.io';
 const BJK_ID    = 549;    // Beşiktaş JK (verified 2026-04-29)
 const SUPERLIG  = 203;    // Trendyol Süper Lig
-const SEASON    = 2025;   // 2025–26 season
+const SEASON    = 2025;   // 2025–26 season — UPDATE each ~August (see docs/SEASONAL.md)
+
+// Maintenance guard: returns { season, expected, stale }. `stale` is true when the hardcoded
+// SEASON has fallen behind the calendar season. Surfaced on /admin/alarms so it nags you to update.
+export function seasonConfigStale(now = new Date()) {
+  const expected = now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1;
+  return { season: SEASON, expected, stale: SEASON < expected };
+}
 
 export async function apiFetch(path, env) {
   if (!env.API_FOOTBALL_KEY) {

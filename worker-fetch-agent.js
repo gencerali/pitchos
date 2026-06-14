@@ -9,13 +9,18 @@
  *   4. Caches articles to KV (fan site reads from here)
  *   5. Logs cost + results to Supabase
  */
-import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle, saveSourceFact } from './src/utils.js';
+import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, costTrajectory, costAlarmConditions, rollupDailyCost, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle, saveSourceFact } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
-import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
+import { renderArticleCardSVG, pickBackground } from './src/card.js';
+import { articleBodyToHtml } from './src/render.js';
+import { isKartalix as isKartalixArticle, videoEmbedHtml } from './src/shared.js';
+import { computeSourceHealth, sourceHealthAlarms } from './src/source-health.js';
+import { buildNav } from './src/shared/nav.js';
+import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup, seasonConfigStale } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
 // ─── CRON INTERVAL HELPER ────────────────────────────────────
@@ -390,13 +395,10 @@ export default {
     if (url.pathname === '/cache') {
       const siteCode = url.searchParams.get('site') || 'BJK';
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET' };
-      const [cached, config, railRaw] = await Promise.all([
-        env.PITCHOS_CACHE.get(`articles:${siteCode}`),
+      const [articles, config] = await Promise.all([
+        getServedArticles(env, siteCode), // blue/green pointer-aware (defaults legacy)
         loadSiteConfig(env, siteCode).catch(() => null),
-        env.PITCHOS_CACHE.get(`videorail:${siteCode}`).catch(() => null),
       ]);
-      const articles = cached ? JSON.parse(cached) : [];
-      const rail_recent = railRaw ? JSON.parse(railRaw) : [];   // 15 most recent videos, refreshed each cron
       const fallbackSlugs = config?.rail_fallback_video_slugs || [];
       let rail_fallback = [];
       if (fallbackSlugs.length > 0) {
@@ -417,7 +419,12 @@ export default {
         const allBySlug = new Map([...fromKV.map(a => [a.slug, a]), ...fromDb.map(a => [a.slug, a])]);
         rail_fallback = fallbackSlugs.map(s => allBySlug.get(s)).filter(Boolean);
       }
-      return new Response(JSON.stringify({ articles, rail_fallback, rail_recent }), { headers: h });
+      // IT6 fallback: give imageless non-video articles an owned generated-card image.
+      const withCards = articles.map(a =>
+        (a.image_url || !a.slug || ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'].includes(a.publish_mode))
+          ? a
+          : { ...a, image_url: `${BASE_URL}/card/${encodeURIComponent(a.slug)}.svg` });
+      return new Response(JSON.stringify({ articles: withCards, rail_fallback }), { headers: h });
     }
     if (url.pathname === '/report') {
       const report = await buildReport(env);
@@ -1064,12 +1071,11 @@ export default {
 
         for (const channel of channels) {
           const videos    = await fetchYouTubeChannel(channel, since).catch(() => []);
-          const ytKeywords = site.keyword_config?.keywords;
           const qualified = videos.filter(v => {
             const watchUrl = `https://www.youtube.com/watch?v=${v.video_id}`;
-            return qualifyYouTubeVideo(v, ytKeywords) && !seenUrls.has(watchUrl);
+            return qualifyYouTubeVideo(v) && !seenUrls.has(watchUrl);
           });
-          const skipped   = videos.filter(v => !qualifyYouTubeVideo(v, ytKeywords)).map(v => v.title);
+          const skipped   = videos.filter(v => !qualifyYouTubeVideo(v)).map(v => v.title);
 
           if (doPublish) {
             for (const video of qualified.slice(0, 2)) {
@@ -1922,6 +1928,25 @@ export default {
       for (let i = 1; i <= 2; i++) { const d2 = new Date(now2); d2.setMonth(d2.getMonth()-i); costMonths.push(d2.toISOString().slice(0,7)); }
       const costHistory = await Promise.all(costMonths.map(async m => ({ month: m, usd: parseFloat((await env.PITCHOS_CACHE.get(`cost:${m}`)) || '0') })));
 
+      // Daily series for the cost chart (Cost Ceiling 1.6 / Step 5b): durable archive (long
+      // tail) merged with the last ~35 live daily keys. Plus the month-end trajectory.
+      let dailySeries = [];
+      let trajectory = null;
+      try {
+        const archiveRaw = await env.PITCHOS_CACHE.get('cost:daily_archive');
+        const merged = archiveRaw ? JSON.parse(archiveRaw) : {};
+        for (let i = 0; i < 35; i++) {
+          const dd = new Date(now2); dd.setDate(dd.getDate() - i);
+          const ds = dd.toISOString().slice(0, 10);
+          const v = parseFloat((await env.PITCHOS_CACHE.get(`cost:day:${ds}`)) || '0');
+          if (v > 0) merged[ds] = v;
+        }
+        dailySeries = Object.entries(merged)
+          .map(([date, usd]) => ({ date, usd: +(+usd).toFixed(4) }))
+          .sort((a, b) => (a.date < b.date ? -1 : 1));
+        trajectory = await costTrajectory(env);
+      } catch (e) { console.log('cost daily series failed:', e.message); }
+
       // Aggregate 7-day breakdown from daily keys
       const brk7d = { total: 0, phases: {}, models: {}, runs: 0 };
       const brkDailyParsed = brkDailyRaw.map((r, i) => ({ day: last7[i], data: r ? JSON.parse(r) : null }));
@@ -1955,6 +1980,7 @@ export default {
           today:  brkDailyParsed[0]?.data || null,
         },
         art_count_mtd: (artRows || []).length,
+        daily: dailySeries, trajectory,
       };
       return new Response(
         renderFinancialsPage(monthsData, FIXED_ITEMS, costData, activeTab, sc, allSites),
@@ -2640,6 +2666,14 @@ Sadece JSON döndür:
       return Response.json({ ok: true, id });
     }
 
+    if (url.pathname === '/admin/source-health') {
+      const authErr = await requireOps(request, env); if (authErr) return authErr;
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      const raw = await env.PITCHOS_CACHE.get(`source_health:report:${currentSite.short_code}`).catch(() => null);
+      return Response.json(raw ? JSON.parse(raw) : { ts: null, sources: [] }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+
     if (url.pathname === '/admin/alarms') {
       const authErr = await requireOps(request, env); if (authErr) return authErr;
       const SITE = '2b5cfe49-b69a-4143-8323-ca29fff6502e';
@@ -2790,6 +2824,43 @@ Sadece JSON döndür:
         stateDirty = true;
       }
 
+      // 7. Cost trajectory + daily overage (Cost Ceiling 1.6) — detected in runAlarmChecks.
+      if (state.cost_traj_detail) {
+        alarms.push({
+          id: 'cost_trajectory', category: 'major',
+          title: `Cost on pace to exceed cap (${state.cost_traj_detail.pct}%)`,
+          msg: `Projected month-end $${state.cost_traj_detail.projected} of $${state.cost_traj_detail.cap} cap (${state.cost_traj_detail.basis} basis)`,
+          first_seen: state.alarm_first_seen.cost_trajectory,
+        });
+      }
+      if (state.cost_daily_detail) {
+        alarms.push({
+          id: 'cost_daily', category: 'minor',
+          title: 'Daily cost over budget',
+          msg: `Today $${state.cost_daily_detail.today} > daily cap $${state.cost_daily_detail.dailyCap}`,
+          first_seen: state.alarm_first_seen.cost_daily,
+        });
+      }
+
+      // 8. Source health (Module 1.1) — dead/noisy feeds (computed daily by runSourceHealth).
+      const shRaw = await env.PITCHOS_CACHE.get('source_health:alarms').catch(() => null);
+      const sh = shRaw ? JSON.parse(shRaw) : null;
+      if (sh?.dead?.length) {
+        alarms.push({ id: 'source_dead', category: 'major', title: `Dead source(s) (${sh.dead.length})`, msg: sh.dead.join(', '), first_seen: sh.ts });
+      }
+      if (sh?.noisy?.length) {
+        alarms.push({ id: 'source_noisy', category: 'minor', title: `Noisy source(s) (${sh.noisy.length})`, msg: sh.noisy.join(', '), first_seen: sh.ts });
+      }
+
+      // 9. Seasonal config staleness — nags to update SEASON in src/api-football.js each ~August.
+      const seasonCfg = seasonConfigStale();
+      if (seasonCfg.stale) {
+        alarms.push({ id: 'season_stale', category: 'minor',
+          title: 'Sezon yapılandırması güncel değil',
+          msg: `SEASON=${seasonCfg.season}, takvim sezonu ~${seasonCfg.expected}/${seasonCfg.expected + 1}. src/api-football.js içindeki SEASON'ı güncelleyin (docs/SEASONAL.md).`,
+          first_seen: new Date().toISOString() });
+      }
+
       if (stateDirty) {
         env.PITCHOS_CACHE.put('alarms:state', JSON.stringify(state), { expirationTtl: 86400 * 7 }).catch(() => {});
       }
@@ -2868,13 +2939,54 @@ Sadece JSON döndür:
       if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
       const allSites = await getActiveSites(env);
       const currentSite = resolveSite(url, allSites);
-      const [kvRaw, auditRaw] = await Promise.all([
+      const [kvRaw, auditRaw, activeRaw, mbEnabledRaw] = await Promise.all([
         env.PITCHOS_CACHE.get(`config:${currentSite.short_code}`).catch(() => null),
         env.PITCHOS_CACHE.get(`config_audit:${currentSite.short_code}`).catch(() => null),
+        env.PITCHOS_CACHE.get(`pipeline:active:${currentSite.short_code}`).catch(() => null),
+        env.PITCHOS_CACHE.get('methodb:enabled').catch(() => null),
       ]);
       const kvConfig  = kvRaw   ? JSON.parse(kvRaw)   : null;
       const auditLog  = auditRaw ? JSON.parse(auditRaw) : [];
-      return new Response(renderAdminConfigPage(currentSite, kvConfig, currentSite.short_code, allSites, auditLog), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      return new Response(renderAdminConfigPage(currentSite, kvConfig, currentSite.short_code, allSites, auditLog, activeRaw || 'legacy', mbEnabledRaw === '1'), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
+    if (url.pathname === '/admin/pipeline') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return new Response(renderPinPage(url.pathname), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+      const allSites = await getActiveSites(env);
+      const currentSite = resolveSite(url, allSites);
+      const code = currentSite.short_code;
+      const month = new Date().toISOString().slice(0, 7);
+      const [liveRaw, shadowRaw, statusRaw, enabledRaw, costRaw, activeRaw] = await Promise.all([
+        env.PITCHOS_CACHE.get(`articles:${code}`).catch(() => null),
+        env.PITCHOS_CACHE.get(`articles:${code}:methodb`).catch(() => null),
+        env.PITCHOS_CACHE.get(`methodb:status:${code}`).catch(() => null),
+        env.PITCHOS_CACHE.get('methodb:enabled').catch(() => null),
+        env.PITCHOS_CACHE.get(`methodb:cost:${month}`).catch(() => null),
+        env.PITCHOS_CACHE.get(`pipeline:active:${code}`).catch(() => null),
+      ]);
+      let live = [];   try { live = liveRaw ? JSON.parse(liveRaw) : []; } catch {}
+      let shadow = []; try { const p = shadowRaw ? JSON.parse(shadowRaw) : null; shadow = p?.articles || []; } catch {}
+      const status = statusRaw ? JSON.parse(statusRaw) : null;
+      return new Response(
+        renderPipelineComparePage(currentSite, allSites, live, shadow, status, enabledRaw === '1', parseFloat(costRaw || '0'), activeRaw || 'legacy'),
+        { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+    }
+
+    // Blue/green cutover flip (Method B design §7). Sets the per-site serving pointer.
+    // Default 'legacy' = no change; 'methodb' only serves once its shadow pool is ready
+    // (getServedArticles enforces the cold-start gate). Instantly reversible.
+    if (url.pathname === '/admin/pipeline/flip' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const body = await request.json().catch(() => ({}));
+      const target = body.target === 'methodb' ? 'methodb' : 'legacy';
+      const code = (body.site || 'BJK').toString();
+      const flipSites = await getActiveSites(env);
+      if (!flipSites.some(s => s.short_code === code)) return Response.json({ error: 'unknown site' }, { status: 400 });
+      await env.PITCHOS_CACHE.put(`pipeline:active:${code}`, target);
+      console.log(`PIPELINE FLIP [${code}] → ${target}`);
+      return Response.json({ ok: true, site: code, active: target });
     }
 
     if (url.pathname === '/admin/config/save' && request.method === 'POST') {
@@ -3880,6 +3992,49 @@ Sadece JSON döndür:
       } catch(e) { return Response.json({ ok: false, error: e.message }, { status: 500, headers: h }); }
     }
 
+    // Version stamp — confirms WHICH build is live (set by deploy.sh --var BUILD_SHA).
+    if (url.pathname === '/version') {
+      return Response.json(
+        { worker: env.BUILD_SHA || 'unknown', ts: new Date().toISOString() },
+        { headers: { 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' } });
+    }
+
+    // IT6 generated card — fully-owned fallback image for an article (no third-party IP).
+    if (url.pathname.startsWith('/card/') && url.pathname.endsWith('.svg')) {
+      const slug = decodeURIComponent(url.pathname.slice('/card/'.length, -4));
+      let art = null;
+      try {
+        const cached = await env.PITCHOS_CACHE.get('articles:BJK');
+        const pool = cached ? JSON.parse(cached) : [];
+        art = pool.find(a => a.slug === slug) || null;
+      } catch {}
+      if (!art) {
+        const rows = await supabase(env, 'GET',
+          `/rest/v1/content_items?slug=eq.${encodeURIComponent(slug)}&select=title,category&limit=1`).catch(() => null);
+        art = (rows && rows[0]) || { title: slug.replace(/-/g, ' '), category: 'Haber' };
+      }
+      // Optional CC0 photo background: KV `card:bg_pool` = JSON array of image URLs (or data URIs).
+      // Hash-assigned per slug, fetched + base64-inlined (SVG-as-<img> blocks external fetches).
+      // Empty pool → procedural art. Any failure → procedural (safe-by-default).
+      let bgDataUri = null;
+      try {
+        const poolRaw = await env.PITCHOS_CACHE.get('card:bg_pool');
+        const bgUrl = pickBackground(slug, poolRaw ? JSON.parse(poolRaw) : []);
+        if (bgUrl && bgUrl.startsWith('data:')) {
+          bgDataUri = bgUrl;
+        } else if (bgUrl && /^https?:\/\//.test(bgUrl)) {
+          const resp = await fetch(bgUrl, { cf: { cacheTtl: 86400, cacheEverything: true } });
+          if (resp.ok) {
+            const bytes = new Uint8Array(await resp.arrayBuffer());
+            let bin = '';
+            for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+            bgDataUri = `data:${resp.headers.get('content-type') || 'image/jpeg'};base64,${btoa(bin)}`;
+          }
+        }
+      } catch { /* procedural fallback */ }
+      const svg = renderArticleCardSVG({ title: art.title, category: art.category, slug }, { bgDataUri });
+      return new Response(svg, { headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'public, max-age=86400' } });
+    }
     if (url.pathname === '/rss') {
       return serveRSSFeed(env);
     }
@@ -3938,10 +4093,10 @@ Sadece JSON döndür:
       }
       ctx.waitUntil(Promise.all(work));
     } else if (cron === '0 4 * * *') {
-      ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env)]));
+      ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env), archiveDailyCost(env), runSourceHealth(env)]));
     } else if (cron === '0 3 * * 1') {
       ctx.waitUntil(redistillEditorialNotes(env));
-    } else if (cron === '0 2 * * 7') {
+    } else if (cron === '0 2 * * 0') {
       ctx.waitUntil(runVoicePatternExtraction(env));
     } else {
       ctx.waitUntil(runAllSites(env, ctx, { cronExpr: event.cron }));
@@ -4008,6 +4163,28 @@ async function runAlarmChecks(env) {
     // 3. Self-heartbeat timestamp
     state.heartbeat_last = now;
 
+    // 4. Cost Ceiling 1.6 / Step 3 — observe-only trajectory + daily-overage detection.
+    //    Sets first_seen + detail in state; /admin/alarms renders them. Blocks nothing.
+    try {
+      const traj = await costTrajectory(env);
+      const dailyCapOverride = parseFloat(await env.PITCHOS_CACHE.get('cost:daily_cap').catch(() => null) || '');
+      const cond = costAlarmConditions(traj, dailyCapOverride);
+      if (cond.trajectoryOver) {
+        if (!state.alarm_first_seen.cost_trajectory) state.alarm_first_seen.cost_trajectory = now;
+        state.cost_traj_detail = { projected: +traj.projectedMonthEnd.toFixed(2), cap: traj.cap, pct: Math.round(traj.projectedPctOfCap), basis: traj.projectionBasis };
+        console.warn(`COST TRAJECTORY: on pace for $${traj.projectedMonthEnd.toFixed(2)} of $${traj.cap} (${Math.round(traj.projectedPctOfCap)}%, ${traj.projectionBasis})`);
+      } else {
+        delete state.alarm_first_seen.cost_trajectory; delete state.alarm_acked.cost_trajectory; delete state.cost_traj_detail;
+      }
+      if (cond.dailyOver) {
+        if (!state.alarm_first_seen.cost_daily) state.alarm_first_seen.cost_daily = now;
+        state.cost_daily_detail = { today: +traj.todaySpend.toFixed(2), dailyCap: +cond.dailyCap.toFixed(2) };
+        console.warn(`COST DAILY: today $${traj.todaySpend.toFixed(2)} > daily cap $${cond.dailyCap.toFixed(2)}`);
+      } else {
+        delete state.alarm_first_seen.cost_daily; delete state.alarm_acked.cost_daily; delete state.cost_daily_detail;
+      }
+    } catch (e) { console.log('cost trajectory check failed:', e.message); }
+
     await env.PITCHOS_CACHE.put('alarms:state', JSON.stringify(state), { expirationTtl: 86400 * 7 });
   } catch (e) {
     console.log('runAlarmChecks error:', e.message);
@@ -4067,6 +4244,61 @@ async function runSourceTests(env) {
 }
 
 // ─── DAILY ARCHIVAL ──────────────────────────────────────────
+// Cost Ceiling 1.6 / Step 5a — roll finalized daily spend into the durable archive
+// (cost:daily_archive), pruning entries older than 730 days. Runs in the 04:00 cron.
+async function archiveDailyCost(env) {
+  try {
+    const archiveRaw = await env.PITCHOS_CACHE.get('cost:daily_archive').catch(() => null);
+    const archive = archiveRaw ? JSON.parse(archiveRaw) : {};
+    // Gather the live daily keys (≤35 of them, TTL-bounded) and merge into the archive.
+    const daily = {};
+    let cursor;
+    do {
+      const list = await env.PITCHOS_CACHE.list({ prefix: 'cost:day:', cursor });
+      for (const k of list.keys) {
+        const date = k.name.slice('cost:day:'.length);
+        const v = parseFloat((await env.PITCHOS_CACHE.get(k.name)) || '0');
+        if (v > 0) daily[date] = v;
+      }
+      cursor = list.list_complete ? null : list.cursor;
+    } while (cursor);
+    const today = new Date().toISOString().slice(0, 10);
+    const merged = rollupDailyCost(archive, daily, today, 730);
+    await env.PITCHOS_CACHE.put('cost:daily_archive', JSON.stringify(merged));
+    console.log(`COST ARCHIVE: ${Object.keys(merged).length} days retained`);
+  } catch (e) { console.log('archiveDailyCost failed:', e.message); }
+}
+
+// Source Health (Module 1.1) — daily per-source pass-rate / dead-feed report.
+// Stores a report per site, a compact alarm payload (for /admin/alarms), and — only when
+// KV flag source_health:auto_disable='1' — disables feeds dead for ≥3 consecutive days.
+async function runSourceHealth(env) {
+  try {
+    const sites = await getActiveSites(env);
+    const autoDisable = (await env.PITCHOS_CACHE.get('source_health:auto_disable')) === '1';
+    const since = new Date(Date.now() - 7 * 86400000).toISOString();
+    const allAlarms = { dead: [], noisy: [], ts: new Date().toISOString() };
+    for (const site of sites) {
+      const [rows, sources] = await Promise.all([
+        supabase(env, 'GET', `/rest/v1/pipeline_log?site_id=eq.${site.id}&run_at=gte.${encodeURIComponent(since)}&select=source_name,stage,run_at&limit=5000`).catch(() => null),
+        supabase(env, 'GET', `/rest/v1/source_configs?site_id=eq.${site.id}&is_active=eq.true&select=name,source_type`).catch(() => null),
+      ]);
+      const report = computeSourceHealth(rows || [], sources || [], { now: new Date() });
+      await env.PITCHOS_CACHE.put(`source_health:report:${site.short_code}`, JSON.stringify({ ts: new Date().toISOString(), sources: report }), { expirationTtl: 14 * 86400 }).catch(() => {});
+      const a = sourceHealthAlarms(report);
+      allAlarms.dead.push(...a.dead); allAlarms.noisy.push(...a.noisy);
+      if (autoDisable) {
+        for (const s of report.filter((x) => x.status === 'dead' && x.knownActive)) {
+          await supabase(env, 'PATCH', `/rest/v1/source_configs?site_id=eq.${site.id}&name=eq.${encodeURIComponent(s.name)}`, { is_active: false }).catch(() => {});
+          console.warn(`SOURCE HEALTH: auto-disabled dead source "${s.name}" (${s.zeroDays}d zero) [${site.short_code}]`);
+        }
+      }
+    }
+    await env.PITCHOS_CACHE.put('source_health:alarms', JSON.stringify(allAlarms), { expirationTtl: 3 * 86400 }).catch(() => {});
+    console.log(`SOURCE HEALTH: dead=${allAlarms.dead.length} noisy=${allAlarms.noisy.length} (auto_disable=${autoDisable})`);
+  } catch (e) { console.log('runSourceHealth failed:', e.message); }
+}
+
 async function runDailyArchival(env) {
   const sites = await getActiveSites(env);
   if (!sites || sites.length === 0) return;
@@ -4267,15 +4499,12 @@ Sadece JSON döndür.`;
 
 // ─── ORCHESTRATOR ────────────────────────────────────────────
 async function runAllSites(env, ctx, opts = {}) {
-  // Quiet period: 00:00–06:00 Istanbul (UTC+3) — no RSS runs overnight.
-  // Ends at 06:00 (not 06:30) so the 03:00 UTC = 06:00 IST cron tick runs as
-  // the first morning run, instead of slipping to 09:00 IST. This keeps the
-  // overnight gap (21:00 → 06:00 IST = 9h) within the 9h lookback below.
+  // Quiet period: 00:00–06:30 Istanbul (UTC+3) — no RSS runs overnight
   // Bypassed when called manually via /run (forceRun: true)
   if (!opts.forceRun) {
     const now = new Date();
     const istMin = ((now.getUTCHours() + 3) % 24) * 60 + now.getUTCMinutes();
-    if (istMin < 360) { // 360 = 06:00 in minutes
+    if (istMin < 390) { // 390 = 06:30 in minutes
       const hh = String(Math.floor(istMin / 60)).padStart(2, '0');
       const mm = String(istMin % 60).padStart(2, '0');
       console.log(`QUIET PERIOD: ${hh}:${mm} Istanbul — skipping RSS run`);
@@ -4289,8 +4518,7 @@ async function runAllSites(env, ctx, opts = {}) {
     return { processed: 0, skipped: 'cost_cap' };
   }
 
-  // Minimum 8h to cover quiet-period gap (21:00 → 06:00 IST = 9h; the 3h cron's
-  // 9h lookback covers it exactly).
+  // Minimum 8h to cover quiet-period gap (00:00–06:30 IST = up to 7.5h no runs).
   // Live-match runs pass opts.lookbackMs directly to skip the 8h floor.
   const lookbackMs = opts.lookbackMs != null
     ? opts.lookbackMs
@@ -4987,26 +5215,21 @@ function videoToArticle(video) {
 async function processYouTubeVideos(site, env, seenUrls, channelOverride = null, stats = null) {
   const channels = (channelOverride && channelOverride.length > 0) ? channelOverride : YOUTUBE_CHANNELS;
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
-  const keywords = site.keyword_config?.keywords;   // shared with RSS; undefined → BJK_KEYWORDS default
   const feeds = await Promise.all(channels.map(ch => fetchYouTubeChannel(ch, since).catch(() => [])));
 
   let published = 0;
-  let synthCount = 0;        // total YouTube syntheses this run — capped at SYNTHESIS_CAP_PER_RUN
   let storyMatchCount = 0;   // cap Claude calls: 3 story-match attempts per run
   const embedFailures = [];
 
   // Pre-fetch open stories once for the whole YouTube pass
   let openStories = null;
 
-  // Official channels first so they claim the synthesis budget before broadcast/digital.
-  const channelFeeds = channels
-    .map((channel, i) => ({ channel, videos: feeds[i] }))
-    .sort((a, b) => (b.channel.tier === 'official' ? 1 : 0) - (a.channel.tier === 'official' ? 1 : 0));
-
-  for (const { channel, videos } of channelFeeds) {
+  for (let i = 0; i < channels.length; i++) {
+    const channel  = channels[i];
+    const videos   = feeds[i];
     const newVids  = videos.filter(v => {
       const watchUrl = `https://www.youtube.com/watch?v=${v.video_id}`;
-      return qualifyYouTubeVideo(v, keywords) && !seenUrls.has(watchUrl);
+      return qualifyYouTubeVideo(v) && !seenUrls.has(watchUrl);
     });
     console.log(`YT ${channel.name}: ${videos.length} fetched → ${newVids.length} qualified`);
 
@@ -5015,22 +5238,20 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null,
 
       let card = null;
 
-      // 1. Synthesis path — only while under the per-run synthesis cap. Once the cap is
-      //    hit, transcript-qualified videos fall through to embed-only (if eligible).
+      // 1. Synthesis path — transcript available → summary article (+ embed if embed_qualify)
       let transcriptText = null;
-      if (video.transcript_qualify && synthCount < SYNTHESIS_CAP_PER_RUN) {
+      if (video.transcript_qualify) {
         try {
           transcriptText = await fetchYouTubeTranscript(video.video_id);
           if (transcriptText) {
             card = await generateVideoSynthesis(video, transcriptText, site, env, stats, video.embed_qualify);
-            if (card) synthCount++;
           }
         } catch (e) {
           console.error(`YT synthesis failed [${video.video_id}]:`, e.message);
         }
       }
 
-      // 2. Embed fallback — synthesis skipped (cap reached), produced nothing, or failed.
+      // 2. Embed fallback — synthesis produced nothing (no transcript or Claude failure)
       if (!card && video.embed_qualify) {
         try {
           card = await generateVideoEmbed(video, site, env, stats);
@@ -5089,19 +5310,6 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null,
     const summary = embedFailures.map(f => `[${f.id}] ${f.err}`).join(' | ');
     await recordPipelineFailures(env, site.short_code, [], `YT embed failed ${embedFailures.length}×: ${summary}`).catch(() => {});
   }
-
-  // Refresh the homepage video rail: 15 most recent published videos, cached in KV so
-  // /cache serves them without a per-request DB hit. The main pool only keeps the top-3
-  // videos (MAX_VIDEOS cap) and older ones age out, so recency must be sourced here.
-  try {
-    const recentVids = await supabase(env, 'GET',
-      `/rest/v1/content_items?site_id=eq.${site.id}&publish_mode=in.(youtube_embed,youtube_synthesis,youtube_embed_synthesis)&status=eq.published&select=slug,title,image_url,published_at,source_name,publish_mode,category,video_type&order=published_at.desc&limit=15`
-    ).catch(() => []);
-    if (recentVids && recentVids.length) {
-      await env.PITCHOS_CACHE.put(`videorail:${site.short_code}`, JSON.stringify(recentVids), { expirationTtl: 7 * 24 * 3600 });
-    }
-  } catch (e) { console.error('video rail refresh failed:', e.message); }
-
   console.log(`YT INTAKE: ${published} published, ${embedFailures.length} embed failures`);
   return published;
 }
@@ -6471,7 +6679,7 @@ async function serveSitemap(env) {
   const articles = cached ? JSON.parse(cached) : [];
   const SITEMAP_NOINDEX_TEMPLATES = ['T10', 'T11', 'T-RED', 'T-VAR', 'T-PEN', 'T-HT'];
   const articleUrls = articles
-    .filter(a => a.slug && !SITEMAP_NOINDEX_TEMPLATES.includes(a.template_id || '') && a.publish_mode !== 'rss_summary')
+    .filter(a => a.slug && !SITEMAP_NOINDEX_TEMPLATES.includes(a.template_id || '') && a.publish_mode !== 'rss_summary' && a.publish_mode !== 'copy_source')
     .map(a => `  <url>
     <loc>${BASE_URL}/haber/${escXml(a.slug)}</loc>
     <lastmod>${(a.published_at || new Date().toISOString()).slice(0, 10)}</lastmod>
@@ -6554,7 +6762,7 @@ ${siteSharedFonts()}
 <style>
 ${siteSharedCSS()}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:16px;line-height:1.7}
+body{background:#fbfaf8;color:#2a2622;font-family:'Segoe UI',system-ui,sans-serif;font-size:16px;line-height:1.7}
 a{color:#E30A17;text-decoration:none}a:hover{text-decoration:underline}
 main{max-width:720px;margin:0 auto;padding:2.5rem 1.5rem 5rem}
 h1{font-size:1.65rem;font-weight:800;color:#fff;margin-bottom:1.5rem;line-height:1.25}
@@ -6967,17 +7175,6 @@ async function renderVideoHubPage(tip, env) {
   const pageTitle = pageTitleMap[activeTip] || 'Videolar';
   const canonical = activeTip ? `/konu/videolar?tip=${activeTip}` : '/konu/videolar';
 
-  const tabs = [
-    { key: '', label: 'Tümü' },
-    { key: 'haber', label: 'Haber' },
-    { key: 'mac', label: 'Maç Özetleri' },
-    { key: 'roportaj', label: 'Röportajlar' },
-    ..._VH_CURATED_SECTIONS.map(s => ({ key: s.value, label: s.label })),
-  ].map(t => {
-    const href = t.key ? `/konu/videolar?tip=${t.key}` : '/konu/videolar';
-    return `<a class="vh-tab${t.key === activeTip ? ' vh-tab-active' : ''}" href="${href}">${t.label}</a>`;
-  }).join('');
-
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -6990,14 +7187,9 @@ async function renderVideoHubPage(tip, env) {
   ${siteSharedFonts()}
   <style>
     ${siteSharedCSS()}
-    :root{--accent:#E30A17;--bg:#1a1a1a;--surface:#0f0f0f;--text-on-dark:#fff;--border:#222}
+    :root{--accent:#E30A17;--bg:#f4f2ee;--surface:#fff;--text-on-dark:#16140f;--border:#e7e3da}
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
     body{background:var(--bg);color:var(--text-on-dark);font-family:'Inter',sans-serif;min-height:100vh}
-    .vh-tabs{display:flex;overflow-x:auto;scrollbar-width:none;background:#111;border-bottom:1px solid var(--border);padding:0 1rem;gap:.1rem}
-    .vh-tabs::-webkit-scrollbar{display:none}
-    .vh-tab{font-family:'Barlow Condensed',sans-serif;font-size:.8rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;text-decoration:none;color:#666;padding:.65rem 1rem;border-bottom:2px solid transparent;white-space:nowrap;transition:color .15s,border-color .15s}
-    .vh-tab:hover{color:#ccc}
-    .vh-tab-active{color:#fff;border-bottom-color:var(--accent)}
     .vh-ad-top{padding:.75rem 1.25rem}
     .vh-section{padding:1.25rem 1.25rem .75rem;overflow-x:hidden}
     .vh-sec-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem;border-left:3px solid var(--accent);padding-left:.75rem}
@@ -7011,8 +7203,8 @@ async function renderVideoHubPage(tip, env) {
     .vh-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
     .vh-play::after{content:'▶';font-size:1.4rem;color:#fff;background:rgba(0,0,0,.5);width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;padding-left:3px}
     .vh-meta{padding:.55rem .65rem .65rem}
-    .vh-title{font-size:.82rem;font-weight:600;line-height:1.4;color:#e5e5e5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.3rem;min-width:0;word-break:break-word;overflow-wrap:anywhere}
-    .vh-source{font-size:.7rem;color:#666}
+    .vh-title{font-size:.82rem;font-weight:600;line-height:1.4;color:#16140f;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.3rem;min-width:0;word-break:break-word;overflow-wrap:anywhere}
+    .vh-source{font-size:.7rem;color:#8a857c}
     .ad-slot{background:transparent}
     .ad-leaderboard{min-height:100px;width:100%;max-width:320px;margin:0 auto;display:block}
     .ad-banner{min-height:100px;width:100%;max-width:320px;margin:.5rem auto;display:block}
@@ -7033,19 +7225,10 @@ async function renderVideoHubPage(tip, env) {
 </head>
 <body>
 ${siteHeader('/konu/videolar')}
-<nav class="vh-tabs">${tabs}</nav>
 <div class="vh-ad-top">${_vhAdSlot('leaderboard', 'top')}</div>
 ${sectionsHtml}
 ${siteFooter()}
 <script>
-document.querySelectorAll('.vh-tab').forEach(a => {
-  a.addEventListener('click', e => {
-    e.preventDefault();
-    history.pushState({}, '', a.href);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    window.location = a.href;
-  });
-});
 document.querySelectorAll('.vh-reveal-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const grid = btn.previousElementSibling;
@@ -7085,20 +7268,20 @@ function renderTopicPage(topicSlug) {
   ${siteSharedFonts()}
   <style>
     ${siteSharedCSS()}
-    :root{--accent:#E30A17;--bg:#1a1a1a;--surface:#fff;--text:#111;--text-on-dark:#fff;--muted:#6b7280;--border:#e5e7eb}
+    :root{--accent:#E30A17;--bg:#f4f2ee;--surface:#fff;--text:#111;--text-on-dark:#16140f;--muted:#6b7280;--border:#e5e7eb}
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
     body{background:var(--bg);color:var(--text-on-dark);font-family:'Inter',sans-serif;min-height:100vh}
-    .page-header{padding:2rem;border-bottom:1px solid #222}
+    .page-header{padding:2rem;border-bottom:1px solid var(--border)}
     .page-title{font-family:'Barlow Condensed',sans-serif;font-size:2.2rem;font-weight:800;letter-spacing:.03em}
-    .page-desc{color:#999;font-size:.85rem;margin-top:.4rem}
+    .page-desc{color:var(--muted);font-size:.85rem;margin-top:.4rem}
     .article-grid{padding:1.5rem 2rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1.25rem}
-    .art-card{background:#0f0f0f;border:1px solid #222;border-radius:6px;padding:1rem;cursor:pointer;transition:border-color .15s;text-decoration:none;display:block}
-    .art-card:hover{border-color:var(--accent)}
-    .art-card-title{font-size:.9rem;font-weight:600;line-height:1.4;color:#e5e5e5;margin-bottom:.5rem}
-    .art-card-meta{display:flex;gap:.5rem;align-items:center;font-size:.7rem;color:#555;flex-wrap:wrap}
+    .art-card{background:#fff;border:1px solid var(--border);box-shadow:0 1px 3px rgba(20,18,15,.06);border-radius:6px;padding:1rem;cursor:pointer;transition:border-color .15s,box-shadow .15s;text-decoration:none;display:block}
+    .art-card:hover{border-color:var(--accent);box-shadow:0 4px 12px rgba(20,18,15,.10)}
+    .art-card-title{font-size:.9rem;font-weight:600;line-height:1.4;color:#16140f;margin-bottom:.5rem}
+    .art-card-meta{display:flex;gap:.5rem;align-items:center;font-size:.7rem;color:var(--muted);flex-wrap:wrap}
     .art-card-source{color:#E30A17;font-weight:600}
-    .art-card-summary{font-size:.78rem;color:#777;margin-top:.5rem;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-    .empty{padding:3rem 2rem;color:#555;text-align:center;font-size:.9rem}
+    .art-card-summary{font-size:.78rem;color:#6b6660;margin-top:.5rem;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+    .empty{padding:3rem 2rem;color:var(--muted);text-align:center;font-size:.9rem}
     @media(max-width:640px){.article-grid{grid-template-columns:1fr}.page-header,.article-grid{padding:1rem}}
   </style>
 </head>
@@ -7322,13 +7505,43 @@ header{background:#0d0d0d;border-bottom:2px solid #E30A17;height:60px;display:fl
 .live-pill{display:flex;align-items:center;gap:.4rem;font-family:'Barlow Condensed',sans-serif;font-size:.65rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#E30A17;border:1px solid #E30A17;padding:.3rem .7rem;border-radius:2px}
 .live-dot{width:6px;height:6px;border-radius:50%;background:#E30A17;animation:blink 1.4s ease-in-out infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
-.site-cat-nav{background:#111;border-bottom:1px solid #1e1e1e;display:flex;align-items:center;overflow-x:auto;scrollbar-width:none;padding:0 1rem}
-.site-cat-nav::-webkit-scrollbar{display:none}
-.site-cat-nav a{font-family:'Barlow Condensed',sans-serif;font-size:.78rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;text-decoration:none;color:#777;padding:.6rem .9rem;border-bottom:2px solid transparent;white-space:nowrap;transition:color .15s,border-color .15s}
-.site-cat-nav a:hover{color:#ddd}
-.site-cat-nav a.active{color:#fff;border-bottom-color:#E30A17}
-.site-footer{border-top:1px solid #222;padding:1.5rem;text-align:center;font-size:.72rem;color:#555;background:#0d0d0d;margin-top:3rem}
-.site-footer a{color:#666;margin:0 .6rem;text-decoration:none}
+.mainnav{background:#111;border-bottom:1px solid #1e1e1e;position:relative;z-index:90}
+.mainnav-inner{display:flex;align-items:center;max-width:1280px;margin:0 auto;padding:0 1rem}
+.mainnav .nav-toggle{display:none;background:none;border:0;color:#fff;cursor:pointer;padding:.7rem .4rem;align-items:center;gap:.5rem;font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:.8rem}
+.mainnav .nav-toggle .bars{position:relative;display:block;width:20px;height:2px;background:#fff}
+.mainnav .nav-toggle .bars::before,.mainnav .nav-toggle .bars::after{content:'';position:absolute;left:0;width:20px;height:2px;background:#fff}
+.mainnav .nav-toggle .bars::before{top:-6px}
+.mainnav .nav-toggle .bars::after{top:6px}
+.mainnav .nav-list{display:flex;align-items:center;list-style:none;margin:0;padding:0}
+.mainnav .nav-li{position:relative}
+.mainnav .nav-link,.mainnav .nav-trigger{font-family:'Barlow Condensed',sans-serif;font-size:.82rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#999;background:none;border:0;cursor:pointer;padding:.7rem .95rem;display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap;border-bottom:2px solid transparent;text-decoration:none}
+.mainnav .nav-link:hover,.mainnav .nav-trigger:hover,.mainnav .nav-li:hover>.nav-trigger{color:#fff}
+.mainnav .nav-link.active{color:#fff;border-bottom-color:#E30A17}
+.mainnav .nav-link--soon{color:#777;cursor:default}
+.mainnav .caret{font-size:.55rem;opacity:.65}
+.mainnav .nav-mega{position:absolute;top:100%;left:0;min-width:230px;background:#16181c;border:1px solid #2a2d33;border-top:2px solid #E30A17;border-radius:0 0 6px 6px;box-shadow:0 18px 40px rgba(0,0,0,.55);padding:.45rem;z-index:95;opacity:0;visibility:hidden;transform:translateY(4px);transition:opacity .15s,transform .15s}
+.mainnav .nav-li:hover>.nav-mega{opacity:1;visibility:visible;transform:translateY(0)}
+.mainnav .nav-li.gold>.nav-mega{border-top-color:#F5A623}
+.mainnav .nav-mega-item{display:flex;align-items:center;padding:.5rem .7rem;border-radius:4px;text-decoration:none;color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:.9rem;letter-spacing:.04em;text-transform:uppercase}
+.mainnav .nav-mega-item:hover{background:#22252b}
+.mainnav .nav-mega-item--soon{color:#8b8f97;cursor:default}
+.mainnav .nav-soon{font-family:'Barlow Condensed',sans-serif;font-size:.5rem;font-weight:800;letter-spacing:.1em;color:#0d0d0d;background:#F5A623;padding:.07rem .3rem;border-radius:3px;margin-left:.4rem}
+.mainnav .nav-backdrop{display:none}
+@media(max-width:900px){
+  .mainnav-inner{display:block;padding:0}
+  .mainnav .nav-list{flex-direction:column;align-items:stretch}
+  .mainnav .nav-link,.mainnav .nav-trigger{width:100%;justify-content:space-between;padding:.9rem 1.2rem;font-size:.95rem;border-bottom:1px solid #1c1c1c}
+  .mainnav .nav-mega{position:static;opacity:1;visibility:visible;transform:none;border:0;box-shadow:none;background:#141414;border-radius:0;min-width:0;padding:.2rem 0 .5rem}
+  .mainnav .nav-mega-item{padding:.6rem 1.6rem}
+  .mainnav.js .nav-toggle{display:inline-flex}
+  .mainnav.js .nav-list{position:fixed;top:0;left:0;bottom:0;width:84%;max-width:330px;background:#0d0d0d;padding:1rem 0 2rem;overflow-y:auto;transform:translateX(-100%);transition:transform .25s ease;z-index:210;border-right:1px solid #222}
+  .mainnav.js.open .nav-list{transform:translateX(0)}
+  .mainnav.js.open .nav-backdrop{display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200}
+  .mainnav.js .nav-mega{max-height:0;overflow:hidden;padding:0;transition:max-height .25s ease}
+  .mainnav.js .nav-li.open>.nav-mega{max-height:600px}
+}
+.site-footer{border-top:1px solid #e7e3da;padding:1.5rem;text-align:center;font-size:.72rem;color:#8a857c;background:transparent;margin-top:3rem}
+.site-footer a{color:#8a857c;margin:0 .6rem;text-decoration:none}
 .site-footer a:hover{color:#E30A17}`;
 }
 
@@ -7342,21 +7555,11 @@ const SITE_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 
 </svg>`;
 
 function siteHeader(activePath = '/') {
-  const tabs = [
-    { href: '/',              label: 'Tümü' },
-    { href: '/konu/transfer', label: 'Transfer' },
-    { href: '/konu/mac',      label: 'Maç' },
-    { href: '/konu/videolar', label: 'Videolar' },
-  ];
-  const navLinks = tabs.map(({ href, label }) => {
-    const active = activePath === href || (href !== '/' && activePath.startsWith(href));
-    return `<a href="${href}"${active ? ' class="active"' : ''}>${label}</a>`;
-  }).join('');
   return `<header>
   <a href="/" class="logo-link">${SITE_LOGO_SVG}</a>
   <div class="header-right"><div class="live-pill"><div class="live-dot"></div>Canlı</div></div>
 </header>
-<nav class="site-cat-nav">${navLinks}</nav>`;
+${buildNav(activePath)}`;
 }
 
 function siteFooter() {
@@ -7376,11 +7579,11 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, 
   const slug      = a.slug || '';
   const title     = a.title || 'Haber';
   const desc      = (a.summary || a.full_body || '').replace(/<[^>]+>/g, ' ').slice(0, 200).trim();
-  const image     = a.image_url || '';
+  // Fall back to the IT6 generated card when there's no licensed/embedded image
+  // (covers hero img + og:image + twitter:image, which all read `image`).
+  const image     = a.image_url || (a.slug && !['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'].includes(a.publish_mode) ? `${BASE_URL}/card/${encodeURIComponent(a.slug)}.svg` : '');
   const rawSource = a.source || a.source_name || '';
-  const isKartalix = !rawSource || rawSource === 'Kartalix' ||
-    ['rewrite','original_synthesis','manual'].includes(a.publish_mode) ||
-    (a.publish_mode && a.publish_mode.startsWith('template'));
+  const isKartalix = isKartalixArticle(a); // shared with the SPA (src/shared.js)
   const source    = isKartalix ? 'Kartalix' : rawSource;
   const category  = a.category || 'Haber';
   const nvs       = a.nvs || a.nvs_score || 0;
@@ -7456,17 +7659,14 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, 
   })();
 
   const bodyText  = a.full_body || a.summary || '';
-  const bodyHtml  = bodyText.includes('<') ? bodyText :
-    bodyText.split('\n').map(l => {
-      const stripped = l.trim().replace(/^#+\s*/, '');
-      return stripped ? `<p>${escHtml(stripped)}</p>` : '';
-    }).join('');
+  // Markdown→HTML: paragraphs, **bold**, gated ## subheads. Shared with the SPA (index.html).
+  const bodyHtml  = articleBodyToHtml(bodyText, { publishMode: a.publish_mode });
 
   const ytEmbedId = a.publish_mode === 'youtube_embed' && srcUrl
     ? (srcUrl.match(/(?:youtu\.be\/|[?&]v=)([a-zA-Z0-9_-]{11})/)?.[1] || null)
     : null;
   const videoHtml = ytEmbedId && !bodyHtml.includes('<iframe')
-    ? `<div class="yt-embed"><iframe src="https://www.youtube.com/embed/${ytEmbedId}" allowfullscreen loading="lazy" frameborder="0" title="${escHtml(a.title || '')}"></iframe></div>`
+    ? videoEmbedHtml(ytEmbedId, a.title || '') // shared with the SPA (src/shared.js)
     : '';
 
   const relatedHtml = related.length ? `<div class="related-vids">
@@ -7519,7 +7719,7 @@ ${siteSharedFonts()}
 <style>
 ${siteSharedCSS()}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-serif;font-size:16px;line-height:1.7}
+body{background:#fbfaf8;color:#2a2622;font-family:'Segoe UI',system-ui,sans-serif;font-size:16px;line-height:1.7}
 a{color:#E30A17;text-decoration:none}
 a:hover{text-decoration:underline}
 main{max-width:720px;margin:0 auto;padding:2rem 1.5rem 4rem}
@@ -7529,22 +7729,23 @@ main{max-width:720px;margin:0 auto;padding:2rem 1.5rem 4rem}
 .cat-tag.badge-analysis{background:#0d9488}
 .cat-tag.badge-transfer{background:#d97706;color:#000}
 .cat-tag.badge-video{background:#374151}
-h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1rem}
-.article-meta{font-size:0.75rem;color:#888;letter-spacing:0.04em;margin-bottom:1.5rem;display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center}
-.nvs-pill{background:#1a1a1a;border:1px solid #333;padding:2px 8px;border-radius:10px;font-size:0.65rem}
+h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#16140f;margin-bottom:1rem}
+.article-meta{font-size:0.75rem;color:#6b6660;letter-spacing:0.04em;margin-bottom:1.5rem;display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center}
+.nvs-pill{background:#f0ede6;border:1px solid #e7e3da;padding:2px 8px;border-radius:10px;font-size:0.65rem}
 .article-img{width:100%;max-height:420px;object-fit:cover;border-radius:6px;margin-bottom:1.5rem;display:block}
-.article-body{color:#d0cec8;font-size:1rem;line-height:1.8}
+.article-body{color:#2a2622;font-size:1rem;line-height:1.8}
 .article-body p{margin-bottom:1.6rem}
-.article-body h2{color:#fff;font-size:1.2rem;font-weight:700;margin:2rem 0 0.75rem;line-height:1.3}
-.article-body h3{color:#e8e6e0;font-size:1.05rem;font-weight:600;margin:1.5rem 0 0.5rem}
-.article-body h4{color:#aaa;font-size:0.95rem;font-weight:600;margin:1.25rem 0 0.4rem}
+.article-body p:first-of-type::first-letter{float:left;font-size:3.4rem;font-weight:900;line-height:0.8;margin:0.1rem 0.5rem 0 0;color:#E30A17;font-family:'Barlow Condensed',sans-serif}
+.article-body h2{color:#16140f;font-size:1.2rem;font-weight:700;margin:2rem 0 0.75rem;line-height:1.3}
+.article-body h3{color:#2a2622;font-size:1.05rem;font-weight:600;margin:1.5rem 0 0.5rem}
+.article-body h4{color:#3a3833;font-size:0.95rem;font-weight:600;margin:1.25rem 0 0.4rem}
 .article-body img{max-width:100%;height:auto;border-radius:6px;margin:1.25rem 0;display:block}
 .article-body figure{margin:1.5rem 0}
-.article-body figcaption{font-size:0.8rem;color:#888;margin-top:0.4rem;font-style:italic}
+.article-body figcaption{font-size:0.8rem;color:#8a857c;margin-top:0.4rem;font-style:italic}
 .article-body ul,.article-body ol{padding-left:1.5rem;margin:1rem 0}
 .article-body li{margin-bottom:0.5rem}
 .article-body a{color:#E30A17}
-.article-body blockquote{border-left:3px solid #E30A17;padding:0.75rem 1rem;background:#161616;margin:1.5rem 0;border-radius:0 4px 4px 0;color:#aaa}
+.article-body blockquote{border-left:3px solid #E30A17;padding:0.75rem 1rem;background:#f3f1ec;margin:1.5rem 0;border-radius:0 4px 4px 0;color:#4a463f}
 .source-attr{font-size:0.75rem;color:#666;margin-top:2rem;padding-top:1rem;border-top:1px solid #222}
 .article-meta .source-attr{display:block;width:100%;margin-top:0.4rem;padding-top:0;border-top:none}
 .yt-embed{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:6px;margin-bottom:1.5rem;background:#000}
@@ -7560,21 +7761,21 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#fff;margin-bottom:1
 .related-card-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35);opacity:0;transition:opacity .15s}
 .related-card:hover .related-card-play{opacity:1}
 .related-card-play-icon{width:36px;height:36px;background:rgba(227,10,23,.9);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.85rem;color:#fff;padding-left:2px}
-.related-card-title{font-size:.78rem;line-height:1.35;color:#ccc;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.related-card-title{font-size:.78rem;line-height:1.35;color:#16140f;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .source-link{color:#888;font-size:0.75rem;display:inline-block;margin-top:0.5rem}
-.share-box{margin-top:2.5rem;padding:1.5rem;background:#141414;border:1px solid #222;border-radius:6px}
+.share-box{margin-top:2.5rem;padding:1.5rem;background:#f3f1ec;border:1px solid #e7e3da;border-radius:6px}
 .share-title{font-size:0.7rem;letter-spacing:0.12em;text-transform:uppercase;color:#888;margin-bottom:1rem}
 .share-btns{display:flex;gap:0.75rem;flex-wrap:wrap}
 .share-btn{display:inline-block;font-size:0.78rem;font-weight:600;padding:9px 18px;border-radius:4px;cursor:pointer;border:none;text-decoration:none;transition:opacity 0.15s}
 .share-btn:hover{opacity:0.85;text-decoration:none}
 .btn-wa{background:#25D366;color:#fff}
 .btn-tw{background:#1DA1F2;color:#fff}
-.btn-copy{background:#333;color:#fff}
+.btn-copy{background:#e0ddd5;color:#16140f}
 .reaction-bar{display:flex;gap:1rem;align-items:center;margin-top:2rem;padding:1rem 1.25rem;background:#222;border:1px solid #333;border-radius:6px}
-.rxn-btn{display:flex;align-items:center;gap:.5rem;background:#2a2a2a;border:1px solid #444;color:#ccc;padding:.5rem 1.1rem;border-radius:20px;cursor:pointer;font-size:.9rem;transition:all .15s;user-select:none}
-.rxn-btn:hover{border-color:#666;color:#fff;background:#333}
-.rxn-btn.active-like{background:#1a3a1a;border-color:#4a4;color:#6d6}
-.rxn-btn.active-dislike{background:#3a1a1a;border-color:#a44;color:#e66}
+.rxn-btn{display:flex;align-items:center;gap:.5rem;background:#f0ede6;border:1px solid #ddd5c8;color:#555;padding:.5rem 1.1rem;border-radius:20px;cursor:pointer;font-size:.9rem;transition:all .15s;user-select:none}
+.rxn-btn:hover{border-color:#b9b1a4;color:#16140f;background:#e8e4db}
+.rxn-btn.active-like{background:#e6f4e6;border-color:#86c986;color:#1f7a1f}
+.rxn-btn.active-dislike{background:#fdeaea;border-color:#e0a0a0;color:#c0392b}
 .rxn-count{font-size:.82rem;font-weight:700;min-width:1ch}
 @media(max-width:600px){main{padding:1.5rem 1rem 3rem}h1{font-size:1.35rem}}
 </style>
@@ -7593,7 +7794,7 @@ ${siteHeader('/haber/')}
       <span style="color:#555;font-size:0.68rem">YZ destekli</span>
       ${attrHtml}
     </div>
-    ${image && a.publish_mode !== 'youtube_embed' ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
+    ${image && !((a.publish_mode || '').startsWith('youtube') || a.publish_mode === 'video_embed') ? `<img class="article-img" src="${escHtml(image)}" alt="${escHtml(title)}" loading="lazy"/>` : ''}
     ${videoHtml}
     <div class="article-body">${bodyHtml}</div>
     ${relatedHtml}
@@ -8318,7 +8519,66 @@ function resolveSite(url, sites) {
   return (code && sites.find(s => s.short_code === code)) || sites[0];
 }
 
-function renderAdminConfigPage(site, kvConfig, siteCode, allSites, auditLog = []) {
+// Read-only side-by-side of the live homepage pool vs the Method B shadow pool.
+// This is the human "check it in parallel" view (design §7). Reads KV only; no writes.
+function renderPipelineComparePage(site, allSites, live, shadow, status, enabled, methodbCost, active = 'legacy') {
+  const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const rel = (iso) => {
+    if (!iso) return '';
+    const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+    if (m < 60) return m + 'dk';
+    const h = Math.floor(m / 60);
+    return h < 24 ? h + 'sa' : Math.floor(h / 24) + 'g';
+  };
+  const card = (a) => `<div class="c">
+      <div class="t">${esc(a.title)}</div>
+      <div class="m">${esc(a.source_name || a.source || '')} · ${esc(a.publish_mode || '')} · NVS ${a.nvs || 0} · ${rel(a.published_at)}</div>
+    </div>`;
+  const tabs = allSites.map(s => `<a href="/admin/pipeline?site=${s.short_code}" class="${s.short_code === site.short_code ? 'on' : ''}">${esc(s.short_code)}</a>`).join('');
+  const tally = status
+    ? [['aday', status.candidates], ['olgulu', status.withFacts], ['event', status.eventRoute],
+       ['delta-kontrol', status.deltaChecks], ['material', status.materialDelta],
+       ['confirm-skip', status.confirmingSkip], ['üretilen', status.synthesized],
+       ['maliyet', '$' + (status.costUsd ?? 0)]].map(([k, v]) => `<b>${k}</b> ${v ?? '-'}`).join(' &nbsp;|&nbsp; ')
+    : 'henüz çalışmadı';
+  return `<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pipeline Compare</title>
+  <style>
+    body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:0;background:#0f1115;color:#e5e7eb}
+    header{padding:14px 18px;background:#161a22;border-bottom:1px solid #232a36}
+    h1{font-size:16px;margin:0 0 6px}
+    .tabs a{display:inline-block;padding:3px 10px;margin-right:6px;border-radius:6px;background:#222a36;color:#cbd5e1;text-decoration:none;font-size:13px}
+    .tabs a.on{background:#2563eb;color:#fff}
+    .meta{font-size:12px;color:#9aa4b2;margin-top:8px;line-height:1.7}
+    .flag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700}
+    .on1{background:#16351f;color:#4ade80}.off1{background:#3a1f1f;color:#f87171}
+    .cols{display:flex;gap:14px;padding:14px;align-items:flex-start}
+    .col{flex:1;min-width:0}
+    .col h2{font-size:13px;color:#9aa4b2;margin:0 0 8px}
+    .c{background:#161a22;border:1px solid #232a36;border-radius:8px;padding:10px 12px;margin-bottom:8px}
+    .c .t{font-size:14px;font-weight:600;line-height:1.35}
+    .c .m{font-size:11px;color:#8b95a4;margin-top:5px}
+    .legend .c{border-left:3px solid #2563eb}.shadow .c{border-left:3px solid #0d9488}
+    @media(max-width:720px){.cols{flex-direction:column}}
+  </style></head><body>
+  <header>
+    <h1>Pipeline Compare — ${esc(site.team_name || site.short_code)}</h1>
+    <div class="tabs">${tabs}</div>
+    <div class="meta">
+      Method B: <span class="flag ${enabled ? 'on1' : 'off1'}">${enabled ? 'ENABLED' : 'INERT'}</span>
+      &nbsp; Yayında (serving): <span class="flag ${active === 'methodb' ? 'on1' : 'off1'}">${active === 'methodb' ? 'METHOD B' : 'LEGACY'}</span>
+      &nbsp; methodb aylık maliyet: <b>$${(methodbCost || 0).toFixed(4)}</b><br>
+      Son çalışma: ${tally}
+      <div style="margin-top:8px;font-size:12px;color:#9aa4b2">Yayını değiştirmek için: <a href="/admin/config?site=${esc(site.short_code)}" style="color:#7c9adb">/admin/config</a> → "0. Pipeline (serving)"</div>
+    </div>
+  </header>
+  <div class="cols">
+    <div class="col legend"><h2>LEGACY (canlı) — ${live.length}</h2>${live.slice(0, 60).map(card).join('') || '<div class="c">boş</div>'}</div>
+    <div class="col shadow"><h2>METHOD B (gölge) — ${shadow.length}</h2>${shadow.slice(0, 60).map(card).join('') || '<div class="c">henüz makale yok — worker deploy + methodb:enabled=1</div>'}</div>
+  </div>
+  </body></html>`;
+}
+
+function renderAdminConfigPage(site, kvConfig, siteCode, allSites, auditLog = [], pipelineActive = 'legacy', methodbEnabled = false) {
   const sc = siteCode;
   const kvId = 'dedaea653ed542cca25e6cc2551dd1c3';
   const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -8375,6 +8635,8 @@ input[type=number]:focus,input[type=text]:focus{border-color:#444}
 .cfg-value{font-size:.83rem;color:#e8e6e0;font-family:'Consolas',monospace;display:flex;align-items:center;flex-wrap:wrap;gap:.25rem}
 .cfg-note{grid-column:2;font-size:.7rem;color:#888;padding-bottom:.25rem}
 .save-status{font-size:.7rem}.save-ok{color:#4ade80}.save-err{color:#f87171}
+.pl-on{font-weight:700;font-size:.72rem;background:#16351f;color:#4ade80;border-radius:10px;padding:2px 9px}
+.pl-off{font-weight:700;font-size:.72rem;background:#3a1f1f;color:#f87171;border-radius:10px;padding:2px 9px}
 .badge-code{font-size:.72rem;font-weight:700;background:#1a1a2a;color:#7c9adb;border:1px solid #2a2a3a;border-radius:3px;padding:1px 5px}
 .badge-ro{font-size:.72rem;font-weight:700;background:#1e1a0a;color:#888;border:1px solid #2a2520;border-radius:3px;padding:1px 5px}
 .section-note{font-size:.75rem;color:#888;margin-bottom:.75rem}
@@ -8388,6 +8650,23 @@ ${adminNav('config', sc, allSites)}
     <div style="font-size:.85rem;font-weight:700;color:#ccc">Settings <span style="color:#777;font-weight:400;font-size:.75rem;margin-left:.5rem">${sc} · site_id=${site.id}</span></div>
     <div style="font-size:.72rem;color:#888;margin-top:.2rem">Sections 1 and 5 save directly to Supabase. Others show hardcoded constants from publisher.js.</div>
     <div style="font-size:.72rem;color:#888;margin-top:.15rem">All edits are validated (type + range + cross-field) and logged in the Audit Trail section below.</div>
+  </div>
+
+  <div class="card">
+    <div class="card-title nocollapse">0. Pipeline (serving) <span class="badge-code">KV</span></div>
+    <div class="card-body">
+      <div class="section-note">Hangi pipeline anasayfayı besliyor. <b>legacy</b> = mevcut sistem. <b>methodb</b> = yeni olgu-tabanlı üretici (yalnızca gölge havuzu hazırsa yayınlanır; değilse otomatik legacy'ye düşer). Anında geri alınabilir.</div>
+      <div class="cfg-row">
+        <div class="cfg-label">Yayında olan</div>
+        <div class="cfg-value">
+          <span id="pl-active" class="${pipelineActive === 'methodb' ? 'pl-on' : 'pl-off'}">${pipelineActive === 'methodb' ? 'METHOD B' : 'LEGACY'}</span>
+          <button class="btn btn-sm" style="background:#222a36;color:#cbd5e1;margin-left:.6rem" onclick="flipPipeline('legacy')" ${pipelineActive === 'legacy' ? 'disabled' : ''}>Legacy yap</button>
+          <button class="btn btn-sm" style="background:#0d8a7a;color:#fff" onclick="flipPipeline('methodb')" ${pipelineActive === 'methodb' ? 'disabled' : ''}>Method B yap</button>
+          <span id="pl-msg" class="save-status" style="margin-left:.4rem"></span>
+        </div>
+        <div class="cfg-note">Method B worker durumu: <b>${methodbEnabled ? 'ENABLED' : 'INERT (methodb:enabled≠1)'}</b> · Karşılaştırma: <a href="/admin/pipeline?site=${esc(sc)}" style="color:#7c9adb">/admin/pipeline</a></div>
+      </div>
+    </div>
   </div>
 
   <div class="card">
@@ -8546,6 +8825,19 @@ async function _doSave(field, value) {
   } catch { st.textContent = 'Network error'; st.className = 'save-status save-err'; }
   btn.disabled = false;
 }
+async function flipPipeline(target){
+  const label = target === 'methodb' ? 'METHOD B' : 'LEGACY';
+  if(!confirm('Anasayfa yayınını ' + label + ' yap? (anında geri alınabilir)')) return;
+  const msg = document.getElementById('pl-msg');
+  msg.textContent = '...';
+  try{
+    const r = await fetch('/admin/pipeline/flip', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ site: '${sc}', target }) });
+    const j = await r.json();
+    msg.textContent = j.ok ? ('✓ ' + j.active) : ('hata: ' + (j.error || '?'));
+    if(j.ok) setTimeout(() => location.reload(), 700);
+  }catch(e){ msg.textContent = 'hata: ' + e.message; }
+}
+
 function save(field) {
   const input = document.getElementById('f-' + field);
   const st    = document.getElementById('st-' + field);
@@ -9112,7 +9404,15 @@ function renderFinancialsPage(monthsData, fixedItems, costData, activeTab, siteC
   const allManual = monthsData.flatMap(d => d.manual.map(c => ({ ...c, startMonth: d.month })));
 
   // Cost panel data
-  const { current_usd, cap_usd, cap_is_override, pct_used, blocked, history: costHistory, alarms, current_month: costMonth } = costData;
+  const { current_usd, cap_usd, cap_is_override, pct_used, blocked, history: costHistory, alarms, current_month: costMonth, daily = [], trajectory = null } = costData;
+  // Trajectory warning banner (Cost Ceiling 1.6 / Step 5b)
+  const trajBanner = trajectory ? (() => {
+    const proj = trajectory.projectedMonthEnd.toFixed(2), pct = Math.round(trajectory.projectedPctOfCap);
+    if (!trajectory.onTrack) {
+      return `<div class="traj-banner traj-bad">⚠ Aylık projeksiyon $${proj} / $${trajectory.cap.toFixed(2)} (${pct}%) — bütçeyi aşma yolunda <span style="opacity:.7">(${trajectory.projectionBasis})</span></div>`;
+    }
+    return `<div class="traj-banner traj-ok">Aylık projeksiyon $${proj} / $${trajectory.cap.toFixed(2)} (${pct}%) — yolunda</div>`;
+  })() : '';
   const barPct = Math.min(parseFloat(pct_used || 0), 100);
   const barColor = barPct >= 100 ? '#E30A17' : barPct >= 80 ? '#f0a500' : '#3a9a3a';
   const statusCls = blocked ? 'status-blocked' : barPct >= 80 ? 'status-warn' : 'status-ok';
@@ -9194,6 +9494,9 @@ td{padding:6px 8px;border-bottom:1px solid #161616;vertical-align:middle;font-si
 #costPanel .row-btns{display:flex;gap:.6rem;margin-top:1rem;flex-wrap:wrap}
 #costPanel .cbtn{background:#1a1a1a;border:1px solid #333;color:#ccc;padding:.45rem 1rem;border-radius:4px;font-size:.78rem;cursor:pointer;font-family:inherit}
 #costPanel .cbtn:hover{border-color:#555;color:#fff}
+#costPanel .traj-banner{padding:.7rem 1rem;border-radius:6px;margin-bottom:1rem;font-size:.82rem;font-weight:600}
+#costPanel .traj-bad{background:#2a0e0e;border:1px solid #5a1a1a;color:#f08a8a}
+#costPanel .traj-ok{background:#0e2a14;border:1px solid #1a5a2a;color:#7ad48a}
 #costPanel .cbtn.danger{border-color:#5a1a1a;color:#e07070}
 #costPanel .cbtn.danger:hover{border-color:#E30A17;color:#E30A17}
 #costPanel .cbtn.primary{border-color:#335;color:#aad;background:#1a1a2a}
@@ -9213,7 +9516,7 @@ ${adminNav('financials', siteCode, allSites)}
 <main>
 <div class="tabs">
   <button class="tab-btn${activeTab==='fin'?' active':''}" onclick="showTab('fin')">Finansal Özet</button>
-  <button class="tab-btn${activeTab==='cost'?' active':''}" onclick="showTab('cost')">Claude Maliyeti</button>
+  <button id="costTabBtn" class="tab-btn${activeTab==='cost'?' active':''}" onclick="showTab('cost')">Claude Maliyeti</button>
 </div>
 <div id="finPanel" style="display:${activeTab==='fin'?'block':'none'}">
 <div class="range-bar">
@@ -9285,6 +9588,20 @@ ${adminNav('financials', siteCode, allSites)}
 </div><!-- /finPanel -->
 
 <div id="costPanel" style="display:${activeTab==='cost'?'block':'none'};max-width:640px;margin:0 auto">
+  ${trajBanner}
+  <div class="cost-card">
+    <div class="ch2">Günlük Maliyet</div>
+    <div class="row-btns" id="dcFilters">
+      <button class="cbtn" data-days="7">7g</button>
+      <button class="cbtn" data-days="14">14g</button>
+      <button class="cbtn primary" data-days="30">30g</button>
+      <button class="cbtn" data-days="90">90g</button>
+      <button class="cbtn" data-days="365">1y</button>
+      <button class="cbtn" data-days="730">2y</button>
+    </div>
+    <canvas id="dailyChart" height="90" style="margin-top:1rem"></canvas>
+    <p style="font-size:.68rem;color:#777;margin-top:.5rem">Günlük geçmiş ileriye doğru birikir (geçmiş için aylık grafiğe bakın).</p>
+  </div>
   <div class="cost-card">
     <div class="ch2">This Month — ${costMonth}</div>
     <div>
@@ -9334,6 +9651,36 @@ ${adminNav('financials', siteCode, allSites)}
 </main>
 <div id="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+<script>
+const DAILY = ${JSON.stringify(daily)};
+(function(){
+  let dc, curDays = 30;
+  function draw(days){
+    curDays = days;
+    var ctx = document.getElementById('dailyChart');
+    if (!ctx || !window.Chart) return;
+    var data = DAILY.slice(-days);
+    if (dc) dc.destroy();
+    dc = new Chart(ctx.getContext('2d'), {
+      type: 'bar',
+      data: { labels: data.map(function(d){ return d.date.slice(5); }),
+              datasets: [{ data: data.map(function(d){ return d.usd; }), backgroundColor: '#E30A17' }] },
+      options: { responsive: true, plugins: { legend: { display: false } },
+        scales: { x: { ticks: { color: '#888', maxRotation: 0, autoSkip: true, maxTicksLimit: 12 } },
+                  y: { beginAtZero: true, ticks: { color: '#888' } } } }
+    });
+  }
+  var fb = document.getElementById('dcFilters');
+  if (fb) fb.addEventListener('click', function(e){
+    var b = e.target.closest('[data-days]'); if (!b) return;
+    fb.querySelectorAll('[data-days]').forEach(function(x){ x.classList.remove('primary'); });
+    b.classList.add('primary'); draw(+b.dataset.days);
+  });
+  var ctb = document.getElementById('costTabBtn');           // redraw when the cost tab is opened
+  if (ctb) ctb.addEventListener('click', function(){ setTimeout(function(){ draw(curDays); }, 60); });
+  draw(30);
+})();
+</script>
 <script>
 const ADMIN_SITE = '${siteCode}';
 const _origFetch = window.fetch.bind(window);
