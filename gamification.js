@@ -3,6 +3,10 @@
 // XP particle animations, and login/register modals.
 
 (async function kxGamification() {
+  // Detect email confirmation redirect before SDK clears the URL hash
+  const isEmailConfirmation = window.location.hash.includes('type=signup') ||
+    new URLSearchParams(window.location.search).get('type') === 'signup';
+
   // ── 0. Wire DOM elements immediately (before any async work) ──
   const widget    = document.getElementById('userWidget');
   const avatarEl  = document.getElementById('userAvatar');
@@ -153,6 +157,10 @@
   sb.auth.onAuthStateChange(async (event, session) => {
     if (session?.access_token) {
       await loadAuthUser(session.access_token);
+      if (event === 'SIGNED_IN' && isEmailConfirmation) {
+        history.replaceState(null, '', window.location.pathname);
+        showWelcomeScreen();
+      }
     } else {
       showGuestWidget();
     }
@@ -316,6 +324,7 @@
             site_id: config.site_id,
             full_name: fd.get('username'),
           },
+          emailRedirectTo: window.location.origin,
         },
       });
 
@@ -410,6 +419,43 @@
       close();
       await sb.auth.signOut();
     });
+  }
+
+  function showWelcomeScreen() {
+    if (document.getElementById('kxWelcome')) return;
+    const el = document.createElement('div');
+    el.id = 'kxWelcome';
+    el.style.cssText = `
+      position:fixed;inset:0;z-index:700;
+      display:flex;align-items:center;justify-content:center;
+      background:rgba(0,0,0,0.88);backdrop-filter:blur(8px);
+    `;
+    el.innerHTML = `
+      <div style="
+        text-align:center;padding:2.5rem 2rem;max-width:380px;
+        background:#111;border:1px solid #242424;border-radius:12px;
+        display:flex;flex-direction:column;align-items:center;gap:1rem;
+      ">
+        <div style="font-size:3rem">🦅</div>
+        <div style="font-family:'Oswald',sans-serif;font-size:1.5rem;font-weight:700;
+          text-transform:uppercase;letter-spacing:.05em;color:#fff">
+          Hoş Geldin, Kartal!
+        </div>
+        <div style="font-size:.88rem;color:#9ca3af;line-height:1.55;max-width:280px">
+          E-posta adresin doğrulandı. Artık Kartalix'in tam üyesisin —
+          XP kazan, liderlik tablosuna gir ve Tribün'e erişimini aç.
+        </div>
+        <button id="kxWelcomeClose" style="
+          margin-top:.5rem;padding:.8rem 2rem;
+          background:#D90414;border:none;border-radius:4px;
+          color:#fff;font-family:'Oswald',sans-serif;
+          font-size:.95rem;font-weight:700;letter-spacing:.08em;
+          text-transform:uppercase;cursor:pointer;width:100%;
+        ">Keşfet</button>
+      </div>`;
+    document.body.appendChild(el);
+    el.querySelector('#kxWelcomeClose').addEventListener('click', () => el.remove());
+    el.addEventListener('click', e => { if (e.target === el) el.remove(); });
   }
 
   // ── 9. Patch guest conversion sheet CTA ──────────────────────
