@@ -429,7 +429,12 @@ export default {
         (a.image_url || !a.slug || ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'].includes(a.publish_mode))
           ? a
           : { ...a, image_url: `${BASE_URL}/card/${encodeURIComponent(a.slug)}.svg` });
-      return new Response(JSON.stringify({ articles: withCards, rail_fallback }), { headers: h });
+      const VIDEO_MODES = ['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis'];
+      const rail_recent = withCards
+        .filter(a => VIDEO_MODES.includes(a.publish_mode))
+        .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
+        .slice(0, 15);
+      return new Response(JSON.stringify({ articles: withCards, rail_fallback, rail_recent }), { headers: h });
     }
     if (url.pathname === '/report') {
       const report = await buildReport(env);
