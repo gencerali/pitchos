@@ -1061,6 +1061,79 @@
       font-family: 'Oswald', 'Barlow Condensed', sans-serif;
       font-size: 0.72rem; font-weight: 600;
     }
+
+    /* ── YOUTUBE CARD DARK OVERLAY ── */
+    .card-yt-overlay {
+      position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(to top, rgba(10,10,10,0.82) 0%, rgba(10,10,10,0.18) 55%, transparent 100%);
+    }
+
+    /* ── CARD VECTOR PLACEHOLDER THEMES ── */
+    .card-eagle--transfer {
+      background: radial-gradient(circle at 50% 40%, #2a0a12 0%, #180509 100%) !important;
+    }
+    .card-eagle--analiz {
+      background:
+        repeating-linear-gradient(0deg, transparent, transparent 19px, rgba(255,255,255,0.032) 19px, rgba(255,255,255,0.032) 20px),
+        repeating-linear-gradient(90deg, transparent, transparent 19px, rgba(255,255,255,0.032) 19px, rgba(255,255,255,0.032) 20px),
+        radial-gradient(circle at 50% 40%, #1a1a1a 0%, #0d0d0d 100%) !important;
+    }
+
+    /* ── GUEST CONVERSION BOTTOM SHEET ── */
+    .guest-conv-sheet {
+      position: fixed; inset: 0; z-index: 500;
+      display: flex; align-items: flex-end; justify-content: center;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    .guest-conv-sheet.open { opacity: 1; pointer-events: auto; }
+    .guest-conv-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(0,0,0,0.72);
+      backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px);
+    }
+    .guest-conv-panel {
+      position: relative; z-index: 1;
+      width: 100%; max-width: 480px;
+      background: #0D0D0D; border-top: 1px solid #242424;
+      border-radius: 16px 16px 0 0;
+      padding: 2rem 1.5rem calc(2rem + env(safe-area-inset-bottom));
+      display: flex; flex-direction: column; align-items: center; gap: 0.8rem;
+      transform: translateY(24px);
+      transition: transform 0.32s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .guest-conv-sheet.open .guest-conv-panel { transform: translateY(0); }
+    .guest-conv-icon { font-size: 2.6rem; line-height: 1; }
+    .guest-conv-title {
+      font-family: 'Oswald','Barlow Condensed',sans-serif;
+      font-size: 1.35rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.04em; color: var(--text); text-align: center;
+    }
+    .guest-conv-body {
+      font-size: 0.82rem; color: var(--muted-dark); text-align: center; line-height: 1.55;
+      max-width: 300px;
+    }
+    .guest-conv-body strong { color: var(--accent-gold); }
+    .guest-conv-xp-bar {
+      width: 100%; background: #1a1a1a; border-radius: 4px; height: 6px; overflow: hidden;
+    }
+    .guest-conv-xp-fill {
+      height: 100%; background: var(--accent-gold);
+      border-radius: 4px; transition: width 0.6s ease;
+    }
+    .guest-conv-cta {
+      width: 100%; padding: 0.9rem; border-radius: 4px;
+      background: var(--accent); border: none; color: #fff;
+      font-family: 'Oswald',sans-serif; font-size: 1rem; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .guest-conv-cta:hover { background: #b8030f; }
+    .guest-conv-dismiss {
+      background: none; border: none; color: var(--muted);
+      font-size: 0.78rem; cursor: pointer; padding: 0.25rem;
+      text-decoration: underline; text-underline-offset: 3px;
+    }
   </style>
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-3QK6G366J3"></script>
@@ -1086,7 +1159,6 @@
         <text x="55" y="40" font-family="Arial,Helvetica,sans-serif" font-size="7" letter-spacing="2" fill="#666666">BEŞİKTAŞ HABERLERİ</text>
       </svg>
     </a>
-    <div class="live-pill" aria-label="Canlı içerik"><div class="live-dot"></div>Canlı</div>
   </div>
   <div class="header-right">
     <div class="user-widget" id="userWidget">
@@ -1571,11 +1643,21 @@
       : `${base}background:${catGrad(a)}`;
   }
 
-  // Card media: real image, or the eagle silhouette placeholder when image-less.
+  // Card media: YouTube gets native thumbnail + dark gradient overlay; text articles get
+  // thematic vector placeholders; other images render normally.
   function cardMediaHTML(a) {
-    return a.image_url
-      ? `<div style="${cardImgStyle(a)}"></div>`
-      : `<div class="card-eagle">${EAGLE_SVG}</div>`;
+    if (a.image_url) {
+      const isYT = /youtube|ytimg/i.test(a.image_url) || /youtube/i.test(a.publish_mode || '');
+      const overlay = isYT ? `<div class="card-yt-overlay"></div>` : '';
+      return `<div style="${cardImgStyle(a)}"></div>${overlay}`;
+    }
+    // No image: thematic vector placeholder
+    const cat = (a.category || '').toLowerCase();
+    const tags = ((a.tags || '') + ' ' + cat).toLowerCase();
+    let extraClass = '';
+    if (tags.includes('transfer')) extraClass = ' card-eagle--transfer';
+    else if (tags.includes('analiz') || tags.includes('analysis')) extraClass = ' card-eagle--analiz';
+    return `<div class="card-eagle${extraClass}">${EAGLE_SVG}</div>`;
   }
 
   // A Kartalix generated cover bakes the badge + headline + eagle INTO the image,
@@ -1916,6 +1998,7 @@
     document.body.style.overflow = 'hidden';
     av.scrollTop = 0;
     document.title = `${title} | Kartalix`;
+    document.dispatchEvent(new CustomEvent('kx:articleOpen'));
 
     // Scroll progress bar
     av._progressHandler = () => {
@@ -2140,7 +2223,7 @@
       const bc  = catColor(b);
       const idx = _articles.indexOf(b);
       return `
-        <div class="hero-side-item" style="border-left:3px solid ${bc}"
+        <div class="hero-side-item" style="border-left:2px solid #242424"
              onclick="openArticle(_articles[${idx}])">
           <div class="side-category">${esc(b.category || 'Haber')}</div>
           <div class="hero-side-title">${esc(cleanForDisplay(b.title))}</div>
@@ -2254,7 +2337,7 @@
       el.setAttribute('tabindex', '0');
       el.dataset.absIdx = absIdx >= 0 ? absIdx : i + offset;
       el.style.animationDelay = `${i * 0.04}s`;
-      el.style.borderLeft = `3px solid ${catColor(a)}`;
+      if (a.is_kartalix_content) el.style.borderLeft = '2px solid var(--accent)';
 
       const scoreHTML = a.golden_score
         ? `<span class="card-score-badge">${goldenScoreHTML(a.golden_score)}</span>` : '';
@@ -2403,7 +2486,7 @@
       const tc = trustColor(a);
       const cover = isGeneratedCover(a);
       return `
-        <div class="card${cover ? ' is-cover' : ''}" style="border-left:3px solid ${cc}" onclick="openArticle(_articles[${idx}])">
+        <div class="card${cover ? ' is-cover' : ''}" onclick="openArticle(_articles[${idx}])">
           <div class="card-img-wrap${cover ? ' is-cover' : ''}">
             ${cover ? `<div class="cover-fill" style="background-image:url('${esc(a.image_url)}')"></div>` : cardMediaHTML(a)}
             ${cover ? '' : `<span class="card-cat-badge" style="background:${cc}">
@@ -2549,6 +2632,7 @@
 
     document.getElementById('modalOverlay').classList.add('open');
     document.body.style.overflow = 'hidden';
+    document.dispatchEvent(new CustomEvent('kx:articleOpen'));
   }
 
   function closeModal() {
@@ -2970,23 +3054,107 @@
     });
   })();
 
-  // ── USER WIDGET (mock / session-aware) ───────────────────────
+  // ── USER WIDGET + GUEST GAMIFICATION ────────────────────────
   (function initUserWidget() {
     const widget = document.getElementById('userWidget');
     if (!widget) return;
-    const stored = (() => {
-      try { return JSON.parse(localStorage.getItem('kx_user') || 'null'); } catch { return null; }
-    })();
-    if (stored && stored.name) {
-      document.getElementById('userAvatar').textContent  = stored.name.charAt(0).toUpperCase();
-      document.getElementById('userNameLabel').textContent = stored.name;
-      document.getElementById('userRankLabel').textContent = stored.rank || 'Lvl 1 • Kartal';
-      widget.classList.add('visible');
-    } else {
-      // First-visit: create a guest session and show mock rank
-      const guestData = { name: 'Taraftar', rank: 'Lvl 1 • Kartal', ts: Date.now() };
-      try { localStorage.setItem('kx_user', JSON.stringify(guestData)); } catch {}
-      widget.classList.add('visible');
+
+    let session;
+    try { session = JSON.parse(localStorage.getItem('kx_user') || 'null'); } catch { session = null; }
+
+    if (!session || !session.name) {
+      session = { name: 'Misafir Kartal', rank: 'Lvl 1 • Kartal', isGuest: true, xp: 0, ts: Date.now() };
+      try { localStorage.setItem('kx_user', JSON.stringify(session)); } catch {}
+    }
+
+    const avatarEl = document.getElementById('userAvatar');
+    const nameEl   = document.getElementById('userNameLabel');
+    const rankEl   = document.getElementById('userRankLabel');
+
+    function renderWidget() {
+      if (avatarEl) avatarEl.textContent = session.isGuest ? '?' : session.name.charAt(0).toUpperCase();
+      if (nameEl)   nameEl.textContent   = session.name;
+      if (rankEl)   rankEl.textContent   = session.isGuest
+        ? `Lvl 1 • Kartal • ${session.xp || 0} XP`
+        : (session.rank || 'Lvl 1 • Kartal');
+    }
+    renderWidget();
+    widget.classList.add('visible');
+
+    function saveSession() {
+      try { localStorage.setItem('kx_user', JSON.stringify(session)); } catch {}
+    }
+
+    function addXP(amount) {
+      if (!session.isGuest) return;
+      session.xp = (session.xp || 0) + amount;
+      saveSession();
+      renderWidget();
+    }
+
+    // Accrue XP on article opens
+    document.addEventListener('kx:articleOpen', () => addXP(5));
+
+    // ── GUEST CONVERSION BOTTOM SHEET ────────────────────────
+    function showGuestSheet() {
+      if (!session.isGuest) return;
+      if (document.getElementById('guestConvSheet')) return;
+      const xp = session.xp || 0;
+      const xpPct = Math.min(100, (xp / 100) * 100);
+      const sheet = document.createElement('div');
+      sheet.id = 'guestConvSheet';
+      sheet.className = 'guest-conv-sheet';
+      sheet.innerHTML = `
+        <div class="guest-conv-backdrop"></div>
+        <div class="guest-conv-panel">
+          <div class="guest-conv-icon">🦅</div>
+          <div class="guest-conv-title">Kartal Hesabı Oluştur</div>
+          <div class="guest-conv-body">
+            Şu ana kadar <strong>${xp} XP</strong> kazandın.<br>
+            Üye olarak bu puanları kalıcı olarak kaydet ve Tribün'e erken erişim kazan.
+          </div>
+          <div class="guest-conv-xp-bar"><div class="guest-conv-xp-fill" style="width:0%"></div></div>
+          <button class="guest-conv-cta">Üye Ol &amp; XP Kaydet</button>
+          <button class="guest-conv-dismiss">Şimdi değil</button>
+        </div>`;
+      document.body.appendChild(sheet);
+      requestAnimationFrame(() => {
+        sheet.classList.add('open');
+        const fill = sheet.querySelector('.guest-conv-xp-fill');
+        if (fill) setTimeout(() => { fill.style.width = xpPct + '%'; }, 120);
+      });
+      function dismiss() { sheet.classList.remove('open'); setTimeout(() => sheet.remove(), 300); }
+      sheet.querySelector('.guest-conv-backdrop').addEventListener('click', dismiss);
+      sheet.querySelector('.guest-conv-dismiss').addEventListener('click', dismiss);
+      sheet.querySelector('.guest-conv-cta').addEventListener('click', () => {
+        dismiss(); navToast('Üyelik sistemi çok yakında 🦅');
+      });
+      document.addEventListener('keydown', function escHandler(e) {
+        if (e.key === 'Escape') { dismiss(); document.removeEventListener('keydown', escHandler); }
+      });
+    }
+
+    // Hook: Tribün triggers guest conversion sheet
+    const dockTribun = document.getElementById('dockTribun');
+    if (dockTribun && session.isGuest) {
+      dockTribun.addEventListener('click', showGuestSheet);
+    }
+
+    // Session departure: flag for next visit prompt
+    if (session.isGuest) {
+      window.addEventListener('beforeunload', () => {
+        if ((session.xp || 0) >= 5) {
+          session.pendingPrompt = true;
+          saveSession();
+        }
+      });
+    }
+
+    // Return visit: show sheet if pending
+    if (session.isGuest && session.pendingPrompt) {
+      session.pendingPrompt = false;
+      saveSession();
+      setTimeout(showGuestSheet, 2500);
     }
   })();
   }); // end DOMContentLoaded
