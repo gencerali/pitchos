@@ -20,7 +20,7 @@ import { articleBodyToHtml } from './src/render.js';
 import { isKartalix as isKartalixArticle, videoEmbedHtml } from './src/shared.js';
 import { computeSourceHealth, sourceHealthAlarms } from './src/source-health.js';
 import { buildNav } from './src/shared/nav.js';
-import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup } from './src/api-football.js';
+import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup, seasonConfigStale } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
 
 // ─── CRON INTERVAL HELPER ────────────────────────────────────
@@ -2850,6 +2850,15 @@ Sadece JSON döndür:
       }
       if (sh?.noisy?.length) {
         alarms.push({ id: 'source_noisy', category: 'minor', title: `Noisy source(s) (${sh.noisy.length})`, msg: sh.noisy.join(', '), first_seen: sh.ts });
+      }
+
+      // 9. Seasonal config staleness — nags to update SEASON in src/api-football.js each ~August.
+      const seasonCfg = seasonConfigStale();
+      if (seasonCfg.stale) {
+        alarms.push({ id: 'season_stale', category: 'minor',
+          title: 'Sezon yapılandırması güncel değil',
+          msg: `SEASON=${seasonCfg.season}, takvim sezonu ~${seasonCfg.expected}/${seasonCfg.expected + 1}. src/api-football.js içindeki SEASON'ı güncelleyin (docs/SEASONAL.md).`,
+          first_seen: new Date().toISOString() });
       }
 
       if (stateDirty) {
