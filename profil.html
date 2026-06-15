@@ -590,16 +590,21 @@
     if (guest)   guest.style.display = 'flex';
   }
 
-  // Wire account buttons (once gamification.js has set up kxAuth)
-  function wireAccountButtons(email) {
+  let buttonsWired = false;
+  function wireAccountButtons() {
+    if (buttonsWired) return;
+    buttonsWired = true;
+
     const btnPass = document.getElementById('btnChangePass');
     if (btnPass) {
       btnPass.addEventListener('click', async () => {
-        if (!email || !window.kxAuth?.supabase) return;
-        await window.kxAuth.supabase.auth.resetPasswordForEmail(email, {
+        if (!window.kxAuth?.supabase) return;
+        const { data: { user } } = await window.kxAuth.supabase.auth.getUser();
+        if (!user?.email) return;
+        await window.kxAuth.supabase.auth.resetPasswordForEmail(user.email, {
           redirectTo: 'https://kartalix.com/reset-password',
         });
-        alert('Şifre sıfırlama bağlantısı ' + email + ' adresine gönderildi.');
+        alert('Şifre sıfırlama bağlantısı ' + user.email + ' adresine gönderildi.');
       });
     }
 
@@ -626,25 +631,20 @@
     }
   }
 
-  let rendered = false;
-
+  // Always re-render when auth arrives — no flag blocks this.
+  // This means logging in from the guest state works correctly.
   document.addEventListener('kx:authReady', (e) => {
-    if (rendered) return;
-    rendered = true;
     const me = e.detail?.me;
     if (me) {
       renderProfile(me);
-      wireAccountButtons(me.profile?.email || '');
-    } else {
-      showGuestState();
+      wireAccountButtons();
     }
   });
 
-  // Fallback: if auth takes too long (not logged in), show guest state
+  // Fallback: if still no token after 5s, show guest state.
+  // Doesn't set any permanent flag so a subsequent login still re-renders.
   setTimeout(() => {
-    if (!rendered) {
-      rendered = true;
-      if (window.kxToken) return; // auth resolved but event missed
+    if (!window.kxToken && !document.getElementById('profilContent')?.classList.contains('loaded')) {
       showGuestState();
     }
   }, 5000);

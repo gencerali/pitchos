@@ -319,7 +319,7 @@
       let guestXp = 0;
       try { guestXp = JSON.parse(localStorage.getItem('kx_user') || '{}').xp || 0; } catch {}
 
-      const { error } = await sb.auth.signUp({
+      const { data, error } = await sb.auth.signUp({
         email: fd.get('email'),
         password: fd.get('password'),
         options: {
