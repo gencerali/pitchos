@@ -4,6 +4,8 @@
   "exclude": [
     "/",
     "/gamification.js",
+    "/profil",
+    "/profil.html",
     "/haber/*",
     "/cache",
     "/iletisim",

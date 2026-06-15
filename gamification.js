@@ -438,6 +438,7 @@
     drop.id = 'kxProfileDrop';
     drop.className = 'kx-profile-drop';
     drop.innerHTML = `
+      <a href="/profil" id="kxProfileLink">Profilim</a>
       <button id="kxLogoutBtn">Çıkış Yap</button>
     `;
     document.body.appendChild(drop);

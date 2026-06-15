@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Profilim | Kartalix</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Inter:wght@300;400;500&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --accent:       #D90414;
+      --accent-gold:  #F5A623;
+      --accent-dim:   rgba(217,4,20,0.15);
+      --bg:           #0A0A0A;
+      --surface:      #141414;
+      --panel:        #141414;
+      --border:       #1A1A1A;
+      --border2:      #242424;
+      --text:         #f0ede6;
+      --text-on-dark: #ffffff;
+      --muted:        #6b7280;
+      --muted-dark:   #9ca3af;
+    }
+
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+    }
+
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ── HEADER ── */
+    header {
+      background: #0d0d0d;
+      border-bottom: 2px solid var(--accent);
+      height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo-link { text-decoration: none; display: flex; align-items: center; }
+    .header-left { display: flex; align-items: center; gap: 0.85rem; }
+    .header-right { display: flex; align-items: center; gap: 0.75rem; }
+
+    .user-widget {
+      display: none; align-items: center; gap: 0.45rem;
+      padding: 0.3rem 0.6rem 0.3rem 0.35rem;
+      border: 1px solid #242424; border-radius: 6px;
+      cursor: pointer; position: relative;
+      transition: border-color 0.15s;
+    }
+    .user-widget.visible { display: flex; }
+    .user-widget:hover { border-color: #333; }
+    .user-sync-dot {
+      position: absolute; top: 4px; right: 4px;
+      width: 5px; height: 5px; border-radius: 50%;
+      background: #22c55e;
+      animation: pulse-dot 2.5s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%,100%{opacity:1;box-shadow:0 0 2px rgba(34,197,94,0.4)}
+      50% { opacity: 0.5; box-shadow: 0 0 3px rgba(34,197,94,0.3); }
+    }
+    .user-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--accent); display: flex; align-items: center;
+      justify-content: center; font-family: 'Oswald', sans-serif;
+      font-size: 0.8rem; font-weight: 700; color: #fff; flex-shrink: 0;
+      overflow: hidden;
+    }
+    .user-info { display: flex; flex-direction: column; gap: 0.05rem; }
+    .user-name-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em;
+      color: var(--text); line-height: 1;
+    }
+    .user-rank-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.62rem; font-weight: 600;
+      color: var(--accent-gold); letter-spacing: 0.06em; line-height: 1;
+    }
+
+    .kx-login-btn {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.75rem; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      background: var(--accent); border: none; color: #fff;
+      padding: 0.45rem 1rem; cursor: pointer;
+      transition: background 0.15s; flex-shrink: 0;
+    }
+    .kx-login-btn:hover { background: #b8030f; }
+
+    .kx-streak-flame {
+      display: none; align-items: center; gap: 0.25rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em;
+      color: var(--accent-gold); padding: 0.3rem 0.6rem;
+      border: 1px solid rgba(245,166,35,0.3);
+      border-radius: 4px; background: rgba(245,166,35,0.07);
+    }
+    .kx-streak-flame.kx-flame--hot {
+      color: var(--accent); border-color: rgba(217,4,20,0.4);
+      background: rgba(217,4,20,0.07);
+    }
+
+    .kx-profile-drop {
+      position: absolute; z-index: 200;
+      background: #141414; border: 1px solid #242424;
+      border-radius: 6px; overflow: hidden; min-width: 130px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    }
+    .kx-profile-drop a,
+    .kx-profile-drop button {
+      display: block; width: 100%; padding: 0.65rem 1rem;
+      background: none; border: none; color: var(--text);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em;
+      text-align: left; cursor: pointer; transition: background 0.12s;
+      text-decoration: none;
+    }
+    .kx-profile-drop a:hover,
+    .kx-profile-drop button:hover { background: #1a1a1a; }
+
+    /* ── XP particle ── */
+    .kx-xp-particle {
+      position: fixed; z-index: 999;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.85rem; font-weight: 700; letter-spacing: 0.08em;
+      color: var(--accent-gold); pointer-events: none;
+      opacity: 0; transform: translateY(0); transition: none;
+    }
+    .kx-xp-particle--rise {
+      opacity: 1; transform: translateY(-40px);
+      transition: transform 0.5s ease-out, opacity 0.5s ease-out;
+    }
+
+    /* ── PROFILE PAGE ── */
+    .profil-page {
+      max-width: 600px; margin: 0 auto;
+      padding: 2rem 1rem; position: relative; z-index: 1;
+    }
+
+    .profil-loading {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 60vh; gap: 1rem; color: var(--muted);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .profil-loading-spinner {
+      width: 32px; height: 32px; border-radius: 50%;
+      border: 2px solid var(--border2); border-top-color: var(--accent);
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .profil-guest {
+      display: none; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 60vh; gap: 1.25rem; text-align: center;
+    }
+    .profil-guest-icon { font-size: 2.5rem; }
+    .profil-guest-title {
+      font-family: 'Oswald', sans-serif; font-size: 1.3rem;
+      font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .profil-guest-sub {
+      font-size: 0.85rem; color: var(--muted-dark); max-width: 280px; line-height: 1.55;
+    }
+    .profil-guest-btn {
+      padding: 0.75rem 2rem; background: var(--accent); border: none;
+      color: #fff; font-family: 'Oswald', sans-serif;
+      font-size: 0.9rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; cursor: pointer; border-radius: 4px;
+    }
+
+    .profil-content { display: none; flex-direction: column; gap: 1.5rem; }
+    .profil-content.loaded { display: flex; }
+
+    /* Hero */
+    .profil-hero {
+      display: flex; align-items: center; gap: 1.25rem;
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 8px; padding: 1.5rem;
+    }
+    .profil-avatar-lg {
+      width: 64px; height: 64px; border-radius: 50%;
+      background: var(--accent); display: flex; align-items: center;
+      justify-content: center; font-family: 'Oswald', sans-serif;
+      font-size: 1.6rem; font-weight: 700; color: #fff;
+      flex-shrink: 0; overflow: hidden; border: 2px solid var(--border2);
+    }
+    .profil-avatar-lg img { width: 100%; height: 100%; object-fit: cover; }
+    .profil-hero-info { flex: 1; min-width: 0; }
+    .profil-display-name {
+      font-family: 'Oswald', sans-serif; font-size: 1.4rem;
+      font-weight: 700; color: var(--text-on-dark);
+      text-transform: uppercase; letter-spacing: 0.03em;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .profil-username {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.75rem; color: var(--muted); letter-spacing: 0.06em;
+      margin-top: 0.15rem;
+    }
+    .profil-tier-badge {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      margin-top: 0.5rem; padding: 0.25rem 0.7rem;
+      background: rgba(245,166,35,0.1); border: 1px solid rgba(245,166,35,0.3);
+      border-radius: 3px;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--accent-gold);
+    }
+    .profil-since {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem; color: var(--muted); letter-spacing: 0.05em;
+      margin-top: 0.4rem;
+    }
+
+    /* XP Bar */
+    .profil-xp-card {
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 8px; padding: 1.25rem 1.5rem;
+    }
+    .profil-xp-header {
+      display: flex; justify-content: space-between; align-items: baseline;
+      margin-bottom: 0.75rem;
+    }
+    .profil-xp-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .profil-xp-total {
+      font-family: 'Oswald', sans-serif; font-size: 1.1rem;
+      font-weight: 700; color: var(--accent-gold);
+    }
+    .profil-xp-bar-track {
+      width: 100%; height: 8px; background: var(--border2);
+      border-radius: 4px; overflow: hidden; margin-bottom: 0.5rem;
+    }
+    .profil-xp-bar-fill {
+      height: 100%; background: linear-gradient(90deg, var(--accent) 0%, var(--accent-gold) 100%);
+      border-radius: 4px; transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+      width: 0%;
+    }
+    .profil-xp-levels {
+      display: flex; justify-content: space-between;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem; color: var(--muted); letter-spacing: 0.05em;
+    }
+
+    /* Stats row */
+    .profil-stats {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;
+    }
+    .profil-stat {
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 8px; padding: 1rem; text-align: center;
+      display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+    }
+    .profil-stat-icon { font-size: 1.4rem; }
+    .profil-stat-value {
+      font-family: 'Oswald', sans-serif; font-size: 1.3rem;
+      font-weight: 700; color: var(--text-on-dark);
+    }
+    .profil-stat-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--muted);
+    }
+
+    /* Badges */
+    .profil-section-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.15em;
+      text-transform: uppercase; color: var(--muted);
+      margin-bottom: 0.75rem;
+    }
+    .profil-badges {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;
+    }
+    .profil-badge {
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 8px; padding: 1rem 0.75rem;
+      display: flex; flex-direction: column; align-items: center;
+      gap: 0.4rem; text-align: center; transition: border-color 0.15s;
+    }
+    .profil-badge.earned { border-color: rgba(245,166,35,0.35); }
+    .profil-badge.locked { opacity: 0.45; filter: grayscale(0.7); }
+    .profil-badge-icon { font-size: 1.6rem; line-height: 1; }
+    .profil-badge-name {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em;
+      color: var(--text); line-height: 1.2;
+    }
+    .profil-badge.earned .profil-badge-name { color: var(--accent-gold); }
+    .profil-badge-date {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.58rem; color: var(--muted); letter-spacing: 0.03em;
+    }
+
+    /* Account */
+    .profil-account {
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 8px; overflow: hidden;
+    }
+    .profil-account-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 1.25rem; border-bottom: 1px solid var(--border);
+      cursor: pointer; transition: background 0.12s;
+    }
+    .profil-account-row:last-child { border-bottom: none; }
+    .profil-account-row:hover { background: #1a1a1a; }
+    .profil-account-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.82rem; font-weight: 600; letter-spacing: 0.04em; color: var(--text);
+    }
+    .profil-account-row.danger .profil-account-label { color: #ef4444; }
+    .profil-account-arrow {
+      font-size: 0.75rem; color: var(--muted);
+    }
+
+    .profil-signout-btn {
+      width: 100%; padding: 0.85rem;
+      background: none; border: 1px solid var(--border2);
+      border-radius: 8px; color: var(--muted);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.82rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .profil-signout-btn:hover { border-color: #ef4444; color: #ef4444; }
+
+    @media (max-width: 480px) {
+      header { padding: 0 1rem; }
+      .profil-page { padding: 1.25rem 0.75rem; }
+      .profil-stats { grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+      .profil-stat { padding: 0.75rem 0.5rem; }
+      .profil-stat-icon { font-size: 1.1rem; }
+      .profil-stat-value { font-size: 1.1rem; }
+      .profil-badges { grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="header-left">
+    <a href="/" class="logo-link" aria-label="Kartalix Ana Sayfa">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" height="40" aria-hidden="true">
+        <rect x="0" y="2" width="8" height="40" fill="#ffffff"/>
+        <polygon points="8,22 36,2 29,2 8,16" fill="#ffffff"/>
+        <polygon points="8,22 38,42 46,42 8,25" fill="#D90414"/>
+        <rect x="0" y="20" width="8" height="5" fill="#D90414"/>
+        <text x="54" y="28" font-family="'Barlow Condensed',Impact,Arial Narrow,sans-serif" font-size="24" font-weight="900" letter-spacing="3" fill="#ffffff">KARTALIX</text>
+        <text x="55" y="40" font-family="Arial,Helvetica,sans-serif" font-size="7" letter-spacing="2" fill="#666666">BEŞİKTAŞ HABERLERİ</text>
+      </svg>
+    </a>
+  </div>
+  <div class="header-right">
+    <div class="kx-streak-flame" id="kxStreakFlame">🔥 <span id="kxStreakCount">0</span></div>
+    <button class="kx-login-btn" id="kxLoginBtn">Giriş Yap</button>
+    <div class="user-widget" id="userWidget">
+      <div class="user-sync-dot"></div>
+      <div class="user-avatar" id="userAvatar">K</div>
+      <div class="user-info">
+        <div class="user-name-label" id="userNameLabel">Taraftar</div>
+        <div class="user-rank-label" id="userRankLabel">Lvl 1 • Kartal</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ── PROFILE PAGE ── -->
+<main class="profil-page">
+
+  <!-- Loading state -->
+  <div class="profil-loading" id="profilLoading">
+    <div class="profil-loading-spinner"></div>
+    <span>Yükleniyor</span>
+  </div>
+
+  <!-- Guest state -->
+  <div class="profil-guest" id="profilGuest">
+    <div class="profil-guest-icon">🦅</div>
+    <div class="profil-guest-title">Giriş Yapman Gerekiyor</div>
+    <div class="profil-guest-sub">Profilini görmek için Kartalix hesabınla giriş yap.</div>
+    <button class="profil-guest-btn" onclick="window.kxAuth?.showLogin()">Giriş Yap</button>
+  </div>
+
+  <!-- Profile content (hidden until auth ready) -->
+  <div class="profil-content" id="profilContent">
+
+    <!-- Hero -->
+    <div class="profil-hero">
+      <div class="profil-avatar-lg" id="profilAvatarLg">K</div>
+      <div class="profil-hero-info">
+        <div class="profil-display-name" id="profilDisplayName">—</div>
+        <div class="profil-username" id="profilUsername"></div>
+        <div class="profil-tier-badge" id="profilTierBadge">— Lvl —</div>
+        <div class="profil-since" id="profilSince"></div>
+      </div>
+    </div>
+
+    <!-- XP Bar -->
+    <div class="profil-xp-card">
+      <div class="profil-xp-header">
+        <span class="profil-xp-label">Toplam XP</span>
+        <span class="profil-xp-total" id="profilXpTotal">0 XP</span>
+      </div>
+      <div class="profil-xp-bar-track">
+        <div class="profil-xp-bar-fill" id="profilXpFill"></div>
+      </div>
+      <div class="profil-xp-levels">
+        <span id="profilLevelCur">Lvl 1</span>
+        <span id="profilXpToNext"></span>
+        <span id="profilLevelNext">Lvl 2</span>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="profil-stats">
+      <div class="profil-stat">
+        <div class="profil-stat-icon">🔥</div>
+        <div class="profil-stat-value" id="profilStreakCur">0</div>
+        <div class="profil-stat-label">Günlük Seri</div>
+      </div>
+      <div class="profil-stat">
+        <div class="profil-stat-icon">🏆</div>
+        <div class="profil-stat-value" id="profilStreakBest">0</div>
+        <div class="profil-stat-label">En Uzun Seri</div>
+      </div>
+      <div class="profil-stat">
+        <div class="profil-stat-icon" id="profilShieldIcon">🛡️</div>
+        <div class="profil-stat-value" id="profilShieldVal">—</div>
+        <div class="profil-stat-label">Koruma</div>
+      </div>
+    </div>
+
+    <!-- Badges -->
+    <div>
+      <div class="profil-section-title">Rozetler</div>
+      <div class="profil-badges" id="profilBadgesGrid"></div>
+    </div>
+
+    <!-- Account -->
+    <div>
+      <div class="profil-section-title">Hesap</div>
+      <div class="profil-account">
+        <div class="profil-account-row" id="btnChangePass">
+          <span class="profil-account-label">Şifre Değiştir</span>
+          <span class="profil-account-arrow">›</span>
+        </div>
+        <div class="profil-account-row" id="btnKvkk">
+          <span class="profil-account-label">KVKK Veri Talebi</span>
+          <span class="profil-account-arrow">›</span>
+        </div>
+        <div class="profil-account-row danger" id="btnDeleteAccount">
+          <span class="profil-account-label">Hesabı Sil</span>
+          <span class="profil-account-arrow">›</span>
+        </div>
+      </div>
+    </div>
+
+    <button class="profil-signout-btn" id="profilSignoutBtn">Çıkış Yap</button>
+
+  </div><!-- /profil-content -->
+</main>
+
+<script src="/gamification.js" defer></script>
+<script>
+(function () {
+  const BADGE_DEFS = [
+    { id: 'welcome',          icon: '🦅', name: 'Hoş Geldin'       },
+    { id: 'streak_5',         icon: '🔥', name: '5 Günlük Seri'    },
+    { id: 'streak_15',        icon: '🔥', name: 'Kartal Serisi'     },
+    { id: 'streak_30',        icon: '🏆', name: 'Efsane Seri'       },
+    { id: 'tier_2',           icon: '⚡', name: 'Atmaca'            },
+    { id: 'tier_3',           icon: '🦅', name: 'Şahin'             },
+    { id: 'tier_4',           icon: '👑', name: 'Kartal'            },
+    { id: 'tier_5',           icon: '🌟', name: 'Efsane Kartal'     },
+    { id: 'exact_score_first', icon: '🎯', name: 'Skor Avcısı'     },
+  ];
+
+  function fmtDate(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function renderProfile(me) {
+    const { profile, xp, streak, badges } = me;
+
+    const loading  = document.getElementById('profilLoading');
+    const guest    = document.getElementById('profilGuest');
+    const content  = document.getElementById('profilContent');
+
+    if (loading) loading.style.display = 'none';
+    if (guest)   guest.style.display = 'none';
+    if (content) content.classList.add('loaded');
+
+    // Hero
+    const avatarEl = document.getElementById('profilAvatarLg');
+    if (avatarEl) {
+      const initial = (profile.display_name || profile.username || 'K').charAt(0).toUpperCase();
+      if (profile.avatar_url) {
+        const img = document.createElement('img');
+        img.src = profile.avatar_url;
+        avatarEl.textContent = '';
+        avatarEl.appendChild(img);
+      } else {
+        avatarEl.textContent = initial;
+      }
+    }
+
+    const displayName = profile.display_name || profile.username || 'Kartal';
+    const el = (id) => document.getElementById(id);
+    if (el('profilDisplayName')) el('profilDisplayName').textContent = displayName;
+    if (el('profilUsername') && profile.username) {
+      el('profilUsername').textContent = '@' + profile.username;
+    }
+    if (el('profilTierBadge')) {
+      el('profilTierBadge').textContent = `${xp.tier_name} • Lvl ${xp.level}`;
+    }
+    if (el('profilSince') && profile.created_at) {
+      el('profilSince').textContent = 'Üyelik: ' + fmtDate(profile.created_at);
+    }
+
+    // XP bar
+    if (el('profilXpTotal')) el('profilXpTotal').textContent = xp.total.toLocaleString('tr-TR') + ' XP';
+    const xpInLevel = xp.total - (xp.xp_at_level ?? 0);
+    const xpSpan    = xpInLevel + (xp.xp_to_next ?? 50);
+    const pct       = xpSpan > 0 ? Math.min(100, (xpInLevel / xpSpan) * 100) : 0;
+    requestAnimationFrame(() => {
+      if (el('profilXpFill')) el('profilXpFill').style.width = pct + '%';
+    });
+    if (el('profilLevelCur')) el('profilLevelCur').textContent = 'Lvl ' + xp.level;
+    if (el('profilLevelNext')) el('profilLevelNext').textContent = 'Lvl ' + (xp.level + 1);
+    if (el('profilXpToNext') && xp.xp_to_next != null) {
+      el('profilXpToNext').textContent = xp.xp_to_next + ' XP kaldı';
+    }
+
+    // Streak stats
+    if (el('profilStreakCur'))  el('profilStreakCur').textContent  = streak.current  ?? 0;
+    if (el('profilStreakBest')) el('profilStreakBest').textContent = streak.longest ?? 0;
+    if (el('profilShieldVal')) {
+      el('profilShieldVal').textContent = streak.shield_active ? 'Aktif' : 'Pasif';
+      if (el('profilShieldIcon')) el('profilShieldIcon').textContent = streak.shield_active ? '🛡️' : '💀';
+    }
+
+    // Badges
+    const earnedIds = new Set((badges || []).map(b => b.badge_id));
+    const earnedMap = {};
+    (badges || []).forEach(b => { earnedMap[b.badge_id] = b.earned_at; });
+
+    const grid = el('profilBadgesGrid');
+    if (grid) {
+      grid.innerHTML = '';
+      BADGE_DEFS.forEach(def => {
+        const earned = earnedIds.has(def.id);
+        const div = document.createElement('div');
+        div.className = 'profil-badge ' + (earned ? 'earned' : 'locked');
+        div.innerHTML = `
+          <div class="profil-badge-icon">${def.icon}</div>
+          <div class="profil-badge-name">${def.name}</div>
+          ${earned ? `<div class="profil-badge-date">${fmtDate(earnedMap[def.id])}</div>` : ''}
+        `;
+        grid.appendChild(div);
+      });
+    }
+  }
+
+  function showGuestState() {
+    const loading = document.getElementById('profilLoading');
+    const guest   = document.getElementById('profilGuest');
+    if (loading) loading.style.display = 'none';
+    if (guest)   guest.style.display = 'flex';
+  }
+
+  // Wire account buttons (once gamification.js has set up kxAuth)
+  function wireAccountButtons(email) {
+    const btnPass = document.getElementById('btnChangePass');
+    if (btnPass) {
+      btnPass.addEventListener('click', async () => {
+        if (!email || !window.kxAuth?.supabase) return;
+        await window.kxAuth.supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: 'https://kartalix.com/reset-password',
+        });
+        alert('Şifre sıfırlama bağlantısı ' + email + ' adresine gönderildi.');
+      });
+    }
+
+    const btnKvkk = document.getElementById('btnKvkk');
+    if (btnKvkk) {
+      btnKvkk.addEventListener('click', () => {
+        alert('KVKK veri talebiniz için gencerali@gmail.com adresine e-posta gönderin.');
+      });
+    }
+
+    const btnDel = document.getElementById('btnDeleteAccount');
+    if (btnDel) {
+      btnDel.addEventListener('click', () => {
+        alert('Hesap silme talebi için gencerali@gmail.com adresine e-posta gönderin.');
+      });
+    }
+
+    const btnSignout = document.getElementById('profilSignoutBtn');
+    if (btnSignout) {
+      btnSignout.addEventListener('click', async () => {
+        if (window.kxAuth?.signOut) await window.kxAuth.signOut();
+        window.location.href = '/';
+      });
+    }
+  }
+
+  let rendered = false;
+
+  document.addEventListener('kx:authReady', (e) => {
+    if (rendered) return;
+    rendered = true;
+    const me = e.detail?.me;
+    if (me) {
+      renderProfile(me);
+      wireAccountButtons(me.profile?.email || '');
+    } else {
+      showGuestState();
+    }
+  });
+
+  // Fallback: if auth takes too long (not logged in), show guest state
+  setTimeout(() => {
+    if (!rendered) {
+      rendered = true;
+      if (window.kxToken) return; // auth resolved but event missed
+      showGuestState();
+    }
+  }, 5000);
+})();
+</script>
+</body>
+</html>

@@ -26,9 +26,12 @@ export async function onRequest({ request, env }) {
     level: 1, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 50,
   };
 
+  const levelThreshold = await sbGet(env, `level_thresholds?level=eq.${level}&select=min_xp&limit=1`);
+  const xp_at_level = levelThreshold[0]?.min_xp ?? 0;
+
   return json({
     profile: profile[0],
-    xp: { total: total_xp, level, tier_name, tier_number, xp_to_next },
+    xp: { total: total_xp, level, tier_name, tier_number, xp_to_next, xp_at_level },
     streak: {
       current: streak.current_streak,
       longest: streak.longest_streak,
