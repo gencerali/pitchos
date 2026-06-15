@@ -26,8 +26,8 @@ export async function onRequest({ request, env }) {
     level: 1, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 50,
   };
 
-  const levelThreshold = await sbGet(env, `level_thresholds?level=eq.${level}&select=min_xp&limit=1`).catch(() => []);
-  const xp_at_level = levelThreshold[0]?.min_xp ?? 0;
+  const levelThreshold = await sbGet(env, `level_thresholds?level=eq.${level}&select=xp_required&limit=1`).catch(() => []);
+  const xp_at_level = levelThreshold[0]?.xp_required ?? 0;
 
   return json({
     profile: profile[0],

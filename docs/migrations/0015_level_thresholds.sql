@@ -1,30 +1,30 @@
 -- 0015_level_thresholds.sql
--- Populates level_thresholds so the XP progress bar on /profil works.
--- get_user_level RPC queries this table. me.js reads min_xp for the bar.
+-- Populates level_thresholds so get_user_level RPC returns real levels
+-- and the XP bar on /profil shows accurate progress.
 --
--- Tier mapping (mirrors badge_id checks in xp.js checkBadges):
+-- The function (already in DB) queries: xp_required, tier_name, tier_number
+--
+-- Tier mapping (mirrors checkBadges in xp.js):
 --   Tier 1 (Misafir Kartal) : levels 1–3
---   Tier 2 (Atmaca)         : levels 4–6   ← badge at level 4
---   Tier 3 (Şahin)          : levels 7–9   ← badge at level 7
---   Tier 4 (Kartal)         : levels 10–12 ← badge at level 10
---   Tier 5 (Efsane Kartal)  : levels 13–20 ← badge at level 13
+--   Tier 2 (Atmaca)         : levels 4–6   ← tier_2 badge
+--   Tier 3 (Şahin)          : levels 7–9   ← tier_3 badge
+--   Tier 4 (Kartal)         : levels 10–12 ← tier_4 badge
+--   Tier 5 (Efsane Kartal)  : levels 13–20 ← tier_5 badge
 --
--- XP economy reference:
---   daily_checkin = ~10 XP, article_read = ~15 XP
---   streak_5_bonus = ~25 XP every 5 days
---   Estimated ~4 500 XP/year for an active daily user → Tier 4 in ~2 years
+-- XP economy (daily_checkin ~10 XP, article_read ~15 XP, streak bonuses):
+--   Active daily user earns ~4 500 XP/year → Tier 4 in ~2 years
 
 CREATE TABLE IF NOT EXISTS public.level_thresholds (
   level        integer PRIMARY KEY,
-  min_xp       integer NOT NULL,
+  xp_required  integer NOT NULL,
   tier_number  integer NOT NULL DEFAULT 1,
   tier_name    text    NOT NULL DEFAULT 'Misafir Kartal'
 );
 
--- Clear and repopulate (idempotent)
+-- Idempotent repopulation
 TRUNCATE public.level_thresholds;
 
-INSERT INTO public.level_thresholds (level, min_xp, tier_number, tier_name) VALUES
+INSERT INTO public.level_thresholds (level, xp_required, tier_number, tier_name) VALUES
   ( 1,     0, 1, 'Misafir Kartal'),
   ( 2,    50, 1, 'Misafir Kartal'),
   ( 3,   125, 1, 'Misafir Kartal'),
@@ -46,6 +46,7 @@ INSERT INTO public.level_thresholds (level, min_xp, tier_number, tier_name) VALU
   (19, 14500, 5, 'Efsane Kartal'),
   (20, 17500, 5, 'Efsane Kartal');
 
--- Grant read access (used by service role key in API, but anon needs it for the RPC)
+-- RLS: anyone can read (needed by the RPC which runs as invoker)
 ALTER TABLE public.level_thresholds ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "public read" ON public.level_thresholds;
 CREATE POLICY "public read" ON public.level_thresholds FOR SELECT USING (true);

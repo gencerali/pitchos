@@ -109,7 +109,7 @@ describe('/api/me', () => {
       .mockResolvedValueOnce([FAKE_PROFILE])            // profiles
       .mockResolvedValueOnce([])                         // user_badges
       .mockResolvedValueOnce([{ xp_earned: 100 }, { xp_earned: 50 }]) // xp_events
-      .mockResolvedValueOnce([{ min_xp: 75 }]);          // level_thresholds
+      .mockResolvedValueOnce([{ xp_required: 75 }]);     // level_thresholds
 
     vi.mocked(getStreak).mockResolvedValue({
       current_streak: 5, longest_streak: 12,
@@ -150,7 +150,7 @@ describe('/api/me', () => {
     expect(body.xp.xp_to_next).toBe(25);
   });
 
-  it('returns xp_at_level from level_thresholds', async () => {
+  it('returns xp_at_level from level_thresholds (xp_required column)', async () => {
     const res = await meHandler({ request: makeReq(), env: makeEnv() });
     const body = await jsonBody(res);
     expect(body.xp.xp_at_level).toBe(75);
