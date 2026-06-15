@@ -2141,7 +2141,7 @@
     document.body.style.overflow = 'hidden';
     av.scrollTop = 0;
     document.title = `${title} | Kartalix`;
-    document.dispatchEvent(new CustomEvent('kx:articleOpen'));
+    document.dispatchEvent(new CustomEvent('kx:articleOpen', { detail: { slug, id: a.id } }));
 
     // Scroll progress bar
     av._progressHandler = () => {
@@ -2775,7 +2775,7 @@
 
     document.getElementById('modalOverlay').classList.add('open');
     document.body.style.overflow = 'hidden';
-    document.dispatchEvent(new CustomEvent('kx:articleOpen'));
+    document.dispatchEvent(new CustomEvent('kx:articleOpen', { detail: { slug: a.slug, id: a.id } }));
   }
 
   function closeModal() {
@@ -3230,6 +3230,7 @@
 
     function addXP(amount) {
       if (!session.isGuest) return;
+      if (window.kxToken || window.__kxLoggedIn) return;
       session.xp = (session.xp || 0) + amount;
       saveSession();
       renderWidget();
@@ -3241,7 +3242,7 @@
     // ── GUEST CONVERSION BOTTOM SHEET ────────────────────────
     function showGuestSheet() {
       if (!session.isGuest) return;
-      if (window.kxToken) return; // logged in via Supabase
+      if (window.kxToken || window.__kxLoggedIn) return;
       if (document.getElementById('guestConvSheet')) return;
       const xp = session.xp || 0;
       const xpPct = Math.min(100, (xp / 100) * 100);
@@ -3294,11 +3295,11 @@
       });
     }
 
-    // Return visit: show sheet if pending
+    // Return visit: show sheet if pending (delay 6s — enough for gamification.js auth to resolve)
     if (session.isGuest && session.pendingPrompt) {
       session.pendingPrompt = false;
       saveSession();
-      setTimeout(showGuestSheet, 2500);
+      setTimeout(showGuestSheet, 6000);
     }
   })();
   }); // end DOMContentLoaded

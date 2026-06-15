@@ -131,8 +131,9 @@
       // Clear stale guest session so index.html's initUserWidget doesn't show guest sheet
       try { localStorage.removeItem('kx_user'); } catch {}
 
-      // Expose token for other scripts (article XP, etc.)
+      // Expose token + auth flag (checked by initUserWidget's addXP and showGuestSheet)
       window.kxToken = accessToken;
+      window.__kxLoggedIn = true;
       document.dispatchEvent(new CustomEvent('kx:authReady', { detail: { me } }));
 
     } catch {
