@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Liderlik Tablosu | Kartalix</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Inter:wght@300;400;500&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --accent:       #D90414;
+      --accent-gold:  #F5A623;
+      --accent-dim:   rgba(217,4,20,0.15);
+      --bg:           #0A0A0A;
+      --surface:      #141414;
+      --panel:        #141414;
+      --border:       #1A1A1A;
+      --border2:      #242424;
+      --text:         #f0ede6;
+      --text-on-dark: #ffffff;
+      --muted:        #6b7280;
+      --muted-dark:   #9ca3af;
+    }
+
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+    }
+
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ── HEADER ── */
+    header {
+      background: #0d0d0d;
+      border-bottom: 2px solid var(--accent);
+      height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo-link { text-decoration: none; display: flex; align-items: center; }
+    .header-left { display: flex; align-items: center; gap: 0.85rem; }
+    .header-right { display: flex; align-items: center; gap: 0.75rem; }
+
+    .user-widget {
+      display: none; align-items: center; gap: 0.45rem;
+      padding: 0.3rem 0.6rem 0.3rem 0.35rem;
+      border: 1px solid #242424; border-radius: 6px;
+      cursor: pointer; position: relative;
+      transition: border-color 0.15s;
+    }
+    .user-widget.visible { display: flex; }
+    .user-widget:hover { border-color: #333; }
+    .user-sync-dot {
+      position: absolute; top: 4px; right: 4px;
+      width: 5px; height: 5px; border-radius: 50%;
+      background: #22c55e;
+      animation: pulse-dot 2.5s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%,100%{opacity:1;box-shadow:0 0 2px rgba(34,197,94,0.4)}
+      50% { opacity: 0.5; box-shadow: 0 0 3px rgba(34,197,94,0.3); }
+    }
+    .user-avatar {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: var(--accent); display: flex; align-items: center;
+      justify-content: center; font-family: 'Oswald', sans-serif;
+      font-size: 0.8rem; font-weight: 700; color: #fff; flex-shrink: 0;
+      overflow: hidden;
+    }
+    .user-info { display: flex; flex-direction: column; gap: 0.05rem; }
+    .user-name-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em;
+      color: var(--text); line-height: 1;
+    }
+    .user-rank-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.62rem; font-weight: 600;
+      color: var(--accent-gold); letter-spacing: 0.06em; line-height: 1;
+    }
+
+    .kx-login-btn {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.75rem; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      background: var(--accent); border: none; color: #fff;
+      padding: 0.45rem 1rem; cursor: pointer;
+      transition: background 0.15s; flex-shrink: 0;
+    }
+    .kx-login-btn:hover { background: #b8030f; }
+
+    .kx-streak-flame {
+      display: none; align-items: center; gap: 0.25rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em;
+      color: var(--accent-gold); padding: 0.3rem 0.6rem;
+      border: 1px solid rgba(245,166,35,0.3);
+      border-radius: 4px; background: rgba(245,166,35,0.07);
+    }
+    .kx-streak-flame.kx-flame--hot {
+      color: var(--accent); border-color: rgba(217,4,20,0.4);
+      background: rgba(217,4,20,0.07);
+    }
+
+    .kx-profile-drop {
+      position: absolute; z-index: 200;
+      background: #141414; border: 1px solid #242424;
+      border-radius: 6px; overflow: hidden; min-width: 130px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    }
+    .kx-profile-drop a,
+    .kx-profile-drop button {
+      display: block; width: 100%; padding: 0.65rem 1rem;
+      background: none; border: none; color: var(--text);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em;
+      text-align: left; cursor: pointer; transition: background 0.12s;
+      text-decoration: none;
+    }
+    .kx-profile-drop a:hover,
+    .kx-profile-drop button:hover { background: #1a1a1a; }
+
+    /* ── LEADERBOARD PAGE ── */
+    .liderlik-page {
+      max-width: 680px; margin: 0 auto;
+      padding: 2rem 1rem; position: relative; z-index: 1;
+    }
+
+    .liderlik-heading {
+      font-family: 'Oswald', sans-serif;
+      font-size: 1.5rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--text-on-dark);
+      margin-bottom: 1.5rem;
+    }
+
+    /* Tabs */
+    .liderlik-tabs {
+      display: flex; gap: 0.25rem; margin-bottom: 1.25rem;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .liderlik-tabs::-webkit-scrollbar { display: none; }
+
+    .liderlik-tab {
+      flex-shrink: 0;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; padding: 0.45rem 0.9rem;
+      background: none; border: 1px solid var(--border2);
+      color: var(--muted); cursor: pointer; border-radius: 4px;
+      transition: color 0.12s, border-color 0.12s, background 0.12s;
+    }
+    .liderlik-tab:hover { color: var(--text); border-color: #333; }
+    .liderlik-tab.active {
+      background: var(--accent-dim); border-color: var(--accent);
+      color: var(--text-on-dark);
+    }
+
+    /* Loading */
+    .liderlik-loading {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      min-height: 200px; gap: 1rem; color: var(--muted);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .liderlik-spinner {
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 2px solid var(--border2); border-top-color: var(--accent);
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Error */
+    .liderlik-error {
+      display: none; text-align: center; padding: 2rem;
+      color: var(--muted);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.85rem; letter-spacing: 0.06em;
+    }
+
+    /* Empty */
+    .liderlik-empty {
+      display: none; text-align: center; padding: 3rem 1rem;
+      color: var(--muted);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.85rem; letter-spacing: 0.08em; text-transform: uppercase;
+    }
+
+    /* List */
+    .liderlik-list {
+      display: none; flex-direction: column; gap: 0.35rem;
+    }
+    .liderlik-list.visible { display: flex; }
+
+    .liderlik-row {
+      display: flex; align-items: center; gap: 0.85rem;
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 6px; padding: 0.75rem 1rem;
+      transition: border-color 0.12s;
+    }
+    .liderlik-row.me {
+      border-color: var(--accent);
+      background: rgba(217,4,20,0.06);
+    }
+    .liderlik-row.top1 { border-color: rgba(212,175,55,0.45); }
+    .liderlik-row.top2 { border-color: rgba(180,180,180,0.3); }
+    .liderlik-row.top3 { border-color: rgba(205,127,50,0.3); }
+
+    .liderlik-rank {
+      width: 32px; text-align: center; flex-shrink: 0;
+      font-family: 'Oswald', sans-serif; font-size: 1rem; font-weight: 700;
+      color: var(--muted);
+    }
+    .liderlik-rank.gold   { color: #D4AF37; font-size: 1.2rem; }
+    .liderlik-rank.silver { color: #B0B0B0; font-size: 1.2rem; }
+    .liderlik-rank.bronze { color: #CD7F32; font-size: 1.2rem; }
+
+    .liderlik-avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--accent); display: flex; align-items: center;
+      justify-content: center; font-family: 'Oswald', sans-serif;
+      font-size: 0.9rem; font-weight: 700; color: #fff; flex-shrink: 0;
+      overflow: hidden; border: 1px solid var(--border2);
+    }
+    .liderlik-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .liderlik-row.me .liderlik-avatar { border-color: var(--accent); }
+
+    .liderlik-info { flex: 1; min-width: 0; }
+    .liderlik-name {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.9rem; font-weight: 700; letter-spacing: 0.03em;
+      color: var(--text-on-dark);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .liderlik-sub {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem; color: var(--muted); letter-spacing: 0.04em;
+      margin-top: 0.1rem;
+    }
+    .liderlik-row.me .liderlik-name { color: var(--accent); }
+
+    .liderlik-value {
+      font-family: 'Oswald', sans-serif; font-size: 0.9rem;
+      font-weight: 700; color: var(--accent-gold);
+      flex-shrink: 0; text-align: right;
+    }
+    .liderlik-row.top1 .liderlik-value { color: #D4AF37; }
+
+    /* My rank card (outside top 100) */
+    .liderlik-myrank {
+      display: none; margin-top: 1.25rem;
+      border-top: 1px solid var(--border2); padding-top: 1.25rem;
+    }
+    .liderlik-myrank-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.65rem; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 0.5rem;
+    }
+
+    @media (max-width: 480px) {
+      header { padding: 0 1rem; }
+      .liderlik-page { padding: 1.25rem 0.75rem; }
+      .liderlik-row { padding: 0.65rem 0.75rem; gap: 0.65rem; }
+      .liderlik-avatar { width: 30px; height: 30px; font-size: 0.75rem; }
+      .liderlik-name { font-size: 0.85rem; }
+      .liderlik-value { font-size: 0.82rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="header-left">
+    <a href="/" class="logo-link" aria-label="Kartalix Ana Sayfa">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" height="40" aria-hidden="true">
+        <rect x="0" y="2" width="8" height="40" fill="#ffffff"/>
+        <polygon points="8,22 36,2 29,2 8,16" fill="#ffffff"/>
+        <polygon points="8,22 38,42 46,42 8,25" fill="#D90414"/>
+        <rect x="0" y="20" width="8" height="5" fill="#D90414"/>
+        <text x="54" y="28" font-family="'Barlow Condensed',Impact,Arial Narrow,sans-serif" font-size="24" font-weight="900" letter-spacing="3" fill="#ffffff">KARTALIX</text>
+        <text x="55" y="40" font-family="Arial,Helvetica,sans-serif" font-size="7" letter-spacing="2" fill="#666666">BEŞİKTAŞ HABERLERİ</text>
+      </svg>
+    </a>
+  </div>
+  <div class="header-right">
+    <div class="kx-streak-flame" id="kxStreakFlame">🔥 <span id="kxStreakCount">0</span></div>
+    <button class="kx-login-btn" id="kxLoginBtn">Giriş Yap</button>
+    <div class="user-widget" id="userWidget">
+      <div class="user-sync-dot"></div>
+      <div class="user-avatar" id="userAvatar">K</div>
+      <div class="user-info">
+        <div class="user-name-label" id="userNameLabel">Taraftar</div>
+        <div class="user-rank-label" id="userRankLabel">Lvl 1 • Kartal</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ── LEADERBOARD PAGE ── -->
+<main class="liderlik-page">
+
+  <div class="liderlik-heading">Liderlik Tablosu</div>
+
+  <!-- Tabs -->
+  <div class="liderlik-tabs" role="tablist">
+    <button class="liderlik-tab active" data-tab="alltime"  role="tab">Tüm Zamanlar</button>
+    <button class="liderlik-tab"        data-tab="monthly"  role="tab">Bu Ay</button>
+    <button class="liderlik-tab"        data-tab="weekly"   role="tab">Bu Hafta</button>
+    <button class="liderlik-tab"        data-tab="seasonal" role="tab">Sezon</button>
+    <button class="liderlik-tab"        data-tab="streak"   role="tab">Seri</button>
+  </div>
+
+  <!-- Body -->
+  <div id="liderlikBody">
+    <div class="liderlik-loading" id="liderlikLoading">
+      <div class="liderlik-spinner"></div>
+      <span>Yükleniyor</span>
+    </div>
+    <div class="liderlik-error" id="liderlikError">Liderlik tablosu yüklenemedi. Lütfen sayfayı yenileyin.</div>
+    <div class="liderlik-empty" id="liderlikEmpty">Henüz veri yok. İlk XP'yi kazan!</div>
+
+    <div class="liderlik-list" id="liderlikList"></div>
+
+    <!-- Logged-in user's rank when outside top 100 -->
+    <div class="liderlik-myrank" id="liderlikMyrank">
+      <div class="liderlik-myrank-label">Senin Sıran</div>
+      <div id="liderlikMyrow"></div>
+    </div>
+  </div>
+
+</main>
+
+<script src="/gamification.js" defer></script>
+<script>
+(function () {
+  const TABS = {
+    alltime:  { label: 'Tüm Zamanlar', valueKey: 'total_xp',    unit: 'XP',  hasSub: true  },
+    monthly:  { label: 'Bu Ay',         valueKey: 'monthly_xp',  unit: 'XP',  hasSub: false },
+    weekly:   { label: 'Bu Hafta',      valueKey: 'weekly_xp',   unit: 'XP',  hasSub: false },
+    seasonal: { label: 'Sezon',          valueKey: 'seasonal_xp', unit: 'XP',  hasSub: false },
+    streak:   { label: 'Seri',           valueKey: 'current_streak', unit: 'gün', hasSub: true },
+  };
+
+  let activeTab  = 'alltime';
+  let meUserId   = null;
+  let cache      = {};
+
+  // ── DOM refs ──
+  const elLoading = document.getElementById('liderlikLoading');
+  const elError   = document.getElementById('liderlikError');
+  const elEmpty   = document.getElementById('liderlikEmpty');
+  const elList    = document.getElementById('liderlikList');
+  const elMyrank  = document.getElementById('liderlikMyrank');
+  const elMyrow   = document.getElementById('liderlikMyrow');
+
+  function showOnly(which) {
+    elLoading.style.display = which === 'loading' ? 'flex' : 'none';
+    elError.style.display   = which === 'error'   ? 'block' : 'none';
+    elEmpty.style.display   = which === 'empty'   ? 'block' : 'none';
+    elList.classList.toggle('visible', which === 'list');
+  }
+
+  function avatarHtml(row) {
+    const initial = ((row.display_name || row.username || 'K').charAt(0)).toUpperCase();
+    if (row.avatar_url) {
+      return `<div class="liderlik-avatar"><img src="${row.avatar_url}" alt="" loading="lazy"></div>`;
+    }
+    return `<div class="liderlik-avatar">${initial}</div>`;
+  }
+
+  function rankHtml(rank) {
+    if (rank === 1) return `<div class="liderlik-rank gold">🥇</div>`;
+    if (rank === 2) return `<div class="liderlik-rank silver">🥈</div>`;
+    if (rank === 3) return `<div class="liderlik-rank bronze">🥉</div>`;
+    return `<div class="liderlik-rank">#${rank}</div>`;
+  }
+
+  function rowClass(rank, userId) {
+    const classes = ['liderlik-row'];
+    if (userId === meUserId) classes.push('me');
+    else if (rank === 1) classes.push('top1');
+    else if (rank === 2) classes.push('top2');
+    else if (rank === 3) classes.push('top3');
+    return classes.join(' ');
+  }
+
+  function buildRowHtml(row, tabCfg) {
+    const name    = row.display_name || row.username || 'Taraftar';
+    const val     = row[tabCfg.valueKey];
+    const valStr  = val != null ? val.toLocaleString('tr-TR') + ' ' + tabCfg.unit : '—';
+    const rank    = row.rank;
+
+    let subHtml = '';
+    if (tabCfg.hasSub) {
+      if (activeTab === 'alltime') {
+        subHtml = row.tier_name ? `<div class="liderlik-sub">${row.tier_name} • Lvl ${row.current_level ?? '—'}</div>` : '';
+      } else if (activeTab === 'streak') {
+        subHtml = `<div class="liderlik-sub">En uzun: ${row.longest_streak ?? 0} gün</div>`;
+      }
+    }
+
+    return `
+      <div class="${rowClass(rank, row.user_id)}">
+        ${rankHtml(rank)}
+        ${avatarHtml(row)}
+        <div class="liderlik-info">
+          <div class="liderlik-name">${escHtml(name)}</div>
+          ${subHtml}
+        </div>
+        <div class="liderlik-value">${valStr}</div>
+      </div>
+    `.trim();
+  }
+
+  function escHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function render(data) {
+    const tabCfg = TABS[activeTab];
+    const rows   = data.rows ?? [];
+
+    if (!rows.length) { showOnly('empty'); elMyrank.style.display = 'none'; return; }
+
+    elList.innerHTML = rows.map(r => buildRowHtml(r, tabCfg)).join('');
+    showOnly('list');
+
+    if (data.user_rank && !rows.find(r => r.user_id === meUserId)) {
+      elMyrow.innerHTML = buildRowHtml(data.user_rank, tabCfg);
+      elMyrank.style.display = 'block';
+    } else {
+      elMyrank.style.display = 'none';
+    }
+  }
+
+  async function loadTab(tab) {
+    activeTab = tab;
+    const cacheKey = tab + (meUserId || '');
+
+    if (cache[cacheKey]) {
+      render(cache[cacheKey]);
+      return;
+    }
+
+    showOnly('loading');
+    elMyrank.style.display = 'none';
+
+    try {
+      const qs  = meUserId ? `?user_id=${encodeURIComponent(meUserId)}` : '';
+      const res = await fetch(`/api/leaderboard/${tab}${qs}`);
+      if (!res.ok) throw new Error(res.status);
+      const data = await res.json();
+      cache[cacheKey] = data;
+      render(data);
+    } catch {
+      showOnly('error');
+    }
+  }
+
+  // ── Tab click wiring ──
+  document.querySelectorAll('.liderlik-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.liderlik-tab').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      loadTab(btn.dataset.tab);
+    });
+  });
+
+  // ── Auth: re-load with user_id once known, to highlight row + get rank ──
+  document.addEventListener('kx:authReady', (e) => {
+    const me = e.detail?.me;
+    if (me && !meUserId) {
+      meUserId = me.profile.id;
+      cache = {};              // invalidate — need user_id in query
+      loadTab(activeTab);
+    }
+  });
+
+  // ── Initial load (public, no auth needed) ──
+  loadTab('alltime');
+})();
+</script>
+</body>
+</html>
