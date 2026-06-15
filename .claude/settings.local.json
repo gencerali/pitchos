@@ -25,7 +25,10 @@
       "Bash(python -c \"import sys,json; keys=json.load\\(sys.stdin\\); [print\\(k['name']\\) for k in keys[:30]]\")",
       "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__list_tables",
       "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__apply_migration",
-      "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__list_projects"
+      "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__list_projects",
+      "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__execute_sql",
+      "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__get_project",
+      "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__list_migrations"
     ]
   }
 }
