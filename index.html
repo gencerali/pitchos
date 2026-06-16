@@ -2070,12 +2070,17 @@
           : `<span>Bu içerik <strong style="color:#888">${esc(source||'Kartalix')}</strong> tarafından üretildi.</span>`}
       </div>
 
+      <div class="av-reactions av-slide-in" style="max-width:720px;margin:0 auto;padding:1rem 1.5rem;display:flex;gap:0.75rem;border-top:1px solid #1A1A1A">
+        <button id="av-btn-like" onclick="avReact('like')" style="display:flex;align-items:center;gap:0.5rem;background:#0d2a1a;border:1px solid #166534;color:#4ade80;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">👍 <span id="av-like-count">0</span></button>
+        <button id="av-btn-dislike" onclick="avReact('dislike')" style="display:flex;align-items:center;gap:0.5rem;background:#2e0d0d;border:1px solid #7f1d1d;color:#f87171;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">👎 <span id="av-dislike-count">0</span></button>
+      </div>
+
       ${pageUrl ? `
       <div class="av-share av-slide-in">
         <div class="av-share-label">Bu haberi paylaş</div>
         <div class="av-share-btns">
-          <a href="${esc(waUrl)}" target="_blank" rel="noopener" class="av-share-btn" style="background:#1aad1a;color:#fff">WhatsApp</a>
-          <a href="${esc(twUrl)}" target="_blank" rel="noopener" class="av-share-btn" style="background:#1DA1F2;color:#fff">Twitter / X</a>
+          <a id="avShareWa" href="${esc(waUrl)}" target="_blank" rel="noopener" class="av-share-btn" style="background:#1aad1a;color:#fff">WhatsApp</a>
+          <a id="avShareTw" href="${esc(twUrl)}" target="_blank" rel="noopener" class="av-share-btn" style="background:#1DA1F2;color:#fff">Twitter / X</a>
           <button id="avCopyBtn" class="av-share-btn" style="background:#222;color:#ccc">Linki Kopyala</button>
         </div>
       </div>` : ''}
@@ -2138,7 +2143,27 @@
     document.body.style.overflow = 'hidden';
     av.scrollTop = 0;
     document.title = `${title} | Kartalix`;
-    document.dispatchEvent(new CustomEvent('kx:articleOpen'));
+    document.dispatchEvent(new CustomEvent('kx:articleOpen', {
+      detail: { slug: a.slug || '', id: a.id || a.slug || '', publish_mode: a.publish_mode || '' }
+    }));
+
+    // Load reactions for this article
+    if (a.url || a.original_url || a.slug) loadAvReactions(a);
+
+    // Wire share XP on the two av-share links
+    ['avShareWa', 'avShareTw'].forEach(id => {
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        if (window.kxToken && slug) {
+          fetch('/api/xp/share', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ article_id: slug }),
+          }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+        }
+      });
+    });
 
     // Scroll progress bar
     av._progressHandler = () => {
@@ -2887,6 +2912,67 @@
     } catch(e) {
       console.error('loadReactions error:', e);
     }
+  }
+
+  // ── Article view reactions (av- prefix, separate from modal) ──
+
+  async function avReact(type) {
+    if (!_currentArticle) return;
+    const current = getUserReaction(_currentArticle);
+    const newReaction = current === type ? null : type;
+    try {
+      const res = await fetch('https://kartalix.com/react', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ article_url: _currentArticle.url || _currentArticle.original_url, reaction: newReaction }),
+      });
+      const data = await res.json();
+      setUserReaction(_currentArticle, newReaction);
+      document.getElementById('av-like-count').textContent = data.likes || 0;
+      document.getElementById('av-dislike-count').textContent = data.dislikes || 0;
+      updateAvReactionButtons(newReaction);
+      if (newReaction && window.kxToken && _currentArticle?.slug) {
+        fetch('/api/xp/react', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ article_slug: _currentArticle.slug }),
+        }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+      }
+    } catch(e) {}
+  }
+
+  function updateAvReactionButtons(active) {
+    const btnLike = document.getElementById('av-btn-like');
+    const btnDislike = document.getElementById('av-btn-dislike');
+    if (!btnLike) return;
+    btnLike.style.background = active === 'like' ? '#166534' : '#0d2a1a';
+    btnLike.style.color = active === 'like' ? '#fff' : '#4ade80';
+    btnLike.style.borderColor = active === 'like' ? '#22c55e' : '#166534';
+    btnDislike.style.background = active === 'dislike' ? '#7f1d1d' : '#2e0d0d';
+    btnDislike.style.color = active === 'dislike' ? '#fff' : '#f87171';
+    btnDislike.style.borderColor = active === 'dislike' ? '#ef4444' : '#7f1d1d';
+  }
+
+  async function loadAvReactions(article) {
+    _currentArticle = article;
+    const likeEl = document.getElementById('av-like-count');
+    const dislikeEl = document.getElementById('av-dislike-count');
+    if (!likeEl) return;
+    likeEl.textContent = 0;
+    dislikeEl.textContent = 0;
+    const articleUrl = article.url || article.original_url || '';
+    if (!articleUrl) return;
+    try {
+      const res = await fetch('https://kartalix.com/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ article_url: articleUrl }),
+      });
+      const data = await res.json();
+      likeEl.textContent = data.likes || 0;
+      dislikeEl.textContent = data.dislikes || 0;
+      updateAvReactionButtons(getUserReaction(_currentArticle));
+    } catch(e) {}
   }
 
   function updateReactionButtons(active) {
