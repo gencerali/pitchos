@@ -3014,7 +3014,8 @@
     if (!likeEl) return;
     likeEl.textContent = 0;
     dislikeEl.textContent = 0;
-    const articleUrl = article.url || article.original_url || '';
+    const articleUrl = article.url || article.original_url ||
+      (article.slug ? `https://kartalix.com/haber/${article.slug}` : '');
     if (!articleUrl) return;
     try {
       const res = await fetch('https://kartalix.com/comments', {
@@ -3146,7 +3147,7 @@
       const res = await fetch('https://kartalix.com/comment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ article_url: _currentArticle.url || _currentArticle.original_url, name, surname, comment, honeypot }),
+        body: JSON.stringify({ article_url: _currentArticle.url || _currentArticle.original_url || (_currentArticle.slug ? `https://kartalix.com/haber/${_currentArticle.slug}` : ''), name, surname, comment, honeypot }),
       });
       const data = await res.json();
       if (data.success) {
