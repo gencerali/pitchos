@@ -3034,15 +3034,21 @@
             const name = (c.name + ' ' + (c.surname?.[0]||'') + '.').trim();
             const date = new Date(c.created_at).toLocaleDateString('tr-TR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
             const likeCount = c.like_count || 0;
+            const dislikeCount = c.dislike_count || 0;
             return `<div style="padding:0.875rem 0;border-bottom:1px solid #1A1A1A">
               <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem">
                 <span style="font-weight:600;font-size:0.85rem;color:#f0ede6">${esc(name)}</span>
                 <span style="font-size:0.72rem;color:#888">${date}</span>
               </div>
               <p style="font-size:0.875rem;color:#c8c4bc;line-height:1.5;margin:0 0 0.5rem">${esc(c.comment)}</p>
-              <button data-cid="${esc(c.id)}" onclick="commentReact(this)" style="background:none;border:none;color:#888;font-size:0.75rem;cursor:pointer;padding:0;display:flex;align-items:center;gap:0.3rem">
-                <span style="font-size:0.8rem">👍</span><span class="clk-count">${likeCount > 0 ? likeCount : ''}</span>
-              </button>
+              <div style="display:flex;gap:0.75rem">
+                <button data-cid="${esc(c.id)}" data-reaction="like" onclick="commentReact(this)" style="background:none;border:none;color:#888;font-size:0.75rem;cursor:pointer;padding:0;display:flex;align-items:center;gap:0.3rem">
+                  <span style="font-size:0.8rem">👍</span><span class="clk-like">${likeCount > 0 ? likeCount : ''}</span>
+                </button>
+                <button data-cid="${esc(c.id)}" data-reaction="dislike" onclick="commentReact(this)" style="background:none;border:none;color:#888;font-size:0.75rem;cursor:pointer;padding:0;display:flex;align-items:center;gap:0.3rem">
+                  <span style="font-size:0.8rem">👎</span><span class="clk-dislike">${dislikeCount > 0 ? dislikeCount : ''}</span>
+                </button>
+              </div>
             </div>`;
           }).join('');
         }
@@ -3052,19 +3058,29 @@
 
   async function commentReact(btn) {
     const commentId = btn.dataset.cid;
-    if (!commentId) return;
+    const reaction  = btn.dataset.reaction;
+    if (!commentId || !reaction) return;
     btn.disabled = true;
     const headers = { 'Content-Type': 'application/json' };
     if (window.kxToken) headers['Authorization'] = `Bearer ${window.kxToken}`;
     try {
       const res = await fetch('https://kartalix.com/comment-react', {
         method: 'POST', headers,
-        body: JSON.stringify({ comment_id: commentId }),
+        body: JSON.stringify({ comment_id: commentId, reaction }),
       });
       const data = await res.json();
-      const countEl = btn.querySelector('.clk-count');
-      if (countEl) countEl.textContent = data.like_count > 0 ? data.like_count : '';
-      btn.style.color = data.like_count > 0 ? '#4ade80' : '#888';
+      // Update both counts in the same comment row
+      const row = btn.closest('div[style*="border-bottom"]');
+      if (row) {
+        const likeEl    = row.querySelector('.clk-like');
+        const dislikeEl = row.querySelector('.clk-dislike');
+        const likeBtn   = row.querySelector('[data-reaction="like"]');
+        const dislikeBtn = row.querySelector('[data-reaction="dislike"]');
+        if (likeEl)    likeEl.textContent    = data.like_count    > 0 ? data.like_count    : '';
+        if (dislikeEl) dislikeEl.textContent = data.dislike_count > 0 ? data.dislike_count : '';
+        if (likeBtn)    likeBtn.style.color    = data.like_count    > 0 && reaction === 'like'    ? '#4ade80' : '#888';
+        if (dislikeBtn) dislikeBtn.style.color = data.dislike_count > 0 && reaction === 'dislike' ? '#f87171' : '#888';
+      }
     } catch {}
     btn.disabled = false;
   }

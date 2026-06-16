@@ -219,8 +219,8 @@ export default {
     if (url.pathname === '/comment-react') {
       if (request.method !== 'POST') return new Response('POST only', { status: 405 });
       const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
-      const { comment_id } = await request.json();
-      if (!comment_id) return Response.json({ error: 'invalid' }, { headers });
+      const { comment_id, reaction } = await request.json();
+      if (!comment_id || !['like', 'dislike'].includes(reaction)) return Response.json({ error: 'invalid' }, { headers });
       const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
       const ip_hash = ip.split('.').slice(0, 3).join('.') + '.x';
       let user_id = null;
@@ -231,9 +231,10 @@ export default {
           user_id = payload.sub || null;
         }
       } catch {}
-      const result = await supabase(env, 'POST', '/rest/v1/rpc/toggle_comment_like',
-        { p_comment_id: comment_id, p_ip_hash: ip_hash, p_user_id: user_id });
-      return Response.json({ like_count: result ?? 0 }, { headers });
+      const rows = await supabase(env, 'POST', '/rest/v1/rpc/toggle_comment_reaction',
+        { p_comment_id: comment_id, p_ip_hash: ip_hash, p_reaction: reaction, p_user_id: user_id });
+      const row = Array.isArray(rows) ? rows[0] : rows;
+      return Response.json({ like_count: row?.like_count ?? 0, dislike_count: row?.dislike_count ?? 0 }, { headers });
     }
 
     if (url.pathname === '/comments') {
@@ -252,7 +253,7 @@ export default {
         : `article_url=eq.${encodeURIComponent(article_url)}`;
       const [comments, reactions] = await Promise.all([
         supabase(env, 'GET',
-          `/rest/v1/article_comments?${commentFilter}&approved=eq.true&order=created_at.asc&limit=50&select=id,name,comment,created_at,like_count`),
+          `/rest/v1/article_comments?${commentFilter}&approved=eq.true&order=created_at.asc&limit=50&select=id,name,comment,created_at,like_count,dislike_count`),
         supabase(env, 'GET',
           `/rest/v1/article_reactions?${reactionFilter}&select=reaction`),
       ]);
