@@ -8047,6 +8047,19 @@ async function submitFb(){
 
 loadReactions();
 </script>
+<script src="/gamification.js" defer></script>
+<script>
+(function() {
+  var _articleSlug = ${JSON.stringify(slug)};
+  var _articleId   = ${JSON.stringify(a.id || '')};
+  var _publishMode = ${JSON.stringify(a.publish_mode || '')};
+  document.addEventListener('kx:authReady', function() {
+    document.dispatchEvent(new CustomEvent('kx:articleOpen', {
+      detail: { slug: _articleSlug, id: _articleId, publish_mode: _publishMode }
+    }));
+  }, { once: true });
+})();
+</script>
 ${siteFooter()}
 ${siteCookieBanner()}
 </body>
