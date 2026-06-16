@@ -216,6 +216,26 @@ export default {
       return Response.json({ success: true }, { headers });
     }
 
+    if (url.pathname === '/comment-react') {
+      if (request.method !== 'POST') return new Response('POST only', { status: 405 });
+      const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
+      const { comment_id } = await request.json();
+      if (!comment_id) return Response.json({ error: 'invalid' }, { headers });
+      const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+      const ip_hash = ip.split('.').slice(0, 3).join('.') + '.x';
+      let user_id = null;
+      try {
+        const authH = request.headers.get('Authorization') || '';
+        if (authH.startsWith('Bearer ')) {
+          const payload = JSON.parse(atob(authH.slice(7).split('.')[1]));
+          user_id = payload.sub || null;
+        }
+      } catch {}
+      const result = await supabase(env, 'POST', '/rest/v1/rpc/toggle_comment_like',
+        { p_comment_id: comment_id, p_ip_hash: ip_hash, p_user_id: user_id });
+      return Response.json({ like_count: result ?? 0 }, { headers });
+    }
+
     if (url.pathname === '/comments') {
       const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
       let article_slug = url.searchParams.get('article_slug');
@@ -232,7 +252,7 @@ export default {
         : `article_url=eq.${encodeURIComponent(article_url)}`;
       const [comments, reactions] = await Promise.all([
         supabase(env, 'GET',
-          `/rest/v1/article_comments?${commentFilter}&approved=eq.true&order=created_at.asc&limit=50&select=name,comment,created_at`),
+          `/rest/v1/article_comments?${commentFilter}&approved=eq.true&order=created_at.asc&limit=50&select=id,name,comment,created_at,like_count`),
         supabase(env, 'GET',
           `/rest/v1/article_reactions?${reactionFilter}&select=reaction`),
       ]);
@@ -4196,7 +4216,7 @@ Sadece JSON döndür:
     }
     if (url.pathname.startsWith('/haber/')) {
       const slug = url.pathname.replace('/haber/', '').replace(/\/$/, '');
-      return serveArticlePage(slug, env, ctx);
+      return serveArticlePage(slug, env, ctx, request);
     }
 
     return new Response('Kartalix Fetch Agent — OK', { status: 200 });
@@ -6684,7 +6704,18 @@ async function backfillArticleToSupabase(kvArticle, env) {
   }
 }
 
-async function serveArticlePage(slug, env, ctx) {
+async function serveArticlePage(slug, env, ctx, request) {
+  // For regular browsers serve the SPA — it handles /haber/* routing client-side
+  // in the correct dark theme. Bots/crawlers get the SSR page for SEO + og tags.
+  const ua = (request && request.headers.get('User-Agent')) || '';
+  const isBot = /bot|crawl|spider|facebook|twitter|whatsapp|telegram|discord|slack|preview|meta-external/i.test(ua);
+  if (!isBot && request) {
+    const spaRes = await fetch('https://kartalix.com/', { headers: { Accept: 'text/html', 'User-Agent': 'KartalixInternalSPA/1.0' } });
+    return new Response(spaRes.body, {
+      headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Cache-Control': 'public, max-age=60', 'X-Served-By': 'spa' },
+    });
+  }
+  // Bot / SSR path continues below
   const cached = await env.PITCHOS_CACHE.get('articles:BJK');
   const articles = cached ? JSON.parse(cached) : [];
 

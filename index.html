@@ -3033,17 +3033,40 @@
           listEl.innerHTML = comments.map(c => {
             const name = (c.name + ' ' + (c.surname?.[0]||'') + '.').trim();
             const date = new Date(c.created_at).toLocaleDateString('tr-TR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+            const likeCount = c.like_count || 0;
             return `<div style="padding:0.875rem 0;border-bottom:1px solid #1A1A1A">
               <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem">
                 <span style="font-weight:600;font-size:0.85rem;color:#f0ede6">${esc(name)}</span>
                 <span style="font-size:0.72rem;color:#888">${date}</span>
               </div>
-              <p style="font-size:0.875rem;color:#c8c4bc;line-height:1.5;margin:0">${esc(c.comment)}</p>
+              <p style="font-size:0.875rem;color:#c8c4bc;line-height:1.5;margin:0 0 0.5rem">${esc(c.comment)}</p>
+              <button data-cid="${esc(c.id)}" onclick="commentReact(this)" style="background:none;border:none;color:#888;font-size:0.75rem;cursor:pointer;padding:0;display:flex;align-items:center;gap:0.3rem">
+                <span style="font-size:0.8rem">👍</span><span class="clk-count">${likeCount > 0 ? likeCount : ''}</span>
+              </button>
             </div>`;
           }).join('');
         }
       }
     } catch(e) {}
+  }
+
+  async function commentReact(btn) {
+    const commentId = btn.dataset.cid;
+    if (!commentId) return;
+    btn.disabled = true;
+    const headers = { 'Content-Type': 'application/json' };
+    if (window.kxToken) headers['Authorization'] = `Bearer ${window.kxToken}`;
+    try {
+      const res = await fetch('https://kartalix.com/comment-react', {
+        method: 'POST', headers,
+        body: JSON.stringify({ comment_id: commentId }),
+      });
+      const data = await res.json();
+      const countEl = btn.querySelector('.clk-count');
+      if (countEl) countEl.textContent = data.like_count > 0 ? data.like_count : '';
+      btn.style.color = data.like_count > 0 ? '#4ade80' : '#888';
+    } catch {}
+    btn.disabled = false;
   }
 
   function updateReactionButtons(active) {
