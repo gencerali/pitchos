@@ -92,6 +92,20 @@ async function requireOps(request, env) {
 
 // ─── H5 SYNTHESIS GATE ───────────────────────────────────────
 // Module-level so it's accessible from both processSite and force-h5 endpoint.
+// Award 2 XP to a comment author when they receive a net-new like (daily cap 10).
+async function awardCommentLikedXP(env, authorId) {
+  if (!authorId) return;
+  try {
+    const todayStart = new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z';
+    const events = await supabase(env, 'GET',
+      `/rest/v1/xp_events?user_id=eq.${encodeURIComponent(authorId)}&action_id=eq.comment_liked&created_at=gte.${encodeURIComponent(todayStart)}&select=id&limit=11`);
+    if (Array.isArray(events) && events.length >= 10) return;
+    await supabase(env, 'POST', '/rest/v1/xp_events',
+      { user_id: authorId, action_id: 'comment_liked', xp_earned: 2, base_xp: 2, multiplier: 1.0 },
+      { Prefer: 'return=minimal' });
+  } catch {}
+}
+
 async function checkH5SynthGate(storyId, env, sourceConfigMap = null) {
   const since6h = new Date(Date.now() - 6 * 3600 * 1000).toISOString();
   // Count total contributions from story_contributions table
@@ -138,7 +152,7 @@ export default {
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         }
       });
     }
@@ -234,6 +248,10 @@ export default {
       const rows = await supabase(env, 'POST', '/rest/v1/rpc/toggle_comment_reaction',
         { p_comment_id: comment_id, p_ip_hash: ip_hash, p_reaction: reaction, p_user_id: user_id });
       const row = Array.isArray(rows) ? rows[0] : rows;
+      // Award XP to comment author when a net-new like is given (not self, not toggle-off)
+      if (row?.was_new_like && row?.comment_author_id) {
+        ctx.waitUntil(awardCommentLikedXP(env, row.comment_author_id));
+      }
       return Response.json({ like_count: row?.like_count ?? 0, dislike_count: row?.dislike_count ?? 0 }, { headers });
     }
 
@@ -3183,10 +3201,11 @@ Sadece JSON döndür:
       const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage('/admin/gamification'), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 
-      const [actions, recentEvts, allEvts] = await Promise.all([
+      const [actions, recentEvts, allEvts, badges] = await Promise.all([
         supabase(env, 'GET', '/rest/v1/xp_actions?order=category.asc,id.asc&select=*') || [],
         supabase(env, 'GET', '/rest/v1/xp_events?order=created_at.desc&limit=100&select=id,user_id,action_id,xp_earned,multiplier,created_at,nullified,site_id') || [],
         supabase(env, 'GET', '/rest/v1/xp_events?nullified=eq.false&select=xp_earned,user_id') || [],
+        supabase(env, 'GET', '/rest/v1/badges?order=trigger_type.asc,id.asc&select=*') || [],
       ]);
 
       const userIds = [...new Set((recentEvts || []).map(e => e.user_id))];
@@ -3201,7 +3220,7 @@ Sadece JSON döndür:
         totalEvents: (allEvts || []).length,
       };
 
-      return new Response(renderGamificationAdminPage(actions || [], recentEvts || [], profileMap, stats), {
+      return new Response(renderGamificationAdminPage(actions || [], recentEvts || [], profileMap, stats, badges || []), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
     }
@@ -10496,7 +10515,7 @@ load();
 </html>`;
 }
 
-function renderGamificationAdminPage(actions, events, profileMap, stats) {
+function renderGamificationAdminPage(actions, events, profileMap, stats, badges = []) {
   const nav = adminNav('gamification', '', []);
   const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
@@ -10556,6 +10575,57 @@ function renderGamificationAdminPage(actions, events, profileMap, stats) {
     </tr>`;
   }).join('');
 
+  // Badges grouped by trigger_type
+  const BADGE_GROUP_LABELS = {
+    streak:       { label: 'Seriler', color: '#f59e0b' },
+    tier_boundary:{ label: 'Seviyeler', color: '#a78bfa' },
+    xp_milestone: { label: 'XP Kilometre Taşları', color: '#60a5fa' },
+    milestone:    { label: 'Kilometre Taşları', color: '#34d399' },
+    special:      { label: 'Özel Rozetler', color: '#fb7185' },
+    manual:       { label: 'Manuel', color: '#9ca3af' },
+  };
+  const GROUP_ORDER = ['tier_boundary', 'streak', 'milestone', 'xp_milestone', 'special', 'manual'];
+
+  const badgeGroups = {};
+  for (const b of badges) {
+    const t = b.trigger_type || 'manual';
+    (badgeGroups[t] = badgeGroups[t] || []).push(b);
+  }
+
+  const badgeSections = GROUP_ORDER.filter(t => badgeGroups[t]?.length).map(t => {
+    const grp = BADGE_GROUP_LABELS[t] || { label: t, color: '#9ca3af' };
+    const rows = badgeGroups[t].map(b => `
+      <tr style="border-bottom:1px solid #111">
+        <td style="padding:.45rem .75rem;font-size:.78rem;color:#9ca3af;font-family:monospace">${esc(b.id)}</td>
+        <td style="padding:.45rem .75rem;font-size:.82rem;color:#e5e7eb;font-weight:600">${esc(b.label)}</td>
+        <td style="padding:.45rem .75rem;font-size:.78rem;color:#9ca3af">${esc(b.description || '')}</td>
+        <td style="padding:.45rem .75rem;font-size:.72rem;color:#6b7280;font-family:monospace">${esc(b.trigger_value || '')}</td>
+        <td style="padding:.45rem .75rem;text-align:center">${b.triggers_eagle_animation ? '<span style="color:#fbbf24;font-size:.8rem">🦅</span>' : ''}</td>
+      </tr>`).join('');
+    const gid = 'bg-' + t;
+    return `
+      <div style="margin-bottom:.25rem">
+        <button onclick="toggleBadgeGroup('${gid}')" style="width:100%;text-align:left;background:#0d1117;border:none;border-bottom:1px solid #1f2937;padding:.65rem .9rem;cursor:pointer;display:flex;align-items:center;gap:.6rem">
+          <span style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:${grp.color}">${grp.label}</span>
+          <span style="font-size:.65rem;color:#6b7280">${badgeGroups[t].length} rozet</span>
+          <span id="${gid}-arr" style="margin-left:auto;color:#6b7280;font-size:.75rem">▼</span>
+        </button>
+        <div id="${gid}" style="display:none">
+          <table style="width:100%;border-collapse:collapse">
+            <colgroup><col style="width:22%"><col style="width:18%"><col><col style="width:18%"><col style="width:4%"></colgroup>
+            <thead><tr style="background:#0a0f17">
+              <th style="padding:.4rem .75rem;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#4b5563;text-align:left">ID</th>
+              <th style="padding:.4rem .75rem;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#4b5563;text-align:left">Rozet</th>
+              <th style="padding:.4rem .75rem;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#4b5563;text-align:left">Açıklama</th>
+              <th style="padding:.4rem .75rem;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#4b5563;text-align:left">Tetikleyici</th>
+              <th style="padding:.4rem .75rem;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#4b5563;text-align:center">🦅</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }).join('');
+
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -10604,6 +10674,15 @@ ${nav}
     </table>
   </div>
 
+  <!-- Badges -->
+  <div style="background:#111;border:1px solid #1f2937;border-radius:6px;margin-bottom:1.5rem;overflow:hidden">
+    <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-weight:700;font-size:.9rem">Rozetler</span>
+      <span style="font-size:.72rem;color:#6b7280">${badges.length} rozet</span>
+    </div>
+    ${badgeSections}
+  </div>
+
   <!-- Recent Events -->
   <div style="background:#111;border:1px solid #1f2937;border-radius:6px;overflow:hidden">
     <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
@@ -10620,6 +10699,13 @@ ${nav}
 
 </div>
 <script>
+function toggleBadgeGroup(id) {
+  const el = document.getElementById(id);
+  const arr = document.getElementById(id + '-arr');
+  const open = el.style.display !== 'none';
+  el.style.display = open ? 'none' : '';
+  arr.textContent = open ? '▼' : '▲';
+}
 function editAction(id) {
   document.getElementById('ar-'+id).style.display = 'none';
   document.getElementById('ae-'+id).style.display = '';
