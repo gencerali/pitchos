@@ -172,14 +172,14 @@ export async function awardXP(env, user_id, site_id, action_id, source_ref = nul
   };
 
   // 7. Badge checks scoped to site
-  const badge_unlocks = await checkBadges(env, user_id, site_id, { level, tier_number, streak });
+  const badge_unlocks = await checkBadges(env, user_id, site_id, { level, tier_number, streak, action_id });
 
   return { xp_earned, total_xp, level, tier_name, xp_to_next, badge_unlocks, capped: false };
 }
 
 // ── Badge unlock check ────────────────────────────────────────
 
-async function checkBadges(env, user_id, site_id, { level, streak }) {
+async function checkBadges(env, user_id, site_id, { level, streak, action_id }) {
   const unlocked = [];
 
   const candidates = [
@@ -195,6 +195,14 @@ async function checkBadges(env, user_id, site_id, { level, streak }) {
       { badge_id: 'streak_sadakat', min_streak: 30 },
     ].filter(b => streak.current_streak >= b.min_streak)),
   ];
+
+  if (action_id === 'read_article') {
+    const reads = await sbGet(
+      env,
+      `xp_events?user_id=eq.${user_id}&site_id=eq.${site_id}&action_id=eq.read_article&nullified=eq.false&select=id&limit=101`
+    );
+    if (reads.length >= 100) candidates.push({ badge_id: 'articles_100' });
+  }
 
   for (const { badge_id } of candidates) {
     const existing = await sbGet(

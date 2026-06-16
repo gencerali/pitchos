@@ -8040,7 +8040,7 @@ async function react(type) {
 
 document.querySelectorAll('.share-btn.btn-wa,.share-btn.btn-tw').forEach(btn => {
   btn.addEventListener('click', async (e) => {
-    if (navigator.share && navigator.maxTouchPoints > 0) {
+    if (navigator.share && navigator.maxTouchPoints > 0 && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
       e.preventDefault();
       try {
         await navigator.share({ title: ${JSON.stringify(a.title || '')}, url: PAGE_URL });
