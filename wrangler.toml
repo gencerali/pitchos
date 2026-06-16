@@ -54,6 +54,10 @@ pattern = "kartalix.com/comments"
 zone_name = "kartalix.com"
 
 [[routes]]
+pattern = "kartalix.com/comment"
+zone_name = "kartalix.com"
+
+[[routes]]
 pattern = "kartalix.com/cache"
 zone_name = "kartalix.com"
 

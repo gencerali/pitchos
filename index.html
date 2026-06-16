@@ -2169,6 +2169,21 @@
     // Load reactions for this article
     if (a.url || a.original_url || a.slug) loadAvReactions(a);
 
+    // Pre-fill name fields if user is already logged in
+    if (window.__kxLoggedIn && window.__kxProfile) {
+      const displayName = window.__kxProfile.display_name || window.__kxProfile.username || '';
+      const nameEl    = document.getElementById('av-comment-name');
+      const surnameEl = document.getElementById('av-comment-surname');
+      if (nameEl) {
+        nameEl.value = displayName.includes(' ') ? displayName.split(' ')[0] : displayName;
+        nameEl.readOnly = true; nameEl.style.opacity = '0.5';
+      }
+      if (surnameEl) {
+        surnameEl.value = displayName.includes(' ') ? displayName.split(' ').slice(1).join(' ') : '';
+        surnameEl.readOnly = true; surnameEl.style.opacity = '0.5';
+      }
+    }
+
     // Wire share XP — use Web Share API when available so XP only fires on confirmed share
     const _avShareSlug = slug;
     const _avShareTitle = title;
@@ -3454,8 +3469,22 @@
     }
 
     // When real auth completes, mark guest session invalid so addXP/showGuestSheet no-op
-    document.addEventListener('kx:authReady', () => {
+    document.addEventListener('kx:authReady', (e) => {
       session.isGuest = false;
+      // Pre-fill comment name fields from profile so logged-in users don't have to type them
+      const profile = e.detail?.me?.profile;
+      if (profile) window.__kxProfile = profile;
+      if (profile) {
+        const displayName = profile.display_name || profile.username || '';
+        const nameVal = displayName.includes(' ') ? displayName.split(' ')[0] : displayName;
+        const surnameVal = displayName.includes(' ') ? displayName.split(' ').slice(1).join(' ') : '';
+        for (const prefix of ['', 'av-']) {
+          const nameEl    = document.getElementById(`${prefix}comment-name`);
+          const surnameEl = document.getElementById(`${prefix}comment-surname`);
+          if (nameEl) { nameEl.value = nameVal; nameEl.readOnly = true; nameEl.style.opacity = '0.5'; }
+          if (surnameEl) { surnameEl.value = surnameVal; surnameEl.readOnly = true; surnameEl.style.opacity = '0.5'; }
+        }
+      }
     }, { once: true });
 
     // Accrue XP on article opens
