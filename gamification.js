@@ -519,18 +519,8 @@
     if (!tokenRes?.token) return;
 
     const signedToken = tokenRes.token;
-    let scrollPct = 0;
-
-    const onScroll = () => {
-      const body = document.getElementById('articleBody') || document.body;
-      scrollPct = Math.max(scrollPct, (window.scrollY + window.innerHeight) / body.scrollHeight);
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
 
     setTimeout(async () => {
-      window.removeEventListener('scroll', onScroll);
-      if (scrollPct < 0.70) return;
-
       fetch('/api/xp/article-read', {
         method: 'POST',
         headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
