@@ -28,7 +28,8 @@
       "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__list_projects",
       "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__execute_sql",
       "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__get_project",
-      "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__list_migrations"
+      "mcp__a1807955-0210-49c0-b385-1e1a157aaaec__list_migrations",
+      "mcp__a6209b2d-ea3b-45e4-9484-68f8a29e5d53__workers_list"
     ]
   }
 }
