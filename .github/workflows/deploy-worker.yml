@@ -1,14 +1,10 @@
-name: Deploy Worker
+name: Deploy
 
-# Deploys the main worker (pitchos-fetch-agent) whenever code lands on main,
-# or on demand via the "Run workflow" button (works from a phone).
-# The homepage/static site is deployed separately by Cloudflare Pages' own
-# git integration — this workflow only handles the worker.
+# Deploys the main worker (pitchos-fetch-agent) and the Pages site
+# whenever code lands on main, or on demand via "Run workflow".
 #
 # One-time setup (repo Settings → Secrets and variables → Actions):
-#   PITCHOS_DEPLOY  — token from the "Edit Cloudflare Workers" template
-# (Account is inferred from the token; if deploy errors asking for an account id,
-#  add a CLOUDFLARE_ACCOUNT_ID secret and wire it in below.)
+#   PITCHOS_DEPLOY  — Cloudflare API token with Workers + Pages Edit permissions
 
 on:
   push:
@@ -20,9 +16,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy pitchos-fetch-agent
+
+      - name: Deploy pitchos-fetch-agent (Worker)
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.PITCHOS_DEPLOY }}
           wranglerVersion: '4.80.0'
           command: deploy
+
+      - name: Deploy pitchos (Pages)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.PITCHOS_DEPLOY }}
+          wranglerVersion: '4.80.0'
+          command: pages deploy . --project-name=pitchos --branch=main
