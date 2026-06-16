@@ -3118,6 +3118,49 @@ Sadece JSON döndür:
       return Response.json({ ok: true });
     }
 
+    if (url.pathname === '/admin/gamification') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return new Response(renderPinPage('/admin/gamification'), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
+
+      const [actions, recentEvts, allEvts] = await Promise.all([
+        supabase(env, 'GET', '/rest/v1/xp_actions?order=category.asc,id.asc&select=*') || [],
+        supabase(env, 'GET', '/rest/v1/xp_events?order=created_at.desc&limit=100&select=id,user_id,action_id,xp_earned,multiplier,created_at,nullified,site_id') || [],
+        supabase(env, 'GET', '/rest/v1/xp_events?nullified=eq.false&select=xp_earned,user_id') || [],
+      ]);
+
+      const userIds = [...new Set((recentEvts || []).map(e => e.user_id))];
+      const profileRows = userIds.length
+        ? await supabase(env, 'GET', `/rest/v1/profiles?id=in.(${userIds.join(',')})&select=id,username,display_name`) || []
+        : [];
+      const profileMap = Object.fromEntries(profileRows.map(p => [p.id, p]));
+
+      const stats = {
+        totalXp:     (allEvts || []).reduce((s, e) => s + (e.xp_earned || 0), 0),
+        uniqueUsers: new Set((allEvts || []).map(e => e.user_id)).size,
+        totalEvents: (allEvts || []).length,
+      };
+
+      return new Response(renderGamificationAdminPage(actions || [], recentEvts || [], profileMap, stats), {
+        headers: { 'Content-Type': 'text/html;charset=UTF-8' },
+      });
+    }
+
+    if (url.pathname === '/admin/gamification/save-action' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const body = await request.json().catch(() => null);
+      if (!body?.id) return Response.json({ error: 'missing id' }, { status: 400 });
+      await supabase(env, 'PATCH', `/rest/v1/xp_actions?id=eq.${encodeURIComponent(body.id)}`, {
+        xp_per_action:        Math.max(0, parseInt(body.xp_per_action)  || 0),
+        daily_cap:            parseInt(body.daily_cap) || 0,
+        streak_bonus_eligible: body.streak_bonus_eligible === true,
+        active:               body.active === true,
+        updated_at:           new Date().toISOString(),
+        updated_by:           'admin',
+      }, { Prefer: 'return=minimal' });
+      return Response.json({ ok: true });
+    }
+
     if (url.pathname === '/admin/login' && request.method === 'POST') {
       const { pin } = await request.json().catch(() => ({}));
       if (!env.ADMIN_PIN) return Response.json({ error: 'Server misconfigured — ADMIN_PIN secret not set' }, { status: 500 });
@@ -8922,6 +8965,7 @@ function adminNav(active, siteCode, allSites) {
     { href: `/admin/releases?site=${siteCode}`,       label: 'Sürümler',    key: 'releases'       },
     { href: `/admin/qa?site=${siteCode}`,             label: 'QA',          key: 'qa'             },
     { href: `/admin/config?site=${siteCode}`,         label: 'Settings',    key: 'config'         },
+    { href: `/admin/gamification`,                    label: 'Gamification', key: 'gamification'  },
   ];
   const navLinks = links.map(l => {
     const isActive = active === l.key;
@@ -10335,6 +10379,160 @@ async function seedSources() {
 }
 
 load();
+</script>
+</body>
+</html>`;
+}
+
+function renderGamificationAdminPage(actions, events, profileMap, stats) {
+  const nav = adminNav('gamification', '', []);
+  const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+  const CATEGORY_LABELS = { retention:'Retention', community:'Community', tribun:'Tribün', system:'System' };
+
+  const categoryGroups = {};
+  for (const a of actions) {
+    (categoryGroups[a.category] = categoryGroups[a.category] || []).push(a);
+  }
+
+  const actionRows = Object.entries(categoryGroups).map(([cat, rows]) => {
+    const header = `<tr><td colspan="7" style="padding:.5rem .75rem;background:#0d1117;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#6b7280">${CATEGORY_LABELS[cat] || cat}</td></tr>`;
+    const bodyRows = rows.map(a => `
+      <tr id="ar-${esc(a.id)}" style="border-bottom:1px solid #1a1a1a">
+        <td style="padding:.55rem .75rem;font-size:.78rem;color:#9ca3af;font-family:monospace">${esc(a.id)}</td>
+        <td style="padding:.55rem .75rem;font-size:.82rem;color:#e5e7eb">${esc(a.label)}</td>
+        <td style="padding:.55rem .75rem;text-align:right"><span style="font-family:monospace;font-size:.88rem;color:#fbbf24;font-weight:700">${a.xp_per_action}</span></td>
+        <td style="padding:.55rem .75rem;text-align:right;font-size:.82rem;color:#9ca3af">${a.daily_cap === -1 ? '∞ (once)' : a.daily_cap}</td>
+        <td style="padding:.55rem .75rem;text-align:center"><span style="font-size:.7rem;padding:1px 6px;border-radius:3px;background:${a.streak_bonus_eligible ? '#14532d' : '#1a1a1a'};color:${a.streak_bonus_eligible ? '#4ade80' : '#6b7280'}">${a.streak_bonus_eligible ? 'Yes' : 'No'}</span></td>
+        <td style="padding:.55rem .75rem;text-align:center"><span style="font-size:.7rem;padding:1px 6px;border-radius:3px;background:${a.active ? '#1e3a5f' : '#3b1515'};color:${a.active ? '#60a5fa' : '#f87171'}">${a.active ? 'Active' : 'Off'}</span></td>
+        <td style="padding:.55rem .75rem;text-align:right">
+          <button onclick="editAction('${esc(a.id)}')" style="font-size:.7rem;padding:2px 10px;background:#1f2937;border:1px solid #374151;color:#d1d5db;cursor:pointer;border-radius:3px">Edit</button>
+        </td>
+      </tr>
+      <tr id="ae-${esc(a.id)}" style="display:none;background:#0d1117">
+        <td colspan="7" style="padding:.75rem 1rem">
+          <div style="display:flex;gap:.75rem;align-items:flex-end;flex-wrap:wrap">
+            <label style="display:flex;flex-direction:column;gap:.25rem;font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">XP per Action<input type="number" id="xp-${esc(a.id)}" value="${a.xp_per_action}" min="0" style="width:90px;background:#1a1a1a;border:1px solid #333;color:#fbbf24;padding:4px 8px;font-size:.88rem;border-radius:3px;text-align:right"></label>
+            <label style="display:flex;flex-direction:column;gap:.25rem;font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">Daily Cap (-1=once)<input type="number" id="cap-${esc(a.id)}" value="${a.daily_cap}" min="-1" style="width:90px;background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:4px 8px;font-size:.88rem;border-radius:3px;text-align:right"></label>
+            <label style="display:flex;align-items:center;gap:.4rem;font-size:.75rem;color:#9ca3af;cursor:pointer"><input type="checkbox" id="sb-${esc(a.id)}" ${a.streak_bonus_eligible ? 'checked' : ''}> Streak bonus eligible</label>
+            <label style="display:flex;align-items:center;gap:.4rem;font-size:.75rem;color:#9ca3af;cursor:pointer"><input type="checkbox" id="ac-${esc(a.id)}" ${a.active ? 'checked' : ''}> Active</label>
+            <button onclick="saveAction('${esc(a.id)}')" style="padding:4px 16px;background:#E30A17;border:none;color:#fff;font-size:.78rem;font-weight:700;cursor:pointer;border-radius:3px">Save</button>
+            <button onclick="cancelAction('${esc(a.id)}')" style="padding:4px 12px;background:#1f2937;border:1px solid #374151;color:#d1d5db;font-size:.78rem;cursor:pointer;border-radius:3px">Cancel</button>
+            <span id="msg-${esc(a.id)}" style="font-size:.75rem;color:#4ade80"></span>
+          </div>
+        </td>
+      </tr>`).join('');
+    return header + bodyRows;
+  }).join('');
+
+  const fmtDate = iso => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleDateString('tr-TR') + ' ' + d.toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit' });
+  };
+
+  const eventRows = events.map(e => {
+    const p = profileMap[e.user_id] || {};
+    const name = p.display_name || p.username || e.user_id?.slice(0,8) || '—';
+    const mult = e.multiplier && e.multiplier !== 1 ? `<span style="color:#fbbf24;font-size:.68rem"> ×${e.multiplier}</span>` : '';
+    return `<tr style="border-bottom:1px solid #1a1a1a${e.nullified ? ';opacity:.4' : ''}">
+      <td style="padding:.45rem .75rem;font-size:.75rem;color:#9ca3af">${fmtDate(e.created_at)}</td>
+      <td style="padding:.45rem .75rem;font-size:.78rem;color:#e5e7eb">${esc(name)}</td>
+      <td style="padding:.45rem .75rem;font-family:monospace;font-size:.72rem;color:#6b7280">${esc(e.action_id)}</td>
+      <td style="padding:.45rem .75rem;text-align:right;font-size:.82rem;font-weight:700;color:${e.nullified ? '#6b7280' : '#fbbf24'}">${e.xp_earned}${mult}</td>
+      ${e.source_ref ? `<td style="padding:.45rem .75rem;font-size:.65rem;color:#6b7280;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.source_ref)}</td>` : '<td></td>'}
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Gamification — Kartalix Admin</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e5e7eb;font-family:'Segoe UI',system-ui,sans-serif;font-size:14px}
+table{width:100%;border-collapse:collapse}
+th{padding:.5rem .75rem;text-align:left;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#6b7280;border-bottom:1px solid #1f2937}
+th.r{text-align:right}
+tr:hover{background:rgba(255,255,255,.02)}
+input[type=number],input[type=text]{outline:none}
+input[type=number]:focus,input[type=text]:focus{border-color:#555!important}
+</style>
+</head>
+<body>
+${nav}
+<div style="max-width:1200px;margin:0 auto;padding:1.5rem 1rem">
+
+  <!-- Stats -->
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem">
+    ${[
+      ['Toplam XP', stats.totalXp.toLocaleString('tr-TR')],
+      ['XP Olayı',  stats.totalEvents.toLocaleString('tr-TR')],
+      ['Aktif Kullanıcı', stats.uniqueUsers],
+    ].map(([label, val]) => `
+      <div style="background:#111;border:1px solid #1f2937;border-radius:6px;padding:1.25rem">
+        <div style="font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#6b7280;margin-bottom:.5rem">${label}</div>
+        <div style="font-size:1.6rem;font-weight:700;color:#fbbf24">${val}</div>
+      </div>`).join('')}
+  </div>
+
+  <!-- XP Actions -->
+  <div style="background:#111;border:1px solid #1f2937;border-radius:6px;margin-bottom:1.5rem;overflow:hidden">
+    <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-weight:700;font-size:.9rem">XP Aksiyonları</span>
+      <span style="font-size:.72rem;color:#6b7280">${actions.length} aksiyon</span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>ID</th><th>Açıklama</th><th class="r">XP</th><th class="r">Günlük Cap</th><th style="text-align:center">Seri Bonusu</th><th style="text-align:center">Durum</th><th></th>
+      </tr></thead>
+      <tbody>${actionRows}</tbody>
+    </table>
+  </div>
+
+  <!-- Recent Events -->
+  <div style="background:#111;border:1px solid #1f2937;border-radius:6px;overflow:hidden">
+    <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-weight:700;font-size:.9rem">Son XP Olayları</span>
+      <span style="font-size:.72rem;color:#6b7280">Son 100</span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Zaman</th><th>Kullanıcı</th><th>Aksiyon</th><th class="r">XP</th><th>Kaynak</th>
+      </tr></thead>
+      <tbody>${eventRows}</tbody>
+    </table>
+  </div>
+
+</div>
+<script>
+function editAction(id) {
+  document.getElementById('ar-'+id).style.display = 'none';
+  document.getElementById('ae-'+id).style.display = '';
+}
+function cancelAction(id) {
+  document.getElementById('ae-'+id).style.display = 'none';
+  document.getElementById('ar-'+id).style.display = '';
+}
+async function saveAction(id) {
+  const msg = document.getElementById('msg-'+id);
+  msg.textContent = 'Kaydediliyor…';
+  const res = await fetch('/admin/gamification/save-action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id,
+      xp_per_action:         parseInt(document.getElementById('xp-'+id).value),
+      daily_cap:             parseInt(document.getElementById('cap-'+id).value),
+      streak_bonus_eligible: document.getElementById('sb-'+id).checked,
+      active:                document.getElementById('ac-'+id).checked,
+    }),
+  });
+  if (res.ok) { msg.style.color = '#4ade80'; msg.textContent = 'Kaydedildi!'; setTimeout(() => location.reload(), 800); }
+  else        { msg.style.color = '#f87171'; msg.textContent = 'Hata!'; }
+}
 </script>
 </body>
 </html>`;
