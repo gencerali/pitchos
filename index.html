@@ -3167,8 +3167,10 @@
       const data = await res.json();
       if (data.success) {
         msg.style.color='#166534'; msg.textContent='Yorumunuz eklendi!';
-        document.getElementById('av-comment-name').value = '';
-        document.getElementById('av-comment-surname').value = '';
+        const nameEl2 = document.getElementById('av-comment-name');
+        const surEl2  = document.getElementById('av-comment-surname');
+        if (!nameEl2?.readOnly) nameEl2.value = '';
+        if (!surEl2?.readOnly)  surEl2.value  = '';
         document.getElementById('av-comment-text').value = '';
         if (window.kxToken && _currentArticle.slug) {
           fetch('/api/xp/comment', {
