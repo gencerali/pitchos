@@ -3364,18 +3364,23 @@
     }
 
     function addXP(amount) {
-      if (!session.isGuest) return;
+      if (!session.isGuest || window.__kxLoggedIn) return;
       session.xp = (session.xp || 0) + amount;
       saveSession();
       renderWidget();
     }
+
+    // When real auth completes, mark guest session invalid so addXP/showGuestSheet no-op
+    document.addEventListener('kx:authReady', () => {
+      session.isGuest = false;
+    }, { once: true });
 
     // Accrue XP on article opens
     document.addEventListener('kx:articleOpen', () => addXP(5));
 
     // ── GUEST CONVERSION BOTTOM SHEET ────────────────────────
     function showGuestSheet() {
-      if (!session.isGuest) return;
+      if (!session.isGuest || window.__kxLoggedIn) return;
       if (document.getElementById('guestConvSheet')) return;
       const xp = session.xp || 0;
       const xpPct = Math.min(100, (xp / 100) * 100);
