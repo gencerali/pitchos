@@ -121,6 +121,7 @@ export async function awardXP(env, user_id, site_id, action_id, source_ref = nul
   const banned = await isShadowBanned(env, user_id, site_id);
 
   // 3. Cap checks
+  let fallback_only = false;
   if (action.daily_cap === -1) {
     const alreadyDone = await hasLifetimeEvent(env, user_id, site_id, action_id);
     if (alreadyDone) return { xp_earned: 0, capped: true, reason: 'already_earned' };
@@ -133,13 +134,16 @@ export async function awardXP(env, user_id, site_id, action_id, source_ref = nul
       if (dupes.length) return { xp_earned: 0, capped: true, reason: 'already_earned_source' };
     }
     const count = await getDailyCount(env, user_id, site_id, action_id);
-    if (count >= action.daily_cap) return { xp_earned: 0, capped: true, reason: 'daily_cap' };
+    if (count >= action.daily_cap) {
+      if (!action.cap_fallback_xp) return { xp_earned: 0, capped: true, reason: 'daily_cap' };
+      fallback_only = true;
+    }
   }
 
   // 4. Multiplier from site-scoped streak
   const streak = await getStreak(env, user_id, site_id);
   const multiplier = action.streak_bonus_eligible ? streakMultiplier(streak.current_streak) : 1.00;
-  const xp_earned = banned ? 0 : Math.floor(action.xp_per_action * multiplier);
+  const xp_earned = banned ? 0 : (fallback_only ? action.cap_fallback_xp : Math.floor(action.xp_per_action * multiplier));
 
   // 5. Insert XP event with site_id
   await sbPost(env, 'xp_events', {

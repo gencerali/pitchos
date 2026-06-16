@@ -19,12 +19,12 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ---
 
-## Phase 2 — Bugs & Quick Wins
+## Phase 2 — Bugs & Quick Wins ✅ DONE
 
-- [ ] **2.1** Post-cap fallback XP — `cap_fallback_xp` col on `xp_actions`; +1 after daily cap
-- [ ] **2.2** Reaction XP — `react_article` action (+1, no cap); wire `/react` Worker endpoint
-- [ ] **2.3** Streak bonus — auto-award `streak_5_bonus` (+50) every 5th checkin streak
-- [ ] **2.4** Share XP — wire `share_link` XP call to share button in SPA
+- [x] **2.1** Post-cap fallback XP — `cap_fallback_xp` col on `xp_actions`; +1 after daily cap
+- [x] **2.2** Reaction XP — `react_article` action (+1, daily_cap=10); `/api/xp/react` endpoint; wired in SPA + Worker article page
+- [x] **2.3** Streak bonus — auto-award `streak_5_bonus` (+50) every 5th checkin streak
+- [x] **2.4** Share XP — wire `share_link` XP call to share buttons in SPA + Worker article page
 
 ---
 
@@ -64,8 +64,8 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ## Phase 6 — Schema Migrations
 
-- [ ] `xp_actions`: `cap_fallback_xp integer default 0`
-- [ ] `xp_actions`: insert `react_article` row
+- [x] `xp_actions`: `cap_fallback_xp integer default 0`
+- [x] `xp_actions`: insert `react_article` row
 - [ ] `article_comments`: add `article_slug`, `parent_id`, `site_id`
 - [ ] `article_reactions`: add `article_slug`, `emotion`, `site_id`
 - [ ] `profiles`: add `is_bot boolean default false`
@@ -83,7 +83,7 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ## Gamification live criteria
 
-- [ ] All Phase 2 shipped
+- [x] All Phase 2 shipped
 - [ ] Comments visible and submittable on all articles
 - [ ] Emotion reactions wired with XP
 - [ ] At least one Tribün feature live (score prediction or polls)

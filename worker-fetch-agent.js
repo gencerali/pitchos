@@ -8030,7 +8030,24 @@ async function react(type) {
       document.getElementById('dislikeCount').textContent = d.dislikes || 0;
     }
   } catch(e) {}
+  if (reaction && window.kxToken) {
+    fetch('/api/xp/react', {
+      method:'POST', headers:{ Authorization:'Bearer '+window.kxToken, 'Content-Type':'application/json' },
+      body: JSON.stringify({ article_slug: ${JSON.stringify(a.slug || '')} })
+    }).then(r=>r.json()).then(d=>{ if(d.xp_earned>0 && window.kxSpawnXP) window.kxSpawnXP(d.xp_earned); }).catch(()=>{});
+  }
 }
+
+document.querySelectorAll('.share-btn.btn-wa,.share-btn.btn-tw').forEach(btn => {
+  btn.addEventListener('click', () => {
+    if (window.kxToken) {
+      fetch('/api/xp/share', {
+        method:'POST', headers:{ Authorization:'Bearer '+window.kxToken, 'Content-Type':'application/json' },
+        body: JSON.stringify({ article_id: ${JSON.stringify(a.slug || '')} })
+      }).then(r=>r.json()).then(d=>{ if(d.xp_earned>0 && window.kxSpawnXP) window.kxSpawnXP(d.xp_earned); }).catch(()=>{});
+    }
+  });
+});
 
 async function submitFb(){
   const text = document.getElementById('fbText').value.trim();
@@ -12424,6 +12441,82 @@ ${nav}
         <li><span class="rtag defer">defer</span> P2.1 Sitemap: exclude rss_summary + T10/T11 cards older than 24h</li>
         <li><span class="rtag defer">defer</span> P2.3–2.4 Lighthouse perf + mobile usability pass</li>
       </ul>
+    </div>
+
+    <div class="rrow" onclick="toggle('rgam')">
+      <span class="vtag wip">Gamification</span>
+      <div><div class="rrow-title">Gamification System — Fan XP &amp; Leaderboard</div><div class="rrow-sub">XP engine · levels · streaks · reactions · community tribün · profile</div></div>
+      <div class="rrow-date">Jun 2026</div>
+    </div>
+    <div id="rgam" class="detail">
+      <h4>Phase 1 — Core Engine</h4>
+      <ul>
+        <li><span class="rtag fix">done</span> XP actions table, <code>awardXP()</code>, dedup, daily caps, streak multiplier</li>
+        <li><span class="rtag fix">done</span> Level thresholds (20 levels, 5 tiers)</li>
+        <li><span class="rtag fix">done</span> Daily check-in XP</li>
+        <li><span class="rtag fix">done</span> Article read XP (10s dwell, server-side HMAC token)</li>
+        <li><span class="rtag fix">done</span> Video watch XP (30s dwell, server-side HMAC token)</li>
+        <li><span class="rtag fix">done</span> Central <code>gamification.js</code> meta-tag system — Worker + SPA unified</li>
+        <li><span class="rtag fix">done</span> Leaderboard page <code>/liderlik</code> (5 tabs)</li>
+        <li><span class="rtag fix">done</span> XP Admin Panel <code>/admin/gamification</code></li>
+        <li><span class="rtag fix">done</span> Profile page <code>/profil</code></li>
+        <li><span class="rtag fix">done</span> All XP backend endpoints written (comment, poll-vote, share, predict, starting-11, evaluate-predictions, guest-claim)</li>
+      </ul>
+      <h4>Phase 2 — Bugs &amp; Quick Wins</h4>
+      <ul>
+        <li><span class="rtag fix">done</span> <strong>2.1</strong> Post-cap fallback XP — <code>cap_fallback_xp</code> col added; +1 after daily cap (same content still deduped)</li>
+        <li><span class="rtag fix">done</span> <strong>2.2</strong> Reaction XP — <code>react_article</code> action added; <code>/api/xp/react</code> endpoint; wired in SPA + Worker article page</li>
+        <li><span class="rtag fix">done</span> <strong>2.3</strong> Streak bonus — <code>streak_5_bonus</code> (+50) auto-awarded every 5th check-in streak (already in checkin.js)</li>
+        <li><span class="rtag fix">done</span> <strong>2.4</strong> Share XP — <code>share_link</code> XP wired to WhatsApp/Twitter share buttons in SPA + Worker article page</li>
+      </ul>
+      <h4>Phase 3 — Comment &amp; Reaction System</h4>
+      <ul>
+        <li><span class="rtag next">todo</span> <strong>3.1</strong> Fix comments not showing — call <code>loadReactions(a)</code> from <code>renderArticleView()</code></li>
+        <li><span class="rtag next">todo</span> <strong>3.2</strong> Slug-based keying — migrate <code>article_comments</code> + <code>article_reactions</code> to <code>article_slug</code> + <code>site_id</code></li>
+        <li><span class="rtag next">todo</span> <strong>3.3</strong> Comment XP — wire <code>/api/xp/comment</code> on successful submit</li>
+        <li><span class="rtag next">todo</span> <strong>3.4</strong> Reply threading — <code>parent_id UUID</code> on <code>article_comments</code>, 1-level indented display</li>
+        <li><span class="rtag next">todo</span> <strong>3.5</strong> Guest commenting — verify name/surname flow after slug migration</li>
+        <li><span class="rtag next">todo</span> <strong>3.6</strong> Moderation Layer 1 — client-side Turkish swear word blocklist (~50 terms)</li>
+        <li><span class="rtag next">todo</span> <strong>3.7</strong> Moderation Layer 2 — Claude Haiku toxicity check on <code>/comment</code> POST</li>
+        <li><span class="rtag next">todo</span> <strong>3.8</strong> Emotion reactions — expand <code>article_reactions.reaction</code> to 5 values; update SPA UI</li>
+        <li><span class="rtag next">todo</span> <strong>3.9</strong> Taraftar Nabzı — <code>/api/sentiment</code> aggregation + article sidebar widget</li>
+      </ul>
+      <h4>Phase 4 — Tribün / Community Features</h4>
+      <ul>
+        <li><span class="rtag next">todo</span> <strong>4.1</strong> Score prediction UI + <code>/api/xp/predict</code> wiring</li>
+        <li><span class="rtag next">todo</span> <strong>4.2</strong> Prediction evaluation — <code>/api/xp/evaluate-predictions</code> after match result</li>
+        <li><span class="rtag next">todo</span> <strong>4.3</strong> Starting 11 lineup guess + <code>/api/xp/starting-11</code> wiring</li>
+        <li><span class="rtag next">todo</span> <strong>4.4</strong> Poll voting + <code>/api/xp/poll-vote</code> wiring</li>
+        <li><span class="rtag next">todo</span> <strong>4.5</strong> Tribün page <code>/tribun</code> — community hub</li>
+      </ul>
+      <h4>Phase 5 — Profile &amp; UX Polish</h4>
+      <ul>
+        <li><span class="rtag next">todo</span> <strong>5.1</strong> Profile: XP activity feed (recent <code>xp_events</code>)</li>
+        <li><span class="rtag next">todo</span> <strong>5.2</strong> Profile: badge grid (earned + locked as goals)</li>
+        <li><span class="rtag next">todo</span> <strong>5.3</strong> Profile: prediction history tab</li>
+        <li><span class="rtag next">todo</span> <strong>5.4</strong> Level-up notification (modal/banner)</li>
+        <li><span class="rtag next">todo</span> <strong>5.5</strong> Badge unlock notification</li>
+      </ul>
+      <h4>Phase 6 — Schema Migrations</h4>
+      <ul>
+        <li><span class="rtag fix">done</span> <code>xp_actions</code>: <code>cap_fallback_xp integer default 0</code> added</li>
+        <li><span class="rtag fix">done</span> <code>xp_actions</code>: <code>react_article</code> action inserted</li>
+        <li><span class="rtag next">todo</span> <code>article_comments</code>: add <code>article_slug</code>, <code>parent_id</code>, <code>site_id</code></li>
+        <li><span class="rtag next">todo</span> <code>article_reactions</code>: add <code>article_slug</code>, <code>emotion</code>, <code>site_id</code></li>
+        <li><span class="rtag next">todo</span> <code>profiles</code>: add <code>is_bot boolean default false</code></li>
+      </ul>
+      <div class="criteria">
+        <h5>Gamification live criteria</h5>
+        <ul>
+          <li>All Phase 2 shipped ✅</li>
+          <li>Comments visible and submittable on all articles</li>
+          <li>Emotion reactions wired with XP</li>
+          <li>At least one Tribün feature live (score prediction or polls)</li>
+          <li>Profile shows XP feed + badges + prediction history</li>
+          <li><code>XP_TOKEN_SECRET</code> set in production</li>
+          <li>Bot seeding complete — 1500+ users on leaderboard</li>
+        </ul>
+      </div>
     </div>
 
   </div>
