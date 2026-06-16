@@ -530,6 +530,27 @@
         .then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); })
         .catch(() => {});
     }, 10_000);
+
+    // Video XP: award watch_video_30s if this article is a video embed
+    const pm = e.detail?.publish_mode || '';
+    const isVideo = pm.startsWith('youtube') || pm === 'video_embed';
+    if (isVideo) {
+      const vtRes = await fetch(`/api/xp/video-token?video_id=${encodeURIComponent(articleId)}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      }).then(r => r.json()).catch(() => null);
+      if (vtRes?.token) {
+        setTimeout(async () => {
+          fetch('/api/xp/video-watch', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: vtRes.token, video_id: articleId }),
+          })
+            .then(r => r.json())
+            .then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); })
+            .catch(() => {});
+        }, 30_000);
+      }
+    }
   });
 
 })();

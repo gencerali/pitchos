@@ -2141,7 +2141,7 @@
     document.body.style.overflow = 'hidden';
     av.scrollTop = 0;
     document.title = `${title} | Kartalix`;
-    document.dispatchEvent(new CustomEvent('kx:articleOpen', { detail: { slug, id: a.id } }));
+    document.dispatchEvent(new CustomEvent('kx:articleOpen', { detail: { slug, id: a.id, publish_mode: a.publish_mode } }));
 
     // Scroll progress bar
     av._progressHandler = () => {
@@ -2775,7 +2775,7 @@
 
     document.getElementById('modalOverlay').classList.add('open');
     document.body.style.overflow = 'hidden';
-    document.dispatchEvent(new CustomEvent('kx:articleOpen', { detail: { slug: a.slug, id: a.id } }));
+    document.dispatchEvent(new CustomEvent('kx:articleOpen', { detail: { slug: a.slug, id: a.id, publish_mode: a.publish_mode } }));
   }
 
   function closeModal() {
