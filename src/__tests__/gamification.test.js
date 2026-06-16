@@ -53,6 +53,8 @@ import { sbGet, sbRpc, getStreak, awardXP } from '../../functions/api/_shared/xp
 
 import { onRequest as meHandler }      from '../../functions/api/me.js';
 import { onRequest as checkinHandler } from '../../functions/api/xp/checkin.js';
+import { onRequest as reactHandler }   from '../../functions/api/xp/react.js';
+import { onRequest as shareHandler }   from '../../functions/api/xp/share.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -317,5 +319,133 @@ describe('/api/xp/checkin', () => {
     // awardXP should have been called twice: daily_checkin + streak_5_bonus
     expect(vi.mocked(awardXP)).toHaveBeenCalledTimes(2);
     expect(vi.mocked(awardXP).mock.calls[1][3]).toBe('streak_5_bonus');
+  });
+});
+
+// ── /api/xp/react ─────────────────────────────────────────────────────────────
+
+describe('/api/xp/react', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getUser).mockResolvedValue(FAKE_USER);
+    vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
+    vi.mocked(awardXP).mockResolvedValue({
+      xp_earned: 1, total_xp: 51, level: 1,
+      tier_name: 'Misafir Kartal', xp_to_next: 49, badge_unlocks: [],
+    });
+  });
+
+  function reactReq(body = { article_slug: 'test-slug' }) {
+    return new Request('https://kartalix.com/api/xp/react', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer fake-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('returns 401 without auth', async () => {
+    vi.mocked(getUser).mockResolvedValueOnce(null);
+    const res = await reactHandler({ request: reactReq(), env: makeEnv() });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 when article_slug missing', async () => {
+    const res = await reactHandler({ request: reactReq({}), env: makeEnv() });
+    expect(res.status).toBe(400);
+  });
+
+  it('calls awardXP with react_article action and slug as source_ref', async () => {
+    await reactHandler({ request: reactReq({ article_slug: 'besiktas-sampiyonluk' }), env: makeEnv() });
+    expect(vi.mocked(awardXP)).toHaveBeenCalledWith(
+      expect.anything(), FAKE_USER.id, FAKE_SITE_ID, 'react_article', 'besiktas-sampiyonluk'
+    );
+  });
+
+  it('returns xp_earned from awardXP', async () => {
+    const res = await reactHandler({ request: reactReq(), env: makeEnv() });
+    const body = await jsonBody(res);
+    expect(body.xp_earned).toBe(1);
+  });
+
+  it('returns 0 xp when already reacted to same article (capped)', async () => {
+    vi.mocked(awardXP).mockResolvedValueOnce({ xp_earned: 0, capped: true, reason: 'already_earned_source' });
+    const res = await reactHandler({ request: reactReq(), env: makeEnv() });
+    const body = await jsonBody(res);
+    expect(body.xp_earned).toBe(0);
+    expect(body.capped).toBe(true);
+  });
+});
+
+// ── /api/xp/share ─────────────────────────────────────────────────────────────
+
+describe('/api/xp/share', () => {
+  const SHARE_RESULT  = { xp_earned: 5, total_xp: 100, level: 2, tier_name: 'Şahin', xp_to_next: 50, badge_unlocks: [] };
+  const BONUS_RESULT  = { xp_earned: 10, total_xp: 110, level: 2, tier_name: 'Şahin', xp_to_next: 40, badge_unlocks: [] };
+  const CAPPED_RESULT = { xp_earned: 0, capped: true, reason: 'already_earned', total_xp: 100, level: 2, tier_name: 'Şahin', xp_to_next: 50, badge_unlocks: [] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getUser).mockResolvedValue(FAKE_USER);
+    vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
+    vi.mocked(awardXP)
+      .mockResolvedValueOnce(SHARE_RESULT)
+      .mockResolvedValueOnce(BONUS_RESULT);
+  });
+
+  function shareReq(body = { article_id: 'article-abc' }) {
+    return new Request('https://kartalix.com/api/xp/share', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer fake-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('returns 401 without auth', async () => {
+    vi.mocked(getUser).mockResolvedValueOnce(null);
+    const res = await shareHandler({ request: shareReq(), env: makeEnv() });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 when article_id missing', async () => {
+    const res = await shareHandler({ request: shareReq({}), env: makeEnv() });
+    expect(res.status).toBe(400);
+  });
+
+  it('calls awardXP twice: share_link then first_share', async () => {
+    await shareHandler({ request: shareReq({ article_id: 'art-1' }), env: makeEnv() });
+    expect(vi.mocked(awardXP)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(awardXP).mock.calls[0][3]).toBe('share_link');
+    expect(vi.mocked(awardXP).mock.calls[0][4]).toBe('art-1');
+    expect(vi.mocked(awardXP).mock.calls[1][3]).toBe('first_share');
+  });
+
+  it('uses bonus total_xp and level when first_share earns XP', async () => {
+    const res = await shareHandler({ request: shareReq(), env: makeEnv() });
+    const body = await jsonBody(res);
+    expect(body.total_xp).toBe(110);  // from BONUS_RESULT
+    expect(body.bonus_xp).toBe(10);
+    expect(body.xp_earned).toBe(5);   // share_link result preserved
+  });
+
+  it('merges badge_unlocks from both calls', async () => {
+    vi.mocked(awardXP).mockReset();
+    vi.mocked(awardXP)
+      .mockResolvedValueOnce({ ...SHARE_RESULT, badge_unlocks: [{ id: 'badge-a' }] })
+      .mockResolvedValueOnce({ ...BONUS_RESULT, badge_unlocks: [{ id: 'badge-b' }] });
+    const res = await shareHandler({ request: shareReq(), env: makeEnv() });
+    const body = await jsonBody(res);
+    expect(body.badge_unlocks).toHaveLength(2);
+    expect(body.badge_unlocks.map(b => b.id)).toEqual(['badge-a', 'badge-b']);
+  });
+
+  it('first_share already earned (daily_cap=-1 hit) — bonus_xp is 0, total from share_link', async () => {
+    vi.mocked(awardXP).mockReset();
+    vi.mocked(awardXP)
+      .mockResolvedValueOnce(SHARE_RESULT)
+      .mockResolvedValueOnce(CAPPED_RESULT);
+    const res = await shareHandler({ request: shareReq(), env: makeEnv() });
+    const body = await jsonBody(res);
+    expect(body.bonus_xp).toBe(0);
+    expect(body.total_xp).toBe(100);  // falls back to share_link total
   });
 });
