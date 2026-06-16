@@ -152,10 +152,23 @@ export default {
       if (!slug && !legacy_url) return Response.json({ error: 'invalid' }, { headers });
       const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
       const ip_hash = ip.split('.').slice(0,3).join('.') + '.x';
+      // Extract user_id from JWT if present — used to delete stale reactions across IPs
+      let react_user_id = null;
+      try {
+        const authH = request.headers.get('Authorization') || '';
+        if (authH.startsWith('Bearer ')) {
+          const payload = JSON.parse(atob(authH.slice(7).split('.')[1]));
+          react_user_id = payload.sub || null;
+        }
+      } catch {}
       if (slug) {
+        // Delete by ip_hash AND (if logged in) by user_id so old-IP reactions are removed
         await supabase(env, 'DELETE',
           `/rest/v1/article_reactions?article_slug=eq.${encodeURIComponent(slug)}&ip_hash=eq.${encodeURIComponent(ip_hash)}`);
-        if (reaction) await supabase(env, 'POST', '/rest/v1/article_reactions', { article_slug: slug, reaction, ip_hash });
+        if (react_user_id) await supabase(env, 'DELETE',
+          `/rest/v1/article_reactions?article_slug=eq.${encodeURIComponent(slug)}&user_id=eq.${encodeURIComponent(react_user_id)}`);
+        if (reaction) await supabase(env, 'POST', '/rest/v1/article_reactions',
+          { article_slug: slug, reaction, ip_hash, ...(react_user_id ? { user_id: react_user_id } : {}) });
         const rows = await supabase(env, 'GET',
           `/rest/v1/article_reactions?article_slug=eq.${encodeURIComponent(slug)}&select=reaction`);
         const likes    = (rows||[]).filter(r => r.reaction === 'like').length;
