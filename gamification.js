@@ -539,7 +539,7 @@
         .then(r => r.json())
         .then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); })
         .catch(() => {});
-    }, 30_000);
+    }, 10_000);
   });
 
 })();
