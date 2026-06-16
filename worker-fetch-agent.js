@@ -12290,6 +12290,89 @@ ${nav}
   <div class="section-title">Parallel Workstreams</div>
   <div class="rlist">
 
+    <div class="rrow" onclick="toggle('rgam')">
+      <span class="vtag current">Gamification</span>
+      <div><div class="rrow-title">Gamification System — XP · Levels · Leaderboard · Community</div><div class="rrow-sub">XP engine live · Leaderboard live · Article/video XP live · Comments · Reactions · Tribün · Bot seeding</div></div>
+      <div class="rrow-date">In progress</div>
+    </div>
+    <div id="rgam" class="detail">
+      <h4>Phase 1 — Core Engine ✅</h4>
+      <ul>
+        <li><span class="rtag fix">done</span> XP actions table, <code>awardXP()</code>, dedup, daily caps, streak multiplier</li>
+        <li><span class="rtag fix">done</span> Level thresholds (20 levels, 5 tiers: Misafir → Efsane Kartal)</li>
+        <li><span class="rtag fix">done</span> Daily check-in XP (10 XP, 1/day, streak bonus eligible)</li>
+        <li><span class="rtag fix">done</span> Article read XP — 10s dwell, server-side HMAC token, 5 XP × 5/day cap</li>
+        <li><span class="rtag fix">done</span> Video watch XP — 30s dwell, server-side HMAC token, 5 XP × 5/day cap</li>
+        <li><span class="rtag fix">done</span> Central <code>gamification.js</code> meta-tag system — Worker pages earn XP with one <code>gamificationMeta()</code> call</li>
+        <li><span class="rtag fix">done</span> Leaderboard page <code>/liderlik</code> — 5 tabs (all-time, monthly, weekly, seasonal, streak)</li>
+        <li><span class="rtag fix">done</span> XP Admin Panel <code>/admin/gamification</code> — edit XP values, daily caps, audit log</li>
+        <li><span class="rtag fix">done</span> Profile page <code>/profil</code> — XP bar, streak, level, badges</li>
+        <li><span class="rtag fix">done</span> All XP backend endpoints written (comment, poll-vote, share, predict, starting-11, evaluate-predictions, guest-claim)</li>
+      </ul>
+      <h4>Phase 2 — Bugs &amp; Quick Wins</h4>
+      <ul>
+        <li><span class="rtag next">todo</span> <strong>2.1</strong> Post-cap fallback XP — add <code>cap_fallback_xp</code> col to <code>xp_actions</code>; return +1 instead of 0 when daily cap hit (same article still deduped)</li>
+        <li><span class="rtag next">todo</span> <strong>2.2</strong> Reaction XP — add <code>react_article</code> action (+1, no cap); wire <code>/react</code> Worker endpoint to call <code>awardXP</code></li>
+        <li><span class="rtag next">todo</span> <strong>2.3</strong> Streak bonus — in <code>/api/xp/checkin</code>, auto-award <code>streak_5_bonus</code> (+50) when <code>current_streak</code> is multiple of 5</li>
+        <li><span class="rtag next">todo</span> <strong>2.4</strong> Share XP — wire <code>share_link</code> XP call to existing share button in SPA (endpoint already exists)</li>
+      </ul>
+      <h4>Phase 3 — Comment &amp; Reaction System</h4>
+      <ul>
+        <li><span class="rtag next">todo</span> <strong>3.1</strong> Fix comments not showing — call <code>loadReactions(a)</code> from <code>renderArticleView()</code> (currently only called from dead modal path)</li>
+        <li><span class="rtag next">todo</span> <strong>3.2</strong> Slug-based keying — migrate <code>article_comments</code> + <code>article_reactions</code> from <code>article_url</code> → <code>article_slug</code>; add <code>site_id</code></li>
+        <li><span class="rtag next">todo</span> <strong>3.3</strong> Comment XP — wire <code>/api/xp/comment</code> call on successful submit</li>
+        <li><span class="rtag next">todo</span> <strong>3.4</strong> Reply threading — add <code>parent_id UUID</code> to <code>article_comments</code>; 1-level indented display</li>
+        <li><span class="rtag next">todo</span> <strong>3.5</strong> Guest commenting — verify name/surname flow end-to-end after slug migration</li>
+        <li><span class="rtag next">todo</span> <strong>3.6</strong> Content moderation Layer 1 — client-side Turkish swear word blocklist (~50 terms)</li>
+        <li><span class="rtag next">todo</span> <strong>3.7</strong> Content moderation Layer 2 — server-side Claude Haiku toxicity check on <code>/comment</code> POST (<code>max_tokens:5</code>, ~$0.03/1k comments)</li>
+        <li><span class="rtag next">todo</span> <strong>3.8</strong> Emotion reactions — expand <code>article_reactions.reaction</code> to 5 values (ateşli, mutlu, kızgın, üzgün, hayal_kirikligi); update SPA UI</li>
+        <li><span class="rtag next">todo</span> <strong>3.9</strong> Taraftar Nabzı — aggregation endpoint <code>/api/sentiment</code>; article sidebar widget showing emotion breakdown; threshold-based editorial conclusions</li>
+      </ul>
+      <h4>Phase 4 — Tribün / Community Features</h4>
+      <ul>
+        <li><span class="rtag next">todo</span> <strong>4.1</strong> Score prediction UI — form before each match; calls <code>/api/xp/predict</code> (endpoint exists)</li>
+        <li><span class="rtag next">todo</span> <strong>4.2</strong> Prediction evaluation — <code>/api/xp/evaluate-predictions</code> runs after match result; XP for correct/near guesses</li>
+        <li><span class="rtag next">todo</span> <strong>4.3</strong> Starting 11 lineup guess — pick 11 before match; calls <code>/api/xp/starting-11</code> (endpoint exists)</li>
+        <li><span class="rtag next">todo</span> <strong>4.4</strong> Poll voting — in-article polls; calls <code>/api/xp/poll-vote</code> (endpoint exists)</li>
+        <li><span class="rtag next">todo</span> <strong>4.5</strong> Tribün page <code>/tribun</code> — active polls, match-day prediction widget, community hub</li>
+      </ul>
+      <h4>Phase 5 — Profile &amp; UX Polish</h4>
+      <ul>
+        <li><span class="rtag next">todo</span> <strong>5.1</strong> Profile: XP activity feed — recent events list from <code>xp_events</code></li>
+        <li><span class="rtag next">todo</span> <strong>5.2</strong> Profile: badge display — earned badges grid, locked badges greyed as goals</li>
+        <li><span class="rtag next">todo</span> <strong>5.3</strong> Profile: prediction history tab — past score guesses vs. results</li>
+        <li><span class="rtag next">todo</span> <strong>5.4</strong> Level-up notification — celebratory modal/banner when <code>awardXP()</code> returns new level</li>
+        <li><span class="rtag next">todo</span> <strong>5.5</strong> Badge unlock notification — surface badge_unlocks from <code>awardXP()</code> visually</li>
+      </ul>
+      <h4>Phase 6 — Schema Migrations</h4>
+      <ul>
+        <li><span class="rtag next">todo</span> <code>xp_actions</code>: add <code>cap_fallback_xp integer default 0</code></li>
+        <li><span class="rtag next">todo</span> <code>xp_actions</code>: add <code>react_article</code> action row</li>
+        <li><span class="rtag next">todo</span> <code>article_comments</code>: add <code>article_slug</code>, <code>parent_id</code>, <code>site_id</code></li>
+        <li><span class="rtag next">todo</span> <code>article_reactions</code>: add <code>article_slug</code>, <code>emotion</code>, <code>site_id</code></li>
+        <li><span class="rtag next">todo</span> <code>profiles</code>: add <code>is_bot boolean default false</code> (bot seeding prep)</li>
+      </ul>
+      <h4>Phase 7 — Pre-Launch</h4>
+      <ul>
+        <li><span class="rtag next">todo</span> Full XP action QA — test each action, verify no double-earning edge cases</li>
+        <li><span class="rtag next">todo</span> Set <code>XP_TOKEN_SECRET</code> in Cloudflare Pages env vars (currently falls back to <code>'dev-secret'</code>)</li>
+        <li><span class="rtag next">todo</span> Bot seeding — run AFTER all Phase 3+4 features stable; historical seed + weekly cron engine for 1500 synthetic users</li>
+        <li><span class="rtag next">todo</span> Rate limiting on high-volume endpoints (<code>/react</code>, <code>/comment</code>)</li>
+      </ul>
+      <div class="criteria">
+        <h5>Gamification live criteria</h5>
+        <ul>
+          <li>☐ All Phase 2 quick wins shipped</li>
+          <li>☐ Comments visible and submittable on all articles</li>
+          <li>☐ Emotion reactions wired with XP</li>
+          <li>☐ At least one Tribün feature live (score prediction or polls)</li>
+          <li>☐ Profile page shows full activity: XP feed + badges + prediction history</li>
+          <li>☐ <code>XP_TOKEN_SECRET</code> set in production (not dev-secret)</li>
+          <li>☐ Bot seeding complete — leaderboard shows 1500+ users</li>
+        </ul>
+      </div>
+    </div>
+
     <div class="rrow" onclick="toggle('rvh')">
       <span class="vtag shipped">Video Hub</span>
       <div><div class="rrow-title">Video Hub — Classifier + /konu/videolar Redesign</div><div class="rrow-sub">7-type classifier · Server-rendered video page · 4 filter tabs · Featured ranking (next)</div></div>
