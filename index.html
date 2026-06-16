@@ -2762,6 +2762,16 @@
       document.getElementById('shareWa').href = `https://wa.me/?text=${encodeURIComponent(a.title + ' ' + fullUrl)}`;
       document.getElementById('shareTw').href = `https://twitter.com/intent/tweet?text=${encodeURIComponent(a.title)}&url=${encodeURIComponent(fullUrl)}`;
       shareBox.style.display = 'flex';
+      const _shareSlug = a.slug;
+      document.getElementById('shareWa').onclick = document.getElementById('shareTw').onclick = () => {
+        if (window.kxToken && _shareSlug) {
+          fetch('/api/xp/share', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ article_id: _shareSlug }),
+          }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+        }
+      };
       history.replaceState(null, '', pageUrl);
     } else {
       pageLink.style.display = 'none';
@@ -2913,6 +2923,13 @@
       document.getElementById('like-count').textContent = data.likes || 0;
       document.getElementById('dislike-count').textContent = data.dislikes || 0;
       updateReactionButtons(newReaction);
+      if (newReaction && window.kxToken && _currentArticle?.slug) {
+        fetch('/api/xp/react', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ article_slug: _currentArticle.slug }),
+        }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+      }
     } catch(e) { console.error('react error:', e); }
   }
 
