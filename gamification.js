@@ -506,42 +506,35 @@
   }, true);
 
   // ── 10. Article XP on authenticated reads ────────────────────
-  // When an article is opened, fire the article-read XP if user is logged in.
-  // The completion token is generated here and posted after 30s dwell.
+  // When an article is opened, fetch a server-signed token then award XP after 30s dwell + 70% scroll.
   document.addEventListener('kx:articleOpen', async (e) => {
-    const token = window.kxToken;
-    const articleId = e.detail?.slug || e.detail?.id;
-    if (!token || !articleId) return;
+    const authToken = window.kxToken;
+    const articleId = e.detail?.id || e.detail?.slug;
+    if (!authToken || !articleId) return;
 
+    // Get a signed completion token from the server (keeps XP_TOKEN_SECRET off the client)
+    const tokenRes = await fetch(`/api/xp/article-token?article_id=${encodeURIComponent(articleId)}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    }).then(r => r.json()).catch(() => null);
+    if (!tokenRes?.token) return;
+
+    const signedToken = tokenRes.token;
     let scrollPct = 0;
-    const startTime = Date.now();
 
     const onScroll = () => {
       const body = document.getElementById('articleBody') || document.body;
-      const scrolled = window.scrollY + window.innerHeight;
-      const total = body.scrollHeight;
-      scrollPct = Math.max(scrollPct, scrolled / total);
+      scrollPct = Math.max(scrollPct, (window.scrollY + window.innerHeight) / body.scrollHeight);
     };
     window.addEventListener('scroll', onScroll, { passive: true });
 
     setTimeout(async () => {
       window.removeEventListener('scroll', onScroll);
-      if (scrollPct < 0.70) return; // <70% scroll depth — no XP
+      if (scrollPct < 0.70) return;
 
-      // Generate HMAC completion token
-      const ts = Date.now();
-      const msg = `${(await sb.auth.getUser()).data.user?.id}:${articleId}:${ts}`;
-
-      // Token signing requires XP_TOKEN_SECRET on the client side too.
-      // For now, post directly — backend will validate scroll/dwell on its own endpoint.
-      // Full HMAC signing will be added when XP_TOKEN_SECRET is exposed via /api/config.
       fetch('/api/xp/article-read', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ token: btoa(JSON.stringify({ uid: msg.split(':')[0], aid: articleId, ts, sig: '' })), article_id: articleId }),
+        headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: signedToken, article_id: articleId }),
       })
         .then(r => r.json())
         .then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); })
