@@ -2150,17 +2150,35 @@
     // Load reactions for this article
     if (a.url || a.original_url || a.slug) loadAvReactions(a);
 
-    // Wire share XP on the two av-share links
+    // Wire share XP — use Web Share API when available so XP only fires on confirmed share
+    const _avShareSlug = slug;
+    const _avShareTitle = title;
+    const _avShareUrl = pageUrl;
     ['avShareWa', 'avShareTw'].forEach(id => {
       const btn = document.getElementById(id);
       if (!btn) return;
-      btn.addEventListener('click', () => {
-        if (window.kxToken && slug) {
-          fetch('/api/xp/share', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ article_id: slug }),
-          }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+      btn.addEventListener('click', async (e) => {
+        if (navigator.share) {
+          e.preventDefault();
+          try {
+            await navigator.share({ title: _avShareTitle, url: _avShareUrl });
+            if (window.kxToken && _avShareSlug) {
+              fetch('/api/xp/share', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ article_id: _avShareSlug }),
+              }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+            }
+          } catch {} // User cancelled — no XP
+        } else {
+          // Desktop fallback: href fires naturally, can't detect cancel
+          if (window.kxToken && _avShareSlug) {
+            fetch('/api/xp/share', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ article_id: _avShareSlug }),
+            }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+          }
         }
       });
     });
@@ -2788,15 +2806,32 @@
       document.getElementById('shareTw').href = `https://twitter.com/intent/tweet?text=${encodeURIComponent(a.title)}&url=${encodeURIComponent(fullUrl)}`;
       shareBox.style.display = 'flex';
       const _shareSlug = a.slug;
-      document.getElementById('shareWa').onclick = document.getElementById('shareTw').onclick = () => {
-        if (window.kxToken && _shareSlug) {
-          fetch('/api/xp/share', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ article_id: _shareSlug }),
-          }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+      const _shareTitle = a.title || '';
+      const _shareFullUrl = fullUrl;
+      const _modalShareHandler = async (e) => {
+        if (navigator.share) {
+          e.preventDefault();
+          try {
+            await navigator.share({ title: _shareTitle, url: _shareFullUrl });
+            if (window.kxToken && _shareSlug) {
+              fetch('/api/xp/share', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ article_id: _shareSlug }),
+              }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+            }
+          } catch {} // User cancelled — no XP
+        } else {
+          if (window.kxToken && _shareSlug) {
+            fetch('/api/xp/share', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ article_id: _shareSlug }),
+            }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+          }
         }
       };
+      document.getElementById('shareWa').onclick = document.getElementById('shareTw').onclick = _modalShareHandler;
       history.replaceState(null, '', pageUrl);
     } else {
       pageLink.style.display = 'none';

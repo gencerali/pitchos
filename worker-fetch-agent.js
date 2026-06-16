@@ -8039,12 +8039,25 @@ async function react(type) {
 }
 
 document.querySelectorAll('.share-btn.btn-wa,.share-btn.btn-tw').forEach(btn => {
-  btn.addEventListener('click', () => {
-    if (window.kxToken) {
-      fetch('/api/xp/share', {
-        method:'POST', headers:{ Authorization:'Bearer '+window.kxToken, 'Content-Type':'application/json' },
-        body: JSON.stringify({ article_id: ${JSON.stringify(a.slug || '')} })
-      }).then(r=>r.json()).then(d=>{ if(d.xp_earned>0 && window.kxSpawnXP) window.kxSpawnXP(d.xp_earned); }).catch(()=>{});
+  btn.addEventListener('click', async (e) => {
+    if (navigator.share) {
+      e.preventDefault();
+      try {
+        await navigator.share({ title: ${JSON.stringify(a.title || '')}, url: PAGE_URL });
+        if (window.kxToken) {
+          fetch('/api/xp/share', {
+            method:'POST', headers:{ Authorization:'Bearer '+window.kxToken, 'Content-Type':'application/json' },
+            body: JSON.stringify({ article_id: ${JSON.stringify(a.slug || '')} })
+          }).then(r=>r.json()).then(d=>{ if(d.xp_earned>0 && window.kxSpawnXP) window.kxSpawnXP(d.xp_earned); }).catch(()=>{});
+        }
+      } catch {} // User cancelled — no XP
+    } else {
+      if (window.kxToken) {
+        fetch('/api/xp/share', {
+          method:'POST', headers:{ Authorization:'Bearer '+window.kxToken, 'Content-Type':'application/json' },
+          body: JSON.stringify({ article_id: ${JSON.stringify(a.slug || '')} })
+        }).then(r=>r.json()).then(d=>{ if(d.xp_earned>0 && window.kxSpawnXP) window.kxSpawnXP(d.xp_earned); }).catch(()=>{});
+      }
     }
   });
 });
