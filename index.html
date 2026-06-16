@@ -2075,6 +2075,25 @@
         <button id="av-btn-dislike" onclick="avReact('dislike')" style="display:flex;align-items:center;gap:0.5rem;background:#2e0d0d;border:1px solid #7f1d1d;color:#f87171;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">👎 <span id="av-dislike-count">0</span></button>
       </div>
 
+      <div class="av-comments av-slide-in" style="max-width:720px;margin:0 auto;padding:1.25rem 1.5rem;border-top:1px solid #1A1A1A">
+        <h3 style="font-family:'Oswald','Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:600;letter-spacing:0.05em;margin-bottom:1rem;color:#f0ede6">YORUMLAR <span id="av-comment-count" style="color:#888;font-weight:400"></span></h3>
+        <div id="av-comments-list" style="margin-bottom:1.5rem"></div>
+        <div style="background:#111;border-radius:8px;padding:1.25rem">
+          <h4 style="font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:1rem;color:#f0ede6">YORUM YAP</h4>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem">
+            <input id="av-comment-name" placeholder="Adınız *" maxlength="50" style="padding:0.6rem 0.75rem;border:1px solid #242424;border-radius:6px;font-size:0.875rem;background:#0d0d0d;color:#f0ede6;outline:none"/>
+            <input id="av-comment-surname" placeholder="Soyadınız" maxlength="50" style="padding:0.6rem 0.75rem;border:1px solid #242424;border-radius:6px;font-size:0.875rem;background:#0d0d0d;color:#f0ede6;outline:none"/>
+          </div>
+          <textarea id="av-comment-text" placeholder="Yorumunuz... (max 500 karakter)" maxlength="500" rows="3" style="width:100%;padding:0.6rem 0.75rem;border:1px solid #242424;border-radius:6px;font-size:0.875rem;resize:vertical;background:#0d0d0d;color:#f0ede6;outline:none;box-sizing:border-box"></textarea>
+          <input id="av-comment-honeypot" style="display:none" tabindex="-1" autocomplete="off"/>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.75rem">
+            <span style="font-size:0.7rem;color:#888">* zorunlu alan</span>
+            <button onclick="submitAvComment()" style="background:#D90414;color:white;border:none;padding:0.6rem 1.5rem;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;letter-spacing:0.05em;cursor:pointer">GÖNDER →</button>
+          </div>
+          <div id="av-comment-msg" style="margin-top:0.5rem;font-size:0.8rem"></div>
+        </div>
+      </div>
+
       ${pageUrl ? `
       <div class="av-share av-slide-in">
         <div class="av-share-label">Bu haberi paylaş</div>
@@ -3007,6 +3026,28 @@
       likeEl.textContent = data.likes || 0;
       dislikeEl.textContent = data.dislikes || 0;
       updateAvReactionButtons(getUserReaction(_currentArticle));
+
+      const comments = data.comments || [];
+      const countEl = document.getElementById('av-comment-count');
+      const listEl  = document.getElementById('av-comments-list');
+      if (countEl) countEl.textContent = `(${comments.length})`;
+      if (listEl) {
+        if (comments.length === 0) {
+          listEl.innerHTML = '<p style="color:#888;font-size:0.85rem;text-align:center;padding:1rem">Henüz yorum yok. İlk yorumu sen yap!</p>';
+        } else {
+          listEl.innerHTML = comments.map(c => {
+            const name = (c.name + ' ' + (c.surname?.[0]||'') + '.').trim();
+            const date = new Date(c.created_at).toLocaleDateString('tr-TR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+            return `<div style="padding:0.875rem 0;border-bottom:1px solid #1A1A1A">
+              <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem">
+                <span style="font-weight:600;font-size:0.85rem;color:#f0ede6">${esc(name)}</span>
+                <span style="font-size:0.72rem;color:#888">${date}</span>
+              </div>
+              <p style="font-size:0.875rem;color:#c8c4bc;line-height:1.5;margin:0">${esc(c.comment)}</p>
+            </div>`;
+          }).join('');
+        }
+      }
     } catch(e) {}
   }
 
@@ -3080,6 +3121,47 @@
         document.getElementById('comment-surname').value = '';
         document.getElementById('comment-text').value = '';
         setTimeout(() => loadReactions(_currentArticle), 500);
+      } else {
+        msg.style.color='#D90414'; msg.textContent='Hata: ' + (data.error || 'Tekrar deneyin');
+      }
+    } catch(e) {
+      msg.style.color='#D90414'; msg.textContent='Bağlantı hatası.';
+    }
+  }
+
+  async function submitAvComment() {
+    if (!_currentArticle) return;
+    const name     = document.getElementById('av-comment-name').value.trim();
+    const surname  = document.getElementById('av-comment-surname').value.trim();
+    const comment  = document.getElementById('av-comment-text').value.trim();
+    const honeypot = document.getElementById('av-comment-honeypot').value;
+    const msg      = document.getElementById('av-comment-msg');
+
+    if (!name) { msg.style.color='#D90414'; msg.textContent='Lütfen adınızı girin.'; return; }
+    if (comment.length < 3) { msg.style.color='#D90414'; msg.textContent='Yorum en az 3 karakter olmalı.'; return; }
+
+    msg.style.color='#888'; msg.textContent='Gönderiliyor...';
+
+    try {
+      const res = await fetch('https://kartalix.com/comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ article_url: _currentArticle.url || _currentArticle.original_url, name, surname, comment, honeypot }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        msg.style.color='#166534'; msg.textContent='Yorumunuz eklendi!';
+        document.getElementById('av-comment-name').value = '';
+        document.getElementById('av-comment-surname').value = '';
+        document.getElementById('av-comment-text').value = '';
+        if (window.kxToken && _currentArticle.slug) {
+          fetch('/api/xp/comment', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ article_slug: _currentArticle.slug }),
+          }).then(r => r.json()).then(d => { if (d.xp_earned > 0 && window.kxSpawnXP) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+        }
+        setTimeout(() => loadAvReactions(_currentArticle), 500);
       } else {
         msg.style.color='#D90414'; msg.textContent='Hata: ' + (data.error || 'Tekrar deneyin');
       }
