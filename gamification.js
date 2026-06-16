@@ -553,4 +553,22 @@
     }
   });
 
+  // ── 11. Central XP trigger from page meta tag ─────────────────
+  // Worker-rendered pages embed <meta name="kx-context"> instead of
+  // per-page inline scripts. To enable XP on a new page type, add its
+  // template and a case here — no other wiring needed.
+  // Runs AFTER all listeners above are registered and auth is complete.
+  const _kxMeta = document.querySelector('meta[name="kx-context"]');
+  if (_kxMeta && window.kxToken) {
+    try {
+      const _ctx = JSON.parse(_kxMeta.getAttribute('content') || '{}');
+      if (_ctx.xp_type === 'article') {
+        document.dispatchEvent(new CustomEvent('kx:articleOpen', {
+          detail: { slug: _ctx.slug || '', id: _ctx.id || '', publish_mode: _ctx.publish_mode || '' }
+        }));
+      }
+      // Future: else if (_ctx.xp_type === 'author_profile') { ... }
+    } catch {}
+  }
+
 })();

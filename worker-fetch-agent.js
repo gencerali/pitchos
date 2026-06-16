@@ -7661,6 +7661,15 @@ function siteFooter() {
 </footer>`;
 }
 
+// ─── GAMIFICATION META HELPER ────────────────────────────────────
+// Embeds XP context for gamification.js to auto-trigger on page load.
+// To enable XP on a new page type: pass { xp_type: 'your_type', ... }
+// and add a matching case in gamification.js section 11.
+function gamificationMeta(ctx) {
+  const json = JSON.stringify(ctx).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  return `<meta name="kx-context" content="${json}"><script src="/gamification.js" defer><\/script>`;
+}
+
 // ─── ARTICLE PAGE HTML ────────────────────────────────────────
 function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, related = []) {
   const slug      = a.slug || '';
@@ -8047,19 +8056,7 @@ async function submitFb(){
 
 loadReactions();
 </script>
-<script src="/gamification.js" defer></script>
-<script>
-(function() {
-  var _articleSlug = ${JSON.stringify(slug)};
-  var _articleId   = ${JSON.stringify(a.id || '')};
-  var _publishMode = ${JSON.stringify(a.publish_mode || '')};
-  document.addEventListener('kx:authReady', function() {
-    document.dispatchEvent(new CustomEvent('kx:articleOpen', {
-      detail: { slug: _articleSlug, id: _articleId, publish_mode: _publishMode }
-    }));
-  }, { once: true });
-})();
-</script>
+${gamificationMeta({ xp_type: 'article', slug, publish_mode: a.publish_mode || '' })}
 ${siteFooter()}
 ${siteCookieBanner()}
 </body>
