@@ -2078,20 +2078,19 @@
       <div class="av-comments av-slide-in" style="max-width:720px;margin:0 auto;padding:1.25rem 1.5rem;border-top:1px solid #1A1A1A">
         <h3 style="font-family:'Oswald','Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:600;letter-spacing:0.05em;margin-bottom:1rem;color:#f0ede6">YORUMLAR <span id="av-comment-count" style="color:#888;font-weight:400"></span></h3>
         <div id="av-comments-list" style="margin-bottom:1.5rem"></div>
-        <div style="background:#111;border-radius:8px;padding:1.25rem">
-          <h4 style="font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:1rem;color:#f0ede6">YORUM YAP</h4>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem">
-            <input id="av-comment-name" placeholder="Adınız *" maxlength="50" style="padding:0.6rem 0.75rem;border:1px solid #242424;border-radius:6px;font-size:0.875rem;background:#0d0d0d;color:#f0ede6;outline:none"/>
-            <input id="av-comment-surname" placeholder="Soyadınız" maxlength="50" style="padding:0.6rem 0.75rem;border:1px solid #242424;border-radius:6px;font-size:0.875rem;background:#0d0d0d;color:#f0ede6;outline:none"/>
-          </div>
+        ${window.__kxLoggedIn && window.__kxProfile ? `
+        <div id="av-comment-form" style="background:#111;border-radius:8px;padding:1.25rem">
+          <p style="font-size:0.8rem;color:#888;margin:0 0 0.75rem">Yorum yapıyorsunuz: <strong style="color:#f0ede6">${esc(window.__kxProfile.display_name || window.__kxProfile.username || 'Üye')}</strong></p>
           <textarea id="av-comment-text" placeholder="Yorumunuz... (max 500 karakter)" maxlength="500" rows="3" style="width:100%;padding:0.6rem 0.75rem;border:1px solid #242424;border-radius:6px;font-size:0.875rem;resize:vertical;background:#0d0d0d;color:#f0ede6;outline:none;box-sizing:border-box"></textarea>
-          <input id="av-comment-honeypot" style="display:none" tabindex="-1" autocomplete="off"/>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.75rem">
-            <span style="font-size:0.7rem;color:#888">* zorunlu alan</span>
+          <div style="display:flex;justify-content:flex-end;margin-top:0.75rem">
             <button onclick="submitAvComment()" style="background:#D90414;color:white;border:none;padding:0.6rem 1.5rem;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;letter-spacing:0.05em;cursor:pointer">GÖNDER →</button>
           </div>
           <div id="av-comment-msg" style="margin-top:0.5rem;font-size:0.8rem"></div>
-        </div>
+        </div>` : `
+        <div id="av-comment-guest" style="text-align:center;padding:1.5rem;background:#111;border-radius:8px">
+          <p style="color:#888;margin:0 0 1rem;font-size:0.9rem">Yorum yapmak için giriş yapmanız gerekiyor.</p>
+          <a href="/giris" style="display:inline-block;background:#D90414;color:white;padding:0.6rem 1.5rem;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:0.9rem;font-weight:700;letter-spacing:0.05em;text-decoration:none">GİRİŞ YAP →</a>
+        </div>`}
       </div>
 
       ${pageUrl ? `
@@ -2169,20 +2168,6 @@
     // Load reactions for this article
     if (a.url || a.original_url || a.slug) loadAvReactions(a);
 
-    // Pre-fill name fields if user is already logged in
-    if (window.__kxLoggedIn && window.__kxProfile) {
-      const displayName = window.__kxProfile.display_name || window.__kxProfile.username || '';
-      const nameEl    = document.getElementById('av-comment-name');
-      const surnameEl = document.getElementById('av-comment-surname');
-      if (nameEl) {
-        nameEl.value = displayName.includes(' ') ? displayName.split(' ')[0] : displayName;
-        nameEl.readOnly = true; nameEl.style.opacity = '0.5';
-      }
-      if (surnameEl) {
-        surnameEl.value = displayName.includes(' ') ? displayName.split(' ').slice(1).join(' ') : '';
-        surnameEl.readOnly = true; surnameEl.style.opacity = '0.5';
-      }
-    }
 
     // Wire share XP — use Web Share API when available so XP only fires on confirmed share
     const _avShareSlug = slug;
@@ -2993,7 +2978,9 @@
       const res = await fetch('https://kartalix.com/react', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ article_url: _currentArticle.url || _currentArticle.original_url, reaction: newReaction }),
+        body: JSON.stringify(_currentArticle.slug
+          ? { article_slug: _currentArticle.slug, reaction: newReaction }
+          : { article_url: _currentArticle.url || _currentArticle.original_url, reaction: newReaction }),
       });
       const data = await res.json();
       setUserReaction(_currentArticle, newReaction);
@@ -3029,14 +3016,15 @@
     if (!likeEl) return;
     likeEl.textContent = 0;
     dislikeEl.textContent = 0;
-    const articleUrl = article.url || article.original_url ||
-      (article.slug ? `https://kartalix.com/haber/${article.slug}` : '');
-    if (!articleUrl) return;
+    const articleSlug = article.slug || '';
+    const articleUrl  = article.url || article.original_url || '';
+    if (!articleSlug && !articleUrl) return;
+    const body = articleSlug ? { article_slug: articleSlug } : { article_url: articleUrl };
     try {
       const res = await fetch('https://kartalix.com/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ article_url: articleUrl }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       likeEl.textContent = data.likes || 0;
@@ -3147,32 +3135,29 @@
 
   async function submitAvComment() {
     if (!_currentArticle) return;
-    const name     = document.getElementById('av-comment-name').value.trim();
-    const surname  = document.getElementById('av-comment-surname').value.trim();
-    const comment  = document.getElementById('av-comment-text').value.trim();
-    const honeypot = document.getElementById('av-comment-honeypot').value;
-    const msg      = document.getElementById('av-comment-msg');
-
-    if (!name) { msg.style.color='#D90414'; msg.textContent='Lütfen adınızı girin.'; return; }
+    const msg     = document.getElementById('av-comment-msg');
+    const textEl  = document.getElementById('av-comment-text');
+    if (!msg || !textEl) return;
+    if (!window.kxToken || !window.__kxLoggedIn) {
+      msg.style.color='#D90414'; msg.textContent='Yorum yapmak için giriş yapmanız gerekiyor.'; return;
+    }
+    const comment = textEl.value.trim();
     if (comment.length < 3) { msg.style.color='#D90414'; msg.textContent='Yorum en az 3 karakter olmalı.'; return; }
 
     msg.style.color='#888'; msg.textContent='Gönderiliyor...';
+    const name = (window.__kxProfile?.display_name || window.__kxProfile?.username || 'Üye').trim().slice(0, 50);
 
     try {
       const res = await fetch('https://kartalix.com/comment', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ article_url: _currentArticle.url || _currentArticle.original_url || (_currentArticle.slug ? `https://kartalix.com/haber/${_currentArticle.slug}` : ''), name, surname, comment, honeypot }),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${window.kxToken}` },
+        body: JSON.stringify({ article_slug: _currentArticle.slug, name, comment }),
       });
       const data = await res.json();
       if (data.success) {
         msg.style.color='#166534'; msg.textContent='Yorumunuz eklendi!';
-        const nameEl2 = document.getElementById('av-comment-name');
-        const surEl2  = document.getElementById('av-comment-surname');
-        if (!nameEl2?.readOnly) nameEl2.value = '';
-        if (!surEl2?.readOnly)  surEl2.value  = '';
-        document.getElementById('av-comment-text').value = '';
-        if (window.kxToken && _currentArticle.slug) {
+        textEl.value = '';
+        if (_currentArticle.slug) {
           fetch('/api/xp/comment', {
             method: 'POST',
             headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
@@ -3473,19 +3458,15 @@
     // When real auth completes, mark guest session invalid so addXP/showGuestSheet no-op
     document.addEventListener('kx:authReady', (e) => {
       session.isGuest = false;
-      // Pre-fill comment name fields from profile so logged-in users don't have to type them
       const profile = e.detail?.me?.profile;
       if (profile) window.__kxProfile = profile;
+      // Pre-fill modal comment name (modal still uses name field for display)
       if (profile) {
         const displayName = profile.display_name || profile.username || '';
-        const nameVal = displayName.includes(' ') ? displayName.split(' ')[0] : displayName;
-        const surnameVal = displayName.includes(' ') ? displayName.split(' ').slice(1).join(' ') : '';
-        for (const prefix of ['', 'av-']) {
-          const nameEl    = document.getElementById(`${prefix}comment-name`);
-          const surnameEl = document.getElementById(`${prefix}comment-surname`);
-          if (nameEl) { nameEl.value = nameVal; nameEl.readOnly = true; nameEl.style.opacity = '0.5'; }
-          if (surnameEl) { surnameEl.value = surnameVal; surnameEl.readOnly = true; surnameEl.style.opacity = '0.5'; }
-        }
+        const nameEl    = document.getElementById('comment-name');
+        const surnameEl = document.getElementById('comment-surname');
+        if (nameEl) { nameEl.value = displayName.includes(' ') ? displayName.split(' ')[0] : displayName; nameEl.readOnly = true; nameEl.style.opacity = '0.5'; }
+        if (surnameEl) { surnameEl.value = displayName.includes(' ') ? displayName.split(' ').slice(1).join(' ') : ''; surnameEl.readOnly = true; surnameEl.style.opacity = '0.5'; }
       }
     }, { once: true });
 

@@ -146,38 +146,58 @@ export default {
     if (url.pathname === '/react') {
       if (request.method !== 'POST') return new Response('POST only', {status:405});
       const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
-      const { article_url, reaction } = await request.json();
-      if (!article_url) return Response.json({ error: 'invalid' }, { headers });
+      const { article_url, article_slug, reaction } = await request.json();
+      const slug = article_slug || null;
+      const legacy_url = article_url || null;
+      if (!slug && !legacy_url) return Response.json({ error: 'invalid' }, { headers });
       const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
       const ip_hash = ip.split('.').slice(0,3).join('.') + '.x';
-      // Delete any existing reaction for this user on this article (idempotent)
-      await supabase(env, 'DELETE',
-        `/rest/v1/article_reactions?article_url=eq.${encodeURIComponent(article_url)}&ip_hash=eq.${encodeURIComponent(ip_hash)}`);
-      if (reaction) {
-        await supabase(env, 'POST', '/rest/v1/article_reactions', { article_url, reaction, ip_hash });
+      if (slug) {
+        await supabase(env, 'DELETE',
+          `/rest/v1/article_reactions?article_slug=eq.${encodeURIComponent(slug)}&ip_hash=eq.${encodeURIComponent(ip_hash)}`);
+        if (reaction) await supabase(env, 'POST', '/rest/v1/article_reactions', { article_slug: slug, reaction, ip_hash });
+        const rows = await supabase(env, 'GET',
+          `/rest/v1/article_reactions?article_slug=eq.${encodeURIComponent(slug)}&select=reaction`);
+        const likes    = (rows||[]).filter(r => r.reaction === 'like').length;
+        const dislikes = (rows||[]).filter(r => r.reaction === 'dislike').length;
+        return Response.json({ likes, dislikes }, { headers });
+      } else {
+        await supabase(env, 'DELETE',
+          `/rest/v1/article_reactions?article_url=eq.${encodeURIComponent(legacy_url)}&ip_hash=eq.${encodeURIComponent(ip_hash)}`);
+        if (reaction) await supabase(env, 'POST', '/rest/v1/article_reactions', { article_url: legacy_url, reaction, ip_hash });
+        const rows = await supabase(env, 'GET',
+          `/rest/v1/article_reactions?article_url=eq.${encodeURIComponent(legacy_url)}&select=reaction`);
+        const likes    = (rows||[]).filter(r => r.reaction === 'like').length;
+        const dislikes = (rows||[]).filter(r => r.reaction === 'dislike').length;
+        return Response.json({ likes, dislikes }, { headers });
       }
-      const rows = await supabase(env, 'GET',
-        `/rest/v1/article_reactions?article_url=eq.${encodeURIComponent(article_url)}&select=reaction`);
-      const likes    = (rows||[]).filter(r => r.reaction === 'like').length;
-      const dislikes = (rows||[]).filter(r => r.reaction === 'dislike').length;
-      return Response.json({ likes, dislikes }, { headers });
     }
 
     if (url.pathname === '/comment') {
       if (request.method !== 'POST') return new Response('POST only', {status:405});
       const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
-      const { article_url, name, surname, comment, honeypot } = await request.json();
-      if (honeypot) return Response.json({ error: 'spam' }, { headers });
-      if (!article_url || !name?.trim() || !comment?.trim() || comment.length < 3)
+      // Require authentication — no guest commenting
+      const authHeader = request.headers.get('Authorization') || '';
+      let user_id = null;
+      if (authHeader.startsWith('Bearer ')) {
+        try {
+          const payload = JSON.parse(atob(authHeader.slice(7).split('.')[1]));
+          user_id = payload.sub || null;
+        } catch { /* invalid token */ }
+      }
+      if (!user_id) return Response.json({ error: 'login_required' }, { status: 401, headers });
+
+      const { article_slug, name, comment } = await request.json();
+      if (!article_slug || !comment?.trim() || comment.length < 3)
         return Response.json({ error: 'invalid' }, { headers });
       if (/https?:\/\//.test(comment))
         return Response.json({ error: 'no links allowed' }, { headers });
 
       await supabase(env, 'POST', '/rest/v1/article_comments', {
-        article_url,
-        name: name.trim().slice(0,50),
-        surname: (surname||'').trim().slice(0,50),
-        comment: comment.trim().slice(0,500),
+        article_slug,
+        user_id,
+        name: (name || 'Üye').trim().slice(0, 50),
+        comment: comment.trim().slice(0, 500),
         approved: true,
       });
       return Response.json({ success: true }, { headers });
@@ -185,16 +205,23 @@ export default {
 
     if (url.pathname === '/comments') {
       const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
-      let article_url = url.searchParams.get('article_url');
-      if (!article_url && request.method === 'POST') {
-        try { ({ article_url } = await request.json()); } catch { /* ignore */ }
+      let article_slug = url.searchParams.get('article_slug');
+      let article_url  = url.searchParams.get('article_url');
+      if ((!article_slug && !article_url) && request.method === 'POST') {
+        try { ({ article_slug, article_url } = await request.json()); } catch { /* ignore */ }
       }
-      if (!article_url) return Response.json({ comments: [], likes: 0, dislikes: 0 }, { headers });
+      if (!article_slug && !article_url) return Response.json({ comments: [], likes: 0, dislikes: 0 }, { headers });
+      const commentFilter   = article_slug
+        ? `article_slug=eq.${encodeURIComponent(article_slug)}`
+        : `article_url=eq.${encodeURIComponent(article_url)}`;
+      const reactionFilter  = article_slug
+        ? `article_slug=eq.${encodeURIComponent(article_slug)}`
+        : `article_url=eq.${encodeURIComponent(article_url)}`;
       const [comments, reactions] = await Promise.all([
         supabase(env, 'GET',
-          `/rest/v1/article_comments?article_url=eq.${encodeURIComponent(article_url)}&approved=eq.true&order=created_at.desc&limit=50&select=name,surname,comment,created_at`),
+          `/rest/v1/article_comments?${commentFilter}&approved=eq.true&order=created_at.asc&limit=50&select=name,comment,created_at`),
         supabase(env, 'GET',
-          `/rest/v1/article_reactions?article_url=eq.${encodeURIComponent(article_url)}&select=reaction`),
+          `/rest/v1/article_reactions?${reactionFilter}&select=reaction`),
       ]);
       const likes    = (reactions||[]).filter(r => r.reaction === 'like').length;
       const dislikes = (reactions||[]).filter(r => r.reaction === 'dislike').length;

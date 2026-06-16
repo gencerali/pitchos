@@ -30,11 +30,11 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ## Phase 3 — Comment & Reaction System
 
-- [ ] **3.1** Fix comments not showing — call `loadReactions(a)` from `renderArticleView()`
-- [ ] **3.2** Slug-based keying — migrate `article_comments` + `article_reactions` to `article_slug` + add `site_id`
+- [x] **3.1** Fix comments not showing in SPA article view (`renderArticleView`)
+- [x] **3.2** Slug-based keying — `article_comments` + `article_reactions` now use `article_slug` + `user_id`; no guest commenting (auth required)
 - [ ] **3.3** Comment XP — wire `/api/xp/comment` on successful submit
 - [ ] **3.4** Reply threading — `parent_id UUID` on `article_comments`, 1-level indented display
-- [ ] **3.5** Guest commenting — verify name/surname flow end-to-end after slug migration
+- [x] ~~**3.5** Guest commenting~~ — **cancelled**: require login to comment; guest CTA shown instead
 - [ ] **3.6** Moderation Layer 1 — client-side Turkish swear word blocklist (~50 terms)
 - [ ] **3.7** Moderation Layer 2 — Claude Haiku toxicity check on `/comment` POST
 - [ ] **3.8** Emotion reactions — expand `article_reactions.reaction` to 5 values; update SPA UI
@@ -66,8 +66,10 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 - [x] `xp_actions`: `cap_fallback_xp integer default 0`
 - [x] `xp_actions`: insert `react_article` row
-- [ ] `article_comments`: add `article_slug`, `parent_id`, `site_id`
-- [ ] `article_reactions`: add `article_slug`, `emotion`, `site_id`
+- [x] `article_comments`: add `article_slug`, `user_id`, `site_id`
+- [ ] `article_comments`: add `parent_id` (reply threading, Phase 3.4)
+- [x] `article_reactions`: add `article_slug`, `site_id`
+- [ ] `article_reactions`: add `emotion` (5-value reactions, Phase 3.8)
 - [ ] `profiles`: add `is_bot boolean default false`
 
 ---
