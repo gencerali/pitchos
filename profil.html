@@ -792,12 +792,12 @@
       }
     });
 
-    // Fallback: if still no token after 5s, show guest state.
+    // Fallback: if profile hasn't rendered after 6s, show guest state.
     setTimeout(() => {
-      if (!window.kxToken && !document.getElementById('profilContent')?.classList.contains('loaded')) {
+      if (!document.getElementById('profilContent')?.classList.contains('loaded')) {
         showGuestState();
       }
-    }, 5000);
+    }, 6000);
   }
 })();
 </script>
