@@ -288,27 +288,36 @@
       text-transform: uppercase; color: var(--muted);
       margin-bottom: 0.75rem;
     }
+    .profil-badge-group { margin-bottom: 1.25rem; }
+    .profil-badge-group-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.62rem; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--muted);
+      margin-bottom: 0.5rem; padding-bottom: 0.3rem;
+      border-bottom: 1px solid var(--border);
+    }
     .profil-badges {
-      display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem;
     }
     .profil-badge {
       background: var(--surface); border: 1px solid var(--border2);
-      border-radius: 8px; padding: 1rem 0.75rem;
+      border-radius: 8px; padding: 0.85rem 0.5rem;
       display: flex; flex-direction: column; align-items: center;
-      gap: 0.4rem; text-align: center; transition: border-color 0.15s;
+      gap: 0.3rem; text-align: center; transition: border-color 0.15s;
+      cursor: default;
     }
     .profil-badge.earned { border-color: rgba(245,166,35,0.35); }
-    .profil-badge.locked { opacity: 0.45; filter: grayscale(0.7); }
-    .profil-badge-icon { font-size: 1.6rem; line-height: 1; }
+    .profil-badge.locked { opacity: 0.4; filter: grayscale(0.8); }
+    .profil-badge-icon { font-size: 1.5rem; line-height: 1; }
     .profil-badge-name {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em;
+      font-size: 0.65rem; font-weight: 700; letter-spacing: 0.03em;
       color: var(--text); line-height: 1.2;
     }
     .profil-badge.earned .profil-badge-name { color: var(--accent-gold); }
     .profil-badge-date {
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.58rem; color: var(--muted); letter-spacing: 0.03em;
+      font-size: 0.55rem; color: var(--muted); letter-spacing: 0.02em;
     }
 
     /* Account */
@@ -453,7 +462,7 @@
     <!-- Badges -->
     <div>
       <div class="profil-section-title">Rozetler</div>
-      <div class="profil-badges" id="profilBadgesGrid"></div>
+      <div id="profilBadgesGrid"></div>
     </div>
 
     <!-- Account -->
@@ -483,16 +492,70 @@
 <script src="/gamification.js" defer></script>
 <script>
 (function () {
-  const BADGE_DEFS = [
-    { id: 'welcome',          icon: '🦅', name: 'Hoş Geldin'       },
-    { id: 'streak_5',         icon: '🔥', name: '5 Günlük Seri'    },
-    { id: 'streak_15',        icon: '🔥', name: 'Kartal Serisi'     },
-    { id: 'streak_30',        icon: '🏆', name: 'Efsane Seri'       },
-    { id: 'tier_2',           icon: '⚡', name: 'Atmaca'            },
-    { id: 'tier_3',           icon: '🦅', name: 'Şahin'             },
-    { id: 'tier_4',           icon: '👑', name: 'Kartal'            },
-    { id: 'tier_5',           icon: '🌟', name: 'Efsane Kartal'     },
-    { id: 'exact_score_first', icon: '🎯', name: 'Skor Avcısı'     },
+  // Badge definitions — sorted by difficulty within each group.
+  // Groups: tier_boundary, streak, milestone, xp_milestone, special
+  const BADGE_GROUPS = [
+    { key: 'tier_boundary', label: 'Seviyeler', color: '#a78bfa', badges: [
+      { id: 'tier_taraftar',     icon: '🦅', name: 'Taraftar',          desc: 'Seviye 4' },
+      { id: 'tier_kapali_tribun',icon: '🏟️', name: 'Kapalı Tribün',     desc: 'Seviye 7' },
+      { id: 'tier_carsi_ruhu',   icon: '⚫', name: 'Çarşı Ruhu',        desc: 'Seviye 10' },
+      { id: 'tier_efsane',       icon: '💎', name: 'Efsane',             desc: 'Seviye 13' },
+      { id: 'tier_kara_kartal',  icon: '🦅', name: 'Kara Kartal',        desc: 'Seviye 16' },
+      { id: 'tier_onursal',      icon: '👑', name: 'Onursal Taraftar',   desc: 'Seviye 20' },
+    ]},
+    { key: 'streak', label: 'Seriler', color: '#f59e0b', badges: [
+      { id: 'streak_3',      icon: '🔥', name: 'Üç Gün Üst Üste', desc: '3 günlük seri' },
+      { id: 'streak_7',      icon: '🔥', name: 'Haftalık Ritim',  desc: '7 günlük seri' },
+      { id: 'streak_shield', icon: '🛡️', name: 'Streak Kalkanı', desc: '15 günlük seri' },
+      { id: 'streak_gold',   icon: '✨', name: 'Altın Seri',      desc: '20 günlük seri' },
+      { id: 'streak_sadakat',icon: '❤️', name: 'Sadakat Kartalı', desc: '30 günlük seri' },
+      { id: 'streak_60',     icon: '🦅', name: 'Demir Kartal',    desc: '60 günlük seri' },
+      { id: 'streak_100',    icon: '🏆', name: 'Yüz Gün',         desc: '100 günlük seri' },
+    ]},
+    { key: 'milestone', label: 'Kilometre Taşları', color: '#34d399', badges: [
+      { id: 'first_read',         icon: '📰', name: 'İlk Adım',           desc: '1 makale' },
+      { id: 'articles_10',        icon: '📰', name: 'Haber Takipçisi',    desc: '10 makale' },
+      { id: 'articles_25',        icon: '🔍', name: 'Araştırmacı',        desc: '25 makale' },
+      { id: 'articles_50',        icon: '📚', name: 'Haber Bağımlısı',    desc: '50 makale' },
+      { id: 'articles_100',       icon: '⭐', name: '100 Makale',         desc: '100 makale' },
+      { id: 'articles_250',       icon: '🦅', name: 'Kartal Gözü',        desc: '250 makale' },
+      { id: 'articles_500',       icon: '📖', name: 'Ansiklopedi',         desc: '500 makale' },
+      { id: 'comment_5',          icon: '💬', name: 'Söz Hakkı',          desc: '5 yorum' },
+      { id: 'comment_25',         icon: '📢', name: 'Ses Çıkaran',         desc: '25 yorum' },
+      { id: 'comment_50',         icon: '🎙️', name: 'Tribün Sesi',        desc: '50 yorum' },
+      { id: 'comment_100',        icon: '✍️', name: 'Köşe Yazarı',        desc: '100 yorum' },
+      { id: 'first_comment_like', icon: '👍', name: 'İlk Beğeni',         desc: 'İlk yorum beğenisi' },
+      { id: 'comment_likes_10',   icon: '👍', name: 'Beğenilen Yorum',    desc: '10 beğeni' },
+      { id: 'comment_likes_50',   icon: '⭐', name: 'Tribün Favorisi',    desc: '50 beğeni' },
+      { id: 'fan_favorite',       icon: '❤️', name: 'Taraftar Favorisi',  desc: '100 beğeni' },
+      { id: 'comment_likes_500',  icon: '🏆', name: 'Efsane Yorum',       desc: '500 beğeni' },
+      { id: 'popular_comment',    icon: '💥', name: 'Popüler Yorum',      desc: '10 beğeni tek yorumda' },
+      { id: 'viral_comment',      icon: '🌊', name: 'Viral Yorum',        desc: '50 beğeni tek yorumda' },
+      { id: 'sharer_5',           icon: '📤', name: 'Haberci',            desc: '5 paylaşım' },
+      { id: 'sharer_25',          icon: '🕊️', name: 'Sosyal Kartal',      desc: '25 paylaşım' },
+      { id: 'video_10',           icon: '🎬', name: 'Video Avcısı',       desc: '10 video' },
+      { id: 'video_50',           icon: '📺', name: 'Kanalın Yıldızı',   desc: '50 video' },
+      { id: 'reactor_10',         icon: '😊', name: 'Reaksiyon Makinesi', desc: '10 tepki' },
+      { id: 'reactor_50',         icon: '🌪️', name: 'His Fırtınası',     desc: '50 tepki' },
+      { id: 'poll_10',            icon: '🗳️', name: 'Nabız Yoklayan',    desc: '10 anket' },
+      { id: 'poll_50',            icon: '📊', name: 'Anket Bağımlısı',    desc: '50 anket' },
+      { id: 'predictor_5',        icon: '🎯', name: 'Tahmin Ustası',      desc: '5 tahmin' },
+      { id: 'predictor_25',       icon: '🔮', name: 'Kahin',              desc: '25 tahmin' },
+      { id: 'exact_score_first',  icon: '🎯', name: 'Skor Avcısı',        desc: 'İlk kesin skor' },
+      { id: 'exact_score_5',      icon: '🎯', name: 'Skor Dehası',        desc: '5 kesin skor' },
+    ]},
+    { key: 'xp_milestone', label: 'XP Kilometre Taşları', color: '#60a5fa', badges: [
+      { id: 'xp_500',   icon: '💫', name: '500 XP',    desc: '500 XP kazandın' },
+      { id: 'xp_2000',  icon: '⚡', name: '2.000 XP',  desc: '2.000 XP' },
+      { id: 'xp_10000', icon: '🏅', name: '10.000 XP', desc: '10.000 XP' },
+      { id: 'xp_50000', icon: '🏆', name: 'Efsane XP', desc: '50.000 XP' },
+    ]},
+    { key: 'special', label: 'Özel Rozetler', color: '#fb7185', badges: [
+      { id: 'early_bird',   icon: '🌅', name: 'Sabah Kuşu',   desc: 'Sabah 07:00 öncesi giriş' },
+      { id: 'night_owl',    icon: '🦉', name: 'Gece Kartalı', desc: '23:00-03:00 yorum' },
+      { id: 'comeback_kid', icon: '🔄', name: 'Geri Döndüm',  desc: '7+ gün aradan sonra' },
+      { id: 'triple_crown', icon: '👑', name: 'Üçlü Taç',     desc: 'Aynı gün: giriş+yorum+tepki' },
+    ]},
   ];
 
   function fmtDate(iso) {
@@ -561,7 +624,7 @@
       if (el('profilShieldIcon')) el('profilShieldIcon').textContent = streak.shield_active ? '🛡️' : '💀';
     }
 
-    // Badges
+    // Badges — grouped and sorted by difficulty
     const earnedIds = new Set((badges || []).map(b => b.badge_id));
     const earnedMap = {};
     (badges || []).forEach(b => { earnedMap[b.badge_id] = b.earned_at; });
@@ -569,16 +632,31 @@
     const grid = el('profilBadgesGrid');
     if (grid) {
       grid.innerHTML = '';
-      BADGE_DEFS.forEach(def => {
-        const earned = earnedIds.has(def.id);
-        const div = document.createElement('div');
-        div.className = 'profil-badge ' + (earned ? 'earned' : 'locked');
-        div.innerHTML = `
-          <div class="profil-badge-icon">${def.icon}</div>
-          <div class="profil-badge-name">${def.name}</div>
-          ${earned ? `<div class="profil-badge-date">${fmtDate(earnedMap[def.id])}</div>` : ''}
-        `;
-        grid.appendChild(div);
+      BADGE_GROUPS.forEach(group => {
+        const groupEl = document.createElement('div');
+        groupEl.className = 'profil-badge-group';
+        const labelEl = document.createElement('div');
+        labelEl.className = 'profil-badge-group-label';
+        labelEl.style.color = group.color;
+        const earnedCount = group.badges.filter(d => earnedIds.has(d.id)).length;
+        labelEl.textContent = `${group.label} (${earnedCount}/${group.badges.length})`;
+        groupEl.appendChild(labelEl);
+        const rowEl = document.createElement('div');
+        rowEl.className = 'profil-badges';
+        group.badges.forEach(def => {
+          const earned = earnedIds.has(def.id);
+          const div = document.createElement('div');
+          div.className = 'profil-badge ' + (earned ? 'earned' : 'locked');
+          div.title = def.desc || def.name;
+          div.innerHTML = `
+            <div class="profil-badge-icon">${def.icon}</div>
+            <div class="profil-badge-name">${def.name}</div>
+            ${earned ? `<div class="profil-badge-date">${fmtDate(earnedMap[def.id])}</div>` : ''}
+          `;
+          rowEl.appendChild(div);
+        });
+        groupEl.appendChild(rowEl);
+        grid.appendChild(groupEl);
       });
     }
   }
@@ -631,23 +709,96 @@
     }
   }
 
-  // Always re-render when auth arrives — no flag blocks this.
-  // This means logging in from the guest state works correctly.
-  document.addEventListener('kx:authReady', (e) => {
-    const me = e.detail?.me;
-    if (me) {
-      renderProfile(me);
-      wireAccountButtons();
-    }
-  });
+  // ── Public profile mode — ?uid=UUID ──────────────────────────
+  const _viewUid = new URLSearchParams(location.search).get('uid');
+  if (_viewUid) {
+    // Viewing another user's profile — hide private sections
+    ['btnChangePass','btnKvkk','btnDeleteAccount','profilSignoutBtn'].forEach(id => {
+      const el2 = document.getElementById(id);
+      if (el2) el2.closest('.profil-account-row, button') && (el2.closest('.profil-account-row') || el2).style.display = 'none';
+    });
+    const accountSection = document.querySelector('.profil-account')?.closest('div');
+    if (accountSection) accountSection.style.display = 'none';
+    document.getElementById('profilSignoutBtn')?.parentElement && (document.getElementById('profilSignoutBtn').style.display = 'none');
+    // Shield stat not meaningful for public view
+    document.getElementById('profilShieldVal')?.closest('.profil-stat') && (document.getElementById('profilShieldVal').closest('.profil-stat').style.display = 'none');
 
-  // Fallback: if still no token after 5s, show guest state.
-  // Doesn't set any permanent flag so a subsequent login still re-renders.
-  setTimeout(() => {
-    if (!window.kxToken && !document.getElementById('profilContent')?.classList.contains('loaded')) {
-      showGuestState();
-    }
-  }, 5000);
+    fetch(`/api/public-user?uid=${encodeURIComponent(_viewUid)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) { showGuestState(); return; }
+        const loading = document.getElementById('profilLoading');
+        const guest   = document.getElementById('profilGuest');
+        const content = document.getElementById('profilContent');
+        if (loading) loading.style.display = 'none';
+        if (guest)   guest.style.display = 'none';
+        if (content) content.classList.add('loaded');
+
+        const p = data.profile;
+        const xp = data.xp;
+        const streak = data.streak;
+        const badges = data.badges;
+        const initial = (p.display_name || p.username || 'K').charAt(0).toUpperCase();
+        const avatarEl = document.getElementById('profilAvatarLg');
+        if (avatarEl) avatarEl.textContent = initial;
+        const eld = (id) => document.getElementById(id);
+        if (eld('profilDisplayName')) eld('profilDisplayName').textContent = p.display_name || p.username || 'Taraftar';
+        if (eld('profilUsername') && p.username) eld('profilUsername').textContent = '@' + p.username;
+        if (eld('profilTierBadge')) eld('profilTierBadge').textContent = `${xp.tier_name} • Lvl ${xp.level}`;
+        if (eld('profilSince') && p.created_at) eld('profilSince').textContent = 'Üyelik: ' + fmtDate(p.created_at);
+        if (eld('profilXpTotal')) eld('profilXpTotal').textContent = xp.total.toLocaleString('tr-TR') + ' XP';
+        if (eld('profilLevelCur')) eld('profilLevelCur').textContent = 'Lvl ' + xp.level;
+        if (eld('profilStreakCur')) eld('profilStreakCur').textContent = streak.current ?? 0;
+        if (eld('profilStreakBest')) eld('profilStreakBest').textContent = streak.longest ?? 0;
+
+        const earnedIds2 = new Set((badges || []).map(b => b.badge_id));
+        const earnedMap2 = {};
+        (badges || []).forEach(b => { earnedMap2[b.badge_id] = b.earned_at; });
+        const grid2 = eld('profilBadgesGrid');
+        if (grid2) {
+          grid2.innerHTML = '';
+          BADGE_GROUPS.forEach(group => {
+            const groupEl = document.createElement('div');
+            groupEl.className = 'profil-badge-group';
+            const labelEl = document.createElement('div');
+            labelEl.className = 'profil-badge-group-label';
+            labelEl.style.color = group.color;
+            const cnt = group.badges.filter(d => earnedIds2.has(d.id)).length;
+            labelEl.textContent = `${group.label} (${cnt}/${group.badges.length})`;
+            groupEl.appendChild(labelEl);
+            const rowEl = document.createElement('div');
+            rowEl.className = 'profil-badges';
+            group.badges.forEach(def => {
+              const earned = earnedIds2.has(def.id);
+              const div2 = document.createElement('div');
+              div2.className = 'profil-badge ' + (earned ? 'earned' : 'locked');
+              div2.title = def.desc || def.name;
+              div2.innerHTML = `<div class="profil-badge-icon">${def.icon}</div><div class="profil-badge-name">${def.name}</div>${earned ? `<div class="profil-badge-date">${fmtDate(earnedMap2[def.id])}</div>` : ''}`;
+              rowEl.appendChild(div2);
+            });
+            groupEl.appendChild(rowEl);
+            grid2.appendChild(groupEl);
+          });
+        }
+      })
+      .catch(() => showGuestState());
+  } else {
+    // Own profile — always re-render when auth arrives.
+    document.addEventListener('kx:authReady', (e) => {
+      const me = e.detail?.me;
+      if (me) {
+        renderProfile(me);
+        wireAccountButtons();
+      }
+    });
+
+    // Fallback: if still no token after 5s, show guest state.
+    setTimeout(() => {
+      if (!window.kxToken && !document.getElementById('profilContent')?.classList.contains('loaded')) {
+        showGuestState();
+      }
+    }, 5000);
+  }
 })();
 </script>
 </body>

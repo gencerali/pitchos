@@ -90,8 +90,40 @@ async function requireOps(request, env) {
   });
 }
 
-// ─── H5 SYNTHESIS GATE ───────────────────────────────────────
-// Module-level so it's accessible from both processSite and force-h5 endpoint.
+// ─── MODERATION ───────────────────────────────────────────────
+// Server-side duplicate of the client filter — prevents API-direct bypass.
+// Covers: profanity, threats (TCK 106/125), Atatürk insults (Law 5816),
+// terrorism glorification (TMK), hate speech (TCK 216), religious insults.
+const _MOD_RAW = [
+  'orospu','amina','amk','sikim','sikilmis','yarak','yarrak','gotlek',
+  'kahpe','ibne','serefsiz','gavat','pezevenk','fahise','gerizekali',
+  'gotveren','siktir','sikeyim','amcik','surtuk','kaltak',
+  'bok yemek','piç kurusu','orospu cocugu',
+  'oldurecegim','oldureyim','oldururum','kafani keserim','seni keserim',
+  'seni oldururum','patlatacagim','kanini dokecegim','adresini bilirim',
+  'bicaklayacagim','katliam yapacagim',
+  'ataturk piç','ataturk orospu','ataturk serefsiz','mustafa kemal piç',
+  'mustafa kemal orospu','lanet ataturk','bok ataturk','bok mustafa kemal',
+  'cumhurbaskani piç','cumhurbaskani orospu',
+  'yasasin pkk','pkk kahraman','pkk asker','yasasin isid','yasasin isis',
+  'isis kahraman','isid kahraman','feto yasasin','dhkpc yasasin',
+  'kürtler kahrolsun','kurtler kahrolsun','ermeniler kahrolsun',
+  'yahudiler kahrolsun','ermeni dölü','ermeni dolu','kürt dölü','kurt dolu',
+  'zenci it','zenci köpek','zenci kopek','yahudi it','yahudi köpek',
+  'allah piç','allah orospu','allah bok','islama lanet','kuruna lanet',
+  'peygamber piç','peygamber orospu','hz muhammed piç',
+  'sikeyim seni','amını sikeyim','gotunu sikeyim',
+];
+function _normTR(s) {
+  return s.toLowerCase()
+    .replace(/ç/g,'c').replace(/ş/g,'s').replace(/ğ/g,'g')
+    .replace(/ı/g,'i').replace(/ö/g,'o').replace(/ü/g,'u');
+}
+function hasIllegalContent(text) {
+  const t = _normTR(text);
+  return _MOD_RAW.some(w => t.includes(_normTR(w)));
+}
+
 // Award 2 XP to a comment author when they receive a net-new like (daily cap 10).
 async function awardCommentLikedXP(env, authorId) {
   if (!authorId) return;
@@ -219,6 +251,8 @@ export default {
         return Response.json({ error: 'invalid' }, { headers });
       if (/https?:\/\//.test(comment))
         return Response.json({ error: 'no links allowed' }, { headers });
+      if (hasIllegalContent(comment))
+        return Response.json({ error: 'Uygunsuz içerik tespit edildi.' }, { headers });
 
       const commentRow = {
         article_slug,
@@ -275,13 +309,45 @@ export default {
         : `article_url=eq.${encodeURIComponent(article_url)}`;
       const [comments, reactions] = await Promise.all([
         supabase(env, 'GET',
-          `/rest/v1/article_comments?${commentFilter}&approved=eq.true&order=created_at.asc&limit=100&select=id,name,comment,created_at,like_count,dislike_count,parent_id`),
+          `/rest/v1/article_comments?${commentFilter}&approved=eq.true&order=created_at.asc&limit=100&select=id,user_id,name,comment,created_at,like_count,dislike_count,parent_id`),
         supabase(env, 'GET',
           `/rest/v1/article_reactions?${reactionFilter}&select=reaction`),
       ]);
       const likes    = (reactions||[]).filter(r => r.reaction === 'like').length;
       const dislikes = (reactions||[]).filter(r => r.reaction === 'dislike').length;
       return Response.json({ comments: comments||[], likes, dislikes }, { headers });
+    }
+
+    // Public user profile — for leaderboard / comment section profile links
+    if (url.pathname === '/api/public-user') {
+      const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
+      const uid = url.searchParams.get('uid');
+      if (!uid) return Response.json({ error: 'uid required' }, { status: 400, headers });
+      // Find site_id for this hostname
+      const hostname = url.hostname;
+      let site_id = await env.PITCHOS_CACHE.get(`site:domain:${hostname}`).catch(() => null);
+      if (!site_id) {
+        const sites = await supabase(env, 'GET', `/rest/v1/sites?domain=eq.${encodeURIComponent(hostname)}&select=id&limit=1`);
+        site_id = sites?.[0]?.id ?? null;
+        if (site_id) await env.PITCHOS_CACHE.put(`site:domain:${hostname}`, site_id, { expirationTtl: 300 }).catch(() => {});
+      }
+      if (!site_id) return Response.json({ error: 'site not found' }, { status: 404, headers });
+      const [profiles, xpRows, userBadges, streakRow] = await Promise.all([
+        supabase(env, 'GET', `/rest/v1/profiles?id=eq.${encodeURIComponent(uid)}&site_id=eq.${encodeURIComponent(site_id)}&select=id,username,display_name,avatar_url,created_at&limit=1`),
+        supabase(env, 'GET', `/rest/v1/xp_events?user_id=eq.${encodeURIComponent(uid)}&site_id=eq.${encodeURIComponent(site_id)}&nullified=eq.false&select=xp_earned`),
+        supabase(env, 'GET', `/rest/v1/user_badges?user_id=eq.${encodeURIComponent(uid)}&site_id=eq.${encodeURIComponent(site_id)}&select=badge_id,earned_at&order=earned_at.asc`),
+        supabase(env, 'GET', `/rest/v1/user_streaks?user_id=eq.${encodeURIComponent(uid)}&site_id=eq.${encodeURIComponent(site_id)}&select=current_streak,longest_streak&limit=1`),
+      ]);
+      if (!profiles?.length) return Response.json({ error: 'user not found' }, { status: 404, headers });
+      const total_xp = (xpRows||[]).reduce((s, r) => s + (r.xp_earned||0), 0);
+      const levelRows = await supabase(env, 'POST', '/rest/v1/rpc/get_user_level', { total_xp });
+      const lvl = Array.isArray(levelRows) ? levelRows[0] : levelRows;
+      return Response.json({
+        profile: profiles[0],
+        xp: { total: total_xp, level: lvl?.level ?? 1, tier_name: lvl?.tier_name ?? 'Misafir Kartal', xp_to_next: lvl?.xp_to_next ?? 50 },
+        streak: { current: streakRow?.[0]?.current_streak ?? 0, longest: streakRow?.[0]?.longest_streak ?? 0 },
+        badges: userBadges || [],
+      }, { headers });
     }
 
     if (url.pathname === '/force-cache') {
@@ -10590,6 +10656,31 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
   };
   const GROUP_ORDER = ['tier_boundary', 'streak', 'milestone', 'xp_milestone', 'special', 'manual'];
 
+  // Difficulty sort order for milestone badges (lower index = easier)
+  const MILESTONE_ORDER = [
+    'first_read','articles_10','articles_25','articles_50','articles_100','articles_250','articles_500',
+    'comment_5','comment_25','comment_50','comment_100',
+    'first_comment_like','comment_likes_10','comment_likes_50','fan_favorite','comment_likes_500',
+    'popular_comment','viral_comment',
+    'sharer_5','sharer_25','video_10','video_50','reactor_10','reactor_50',
+    'poll_10','poll_50','predictor_5','predictor_25','exact_score_first','exact_score_5',
+  ];
+
+  function sortByDifficulty(group, type) {
+    if (type === 'milestone') {
+      return [...group].sort((a, b) => {
+        const ai = MILESTONE_ORDER.indexOf(a.id), bi = MILESTONE_ORDER.indexOf(b.id);
+        if (ai === -1 && bi === -1) return a.id.localeCompare(b.id);
+        if (ai === -1) return 1; if (bi === -1) return -1;
+        return ai - bi;
+      });
+    }
+    if (['tier_boundary','streak','xp_milestone'].includes(type)) {
+      return [...group].sort((a, b) => parseInt(a.trigger_value||0) - parseInt(b.trigger_value||0));
+    }
+    return group;
+  }
+
   const badgeGroups = {};
   for (const b of badges) {
     const t = b.trigger_type || 'manual';
@@ -10598,7 +10689,8 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
 
   const badgeSections = GROUP_ORDER.filter(t => badgeGroups[t]?.length).map(t => {
     const grp = BADGE_GROUP_LABELS[t] || { label: t, color: '#9ca3af' };
-    const rows = badgeGroups[t].map(b => `
+    const sorted = sortByDifficulty(badgeGroups[t], t);
+    const rows = sorted.map(b => `
       <tr style="border-bottom:1px solid #111">
         <td style="padding:.45rem .75rem;font-size:.78rem;color:#9ca3af;font-family:monospace">${esc(b.id)}</td>
         <td style="padding:.45rem .75rem;font-size:.82rem;color:#e5e7eb;font-weight:600">${esc(b.label)}</td>
@@ -10611,7 +10703,7 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
       <div style="margin-bottom:.25rem">
         <button onclick="toggleBadgeGroup('${gid}')" style="width:100%;text-align:left;background:#0d1117;border:none;border-bottom:1px solid #1f2937;padding:.65rem .9rem;cursor:pointer;display:flex;align-items:center;gap:.6rem">
           <span style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:${grp.color}">${grp.label}</span>
-          <span style="font-size:.65rem;color:#6b7280">${badgeGroups[t].length} rozet</span>
+          <span style="font-size:.65rem;color:#6b7280">${sorted.length} rozet</span>
           <span id="${gid}-arr" style="margin-left:auto;color:#6b7280;font-size:.75rem">▼</span>
         </button>
         <div id="${gid}" style="display:none">
