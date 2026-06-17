@@ -7852,6 +7852,18 @@ header{background:#0d0d0d;border-bottom:2px solid #E30A17;height:60px;display:fl
 .live-pill{display:flex;align-items:center;gap:.4rem;font-family:'Barlow Condensed',sans-serif;font-size:.65rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#E30A17;border:1px solid #E30A17;padding:.3rem .7rem;border-radius:2px}
 .live-dot{width:6px;height:6px;border-radius:50%;background:#E30A17;animation:blink 1.4s ease-in-out infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.kx-login-btn{background:none;border:1px solid #D90414;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:.75rem;font-weight:700;letter-spacing:.08em;padding:.35rem .75rem;border-radius:3px;cursor:pointer;display:none}
+.user-widget{display:none;align-items:center;gap:.5rem;cursor:pointer;padding:.25rem .5rem;border-radius:6px}
+.user-widget.visible{display:flex}
+.user-avatar{width:30px;height:30px;border-radius:50%;background:#D90414;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:.9rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden}
+.user-info{display:flex;flex-direction:column;line-height:1.1}
+.user-name-label{font-family:'Barlow Condensed',sans-serif;font-size:.75rem;font-weight:700;color:#fff;letter-spacing:.03em}
+.user-rank-label{font-family:'Barlow Condensed',sans-serif;font-size:.6rem;color:#F5A623;letter-spacing:.04em}
+.user-sync-dot{width:6px;height:6px;border-radius:50%;background:#22c55e;flex-shrink:0}
+.kx-streak-flame{display:none;align-items:center;gap:.25rem;font-size:.8rem;color:#f97316;font-family:'Barlow Condensed',sans-serif;font-weight:700}
+.kx-profile-drop{position:fixed;z-index:9999;background:#141414;border:1px solid #242424;border-radius:6px;overflow:hidden;min-width:140px;box-shadow:0 4px 16px rgba(0,0,0,.6)}
+.kx-profile-drop a,.kx-profile-drop button{display:block;width:100%;padding:.65rem 1rem;background:none;border:none;color:#f0ede6;font-family:'Barlow Condensed',sans-serif;font-size:.8rem;font-weight:600;letter-spacing:.04em;text-align:left;cursor:pointer;text-decoration:none;box-sizing:border-box}
+.kx-profile-drop a:hover,.kx-profile-drop button:hover{background:#1a1a1a}
 .mainnav{background:#111;border-bottom:1px solid #1e1e1e;position:relative;z-index:90}
 .mainnav-inner{display:flex;align-items:center;max-width:1280px;margin:0 auto;padding:0 1rem}
 .mainnav .nav-toggle{display:none;background:none;border:0;color:#fff;cursor:pointer;padding:.7rem .4rem;align-items:center;gap:.5rem;font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:.8rem}
@@ -7904,7 +7916,18 @@ const SITE_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 
 function siteHeader(activePath = '/') {
   return `<header>
   <a href="/" class="logo-link">${SITE_LOGO_SVG}</a>
-  <div class="header-right"><div class="live-pill"><div class="live-dot"></div>Canlı</div></div>
+  <div class="header-right">
+    <div class="kx-streak-flame" id="kxStreakFlame" style="display:none">🔥 <span id="kxStreakCount">0</span></div>
+    <button class="kx-login-btn" id="kxLoginBtn">Giriş Yap</button>
+    <div class="user-widget" id="userWidget">
+      <div class="user-sync-dot"></div>
+      <div class="user-avatar" id="userAvatar">K</div>
+      <div class="user-info">
+        <div class="user-name-label" id="userNameLabel">Taraftar</div>
+        <div class="user-rank-label" id="userRankLabel">Lvl 1 • Kartal</div>
+      </div>
+    </div>
+  </div>
 </header>
 ${buildNav(activePath)}`;
 }

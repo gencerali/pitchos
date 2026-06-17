@@ -1021,19 +1021,20 @@
     .kx-auth-hint { font-size: 0.8rem; color: var(--muted-dark); line-height: 1.5; }
 
     .kx-profile-drop {
-      position: absolute; z-index: 200;
+      position: fixed; z-index: 9999;
       background: #141414; border: 1px solid #242424;
-      border-radius: 6px; overflow: hidden; min-width: 130px;
+      border-radius: 6px; overflow: hidden; min-width: 140px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.6);
     }
-    .kx-profile-drop button {
+    .kx-profile-drop a, .kx-profile-drop button {
       display: block; width: 100%; padding: 0.65rem 1rem;
       background: none; border: none; color: var(--text);
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em;
       text-align: left; cursor: pointer; transition: background 0.12s;
+      text-decoration: none; box-sizing: border-box;
     }
-    .kx-profile-drop button:hover { background: #1a1a1a; }
+    .kx-profile-drop a:hover, .kx-profile-drop button:hover { background: #1a1a1a; }
 
     /* ── CARD META ROW (source pill + time + yz bar) ── */
     .card-meta-row {

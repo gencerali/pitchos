@@ -446,7 +446,7 @@
     document.body.appendChild(drop);
 
     const wr = widget.getBoundingClientRect();
-    drop.style.top = (wr.bottom + window.scrollY + 6) + 'px';
+    drop.style.top = (wr.bottom + 6) + 'px';
     drop.style.right = (window.innerWidth - wr.right) + 'px';
 
     const close = () => drop.remove();

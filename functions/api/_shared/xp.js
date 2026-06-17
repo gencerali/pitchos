@@ -172,47 +172,94 @@ export async function awardXP(env, user_id, site_id, action_id, source_ref = nul
   };
 
   // 7. Badge checks scoped to site
-  const badge_unlocks = await checkBadges(env, user_id, site_id, { level, tier_number, streak, action_id });
+  const badge_unlocks = await checkBadges(env, user_id, site_id, { level, tier_number, streak, action_id, total_xp });
 
   return { xp_earned, total_xp, level, tier_name, xp_to_next, badge_unlocks, capped: false };
 }
 
 // ── Badge unlock check ────────────────────────────────────────
 
-async function checkBadges(env, user_id, site_id, { level, streak, action_id }) {
-  const unlocked = [];
+async function checkBadges(env, user_id, site_id, { level, streak, action_id, total_xp = 0 }) {
+  const candidates = [];
 
-  const candidates = [
-    ...([
-      { badge_id: 'tier_taraftar',      min_level: 4  },
-      { badge_id: 'tier_kapali_tribun', min_level: 7  },
-      { badge_id: 'tier_carsi_ruhu',    min_level: 10 },
-      { badge_id: 'tier_efsane',        min_level: 13 },
-    ].filter(b => level >= b.min_level)),
-    ...([
-      { badge_id: 'streak_shield',  min_streak: 15 },
-      { badge_id: 'streak_gold',    min_streak: 20 },
-      { badge_id: 'streak_sadakat', min_streak: 30 },
-    ].filter(b => streak.current_streak >= b.min_streak)),
-  ];
+  // Tier badges
+  [
+    { badge_id: 'tier_taraftar',      min_level: 4  },
+    { badge_id: 'tier_kapali_tribun', min_level: 7  },
+    { badge_id: 'tier_carsi_ruhu',    min_level: 10 },
+    { badge_id: 'tier_efsane',        min_level: 13 },
+    { badge_id: 'tier_kara_kartal',   min_level: 16 },
+    { badge_id: 'tier_onursal',       min_level: 20 },
+  ].filter(b => level >= b.min_level).forEach(b => candidates.push(b));
 
-  if (action_id === 'read_article') {
-    const reads = await sbGet(
-      env,
-      `xp_events?user_id=eq.${user_id}&site_id=eq.${site_id}&action_id=eq.read_article&nullified=eq.false&select=id&limit=101`
+  // Streak badges
+  [
+    { badge_id: 'streak_3',       min_streak: 3   },
+    { badge_id: 'streak_7',       min_streak: 7   },
+    { badge_id: 'streak_shield',  min_streak: 15  },
+    { badge_id: 'streak_gold',    min_streak: 20  },
+    { badge_id: 'streak_sadakat', min_streak: 30  },
+    { badge_id: 'streak_60',      min_streak: 60  },
+    { badge_id: 'streak_100',     min_streak: 100 },
+  ].filter(b => streak.current_streak >= b.min_streak).forEach(b => candidates.push(b));
+
+  // XP milestone badges
+  [
+    { badge_id: 'xp_500',   min_xp: 500   },
+    { badge_id: 'xp_2000',  min_xp: 2000  },
+    { badge_id: 'xp_10000', min_xp: 10000 },
+    { badge_id: 'xp_50000', min_xp: 50000 },
+  ].filter(b => total_xp >= b.min_xp).forEach(b => candidates.push(b));
+
+  // Activity count badges — only query DB for the relevant action
+  const countMap = {
+    read_article:    [
+      { badge_id: 'first_read',    min_count: 1   },
+      { badge_id: 'articles_10',   min_count: 10  },
+      { badge_id: 'articles_25',   min_count: 25  },
+      { badge_id: 'articles_50',   min_count: 50  },
+      { badge_id: 'articles_100',  min_count: 100 },
+      { badge_id: 'articles_250',  min_count: 250 },
+      { badge_id: 'articles_500',  min_count: 500 },
+    ],
+    comment:         [
+      { badge_id: 'comment_5',   min_count: 5   },
+      { badge_id: 'comment_25',  min_count: 25  },
+      { badge_id: 'comment_50',  min_count: 50  },
+      { badge_id: 'comment_100', min_count: 100 },
+    ],
+    share_link:      [
+      { badge_id: 'sharer_5',  min_count: 5  },
+      { badge_id: 'sharer_25', min_count: 25 },
+    ],
+    watch_video_30s: [
+      { badge_id: 'video_10', min_count: 10 },
+      { badge_id: 'video_50', min_count: 50 },
+    ],
+    react_article:   [
+      { badge_id: 'reactor_10', min_count: 10 },
+      { badge_id: 'reactor_50', min_count: 50 },
+    ],
+  };
+  if (countMap[action_id]) {
+    const rows = await sbGet(env,
+      `xp_events?user_id=eq.${user_id}&site_id=eq.${site_id}&action_id=eq.${action_id}&nullified=eq.false&select=id&limit=501`
     );
-    if (reads.length >= 100) candidates.push({ badge_id: 'articles_100' });
+    const n = rows.length;
+    countMap[action_id].filter(b => n >= b.min_count).forEach(b => candidates.push(b));
   }
 
+  if (!candidates.length) return [];
+
+  const unlocked = [];
   for (const { badge_id } of candidates) {
-    const existing = await sbGet(
-      env,
+    const existing = await sbGet(env,
       `user_badges?user_id=eq.${user_id}&site_id=eq.${site_id}&badge_id=eq.${badge_id}&select=id&limit=1`
     );
     if (!existing.length) {
       await sbPost(env, 'user_badges', { user_id, site_id, badge_id });
       const badgeInfo = await sbGet(env, `badges?id=eq.${badge_id}&select=*&limit=1`);
-      unlocked.push(badgeInfo[0]);
+      if (badgeInfo[0]) unlocked.push(badgeInfo[0]);
     }
   }
 
