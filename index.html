@@ -2326,12 +2326,21 @@
     const slugMatch = window.location.pathname.match(/^\/haber\/(.+?)\/?\s*$/);
     if (slugMatch) {
       const slug = decodeURIComponent(slugMatch[1]);
-      const article = articles.find(a => a.slug === slug);
-      if (article) {
-        renderArticleView(article);
+      const cached = articles.find(a => a.slug === slug);
+      if (cached) {
+        renderArticleView(cached);
         return;
       }
-      // Slug not in cache — redirect homepage gracefully
+      // Not in cache — fetch directly from API
+      try {
+        const apiRes = await fetch(`/api/article?slug=${encodeURIComponent(slug)}`);
+        if (apiRes.ok) {
+          const article = await apiRes.json();
+          renderArticleView(article);
+          return;
+        }
+      } catch {}
+      // Truly not found — go home
       history.replaceState(null, '', '/');
     }
 

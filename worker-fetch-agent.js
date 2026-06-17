@@ -7534,29 +7534,29 @@ async function renderVideoHubPage(tip, env) {
   ${siteSharedFonts()}
   <style>
     ${siteSharedCSS()}
-    :root{--accent:#E30A17;--bg:#f4f2ee;--surface:#fff;--text-on-dark:#16140f;--border:#e7e3da}
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-    body{background:var(--bg);color:var(--text-on-dark);font-family:'Inter',sans-serif;min-height:100vh}
+    body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
+    @media(max-width:900px){.mainnav{display:none}}
     .vh-ad-top{padding:.75rem 1.25rem}
     .vh-section{padding:1.25rem 1.25rem .75rem;overflow-x:hidden}
     .vh-sec-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem;border-left:3px solid var(--accent);padding-left:.75rem}
     .vh-sec-icon{font-size:1.05rem}
-    .vh-sec-label{font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase}
+    .vh-sec-label{font-family:'Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text)}
     .vh-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.75rem;width:100%;max-width:100%}
-    .vh-card{display:block;text-decoration:none;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color .2s;min-width:0}
+    .vh-card{display:block;text-decoration:none;background:var(--surface);border:1px solid var(--border2);border-radius:8px;overflow:hidden;transition:border-color .2s;min-width:0}
     .vh-card:hover{border-color:var(--accent)}
     .vh-thumb{position:relative;aspect-ratio:16/9;overflow:hidden;background:#000}
     .vh-thumb img{width:100%;height:100%;object-fit:cover;display:block}
     .vh-play{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
     .vh-play::after{content:'▶';font-size:1.4rem;color:#fff;background:rgba(0,0,0,.5);width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;padding-left:3px}
     .vh-meta{padding:.55rem .65rem .65rem}
-    .vh-title{font-size:.82rem;font-weight:600;line-height:1.4;color:#16140f;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.3rem;min-width:0;word-break:break-word;overflow-wrap:anywhere}
-    .vh-source{font-size:.7rem;color:#8a857c}
+    .vh-title{font-size:.82rem;font-weight:600;line-height:1.4;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:.3rem;min-width:0;word-break:break-word;overflow-wrap:anywhere}
+    .vh-source{font-size:.7rem;color:var(--muted)}
     .ad-slot{background:transparent}
     .ad-leaderboard{min-height:100px;width:100%;max-width:320px;margin:0 auto;display:block}
     .ad-banner{min-height:100px;width:100%;max-width:320px;margin:.5rem auto;display:block}
     .ad-native{aspect-ratio:16/9;background:var(--surface);border:1px dashed var(--border);border-radius:8px;min-width:0}
-    .vh-empty{padding:2rem 1rem;text-align:center;color:#555;font-size:.88rem}
+    .vh-empty{padding:2rem 1rem;text-align:center;color:var(--muted);font-size:.88rem}
     .vh-empty a{color:var(--accent);text-decoration:none;display:inline-block;margin-top:.5rem}
     .vh-card.vh-hidden{display:none}
     .vh-reveal-btn{display:block;margin:1.25rem auto .5rem;padding:.6rem 1.75rem;background:var(--accent);color:#fff;border:none;border-radius:6px;font-family:'Barlow Condensed',sans-serif;font-size:.95rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;cursor:pointer}
@@ -7615,19 +7615,19 @@ function renderTopicPage(topicSlug) {
   ${siteSharedFonts()}
   <style>
     ${siteSharedCSS()}
-    :root{--accent:#E30A17;--bg:#f4f2ee;--surface:#fff;--text:#111;--text-on-dark:#16140f;--muted:#6b7280;--border:#e5e7eb}
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-    body{background:var(--bg);color:var(--text-on-dark);font-family:'Inter',sans-serif;min-height:100vh}
+    body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
+    @media(max-width:900px){.mainnav{display:none}}
     .page-header{padding:2rem;border-bottom:1px solid var(--border)}
     .page-title{font-family:'Barlow Condensed',sans-serif;font-size:2.2rem;font-weight:800;letter-spacing:.03em}
     .page-desc{color:var(--muted);font-size:.85rem;margin-top:.4rem}
     .article-grid{padding:1.5rem 2rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1.25rem}
-    .art-card{background:#fff;border:1px solid var(--border);box-shadow:0 1px 3px rgba(20,18,15,.06);border-radius:6px;padding:1rem;cursor:pointer;transition:border-color .15s,box-shadow .15s;text-decoration:none;display:block}
-    .art-card:hover{border-color:var(--accent);box-shadow:0 4px 12px rgba(20,18,15,.10)}
-    .art-card-title{font-size:.9rem;font-weight:600;line-height:1.4;color:#16140f;margin-bottom:.5rem}
+    .art-card{background:var(--surface);border:1px solid var(--border2);box-shadow:0 1px 3px rgba(0,0,0,.2);border-radius:6px;padding:1rem;cursor:pointer;transition:border-color .15s,box-shadow .15s;text-decoration:none;display:block}
+    .art-card:hover{border-color:var(--accent);box-shadow:0 4px 12px rgba(217,4,20,.15)}
+    .art-card-title{font-size:.9rem;font-weight:600;line-height:1.4;color:var(--text);margin-bottom:.5rem}
     .art-card-meta{display:flex;gap:.5rem;align-items:center;font-size:.7rem;color:var(--muted);flex-wrap:wrap}
-    .art-card-source{color:#E30A17;font-weight:600}
-    .art-card-summary{font-size:.78rem;color:#6b6660;margin-top:.5rem;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+    .art-card-source{color:var(--accent);font-weight:600}
+    .art-card-summary{font-size:.78rem;color:var(--muted);margin-top:.5rem;line-height:1.5;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
     .empty{padding:3rem 2rem;color:var(--muted);text-align:center;font-size:.9rem}
     @media(max-width:640px){.article-grid{grid-template-columns:1fr}.page-header,.article-grid{padding:1rem}}
   </style>
