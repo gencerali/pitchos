@@ -7106,8 +7106,8 @@ ${desc ? `<meta property="og:title" content="${escHtml(title)} | Kartalix"/>
 <link rel="canonical" href="${pageUrl}"/>
 <link rel="alternate" type="application/rss+xml" title="Kartalix RSS" href="${BASE_URL}/rss"/>
 ${siteSharedFonts()}
+<link rel="stylesheet" href="/style.css">
 <style>
-${siteSharedCSS()}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#fbfaf8;color:#2a2622;font-family:'Segoe UI',system-ui,sans-serif;font-size:16px;line-height:1.7}
 a{color:#E30A17;text-decoration:none}a:hover{text-decoration:underline}
@@ -7532,11 +7532,10 @@ async function renderVideoHubPage(tip, env) {
   <meta name="robots" content="index, follow" />
   <link rel="canonical" href="https://kartalix.com${canonical}" />
   ${siteSharedFonts()}
+  <link rel="stylesheet" href="/style.css">
   <style>
-    ${siteSharedCSS()}
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
     body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
-    @media(max-width:900px){.mainnav{display:none}}
     .vh-ad-top{padding:.75rem 1.25rem}
     .vh-section{padding:1.25rem 1.25rem .75rem;overflow-x:hidden}
     .vh-sec-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.9rem;border-left:3px solid var(--accent);padding-left:.75rem}
@@ -7613,11 +7612,10 @@ function renderTopicPage(topicSlug) {
   <meta name="description" content="${meta.desc}" />
   <meta name="robots" content="index, follow" />
   ${siteSharedFonts()}
+  <link rel="stylesheet" href="/style.css">
   <style>
-    ${siteSharedCSS()}
     *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
     body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh}
-    @media(max-width:900px){.mainnav{display:none}}
     .page-header{padding:2rem;border-bottom:1px solid var(--border)}
     .page-title{font-family:'Barlow Condensed',sans-serif;font-size:2.2rem;font-weight:800;letter-spacing:.03em}
     .page-desc{color:var(--muted);font-size:.85rem;margin-top:.4rem}
@@ -7844,75 +7842,6 @@ function siteSharedFonts() {
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&display=swap" rel="stylesheet"/>`;
 }
 
-function siteSharedCSS() {
-  return `
-header{background:#0d0d0d;border-bottom:2px solid #E30A17;height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;position:sticky;top:0;z-index:100}
-.logo-link{text-decoration:none;display:flex;align-items:center}
-.header-right{display:flex;align-items:center;gap:1rem}
-.live-pill{display:flex;align-items:center;gap:.4rem;font-family:'Barlow Condensed',sans-serif;font-size:.65rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;color:#E30A17;border:1px solid #E30A17;padding:.3rem .7rem;border-radius:2px}
-.live-dot{width:6px;height:6px;border-radius:50%;background:#E30A17;animation:blink 1.4s ease-in-out infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
-.kx-login-btn{background:none;border:1px solid #D90414;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:.75rem;font-weight:700;letter-spacing:.08em;padding:.35rem .75rem;border-radius:3px;cursor:pointer;display:none}
-.user-widget{display:none;align-items:center;gap:.3rem;cursor:pointer;padding:.25rem .45rem .25rem .3rem;border:1px solid #2a2a2a;border-radius:6px;background:#141414;transition:border-color .15s}
-.user-widget.visible{display:flex}
-.user-widget:hover{border-color:#444}
-.user-avatar{width:26px;height:26px;border-radius:50%;background:#D90414;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:.8rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden}
-.user-caret{font-size:.5rem;color:#555;line-height:1}
-.kx-streak-flame{display:none;align-items:center;gap:.25rem;font-size:.8rem;color:#f97316;font-family:'Barlow Condensed',sans-serif;font-weight:700}
-.kx-profile-drop{position:fixed;z-index:9999;background:#141414;border:1px solid #242424;border-radius:6px;overflow:hidden;min-width:180px;box-shadow:0 4px 16px rgba(0,0,0,.6)}
-.kx-profile-drop a,.kx-profile-drop button{display:block;width:100%;padding:.65rem 1rem;background:none;border:none;color:#f0ede6;font-family:'Barlow Condensed',sans-serif;font-size:.8rem;font-weight:600;letter-spacing:.04em;text-align:left;cursor:pointer;text-decoration:none;box-sizing:border-box}
-.kx-profile-drop a:hover,.kx-profile-drop button:hover{background:#1a1a1a}
-.kx-drop-summary{padding:.7rem 1rem .65rem;border-bottom:1px solid #242424}
-.kx-drop-name{font-family:'Barlow Condensed',sans-serif;font-size:.9rem;font-weight:700;color:#f0ede6;letter-spacing:.02em}
-.kx-drop-rank{font-family:'Barlow Condensed',sans-serif;font-size:.65rem;color:#F5A623;letter-spacing:.04em;margin-top:.15rem}
-.bottom-dock{display:none;position:fixed;bottom:0;left:0;right:0;z-index:220;background:#0d0d0d;border-top:1px solid #1A1A1A;padding-bottom:env(safe-area-inset-bottom,0px)}
-@media(max-width:900px){.bottom-dock{display:flex;align-items:stretch}body{padding-bottom:60px}}
-.dock-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex:1;min-height:56px;padding:7px 4px;background:none;border:none;color:#484848;cursor:pointer;text-decoration:none;font-family:'Barlow Condensed',sans-serif;font-size:.5rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;transition:color .15s}
-.dock-btn:hover,.dock-btn.active{color:#f0ede6}
-.dock-btn.active{color:#D90414}
-.dock-btn svg{width:20px;height:20px;flex-shrink:0}
-.dock-btn--hero{flex:0 0 56px;align-self:center;width:52px;height:52px;border-radius:50%;background:#D90414;box-shadow:0 0 18px rgba(217,4,20,0.55),0 4px 14px rgba(0,0,0,.7);color:#fff;border:3px solid #0d0d0d;margin:0 2px;position:relative;top:-6px;font-size:.46rem;padding:5px}
-.dock-btn--hero svg{width:22px;height:16px;opacity:.9}
-.dock-btn--hero:hover{color:#fff;background:#b5030f;box-shadow:0 0 22px rgba(217,4,20,0.7)}
-.mainnav{background:#111;border-bottom:1px solid #1e1e1e;position:relative;z-index:90}
-.mainnav-inner{display:flex;align-items:center;max-width:1280px;margin:0 auto;padding:0 1rem}
-.mainnav .nav-toggle{display:none;background:none;border:0;color:#fff;cursor:pointer;padding:.7rem .4rem;align-items:center;gap:.5rem;font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:.8rem}
-.mainnav .nav-toggle .bars{position:relative;display:block;width:20px;height:2px;background:#fff}
-.mainnav .nav-toggle .bars::before,.mainnav .nav-toggle .bars::after{content:'';position:absolute;left:0;width:20px;height:2px;background:#fff}
-.mainnav .nav-toggle .bars::before{top:-6px}
-.mainnav .nav-toggle .bars::after{top:6px}
-.mainnav .nav-list{display:flex;align-items:center;list-style:none;margin:0;padding:0}
-.mainnav .nav-li{position:relative}
-.mainnav .nav-link,.mainnav .nav-trigger{font-family:'Barlow Condensed',sans-serif;font-size:.82rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#999;background:none;border:0;cursor:pointer;padding:.7rem .95rem;display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap;border-bottom:2px solid transparent;text-decoration:none}
-.mainnav .nav-link:hover,.mainnav .nav-trigger:hover,.mainnav .nav-li:hover>.nav-trigger{color:#fff}
-.mainnav .nav-link.active{color:#fff;border-bottom-color:#E30A17}
-.mainnav .nav-link--soon{color:#777;cursor:default}
-.mainnav .caret{font-size:.55rem;opacity:.65}
-.mainnav .nav-mega{position:absolute;top:100%;left:0;min-width:230px;background:#16181c;border:1px solid #2a2d33;border-top:2px solid #E30A17;border-radius:0 0 6px 6px;box-shadow:0 18px 40px rgba(0,0,0,.55);padding:.45rem;z-index:95;opacity:0;visibility:hidden;transform:translateY(4px);transition:opacity .15s,transform .15s}
-.mainnav .nav-li:hover>.nav-mega{opacity:1;visibility:visible;transform:translateY(0)}
-.mainnav .nav-li.gold>.nav-mega{border-top-color:#F5A623}
-.mainnav .nav-mega-item{display:flex;align-items:center;padding:.5rem .7rem;border-radius:4px;text-decoration:none;color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:.9rem;letter-spacing:.04em;text-transform:uppercase}
-.mainnav .nav-mega-item:hover{background:#22252b}
-.mainnav .nav-mega-item--soon{color:#8b8f97;cursor:default}
-.mainnav .nav-soon{font-family:'Barlow Condensed',sans-serif;font-size:.5rem;font-weight:800;letter-spacing:.1em;color:#0d0d0d;background:#F5A623;padding:.07rem .3rem;border-radius:3px;margin-left:.4rem}
-.mainnav .nav-backdrop{display:none}
-@media(max-width:900px){
-  .mainnav-inner{display:block;padding:0}
-  .mainnav .nav-list{flex-direction:column;align-items:stretch}
-  .mainnav .nav-link,.mainnav .nav-trigger{width:100%;justify-content:space-between;padding:.9rem 1.2rem;font-size:.95rem;border-bottom:1px solid #1c1c1c}
-  .mainnav .nav-mega{position:static;opacity:1;visibility:visible;transform:none;border:0;box-shadow:none;background:#141414;border-radius:0;min-width:0;padding:.2rem 0 .5rem}
-  .mainnav .nav-mega-item{padding:.6rem 1.6rem}
-  .mainnav.js .nav-toggle{display:inline-flex}
-  .mainnav.js .nav-list{position:fixed;top:0;left:0;bottom:0;width:84%;max-width:330px;background:#0d0d0d;padding:1rem 0 2rem;overflow-y:auto;transform:translateX(-100%);transition:transform .25s ease;z-index:210;border-right:1px solid #222}
-  .mainnav.js.open .nav-list{transform:translateX(0)}
-  .mainnav.js.open .nav-backdrop{display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200}
-  .mainnav.js .nav-mega{max-height:0;overflow:hidden;padding:0;transition:max-height .25s ease}
-  .mainnav.js .nav-li.open>.nav-mega{max-height:600px}
-}
-.site-footer{border-top:1px solid #e7e3da;padding:1.5rem;text-align:center;font-size:.72rem;color:#8a857c;background:transparent;margin-top:3rem}
-.site-footer a{color:#8a857c;margin:0 .6rem;text-decoration:none}
-.site-footer a:hover{color:#E30A17}`;
-}
 
 const SITE_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" height="38">
   <rect x="0" y="2" width="8" height="40" fill="#ffffff"/>
@@ -8135,8 +8064,8 @@ ${image ? `<meta name="twitter:image" content="${escHtml(image)}"/>` : ''}
 <link rel="alternate" type="application/rss+xml" title="Kartalix RSS" href="${BASE_URL}/rss"/>
 <script type="application/ld+json">${jsonLd}</script>
 ${siteSharedFonts()}
+<link rel="stylesheet" href="/style.css">
 <style>
-${siteSharedCSS()}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#fbfaf8;color:#2a2622;font-family:'Segoe UI',system-ui,sans-serif;font-size:16px;line-height:1.7}
 a{color:#E30A17;text-decoration:none}
