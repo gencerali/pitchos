@@ -305,6 +305,9 @@
     .dock-btn:hover,.dock-btn.active{color:#f0ede6}
     .dock-btn.active{color:#D90414}
     .dock-btn svg{width:20px;height:20px;flex-shrink:0}
+    .dock-btn--hero{flex:0 0 56px;align-self:center;width:52px;height:52px;border-radius:50%;background:#D90414;box-shadow:0 0 18px rgba(217,4,20,0.55),0 4px 14px rgba(0,0,0,0.7);color:#fff;border:3px solid #0d0d0d;margin:0 2px;position:relative;top:-6px;font-size:.46rem;padding:5px}
+    .dock-btn--hero svg{width:22px;height:16px;opacity:.9}
+    .dock-btn--hero:hover{color:#fff;background:#b5030f;box-shadow:0 0 22px rgba(217,4,20,0.7)}
   </style>
 </head>
 <body>
@@ -555,26 +558,33 @@
 
 <nav class="bottom-dock" aria-label="Alt gezinti">
   <a href="/" class="dock-btn" title="Ana Sayfa">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
     <span>Ana Sayfa</span>
   </a>
   <a href="/konu/videolar" class="dock-btn" title="Videolar">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
     <span>Videolar</span>
   </a>
-  <a href="/liderlik" class="dock-btn active" title="Liderlik">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 010-5H6"/><path d="M18 9h1.5a2.5 2.5 0 000-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0012 0V2z"/></svg>
-    <span>Liderlik</span>
-  </a>
-  <a href="/profil" class="dock-btn" title="Profil">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-    <span>Profil</span>
-  </a>
+  <button class="dock-btn dock-btn--hero" id="dockTribun" title="Tribün">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="currentColor" aria-hidden="true"><circle cx="120" cy="28" r="11"/><polygon points="111,24 97,29 111,34"/><path d="M120,36 C111,46 109,68 113,92 C116,114 120,132 120,132 C120,132 124,114 127,92 C131,68 129,46 120,36Z"/><polygon points="116,46 30,26 48,50 62,40 74,60 88,48 100,66 116,58"/><polygon points="124,46 210,26 192,50 178,40 166,60 152,48 140,66 124,58"/></svg>
+    <span>Tribün</span>
+  </button>
+  <button class="dock-btn" id="dockAnaliz" title="Analiz">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    <span>Analiz</span>
+  </button>
   <button class="dock-btn" id="dockMenuBtn" title="Menü">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     <span>Menü</span>
   </button>
 </nav>
-<script>document.getElementById('dockMenuBtn')?.addEventListener('click',()=>document.getElementById('navToggle')?.click());</script>
+<script>
+(function(){
+  function kxToast(msg){var t=document.createElement('div');t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid #333;color:#f0ede6;font-family:\'Barlow Condensed\',sans-serif;font-size:.8rem;font-weight:600;letter-spacing:.04em;padding:.55rem 1.1rem;border-radius:6px;z-index:9999;pointer-events:none;transition:opacity .3s';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300)},2200);}
+  document.getElementById('dockMenuBtn')?.addEventListener('click',()=>document.getElementById('navToggle')?.click());
+  document.getElementById('dockTribun')?.addEventListener('click',()=>kxToast('Tribün çok yakında! 🦅'));
+  document.getElementById('dockAnaliz')?.addEventListener('click',()=>kxToast('Analiz çok yakında!'));
+})();
+</script>
 </body>
 </html>
