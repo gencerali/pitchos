@@ -214,20 +214,24 @@ export default {
       }
       if (!user_id) return Response.json({ error: 'login_required' }, { status: 401, headers });
 
-      const { article_slug, name, comment } = await request.json();
+      const { article_slug, name, comment, parent_id } = await request.json();
       if (!article_slug || !comment?.trim() || comment.length < 3)
         return Response.json({ error: 'invalid' }, { headers });
       if (/https?:\/\//.test(comment))
         return Response.json({ error: 'no links allowed' }, { headers });
 
-      await supabase(env, 'POST', '/rest/v1/article_comments', {
+      const commentRow = {
         article_slug,
         user_id,
         name: (name || 'Üye').trim().slice(0, 50),
         comment: comment.trim().slice(0, 500),
         approved: true,
-      });
-      return Response.json({ success: true }, { headers });
+      };
+      if (parent_id) commentRow.parent_id = parent_id;
+
+      const inserted = await supabase(env, 'POST', '/rest/v1/article_comments', commentRow);
+      const newId = Array.isArray(inserted) ? inserted[0]?.id : inserted?.id;
+      return Response.json({ success: true, id: newId || null }, { headers });
     }
 
     if (url.pathname === '/comment-react') {
@@ -271,7 +275,7 @@ export default {
         : `article_url=eq.${encodeURIComponent(article_url)}`;
       const [comments, reactions] = await Promise.all([
         supabase(env, 'GET',
-          `/rest/v1/article_comments?${commentFilter}&approved=eq.true&order=created_at.asc&limit=50&select=id,name,comment,created_at,like_count,dislike_count`),
+          `/rest/v1/article_comments?${commentFilter}&approved=eq.true&order=created_at.asc&limit=100&select=id,name,comment,created_at,like_count,dislike_count,parent_id`),
         supabase(env, 'GET',
           `/rest/v1/article_reactions?${reactionFilter}&select=reaction`),
       ]);

@@ -3026,34 +3026,89 @@
       const countEl = document.getElementById('av-comment-count');
       const listEl  = document.getElementById('av-comments-list');
       if (countEl) countEl.textContent = `(${comments.length})`;
-      if (listEl) {
-        if (comments.length === 0) {
-          listEl.innerHTML = '<p style="color:#888;font-size:0.85rem;text-align:center;padding:1rem">Henüz yorum yok. İlk yorumu sen yap!</p>';
-        } else {
-          listEl.innerHTML = comments.map(c => {
-            const name = (c.name + ' ' + (c.surname?.[0]||'') + '.').trim();
-            const date = new Date(c.created_at).toLocaleDateString('tr-TR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
-            const likeCount = c.like_count || 0;
-            const dislikeCount = c.dislike_count || 0;
-            return `<div style="padding:0.875rem 0;border-bottom:1px solid #1A1A1A">
-              <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem">
-                <span style="font-weight:600;font-size:0.85rem;color:#f0ede6">${esc(name)}</span>
-                <span style="font-size:0.72rem;color:#888">${date}</span>
-              </div>
-              <p style="font-size:0.875rem;color:#c8c4bc;line-height:1.5;margin:0 0 0.5rem">${esc(c.comment)}</p>
-              <div style="display:flex;gap:0.75rem">
-                <button data-cid="${esc(c.id)}" data-reaction="like" onclick="commentReact(this)" style="background:none;border:none;color:#888;font-size:0.75rem;cursor:pointer;padding:0;display:flex;align-items:center;gap:0.3rem">
-                  <span style="font-size:0.8rem">👍</span><span class="clk-like">${likeCount > 0 ? likeCount : ''}</span>
-                </button>
-                <button data-cid="${esc(c.id)}" data-reaction="dislike" onclick="commentReact(this)" style="background:none;border:none;color:#888;font-size:0.75rem;cursor:pointer;padding:0;display:flex;align-items:center;gap:0.3rem">
-                  <span style="font-size:0.8rem">👎</span><span class="clk-dislike">${dislikeCount > 0 ? dislikeCount : ''}</span>
-                </button>
-              </div>
-            </div>`;
-          }).join('');
-        }
-      }
+      if (listEl) renderCommentList(comments, listEl, articleSlug || articleUrl);
     } catch(e) {}
+  }
+
+  function renderCommentList(comments, listEl, slug) {
+    if (!comments.length) {
+      listEl.innerHTML = '<p style="color:#888;font-size:0.85rem;text-align:center;padding:1rem">Henüz yorum yok. İlk yorumu sen yap!</p>';
+      return;
+    }
+    const topLevel = comments.filter(c => !c.parent_id);
+    const repliesMap = {};
+    comments.filter(c => c.parent_id).forEach(c => {
+      (repliesMap[c.parent_id] = repliesMap[c.parent_id] || []).push(c);
+    });
+    const canReply = !!(window.__kxLoggedIn && window.kxToken);
+
+    function commentHtml(c, isReply) {
+      const name = (c.name + (c.surname ? ' ' + c.surname[0] + '.' : '')).trim() || 'Üye';
+      const date = new Date(c.created_at).toLocaleDateString('tr-TR', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+      const lk = c.like_count || 0;
+      const dk = c.dislike_count || 0;
+      const indent = isReply ? 'margin-left:1.75rem;border-left:2px solid #2a2a2a;padding-left:0.75rem;' : '';
+      return `<div style="padding:0.75rem 0;border-bottom:1px solid #1A1A1A;${indent}">
+        <div style="display:flex;justify-content:space-between;margin-bottom:0.25rem">
+          <span style="font-weight:600;font-size:0.85rem;color:${isReply ? '#aaa' : '#f0ede6'}">${esc(name)}</span>
+          <span style="font-size:0.72rem;color:#666">${date}</span>
+        </div>
+        <p style="font-size:0.875rem;color:#c8c4bc;line-height:1.5;margin:0 0 0.4rem">${esc(c.comment)}</p>
+        <div style="display:flex;gap:0.75rem;align-items:center">
+          <button data-cid="${esc(c.id)}" data-reaction="like" onclick="commentReact(this)" style="background:none;border:none;color:#888;font-size:0.75rem;cursor:pointer;padding:0;display:flex;align-items:center;gap:0.3rem">
+            <span>👍</span><span class="clk-like">${lk > 0 ? lk : ''}</span>
+          </button>
+          <button data-cid="${esc(c.id)}" data-reaction="dislike" onclick="commentReact(this)" style="background:none;border:none;color:#888;font-size:0.75rem;cursor:pointer;padding:0;display:flex;align-items:center;gap:0.3rem">
+            <span>👎</span><span class="clk-dislike">${dk > 0 ? dk : ''}</span>
+          </button>
+          ${!isReply && canReply ? `<button onclick="toggleReplyForm('${esc(c.id)}','${esc(slug)}')" style="background:none;border:none;color:#555;font-size:0.72rem;cursor:pointer;padding:0;margin-left:0.25rem">↩ Cevapla</button>` : ''}
+        </div>
+        ${!isReply ? `<div id="reply-area-${esc(c.id)}"></div>` : ''}
+      </div>`;
+    }
+
+    listEl.innerHTML = topLevel.map(c =>
+      commentHtml(c, false) + (repliesMap[c.id] || []).map(r => commentHtml(r, true)).join('')
+    ).join('');
+  }
+
+  function toggleReplyForm(parentId, slug) {
+    const area = document.getElementById('reply-area-' + parentId);
+    if (!area) return;
+    if (area.innerHTML) { area.innerHTML = ''; return; }
+    area.innerHTML = `<div style="margin:0.5rem 0 0 1.75rem;padding:0.75rem;background:#111;border-radius:6px">
+      <textarea id="reply-text-${parentId}" placeholder="Cevabınız..." maxlength="500" rows="2" style="width:100%;padding:0.5rem 0.6rem;border:1px solid #242424;border-radius:6px;font-size:0.85rem;resize:vertical;background:#0d0d0d;color:#f0ede6;outline:none;box-sizing:border-box"></textarea>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.5rem">
+        <button onclick="document.getElementById('reply-area-${parentId}').innerHTML=''" style="background:none;border:1px solid #333;color:#888;padding:0.4rem 0.9rem;border-radius:5px;font-size:0.8rem;cursor:pointer">İptal</button>
+        <button onclick="submitReply('${parentId}','${slug}')" style="background:#D90414;color:white;border:none;padding:0.4rem 0.9rem;border-radius:5px;font-family:'Barlow Condensed',sans-serif;font-size:0.85rem;font-weight:700;cursor:pointer">GÖNDER →</button>
+      </div>
+      <div id="reply-msg-${parentId}" style="font-size:0.78rem;margin-top:0.25rem"></div>
+    </div>`;
+    document.getElementById('reply-text-' + parentId)?.focus();
+  }
+
+  async function submitReply(parentId, slug) {
+    const textEl = document.getElementById('reply-text-' + parentId);
+    const msg    = document.getElementById('reply-msg-' + parentId);
+    if (!textEl) return;
+    const comment = textEl.value.trim();
+    if (comment.length < 3) { if (msg) { msg.style.color='#D90414'; msg.textContent='En az 3 karakter gerekli.'; } return; }
+    if (hasProfanity(comment)) { if (msg) { msg.style.color='#D90414'; msg.textContent='Uygunsuz ifade içeren yorumlar kabul edilmiyor.'; } return; }
+    if (msg) { msg.style.color='#888'; msg.textContent='Gönderiliyor...'; }
+    const name = (window.__kxProfile?.display_name || window.__kxProfile?.username || 'Üye').trim().slice(0, 50);
+    try {
+      const res = await fetch('https://kartalix.com/comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${window.kxToken}` },
+        body: JSON.stringify({ article_slug: slug, name, comment, parent_id: parentId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (_currentArticle) setTimeout(() => loadAvReactions(_currentArticle), 300);
+      } else {
+        if (msg) { msg.style.color='#D90414'; msg.textContent='Hata: ' + (data.error || 'Tekrar deneyin'); }
+      }
+    } catch { if (msg) { msg.style.color='#D90414'; msg.textContent='Bağlantı hatası.'; } }
   }
 
   async function commentReact(btn) {
@@ -3188,6 +3243,30 @@
     }
   }
 
+  const PROFANITY_TR = [
+    'orospu','orosbucocugu','orospucocugu','amina','amk','sikim','sikilmis','yarak','yarrak',
+    'gotlek','piçkurusu','kahpe','ibne','oglanı','serefsiz','serefsizlik',
+    'gavat','pezevenk','fahişe','fahise','gerizekali','gerizekalı','gotveren',
+    'bok ','boktan','boklu','boktan','piç ','ibnelik','oc ','oç ','amk ',
+    'bok yemek','boksuyu','siktir','siktirgit','sikilmis','sikeyim',
+    'amcik','amcık','göt ','gotun','orospu sülalesi','kahpenin',
+    'serefsizin','gerizekalinin','yarrak gibi','yarak gibi',
+    'orospu cocugu','piç kurusu','kahpe sülale','ibnenin','oğlancı',
+    'sikko','sikko','mülayim degil','bokboku','sürtük','surtuk',
+    'kaltak','oynasın','gavatin','pezevenkin'
+  ];
+
+  function hasProfanity(text) {
+    const t = text.toLowerCase()
+      .replace(/ç/g,'c').replace(/ş/g,'s').replace(/ğ/g,'g')
+      .replace(/ı/g,'i').replace(/ö/g,'o').replace(/ü/g,'u');
+    return PROFANITY_TR.some(w => {
+      const wn = w.replace(/ç/g,'c').replace(/ş/g,'s').replace(/ğ/g,'g')
+        .replace(/ı/g,'i').replace(/ö/g,'o').replace(/ü/g,'u');
+      return t.includes(wn.trim());
+    });
+  }
+
   async function submitAvComment() {
     const msg    = document.getElementById('av-comment-msg');
     const textEl = document.getElementById('av-comment-text');
@@ -3199,6 +3278,7 @@
     }
     const comment = textEl.value.trim();
     if (comment.length < 3) { msg.style.color='#D90414'; msg.textContent='Yorum en az 3 karakter olmalı.'; return; }
+    if (hasProfanity(comment)) { msg.style.color='#D90414'; msg.textContent='Uygunsuz ifade içeren yorumlar kabul edilmiyor.'; return; }
 
     msg.style.color='#888'; msg.textContent='Gönderiliyor...';
     const name = (window.__kxProfile?.display_name || window.__kxProfile?.username || 'Üye').trim().slice(0, 50);
