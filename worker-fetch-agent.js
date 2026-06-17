@@ -90,8 +90,63 @@ async function requireOps(request, env) {
   });
 }
 
-// ─── H5 SYNTHESIS GATE ───────────────────────────────────────
-// Module-level so it's accessible from both processSite and force-h5 endpoint.
+// ─── MODERATION ───────────────────────────────────────────────
+// Server-side duplicate of the client filter — prevents API-direct bypass.
+// Covers: profanity, threats (TCK 106/125), Atatürk insults (Law 5816),
+// terrorism glorification (TMK), hate speech (TCK 216), religious insults.
+// Source: core list + ooguz/turkce-kufur-karaliste (MIT) for expanded coverage
+const _MOD_RAW = [
+  // ── Küfür (profanity roots — substring match catches conjugations) ──
+  'orospu','orospu cocugu','orostopol','orostoban',
+  'amina','amına koy','amcik','amk',
+  'sikim','sikilmis','sikirim','sikerim','siktim','siktir','sikeyim',
+  'siktir git','siksiz','s1kerim',
+  'yarak','yarrak','dalyarak','dalyarrak',
+  'gotlek','got ','gotun','gotumuzu','gotleri','got deligi',
+  'gotveren',
+  'kahpe','ibne','ibine','serefsiz','gavat','pezevenk','fahise',
+  'gerizekali','gerzek','dangalak','ebleh','embesil',
+  'kaltak','surtuk','kancik','kasar','kerhane',
+  'piç kurusu','piç',
+  'kodum','koduum','koyduum','soktum','soktuum',
+  'koyarim','koyayim','koyum','koyim',
+  'ananin ami','anasini','anani sikerim',
+  'ebeni','ebenin',
+  'tasak','tassak',
+  'pust','osur','vajina','yavsak','domal','domalt',
+  'bok yemek','bok ',
+  // ── Tehdit ve şiddet çağrısı (TCK 106/125) ──
+  'oldurecegim','oldureyim','oldururum','kafani keserim','seni keserim',
+  'seni oldururum','patlatacagim','kanini dokecegim','adresini bilirim',
+  'bicaklayacagim','katliam yapacagim','silahim var',
+  // ── Atatürk hakareti (Kanun 5816) ──
+  'ataturk piç','ataturk orospu','ataturk serefsiz','mustafa kemal piç',
+  'mustafa kemal orospu','lanet ataturk','bok ataturk','bok mustafa kemal',
+  // ── Cumhurbaşkanına hakaret (TCK 299) ──
+  'cumhurbaskani piç','cumhurbaskani orospu','cumhurbaskani serefsiz',
+  // ── Terör propagandası (TMK 7/2) ──
+  'yasasin pkk','pkk kahraman','pkk asker','yasasin isid','yasasin isis',
+  'isis kahraman','isid kahraman','feto yasasin','dhkpc yasasin',
+  // ── Nefret söylemi (TCK 216) ──
+  'kurtler kahrolsun','ermeniler kahrolsun','yahudiler kahrolsun',
+  'ermeni dolu','kurt dolu',
+  'zenci it','zenci kopek','yahudi it','yahudi kopek',
+  // ── Dini hakaret (TCK 216) ──
+  'allah piç','allah orospu','allah bok','islama lanet','kuruna lanet',
+  'peygamber piç','peygamber orospu','hz muhammed piç',
+  // ── Cinsel taciz ──
+  'sikeyim seni','amini sikeyim','gotunu sikeyim',
+];
+function _normTR(s) {
+  return s.toLowerCase()
+    .replace(/ç/g,'c').replace(/ş/g,'s').replace(/ğ/g,'g')
+    .replace(/ı/g,'i').replace(/ö/g,'o').replace(/ü/g,'u');
+}
+function hasIllegalContent(text) {
+  const t = _normTR(text);
+  return _MOD_RAW.some(w => t.includes(_normTR(w)));
+}
+
 // Award 2 XP to a comment author when they receive a net-new like (daily cap 10).
 async function awardCommentLikedXP(env, authorId) {
   if (!authorId) return;
@@ -104,6 +159,72 @@ async function awardCommentLikedXP(env, authorId) {
       { user_id: authorId, action_id: 'comment_liked', xp_earned: 2, base_xp: 2, multiplier: 1.0 },
       { Prefer: 'return=minimal' });
   } catch {}
+}
+
+// AI moderation — called via ctx.waitUntil after comment is saved with approved=false.
+// Asks Claude Haiku to evaluate the comment, then approves or deletes.
+async function aiModerateComment(env, commentId, commentText) {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 10,
+        system: `Sen bir Türkçe içerik moderatörüsün. Beşiktaş taraftar sitesi için yorumları denetliyorsun.
+
+Aşağıdaki kategorilerdeki içerikleri ENGELLE:
+- Hakaret ve küfür (TCK 125-131)
+- Tehdit veya şiddet çağrısı (TCK 106)
+- Atatürk'e hakaret (5816 sayılı Kanun)
+- Cumhurbaşkanına hakaret (TCK 299)
+- Türklüğü, devlet kurumlarını aşağılama (TCK 301)
+- Terör örgütü propagandası veya övgüsü (TMK 7/2)
+- Halkı kin ve düşmanlığa tahrik, nefret söylemi (TCK 216)
+- Dini değerlere hakaret (TCK 216)
+- Müstehcen içerik
+- Spam veya reklam
+
+İzin verilenler: Eleştiri, haber yorumu, rakip takıma espri, futbol tartışması, hayal kırıklığı ifadesi.
+
+Sadece tek kelime yaz: PASS veya BLOCK`,
+        messages: [{ role: 'user', content: commentText }],
+      }),
+    });
+
+    if (!res.ok) {
+      // API failure — fail-open: approve the comment rather than leave it pending forever
+      await supabase(env, 'PATCH',
+        `/rest/v1/article_comments?id=eq.${encodeURIComponent(commentId)}`,
+        { approved: true }, { Prefer: 'return=minimal' });
+      return;
+    }
+
+    const data = await res.json();
+    const verdict = data.content?.[0]?.text?.trim().toUpperCase() ?? 'PASS';
+
+    if (verdict === 'BLOCK') {
+      // Soft-block: keep row for audit/calibration, mark blocked with reason
+      await supabase(env, 'PATCH',
+        `/rest/v1/article_comments?id=eq.${encodeURIComponent(commentId)}`,
+        { approved: false, block_reason: 'ai:content_policy' }, { Prefer: 'return=minimal' });
+    } else {
+      await supabase(env, 'PATCH',
+        `/rest/v1/article_comments?id=eq.${encodeURIComponent(commentId)}`,
+        { approved: true }, { Prefer: 'return=minimal' });
+    }
+  } catch {
+    // Never leave comment stuck as pending — approve on any unexpected error
+    try {
+      await supabase(env, 'PATCH',
+        `/rest/v1/article_comments?id=eq.${encodeURIComponent(commentId)}`,
+        { approved: true }, { Prefer: 'return=minimal' });
+    } catch {}
+  }
 }
 
 async function checkH5SynthGate(storyId, env, sourceConfigMap = null) {
@@ -214,20 +335,36 @@ export default {
       }
       if (!user_id) return Response.json({ error: 'login_required' }, { status: 401, headers });
 
-      const { article_slug, name, comment } = await request.json();
+      const { article_slug, name, comment, parent_id } = await request.json();
       if (!article_slug || !comment?.trim() || comment.length < 3)
         return Response.json({ error: 'invalid' }, { headers });
       if (/https?:\/\//.test(comment))
         return Response.json({ error: 'no links allowed' }, { headers });
+      if (hasIllegalContent(comment))
+        return Response.json({ error: 'Uygunsuz içerik tespit edildi.' }, { headers });
 
-      await supabase(env, 'POST', '/rest/v1/article_comments', {
+      const commentRow = {
         article_slug,
         user_id,
         name: (name || 'Üye').trim().slice(0, 50),
         comment: comment.trim().slice(0, 500),
-        approved: true,
-      });
-      return Response.json({ success: true }, { headers });
+        approved: env.ANTHROPIC_API_KEY ? false : true, // pending AI review if key available
+      };
+      if (parent_id) commentRow.parent_id = parent_id;
+
+      const inserted = await supabase(env, 'POST', '/rest/v1/article_comments', commentRow);
+      const newId = Array.isArray(inserted) ? inserted[0]?.id : inserted?.id;
+
+      // AI moderation in background — approves or deletes the comment after Haiku evaluation
+      if (env.ANTHROPIC_API_KEY && newId) {
+        ctx.waitUntil(aiModerateComment(env, newId, comment.trim()));
+      }
+
+      return Response.json({
+        success: true,
+        id: newId || null,
+        pending: !!(env.ANTHROPIC_API_KEY && newId),
+      }, { headers });
     }
 
     if (url.pathname === '/comment-react') {
@@ -271,13 +408,45 @@ export default {
         : `article_url=eq.${encodeURIComponent(article_url)}`;
       const [comments, reactions] = await Promise.all([
         supabase(env, 'GET',
-          `/rest/v1/article_comments?${commentFilter}&approved=eq.true&order=created_at.asc&limit=50&select=id,name,comment,created_at,like_count,dislike_count`),
+          `/rest/v1/article_comments?${commentFilter}&approved=eq.true&order=created_at.asc&limit=100&select=id,user_id,name,comment,created_at,like_count,dislike_count,parent_id`),
         supabase(env, 'GET',
           `/rest/v1/article_reactions?${reactionFilter}&select=reaction`),
       ]);
       const likes    = (reactions||[]).filter(r => r.reaction === 'like').length;
       const dislikes = (reactions||[]).filter(r => r.reaction === 'dislike').length;
       return Response.json({ comments: comments||[], likes, dislikes }, { headers });
+    }
+
+    // Public user profile — for leaderboard / comment section profile links
+    if (url.pathname === '/api/public-user') {
+      const headers = { 'Access-Control-Allow-Origin': '*', 'Content-Type': 'application/json' };
+      const uid = url.searchParams.get('uid');
+      if (!uid) return Response.json({ error: 'uid required' }, { status: 400, headers });
+      // Find site_id for this hostname
+      const hostname = url.hostname;
+      let site_id = await env.PITCHOS_CACHE.get(`site:domain:${hostname}`).catch(() => null);
+      if (!site_id) {
+        const sites = await supabase(env, 'GET', `/rest/v1/sites?domain=eq.${encodeURIComponent(hostname)}&select=id&limit=1`);
+        site_id = sites?.[0]?.id ?? null;
+        if (site_id) await env.PITCHOS_CACHE.put(`site:domain:${hostname}`, site_id, { expirationTtl: 300 }).catch(() => {});
+      }
+      if (!site_id) return Response.json({ error: 'site not found' }, { status: 404, headers });
+      const [profiles, xpRows, userBadges, streakRow] = await Promise.all([
+        supabase(env, 'GET', `/rest/v1/profiles?id=eq.${encodeURIComponent(uid)}&site_id=eq.${encodeURIComponent(site_id)}&select=id,username,display_name,avatar_url,created_at&limit=1`),
+        supabase(env, 'GET', `/rest/v1/xp_events?user_id=eq.${encodeURIComponent(uid)}&site_id=eq.${encodeURIComponent(site_id)}&nullified=eq.false&select=xp_earned`),
+        supabase(env, 'GET', `/rest/v1/user_badges?user_id=eq.${encodeURIComponent(uid)}&site_id=eq.${encodeURIComponent(site_id)}&select=badge_id,earned_at&order=earned_at.asc`),
+        supabase(env, 'GET', `/rest/v1/user_streaks?user_id=eq.${encodeURIComponent(uid)}&site_id=eq.${encodeURIComponent(site_id)}&select=current_streak,longest_streak&limit=1`),
+      ]);
+      if (!profiles?.length) return Response.json({ error: 'user not found' }, { status: 404, headers });
+      const total_xp = (xpRows||[]).reduce((s, r) => s + (r.xp_earned||0), 0);
+      const levelRows = await supabase(env, 'POST', '/rest/v1/rpc/get_user_level', { total_xp });
+      const lvl = Array.isArray(levelRows) ? levelRows[0] : levelRows;
+      return Response.json({
+        profile: profiles[0],
+        xp: { total: total_xp, level: lvl?.level ?? 1, tier_name: lvl?.tier_name ?? 'Misafir Kartal', xp_to_next: lvl?.xp_to_next ?? 50 },
+        streak: { current: streakRow?.[0]?.current_streak ?? 0, longest: streakRow?.[0]?.longest_streak ?? 0 },
+        badges: userBadges || [],
+      }, { headers });
     }
 
     if (url.pathname === '/force-cache') {
@@ -10586,6 +10755,31 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
   };
   const GROUP_ORDER = ['tier_boundary', 'streak', 'milestone', 'xp_milestone', 'special', 'manual'];
 
+  // Difficulty sort order for milestone badges (lower index = easier)
+  const MILESTONE_ORDER = [
+    'first_read','articles_10','articles_25','articles_50','articles_100','articles_250','articles_500',
+    'comment_5','comment_25','comment_50','comment_100',
+    'first_comment_like','comment_likes_10','comment_likes_50','fan_favorite','comment_likes_500',
+    'popular_comment','viral_comment',
+    'sharer_5','sharer_25','video_10','video_50','reactor_10','reactor_50',
+    'poll_10','poll_50','predictor_5','predictor_25','exact_score_first','exact_score_5',
+  ];
+
+  function sortByDifficulty(group, type) {
+    if (type === 'milestone') {
+      return [...group].sort((a, b) => {
+        const ai = MILESTONE_ORDER.indexOf(a.id), bi = MILESTONE_ORDER.indexOf(b.id);
+        if (ai === -1 && bi === -1) return a.id.localeCompare(b.id);
+        if (ai === -1) return 1; if (bi === -1) return -1;
+        return ai - bi;
+      });
+    }
+    if (['tier_boundary','streak','xp_milestone'].includes(type)) {
+      return [...group].sort((a, b) => parseInt(a.trigger_value||0) - parseInt(b.trigger_value||0));
+    }
+    return group;
+  }
+
   const badgeGroups = {};
   for (const b of badges) {
     const t = b.trigger_type || 'manual';
@@ -10594,7 +10788,8 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
 
   const badgeSections = GROUP_ORDER.filter(t => badgeGroups[t]?.length).map(t => {
     const grp = BADGE_GROUP_LABELS[t] || { label: t, color: '#9ca3af' };
-    const rows = badgeGroups[t].map(b => `
+    const sorted = sortByDifficulty(badgeGroups[t], t);
+    const rows = sorted.map(b => `
       <tr style="border-bottom:1px solid #111">
         <td style="padding:.45rem .75rem;font-size:.78rem;color:#9ca3af;font-family:monospace">${esc(b.id)}</td>
         <td style="padding:.45rem .75rem;font-size:.82rem;color:#e5e7eb;font-weight:600">${esc(b.label)}</td>
@@ -10607,7 +10802,7 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
       <div style="margin-bottom:.25rem">
         <button onclick="toggleBadgeGroup('${gid}')" style="width:100%;text-align:left;background:#0d1117;border:none;border-bottom:1px solid #1f2937;padding:.65rem .9rem;cursor:pointer;display:flex;align-items:center;gap:.6rem">
           <span style="font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:${grp.color}">${grp.label}</span>
-          <span style="font-size:.65rem;color:#6b7280">${badgeGroups[t].length} rozet</span>
+          <span style="font-size:.65rem;color:#6b7280">${sorted.length} rozet</span>
           <span id="${gid}-arr" style="margin-left:auto;color:#6b7280;font-size:.75rem">▼</span>
         </button>
         <div id="${gid}" style="display:none">

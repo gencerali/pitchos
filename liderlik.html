@@ -412,8 +412,9 @@
       }
     }
 
+    const profileHref = `/profil?uid=${encodeURIComponent(row.user_id)}`;
     return `
-      <div class="${rowClass(rank, row.user_id)}">
+      <a href="${profileHref}" class="${rowClass(rank, row.user_id)}" style="text-decoration:none;display:flex;align-items:center;gap:0.85rem;">
         ${rankHtml(rank)}
         ${avatarHtml(row)}
         <div class="liderlik-info">
@@ -421,7 +422,7 @@
           ${subHtml}
         </div>
         <div class="liderlik-value">${valStr}</div>
-      </div>
+      </a>
     `.trim();
   }
 
