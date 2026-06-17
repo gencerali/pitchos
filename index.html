@@ -862,40 +862,22 @@
 
     /* ── HEADER USER WIDGET ── */
     .user-widget {
-      display: none;
-      align-items: center; gap: 0.45rem;
-      padding: 0.3rem 0.6rem 0.3rem 0.5rem;
-      border: 1px solid #242424; border-radius: 6px;
-      background: #141414; position: relative; cursor: pointer;
+      display: none; align-items: center; gap: 0.3rem;
+      padding: 0.25rem 0.45rem 0.25rem 0.3rem;
+      border: 1px solid #2a2a2a; border-radius: 6px;
+      background: #141414; cursor: pointer;
       transition: border-color 0.15s;
     }
     .user-widget.visible { display: flex; }
-    .user-widget:hover { border-color: #333; }
-    .user-sync-dot {
-      position: absolute; top: 4px; right: 4px;
-      width: 6px; height: 6px; border-radius: 50%;
-      background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.7);
-      animation: pulse-sync 2.5s ease-in-out infinite;
-    }
-    @keyframes pulse-sync {
-      0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(34,197,94,0.7); }
-      50% { opacity: 0.5; box-shadow: 0 0 3px rgba(34,197,94,0.3); }
-    }
+    .user-widget:hover { border-color: #444; }
     .user-avatar {
-      width: 28px; height: 28px; border-radius: 50%;
+      width: 26px; height: 26px; border-radius: 50%;
       background: var(--accent); display: flex; align-items: center;
       justify-content: center; font-family: 'Barlow Condensed', sans-serif;
-      font-weight: 800; font-size: 0.85rem; color: #fff; flex-shrink: 0;
+      font-weight: 800; font-size: 0.8rem; color: #fff; flex-shrink: 0;
+      overflow: hidden;
     }
-    .user-info { display: flex; flex-direction: column; gap: 0; }
-    .user-name-label {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.72rem; font-weight: 700; color: var(--text); line-height: 1.2;
-    }
-    .user-rank-label {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.55rem; color: var(--accent-gold); letter-spacing: 0.04em;
-    }
+    .user-caret { font-size: 0.5rem; color: #555; line-height: 1; }
 
     /* ── GAMIFICATION: Login button, streak flame, XP particle, auth modal ── */
     .kx-login-btn {
@@ -1023,7 +1005,7 @@
     .kx-profile-drop {
       position: fixed; z-index: 9999;
       background: #141414; border: 1px solid #242424;
-      border-radius: 6px; overflow: hidden; min-width: 140px;
+      border-radius: 6px; overflow: hidden; min-width: 180px;
       box-shadow: 0 4px 16px rgba(0,0,0,0.6);
     }
     .kx-profile-drop a, .kx-profile-drop button {
@@ -1035,6 +1017,9 @@
       text-decoration: none; box-sizing: border-box;
     }
     .kx-profile-drop a:hover, .kx-profile-drop button:hover { background: #1a1a1a; }
+    .kx-drop-summary { padding: 0.7rem 1rem 0.65rem; border-bottom: 1px solid #242424; }
+    .kx-drop-name { font-family: 'Barlow Condensed', sans-serif; font-size: 0.9rem; font-weight: 700; color: var(--text); letter-spacing: 0.02em; }
+    .kx-drop-rank { font-family: 'Barlow Condensed', sans-serif; font-size: 0.65rem; color: var(--accent-gold); letter-spacing: 0.04em; margin-top: 0.15rem; }
 
     /* ── CARD META ROW (source pill + time + yz bar) ── */
     .card-meta-row {
@@ -1303,12 +1288,8 @@
     <div class="kx-streak-flame" id="kxStreakFlame">🔥 <span id="kxStreakCount">0</span></div>
     <button class="kx-login-btn" id="kxLoginBtn" style="display:none">Giriş Yap</button>
     <div class="user-widget" id="userWidget">
-      <div class="user-sync-dot"></div>
       <div class="user-avatar" id="userAvatar">K</div>
-      <div class="user-info">
-        <div class="user-name-label" id="userNameLabel">Taraftar</div>
-        <div class="user-rank-label" id="userRankLabel">Lvl 1 • Kartal</div>
-      </div>
+      <span class="user-caret">▾</span>
     </div>
   </div>
 </header>
@@ -1957,7 +1938,7 @@
       ? `<div class="av-streak-pill">🔥 ${_avStreak}</div>`
       : '';
     const _avUserHtml = _avLoggedIn
-      ? `${_avStreakHtml}<a href="/profil" class="av-user-pill"><span class="av-user-initial">${_avInitial}</span><span class="av-user-links-text">Profil</span></a><a href="/liderlik" class="av-user-pill av-user-pill--secondary"><span class="av-user-links-text">Lider</span></a>`
+      ? `${_avStreakHtml}<div class="av-user-widget" onclick="window.kxShowProfileDrop?.(this)" role="button" tabindex="0"><span class="av-user-initial">${_avInitial}</span><span class="av-user-caret">▾</span></div>`
       : `<button class="av-login-pill" onclick="window.kxAuth?.showLogin()">Giriş Yap</button>`;
 
     av.innerHTML = `
@@ -1972,10 +1953,10 @@
         #articleView .av-breadcrumb a:hover{color:#D90414}
         #articleView .av-user-area{display:flex;align-items:center;gap:0.5rem}
         #articleView .av-streak-pill{font-family:'Barlow Condensed',sans-serif;font-size:0.75rem;font-weight:700;color:#f97316;letter-spacing:0.04em}
-        #articleView .av-user-pill{display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.65rem 0.25rem 0.3rem;border:1px solid #242424;border-radius:6px;cursor:pointer;text-decoration:none;transition:border-color 0.15s}
-        #articleView .av-user-pill:hover{border-color:#333}
-        #articleView .av-user-initial{width:24px;height:24px;border-radius:50%;background:#D90414;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:0.75rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-        #articleView .av-user-links-text{font-family:'Barlow Condensed',sans-serif;font-size:0.7rem;font-weight:700;color:#aaa;letter-spacing:0.06em;text-transform:uppercase}
+        #articleView .av-user-widget{display:flex;align-items:center;gap:0.25rem;padding:0.2rem 0.4rem 0.2rem 0.25rem;border:1px solid #2a2a2a;border-radius:6px;background:#141414;cursor:pointer;transition:border-color 0.15s}
+        #articleView .av-user-widget:hover{border-color:#444}
+        #articleView .av-user-initial{width:24px;height:24px;border-radius:50%;background:#D90414;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:0.75rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden}
+        #articleView .av-user-caret{font-size:0.45rem;color:#555;line-height:1}
         #articleView .av-login-pill{background:none;border:1px solid #D90414;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:0.7rem;font-weight:700;letter-spacing:0.08em;padding:0.3rem 0.65rem;border-radius:3px;cursor:pointer}
         #articleView .av-hero{min-height:52vw;max-height:70vh;display:flex;align-items:flex-end;padding:2.5rem 1.5rem 2rem;position:relative}
         @media(min-width:640px){#articleView .av-hero{min-height:340px;max-height:480px}}

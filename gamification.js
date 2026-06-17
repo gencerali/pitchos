@@ -10,9 +10,8 @@
   // ── 0. Wire DOM elements immediately (before any async work) ──
   const widget    = document.getElementById('userWidget');
   const avatarEl  = document.getElementById('userAvatar');
-  const nameEl    = document.getElementById('userNameLabel');
-  const rankEl    = document.getElementById('userRankLabel');
   const flameEl   = document.getElementById('kxStreakFlame');
+  let _kxMe       = null;
   const flameNum  = document.getElementById('kxStreakCount');
   const loginBtn  = document.getElementById('kxLoginBtn');
 
@@ -26,7 +25,7 @@
   }
   if (widget) {
     widget.addEventListener('click', () => {
-      if (widget.dataset.auth === 'true' && window.kxAuth) showProfileDropdown();
+      if (widget.dataset.auth === 'true' && window.kxAuth) showProfileDropdown(widget);
       else if (window.kxAuth) window.kxAuth.showLogin();
     });
   }
@@ -83,6 +82,7 @@
 
       if (!me) return showGuestWidget();
 
+      _kxMe = me;
       const { profile, xp, streak } = me;
       const initial = (profile.display_name || profile.username || 'K').charAt(0).toUpperCase();
 
@@ -97,8 +97,6 @@
           avatarEl.textContent = initial;
         }
       }
-      if (nameEl) nameEl.textContent = profile.display_name || profile.username;
-      if (rankEl) rankEl.textContent = `${xp.tier_name} • Lvl ${xp.level} • ${xp.total} XP`;
       if (widget) { widget.classList.add('visible'); widget.dataset.auth = 'true'; }
       if (loginBtn) loginBtn.style.display = 'none';
 
@@ -148,9 +146,8 @@
       gs = { name: 'Misafir Kartal', isGuest: true, xp: 0, ts: Date.now() };
       try { localStorage.setItem('kx_user', JSON.stringify(gs)); } catch {}
     }
+    _kxMe = null;
     if (avatarEl) avatarEl.textContent = '?';
-    if (nameEl) nameEl.textContent = gs.name;
-    if (rankEl) rankEl.textContent = `Lvl 1 • Kartal • ${gs.xp || 0} XP`;
     if (widget) { widget.classList.add('visible'); widget.dataset.auth = 'false'; }
     if (loginBtn) loginBtn.style.display = 'flex';
     if (flameEl) flameEl.style.display = 'none';
@@ -433,22 +430,26 @@
   // ── 8. Update button text now that kxAuth is ready ───────────
   if (loginBtn) loginBtn.textContent = 'Giriş Yap';
 
-  function showProfileDropdown() {
-    if (document.getElementById('kxProfileDrop')) return;
+  function showProfileDropdown(anchorEl) {
+    const existing = document.getElementById('kxProfileDrop');
+    if (existing) { existing.remove(); return; }
     const drop = document.createElement('div');
     drop.id = 'kxProfileDrop';
     drop.className = 'kx-profile-drop';
-    drop.innerHTML = `
-      <a href="/profil" id="kxProfileLink">Profilim</a>
+    const summaryHtml = _kxMe ? `
+      <div class="kx-drop-summary">
+        <div class="kx-drop-name">${_kxMe.profile.display_name || _kxMe.profile.username || 'Taraftar'}</div>
+        <div class="kx-drop-rank">${_kxMe.xp.tier_name} · Lvl ${_kxMe.xp.level} · ${(_kxMe.xp.total || 0).toLocaleString('tr-TR')} XP</div>
+      </div>` : '';
+    drop.innerHTML = `${summaryHtml}
+      <a href="/profil">Profilim</a>
       <a href="/liderlik">Liderlik</a>
-      <button id="kxLogoutBtn">Çıkış Yap</button>
-    `;
+      <button id="kxLogoutBtn">Çıkış Yap</button>`;
     document.body.appendChild(drop);
-
-    const wr = widget.getBoundingClientRect();
+    const anchor = anchorEl || widget;
+    const wr = anchor.getBoundingClientRect();
     drop.style.top = (wr.bottom + 6) + 'px';
     drop.style.right = (window.innerWidth - wr.right) + 'px';
-
     const close = () => drop.remove();
     setTimeout(() => document.addEventListener('click', close, { once: true }), 10);
     drop.querySelector('#kxLogoutBtn').addEventListener('click', async () => {
@@ -456,6 +457,7 @@
       await sb.auth.signOut();
     });
   }
+  window.kxShowProfileDrop = (el) => showProfileDropdown(el);
 
   function showWelcomeScreen() {
     if (document.getElementById('kxWelcome')) return;

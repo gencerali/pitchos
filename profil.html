@@ -53,42 +53,22 @@
     .header-right { display: flex; align-items: center; gap: 0.75rem; }
 
     .user-widget {
-      display: none; align-items: center; gap: 0.45rem;
-      padding: 0.3rem 0.6rem 0.3rem 0.35rem;
-      border: 1px solid #242424; border-radius: 6px;
-      cursor: pointer; position: relative;
+      display: none; align-items: center; gap: 0.3rem;
+      padding: 0.25rem 0.45rem 0.25rem 0.3rem;
+      border: 1px solid #2a2a2a; border-radius: 6px;
+      background: #141414; cursor: pointer;
       transition: border-color 0.15s;
     }
     .user-widget.visible { display: flex; }
-    .user-widget:hover { border-color: #333; }
-    .user-sync-dot {
-      position: absolute; top: 4px; right: 4px;
-      width: 5px; height: 5px; border-radius: 50%;
-      background: #22c55e;
-      animation: pulse-dot 2.5s ease-in-out infinite;
-    }
-    @keyframes pulse-dot {
-      0%,100%{opacity:1;box-shadow:0 0 2px rgba(34,197,94,0.4)}
-      50% { opacity: 0.5; box-shadow: 0 0 3px rgba(34,197,94,0.3); }
-    }
+    .user-widget:hover { border-color: #444; }
     .user-avatar {
-      width: 28px; height: 28px; border-radius: 50%;
+      width: 26px; height: 26px; border-radius: 50%;
       background: var(--accent); display: flex; align-items: center;
-      justify-content: center; font-family: 'Oswald', sans-serif;
-      font-size: 0.8rem; font-weight: 700; color: #fff; flex-shrink: 0;
+      justify-content: center; font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 800; font-size: 0.8rem; color: #fff; flex-shrink: 0;
       overflow: hidden;
     }
-    .user-info { display: flex; flex-direction: column; gap: 0.05rem; }
-    .user-name-label {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em;
-      color: var(--text); line-height: 1;
-    }
-    .user-rank-label {
-      font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.62rem; font-weight: 600;
-      color: var(--accent-gold); letter-spacing: 0.06em; line-height: 1;
-    }
+    .user-caret { font-size: 0.5rem; color: #555; line-height: 1; }
 
     .kx-login-btn {
       font-family: 'Barlow Condensed', sans-serif;
@@ -130,6 +110,9 @@
     }
     .kx-profile-drop a:hover,
     .kx-profile-drop button:hover { background: #1a1a1a; }
+    .kx-drop-summary { padding: 0.7rem 1rem 0.65rem; border-bottom: 1px solid #242424; }
+    .kx-drop-name { font-family: 'Barlow Condensed', sans-serif; font-size: 0.9rem; font-weight: 700; color: var(--text); letter-spacing: 0.02em; }
+    .kx-drop-rank { font-family: 'Barlow Condensed', sans-serif; font-size: 0.65rem; color: var(--accent-gold); letter-spacing: 0.04em; margin-top: 0.15rem; }
 
     /* ── XP particle ── */
     .kx-xp-particle {
@@ -428,12 +411,8 @@
     <div class="kx-streak-flame" id="kxStreakFlame">🔥 <span id="kxStreakCount">0</span></div>
     <button class="kx-login-btn" id="kxLoginBtn">Giriş Yap</button>
     <div class="user-widget" id="userWidget">
-      <div class="user-sync-dot"></div>
       <div class="user-avatar" id="userAvatar">K</div>
-      <div class="user-info">
-        <div class="user-name-label" id="userNameLabel">Taraftar</div>
-        <div class="user-rank-label" id="userRankLabel">Lvl 1 • Kartal</div>
-      </div>
+      <span class="user-caret">▾</span>
     </div>
   </div>
 </header>
