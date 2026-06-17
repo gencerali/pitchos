@@ -7868,7 +7868,21 @@ ${buildNav(activePath)}`;
 }
 
 function siteFooter() {
-  return `<footer class="site-footer">
+  return `<style>
+@media(max-width:900px){
+  .mainnav{display:none}
+  body{padding-bottom:60px}
+  .bottom-dock{display:flex!important;position:fixed;bottom:0;left:0;right:0;z-index:220;background:#0d0d0d;border-top:1px solid #1A1A1A;align-items:stretch;padding-bottom:env(safe-area-inset-bottom,0px)}
+  .dock-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex:1;min-height:56px;padding:7px 4px;background:none;border:none;color:#484848;cursor:pointer;text-decoration:none;font-family:'Barlow Condensed',sans-serif;font-size:.5rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;transition:color .15s}
+  .dock-btn:hover,.dock-btn.active{color:#f0ede6}
+  .dock-btn.active{color:#D90414}
+  .dock-btn svg{width:20px;height:20px;flex-shrink:0}
+  .dock-btn--hero{flex:0 0 56px;align-self:center;width:52px;height:52px;border-radius:50%;background:#D90414;box-shadow:0 0 18px rgba(217,4,20,.55),0 4px 14px rgba(0,0,0,.7);color:#fff;border:3px solid #0d0d0d;margin:0 2px;position:relative;top:-6px;font-size:.46rem;padding:5px}
+  .dock-btn--hero svg{width:22px;height:16px;opacity:.9}
+  .dock-btn--hero:hover{background:#b5030f}
+}
+</style>
+<footer class="site-footer">
   <a href="/hakkimizda">Hakkımızda</a>
   <a href="/iletisim">İletişim</a>
   <a href="/editoryal-politika">Editoryal Politika</a>
