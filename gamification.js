@@ -162,15 +162,21 @@
         history.replaceState(null, '', window.location.pathname);
         showWelcomeScreen();
       }
-    } else {
+    } else if (event === 'SIGNED_OUT') {
+      // Only transition to guest on explicit sign-out.
+      // INITIAL_SESSION with null means the access token may be expired but refresh is pending —
+      // getSession() below will refresh it. Calling showGuestWidget() here causes a visible flash.
       showGuestWidget();
     }
   });
 
-  // Fast-path for already-loaded session; onAuthStateChange handles the no-session case
+  // Authoritative session check: refreshes expired tokens automatically.
+  // Handles both the logged-in fast-path and the truly-logged-out guest path.
   const { data: { session: existing } } = await sb.auth.getSession();
   if (existing?.access_token) {
     await loadAuthUser(existing.access_token);
+  } else {
+    showGuestWidget();
   }
 
   // ── 7. Auth Modal ─────────────────────────────────────────────

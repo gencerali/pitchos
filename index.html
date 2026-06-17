@@ -3677,6 +3677,14 @@
       }
       // Re-render comment form if article view is already open
       renderAvCommentSection();
+      // Update article overlay user area if it rendered before auth was ready
+      const avUserArea = document.querySelector('#articleView .av-user-area');
+      if (avUserArea) {
+        const streak = parseInt(document.getElementById('kxStreakCount')?.textContent || '0', 10);
+        const initial = document.getElementById('userAvatar')?.textContent?.trim() || 'K';
+        const streakHtml = streak > 0 ? `<div class="av-streak-pill">🔥 ${streak}</div>` : '';
+        avUserArea.innerHTML = `${streakHtml}<div class="av-user-widget" onclick="window.kxShowProfileDrop?.(this)" role="button" tabindex="0"><span class="av-user-initial">${initial}</span><span class="av-user-caret">▾</span></div>`;
+      }
     }, { once: true });
 
     // Accrue XP on article opens
