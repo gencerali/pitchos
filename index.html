@@ -3352,7 +3352,7 @@
         textEl.value = '';
         if (data.pending) {
           msg.style.color='#888';
-          msg.textContent='Yorumunuz alındı, değerlendirme sonrasında yayınlanacak.';
+          msg.textContent='Yorumunuz alındı. İçerik incelemesinden geçtikten sonra yayınlanacak.';
           // Reload twice — once after ~3s (AI usually done by then), once at 8s as fallback
           if (_currentArticle) {
             setTimeout(() => loadAvReactions(_currentArticle), 3000);

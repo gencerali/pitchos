@@ -208,9 +208,10 @@ Sadece tek kelime yaz: PASS veya BLOCK`,
     const verdict = data.content?.[0]?.text?.trim().toUpperCase() ?? 'PASS';
 
     if (verdict === 'BLOCK') {
-      await supabase(env, 'DELETE',
+      // Soft-block: keep row for audit/calibration, mark blocked with reason
+      await supabase(env, 'PATCH',
         `/rest/v1/article_comments?id=eq.${encodeURIComponent(commentId)}`,
-        null, { Prefer: 'return=minimal' });
+        { approved: false, block_reason: 'ai:content_policy' }, { Prefer: 'return=minimal' });
     } else {
       await supabase(env, 'PATCH',
         `/rest/v1/article_comments?id=eq.${encodeURIComponent(commentId)}`,
