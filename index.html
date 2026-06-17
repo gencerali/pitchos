@@ -1949,6 +1949,17 @@
 
     const av = document.getElementById('articleView');
 
+    // Build user widget HTML for the article view header from current auth state
+    const _avStreak = parseInt(document.getElementById('kxStreakCount')?.textContent || '0', 10);
+    const _avInitial = document.getElementById('userAvatar')?.textContent?.trim() || 'K';
+    const _avLoggedIn = window.__kxLoggedIn === true;
+    const _avStreakHtml = (_avLoggedIn && _avStreak > 0)
+      ? `<div class="av-streak-pill">🔥 ${_avStreak}</div>`
+      : '';
+    const _avUserHtml = _avLoggedIn
+      ? `${_avStreakHtml}<a href="/profil" class="av-user-pill"><span class="av-user-initial">${_avInitial}</span><span class="av-user-links-text">Profil</span></a><a href="/liderlik" class="av-user-pill av-user-pill--secondary"><span class="av-user-links-text">Lider</span></a>`
+      : `<button class="av-login-pill" onclick="window.kxAuth?.showLogin()">Giriş Yap</button>`;
+
     av.innerHTML = `
       <style>
         @media(max-width:900px){#articleView{padding-bottom:60px}}
@@ -1959,6 +1970,13 @@
         #articleView .av-breadcrumb{font-size:0.7rem;color:#666;letter-spacing:0.06em;display:flex;align-items:center;gap:0.4rem}
         #articleView .av-breadcrumb a{color:#666;text-decoration:none}
         #articleView .av-breadcrumb a:hover{color:#D90414}
+        #articleView .av-user-area{display:flex;align-items:center;gap:0.5rem}
+        #articleView .av-streak-pill{font-family:'Barlow Condensed',sans-serif;font-size:0.75rem;font-weight:700;color:#f97316;letter-spacing:0.04em}
+        #articleView .av-user-pill{display:flex;align-items:center;gap:0.4rem;padding:0.25rem 0.65rem 0.25rem 0.3rem;border:1px solid #242424;border-radius:6px;cursor:pointer;text-decoration:none;transition:border-color 0.15s}
+        #articleView .av-user-pill:hover{border-color:#333}
+        #articleView .av-user-initial{width:24px;height:24px;border-radius:50%;background:#D90414;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:0.75rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+        #articleView .av-user-links-text{font-family:'Barlow Condensed',sans-serif;font-size:0.7rem;font-weight:700;color:#aaa;letter-spacing:0.06em;text-transform:uppercase}
+        #articleView .av-login-pill{background:none;border:1px solid #D90414;color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:0.7rem;font-weight:700;letter-spacing:0.08em;padding:0.3rem 0.65rem;border-radius:3px;cursor:pointer}
         #articleView .av-hero{min-height:52vw;max-height:70vh;display:flex;align-items:flex-end;padding:2.5rem 1.5rem 2rem;position:relative}
         @media(min-width:640px){#articleView .av-hero{min-height:340px;max-height:480px}}
         #articleView .av-hero-icon{position:absolute;top:50%;left:50%;transform:translate(-50%,-55%);opacity:0.14;pointer-events:none;user-select:none;line-height:1;width:min(46vw,300px)}
@@ -2016,11 +2034,7 @@
 
       <div class="av-header">
         <a href="/" class="av-logo">Kartal<span>ix</span></a>
-        <div class="av-breadcrumb">
-          <a href="/">Ana Sayfa</a>
-          <span>/</span>
-          <span style="color:#aaa">${esc(cat)}</span>
-        </div>
+        <div class="av-user-area">${_avUserHtml}</div>
       </div>
 
       <div class="av-hero av-slide-in" style="${heroStyle}">

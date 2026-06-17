@@ -398,6 +398,14 @@
       .mainnav.js .nav-mega{max-height:0;overflow:hidden;padding:0;transition:max-height .25s ease}
       .mainnav.js .nav-li.open>.nav-mega{max-height:600px}
     }
+
+    /* ── BOTTOM DOCK ── */
+    .bottom-dock{display:none;position:fixed;bottom:0;left:0;right:0;z-index:220;background:#0d0d0d;border-top:1px solid #1A1A1A;padding-bottom:env(safe-area-inset-bottom,0px)}
+    @media(max-width:900px){.bottom-dock{display:flex;align-items:stretch}body{padding-bottom:60px}}
+    .dock-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex:1;min-height:56px;padding:7px 4px;background:none;border:none;color:#484848;cursor:pointer;text-decoration:none;font-family:'Barlow Condensed',sans-serif;font-size:.5rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;transition:color .15s}
+    .dock-btn:hover,.dock-btn.active{color:#f0ede6}
+    .dock-btn.active{color:#D90414}
+    .dock-btn svg{width:20px;height:20px;flex-shrink:0}
   </style>
 </head>
 <body>
@@ -872,5 +880,29 @@
   }
 })();
 </script>
+
+<nav class="bottom-dock" aria-label="Alt gezinti">
+  <a href="/" class="dock-btn" title="Ana Sayfa">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    <span>Ana Sayfa</span>
+  </a>
+  <a href="/konu/videolar" class="dock-btn" title="Videolar">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+    <span>Videolar</span>
+  </a>
+  <a href="/liderlik" class="dock-btn" title="Liderlik">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 010-5H6"/><path d="M18 9h1.5a2.5 2.5 0 000-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0012 0V2z"/></svg>
+    <span>Liderlik</span>
+  </a>
+  <a href="/profil" class="dock-btn active" title="Profil">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    <span>Profil</span>
+  </a>
+  <button class="dock-btn" id="dockMenuBtn" title="Menü">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    <span>Menü</span>
+  </button>
+</nav>
+<script>document.getElementById('dockMenuBtn')?.addEventListener('click',()=>document.getElementById('navToggle')?.click());</script>
 </body>
 </html>
