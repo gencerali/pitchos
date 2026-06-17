@@ -94,28 +94,48 @@ async function requireOps(request, env) {
 // Server-side duplicate of the client filter — prevents API-direct bypass.
 // Covers: profanity, threats (TCK 106/125), Atatürk insults (Law 5816),
 // terrorism glorification (TMK), hate speech (TCK 216), religious insults.
+// Source: core list + ooguz/turkce-kufur-karaliste (MIT) for expanded coverage
 const _MOD_RAW = [
-  'orospu','amina','amk','sikim','sikilmis','yarak','yarrak','gotlek',
-  'kahpe','ibne','serefsiz','gavat','pezevenk','fahise','gerizekali',
-  'gotveren','siktir','sikeyim','amcik','surtuk','kaltak',
-  'bok yemek','piç kurusu','orospu cocugu',
-  'gotun','got ','gotumuzu','gotleri',
-  'kodum','koduum','koyduum','soktum','soktuum','siktim',
-  'sikerim','sikirim',
+  // ── Küfür (profanity roots — substring match catches conjugations) ──
+  'orospu','orospu cocugu','orostopol','orostoban',
+  'amina','amına koy','amcik','amk',
+  'sikim','sikilmis','sikirim','sikerim','siktim','siktir','sikeyim',
+  'siktir git','siksiz','s1kerim',
+  'yarak','yarrak','dalyarak','dalyarrak',
+  'gotlek','got ','gotun','gotumuzu','gotleri','got deligi',
+  'gotveren',
+  'kahpe','ibne','ibine','serefsiz','gavat','pezevenk','fahise',
+  'gerizekali','gerzek','dangalak','ebleh','embesil',
+  'kaltak','surtuk','kancik','kasar','kerhane',
+  'piç kurusu','piç',
+  'kodum','koduum','koyduum','soktum','soktuum',
+  'koyarim','koyayim','koyum','koyim',
+  'ananin ami','anasini','anani sikerim',
+  'ebeni','ebenin',
+  'tasak','tassak',
+  'pust','osur','vajina','yavsak','domal','domalt',
+  'bok yemek','bok ',
+  // ── Tehdit ve şiddet çağrısı (TCK 106/125) ──
   'oldurecegim','oldureyim','oldururum','kafani keserim','seni keserim',
   'seni oldururum','patlatacagim','kanini dokecegim','adresini bilirim',
-  'bicaklayacagim','katliam yapacagim',
+  'bicaklayacagim','katliam yapacagim','silahim var',
+  // ── Atatürk hakareti (Kanun 5816) ──
   'ataturk piç','ataturk orospu','ataturk serefsiz','mustafa kemal piç',
   'mustafa kemal orospu','lanet ataturk','bok ataturk','bok mustafa kemal',
-  'cumhurbaskani piç','cumhurbaskani orospu',
+  // ── Cumhurbaşkanına hakaret (TCK 299) ──
+  'cumhurbaskani piç','cumhurbaskani orospu','cumhurbaskani serefsiz',
+  // ── Terör propagandası (TMK 7/2) ──
   'yasasin pkk','pkk kahraman','pkk asker','yasasin isid','yasasin isis',
   'isis kahraman','isid kahraman','feto yasasin','dhkpc yasasin',
-  'kürtler kahrolsun','kurtler kahrolsun','ermeniler kahrolsun',
-  'yahudiler kahrolsun','ermeni dölü','ermeni dolu','kürt dölü','kurt dolu',
-  'zenci it','zenci köpek','zenci kopek','yahudi it','yahudi köpek',
+  // ── Nefret söylemi (TCK 216) ──
+  'kurtler kahrolsun','ermeniler kahrolsun','yahudiler kahrolsun',
+  'ermeni dolu','kurt dolu',
+  'zenci it','zenci kopek','yahudi it','yahudi kopek',
+  // ── Dini hakaret (TCK 216) ──
   'allah piç','allah orospu','allah bok','islama lanet','kuruna lanet',
   'peygamber piç','peygamber orospu','hz muhammed piç',
-  'sikeyim seni','amını sikeyim','gotunu sikeyim',
+  // ── Cinsel taciz ──
+  'sikeyim seni','amini sikeyim','gotunu sikeyim',
 ];
 function _normTR(s) {
   return s.toLowerCase()
@@ -139,6 +159,71 @@ async function awardCommentLikedXP(env, authorId) {
       { user_id: authorId, action_id: 'comment_liked', xp_earned: 2, base_xp: 2, multiplier: 1.0 },
       { Prefer: 'return=minimal' });
   } catch {}
+}
+
+// AI moderation — called via ctx.waitUntil after comment is saved with approved=false.
+// Asks Claude Haiku to evaluate the comment, then approves or deletes.
+async function aiModerateComment(env, commentId, commentText) {
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 10,
+        system: `Sen bir Türkçe içerik moderatörüsün. Beşiktaş taraftar sitesi için yorumları denetliyorsun.
+
+Aşağıdaki kategorilerdeki içerikleri ENGELLE:
+- Hakaret ve küfür (TCK 125-131)
+- Tehdit veya şiddet çağrısı (TCK 106)
+- Atatürk'e hakaret (5816 sayılı Kanun)
+- Cumhurbaşkanına hakaret (TCK 299)
+- Türklüğü, devlet kurumlarını aşağılama (TCK 301)
+- Terör örgütü propagandası veya övgüsü (TMK 7/2)
+- Halkı kin ve düşmanlığa tahrik, nefret söylemi (TCK 216)
+- Dini değerlere hakaret (TCK 216)
+- Müstehcen içerik
+- Spam veya reklam
+
+İzin verilenler: Eleştiri, haber yorumu, rakip takıma espri, futbol tartışması, hayal kırıklığı ifadesi.
+
+Sadece tek kelime yaz: PASS veya BLOCK`,
+        messages: [{ role: 'user', content: commentText }],
+      }),
+    });
+
+    if (!res.ok) {
+      // API failure — fail-open: approve the comment rather than leave it pending forever
+      await supabase(env, 'PATCH',
+        `/rest/v1/article_comments?id=eq.${encodeURIComponent(commentId)}`,
+        { approved: true }, { Prefer: 'return=minimal' });
+      return;
+    }
+
+    const data = await res.json();
+    const verdict = data.content?.[0]?.text?.trim().toUpperCase() ?? 'PASS';
+
+    if (verdict === 'BLOCK') {
+      await supabase(env, 'DELETE',
+        `/rest/v1/article_comments?id=eq.${encodeURIComponent(commentId)}`,
+        null, { Prefer: 'return=minimal' });
+    } else {
+      await supabase(env, 'PATCH',
+        `/rest/v1/article_comments?id=eq.${encodeURIComponent(commentId)}`,
+        { approved: true }, { Prefer: 'return=minimal' });
+    }
+  } catch {
+    // Never leave comment stuck as pending — approve on any unexpected error
+    try {
+      await supabase(env, 'PATCH',
+        `/rest/v1/article_comments?id=eq.${encodeURIComponent(commentId)}`,
+        { approved: true }, { Prefer: 'return=minimal' });
+    } catch {}
+  }
 }
 
 async function checkH5SynthGate(storyId, env, sourceConfigMap = null) {
@@ -262,13 +347,23 @@ export default {
         user_id,
         name: (name || 'Üye').trim().slice(0, 50),
         comment: comment.trim().slice(0, 500),
-        approved: true,
+        approved: env.ANTHROPIC_API_KEY ? false : true, // pending AI review if key available
       };
       if (parent_id) commentRow.parent_id = parent_id;
 
       const inserted = await supabase(env, 'POST', '/rest/v1/article_comments', commentRow);
       const newId = Array.isArray(inserted) ? inserted[0]?.id : inserted?.id;
-      return Response.json({ success: true, id: newId || null }, { headers });
+
+      // AI moderation in background — approves or deletes the comment after Haiku evaluation
+      if (env.ANTHROPIC_API_KEY && newId) {
+        ctx.waitUntil(aiModerateComment(env, newId, comment.trim()));
+      }
+
+      return Response.json({
+        success: true,
+        id: newId || null,
+        pending: !!(env.ANTHROPIC_API_KEY && newId),
+      }, { headers });
     }
 
     if (url.pathname === '/comment-react') {

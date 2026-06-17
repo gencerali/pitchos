@@ -3256,51 +3256,62 @@
 
   // Küfür, tehdit, nefret söylemi, yasadışı içerik filtresi
   // Kapsam: TCK 299, 301, 5816 (Atatürk), TMK, TCK 216 (nefret), TCK 125 (tehdit)
+  // Kaynak: özgün liste + ooguz/turkce-kufur-karaliste (MIT)
   const MODERATION_TR = [
-    // ── Küfür (profanity) ──
-    'orospu','amina','amk','sikim','sikilmis','yarak','yarrak','gotlek',
-    'kahpe','ibne','serefsiz','gavat','pezevenk','fahise','gerizekali',
-    'gotveren','siktir','siktirgit','sikeyim','amcik','surtuk','kaltak',
-    'bok yemek','piç kurusu','orospu cocugu','kahpe sulale',
-    // göt conjugations — gotun covers götüne, götünü, götün etc
-    'gotun','got ','gotumuzu','gotleri',
-    // koymak/sokmak as profanity
-    'kodum','koduum','koyduum','soktum','soktuum','soktugum',
-    'sikerim','sikirim','siktim','siktim',
+    // ── Küfür (profanity roots — alt dize eşleşmesi çekimleri yakalar) ──
+    'orospu','orospu çocuğu','orospu cocugu','orostopol','orostoban',
+    'amına','amına koy','amcık','amcik','amk',
+    'sikim','sikilmiş','sikilmis','sikirim','sikerim','siktim','siktir',
+    'siktir git','siktirgit','siksiz','s1kerim',
+    'yarak','yarrak','dalyarak','dalyarrak',
+    'götlek','gotlek','göt ','got ','götün','gotun','göt deliği','got deligi',
+    'götveren','gotveren',
+    'kahpe','ibne','ibine','şerefsiz','serefsiz','gavat','pezevenk',
+    'fahişe','fahise','gerizekalı','gerizekali','gerzek','dangalak',
+    'ebleh','embesil',
+    'kaltak','sürtük','surtuk','kancık','kancik','kaşar','kasar','kerhane',
+    'piç kurusu','piç ',
+    'kodum','koduum','koyduum','soktum','soktuum',
+    'koyarım','koyarim','koyayım','koyayim','koyum','koyim',
+    'ananın amı','ananin ami','anasını','anasini','ananı sikerim','anani sikerim',
+    'ebeni','ebenin',
+    'taşak','tasak','taşşak','tassak',
+    'puşt','pust','osuruk','osur','vajina','yavşak','domal','domalt',
+    'bok yemek','boktan',
     // ── Tehdit ve şiddet çağrısı (TCK 106/125) ──
-    'oldurecegim','oldureyim','oldururum','kafanı keserim','kafani keserim',
-    'seni keserim','seni oldururum','yakacagim','patlatacagim','hepinizi',
-    'kanını dokecegim','kanini dokecegim','iyi bilesin','adresini bilirim',
-    'nerede oldugunu','bıçaklayacağım','bicaklayacagim','silahım var',
-    'bomba','terörist saldırı','katliam yapacağım','katliam yapacagim',
-    // ── Atatürk hakareti — Kanun 5816 ──
-    'ataturk piç','ataturk orospu','ataturk serefsiz','ataturk kahpe',
-    'ataturk salak','ataturk gerize','mustafa kemal piç','mustafa kemal orospu',
-    'mustafa kemal serefsiz','lanet atatürk','lanet ataturk','kemas ataturk',
-    'kemas mustafa','bok ataturk','bok mustafa kemal',
-    // ── Cumhurbaşkanına hakaret — TCK 299 ──
-    // Not: Kapsam geniş tutulmamıştır; yalnızca açık hakaretler.
-    'cumhurbaskani piç','cumhurbaskani orospu','cumhurbaskani serefsiz',
-    // ── Terör örgütü propagandası — TMK ──
-    'yasasin pkk','pkk kahraman','pkk efsane','pkk asker','pkk savaşçı',
-    'pkk savascı','yasasin isid','yasasin isis','isis kahraman','isid kahraman',
-    'feto yasasin','feto kahraman','dhkpc yasasin','dhkp-c yasasin',
-    'yasasin hizbullah','yasasin hamas saldırı','yasasin devrimci sol',
-    // ── Nefret söylemi — TCK 216 ──
+    'öldüreceğim','oldurecegim','öldüreyim','oldureyim','öldürürüm','oldururum',
+    'kafanı keserim','kafani keserim','seni keserim','seni öldürürüm','seni oldururum',
+    'patlatacağım','patlatacagim','kanını dökeceğim','kanini dokecegim',
+    'adresini bilirim','bıçaklayacağım','bicaklayacagim',
+    'katliam yapacağım','katliam yapacagim','silahım var','silahim var',
+    // ── Atatürk hakareti (Kanun 5816) ──
+    'atatürk piç','ataturk piç','atatürk orospu','ataturk orospu',
+    'atatürk şerefsiz','ataturk serefsiz','mustafa kemal piç',
+    'mustafa kemal orospu','mustafa kemal şerefsiz','mustafa kemal serefsiz',
+    'lanet atatürk','lanet ataturk','bok atatürk','bok ataturk','bok mustafa kemal',
+    // ── Cumhurbaşkanına hakaret (TCK 299) ──
+    'cumhurbaşkanı piç','cumhurbaskani piç',
+    'cumhurbaşkanı orospu','cumhurbaskani orospu',
+    'cumhurbaşkanı şerefsiz','cumhurbaskani serefsiz',
+    // ── Terör propagandası (TMK 7/2) ──
+    'yaşasın pkk','yasasin pkk','pkk kahraman','pkk askeri','pkk asker',
+    'yaşasın isid','yasasin isid','yaşasın isis','yasasin isis',
+    'isis kahraman','isid kahraman',
+    'feto yaşasın','feto yasasin','feto kahraman',
+    'dhkpc yaşasın','dhkpc yasasin','dhkp-c yasasin',
+    // ── Nefret söylemi (TCK 216) ──
     'kürtler kahrolsun','kurtler kahrolsun','ermeniler kahrolsun',
     'yahudiler kahrolsun','rumlar kahrolsun','aleviler kahrolsun',
-    'sunniler kahrolsun','hristiyanlar kahrolsun','müslümanlar kahrolsun',
-    'muslumanlar kahrolsun','zenciler','zenci it','zenci köpek','zenci kopek',
-    'yahudi it','yahudi köpek','yahudi kopek','ermeni dölü','ermeni dolu',
-    'kürt dölü','kurt dolu','rum dölü','rum dolu','gavur itin',
-    // ── Dini hakaret — TCK 216 ──
+    'zenci it','zenci köpek','zenci kopek',
+    'yahudi it','yahudi köpek','yahudi kopek',
+    'ermeni dölü','ermeni dolu','kürt dölü','kurt dolu',
+    // ── Dini hakaret (TCK 216) ──
     'allah piç','allah orospu','allah bok','tanrı piç','tanri pic',
-    'islama lanet','islama bok','kur\'ana lanet','kuruna lanet',
+    'islama lanet','islama bok','kurana lanet','kuruna lanet',
     'peygamber piç','peygamber orospu','hz muhammed piç','hz muhammed orospu',
-    'dini bozuk','dini batsın','dini batsin','ibrahimi din bok',
     // ── Cinsel taciz / Müstehcen ──
-    'sikeyim seni','am var mı','amını sikeyim','götünü sikeyim',
-    'gotunu sikeyim','memelerini','yarağımı','yaragimi',
+    'sikeyim seni','amını sikeyim','götünü sikeyim',
+    'gotunu sikeyim','yarağımı','yaragimi',
   ];
 
   function normTR(s) {
@@ -3338,14 +3349,24 @@
       });
       const data = await res.json();
       if (data.success) {
-        msg.style.color='#166534'; msg.textContent='Yorumunuz eklendi!';
         textEl.value = '';
+        if (data.pending) {
+          msg.style.color='#888';
+          msg.textContent='Yorumunuz alındı, değerlendirme sonrasında yayınlanacak.';
+          // Reload twice — once after ~3s (AI usually done by then), once at 8s as fallback
+          if (_currentArticle) {
+            setTimeout(() => loadAvReactions(_currentArticle), 3000);
+            setTimeout(() => loadAvReactions(_currentArticle), 8000);
+          }
+        } else {
+          msg.style.color='#166534'; msg.textContent='Yorumunuz eklendi!';
+          if (_currentArticle) setTimeout(() => loadAvReactions(_currentArticle), 500);
+        }
         fetch('/api/xp/comment', {
           method: 'POST',
           headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ article_slug: slug }),
         }).then(r => r.json()).then(d => { if (d.xp_earned > 0 && window.kxSpawnXP) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
-        if (_currentArticle) setTimeout(() => loadAvReactions(_currentArticle), 500);
       } else {
         msg.style.color='#D90414'; msg.textContent='Hata: ' + (data.error || 'Tekrar deneyin');
       }
