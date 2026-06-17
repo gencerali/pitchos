@@ -715,7 +715,7 @@
     // Viewing another user's profile — hide private sections
     ['btnChangePass','btnKvkk','btnDeleteAccount','profilSignoutBtn'].forEach(id => {
       const el2 = document.getElementById(id);
-      if (el2) el2.closest('.profil-account-row, button') && (el2.closest('.profil-account-row') || el2).style.display = 'none';
+      if (el2) { const c = el2.closest('.profil-account-row') || el2; c.style.display = 'none'; }
     });
     const accountSection = document.querySelector('.profil-account')?.closest('div');
     if (accountSection) accountSection.style.display = 'none';
