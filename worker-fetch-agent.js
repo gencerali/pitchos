@@ -7865,6 +7865,15 @@ header{background:#0d0d0d;border-bottom:2px solid #E30A17;height:60px;display:fl
 .kx-drop-summary{padding:.7rem 1rem .65rem;border-bottom:1px solid #242424}
 .kx-drop-name{font-family:'Barlow Condensed',sans-serif;font-size:.9rem;font-weight:700;color:#f0ede6;letter-spacing:.02em}
 .kx-drop-rank{font-family:'Barlow Condensed',sans-serif;font-size:.65rem;color:#F5A623;letter-spacing:.04em;margin-top:.15rem}
+.bottom-dock{display:none;position:fixed;bottom:0;left:0;right:0;z-index:220;background:#0d0d0d;border-top:1px solid #1A1A1A;padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(max-width:900px){.bottom-dock{display:flex;align-items:stretch}body{padding-bottom:60px}}
+.dock-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex:1;min-height:56px;padding:7px 4px;background:none;border:none;color:#484848;cursor:pointer;text-decoration:none;font-family:'Barlow Condensed',sans-serif;font-size:.5rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;transition:color .15s}
+.dock-btn:hover,.dock-btn.active{color:#f0ede6}
+.dock-btn.active{color:#D90414}
+.dock-btn svg{width:20px;height:20px;flex-shrink:0}
+.dock-btn--hero{flex:0 0 56px;align-self:center;width:52px;height:52px;border-radius:50%;background:#D90414;box-shadow:0 0 18px rgba(217,4,20,0.55),0 4px 14px rgba(0,0,0,.7);color:#fff;border:3px solid #0d0d0d;margin:0 2px;position:relative;top:-6px;font-size:.46rem;padding:5px}
+.dock-btn--hero svg{width:22px;height:16px;opacity:.9}
+.dock-btn--hero:hover{color:#fff;background:#b5030f;box-shadow:0 0 22px rgba(217,4,20,0.7)}
 .mainnav{background:#111;border-bottom:1px solid #1e1e1e;position:relative;z-index:90}
 .mainnav-inner{display:flex;align-items:center;max-width:1280px;margin:0 auto;padding:0 1rem}
 .mainnav .nav-toggle{display:none;background:none;border:0;color:#fff;cursor:pointer;padding:.7rem .4rem;align-items:center;gap:.5rem;font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:.8rem}
@@ -7938,7 +7947,41 @@ function siteFooter() {
   <a href="/kosullar">Kullanım Koşulları</a>
   <a href="/kaynak-atif">Kaynak Atıf</a>
   <a href="/rss">RSS</a>
-</footer>`;
+</footer>
+<nav class="bottom-dock" aria-label="Alt gezinti">
+  <a href="/" class="dock-btn" title="Ana Sayfa">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    <span>Ana Sayfa</span>
+  </a>
+  <a href="/konu/videolar" class="dock-btn" title="Videolar">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+    <span>Videolar</span>
+  </a>
+  <button class="dock-btn dock-btn--hero" id="dockTribun" title="Tribün">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="currentColor" aria-hidden="true"><circle cx="120" cy="28" r="11"/><polygon points="111,24 97,29 111,34"/><path d="M120,36 C111,46 109,68 113,92 C116,114 120,132 120,132 C120,132 124,114 127,92 C131,68 129,46 120,36Z"/><polygon points="116,46 30,26 48,50 62,40 74,60 88,48 100,66 116,58"/><polygon points="124,46 210,26 192,50 178,40 166,60 152,48 140,66 124,58"/></svg>
+    <span>Tribün</span>
+  </button>
+  <button class="dock-btn" id="dockAnaliz" title="Analiz">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    <span>Analiz</span>
+  </button>
+  <button class="dock-btn" id="dockMenuBtn" title="Menü">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    <span>Menü</span>
+  </button>
+</nav>
+<script src="/gamification.js" defer><\/script>
+<script>
+(function(){
+  function kxToast(msg){var t=document.createElement('div');t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid #333;color:#f0ede6;font-family:\\'Barlow Condensed\\',sans-serif;font-size:.8rem;font-weight:600;letter-spacing:.04em;padding:.55rem 1.1rem;border-radius:6px;z-index:9999;pointer-events:none;transition:opacity .3s';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300)},2200);}
+  const _p=window.location.pathname;
+  if(_p==='/'){document.querySelector('.bottom-dock .dock-btn[href="/"]')?.classList.add('active');}
+  else if(_p.startsWith('/konu/videolar')){document.querySelector('.bottom-dock .dock-btn[href="/konu/videolar"]')?.classList.add('active');}
+  document.getElementById('dockMenuBtn')?.addEventListener('click',()=>document.getElementById('navToggle')?.click());
+  document.getElementById('dockTribun')?.addEventListener('click',()=>kxToast('Tribün çok yakında! 🦅'));
+  document.getElementById('dockAnaliz')?.addEventListener('click',()=>kxToast('Analiz çok yakında!'));
+})();
+<\/script>`;
 }
 
 // ─── GAMIFICATION META HELPER ────────────────────────────────────
@@ -7947,7 +7990,7 @@ function siteFooter() {
 // and add a matching case in gamification.js section 11.
 function gamificationMeta(ctx) {
   const json = JSON.stringify(ctx).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  return `<meta name="kx-context" content="${json}"><script src="/gamification.js" defer><\/script>`;
+  return `<meta name="kx-context" content="${json}">`;
 }
 
 // ─── ARTICLE PAGE HTML ────────────────────────────────────────
