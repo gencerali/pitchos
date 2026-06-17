@@ -4,6 +4,7 @@
   "exclude": [
     "/",
     "/gamification.js",
+    "/style.css",
     "/profil",
     "/profil.html",
     "/liderlik",
