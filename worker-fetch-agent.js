@@ -7853,7 +7853,26 @@ const SITE_LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 
 </svg>`;
 
 function siteHeader(activePath = '/') {
-  return `<header>
+  return `<style>
+:root{--accent:#D90414;--accent-gold:#F5A623;--bg:#0A0A0A;--surface:#141414;--border:#1A1A1A;--border2:#242424;--text:#f0ede6}
+header{background:#0d0d0d;border-bottom:2px solid var(--accent,#D90414);height:60px;display:flex;align-items:center;justify-content:space-between;padding:0 1.5rem;position:sticky;top:0;z-index:100}
+.logo-link{text-decoration:none;display:flex;align-items:center}
+.header-right{display:flex;align-items:center;gap:1rem}
+.kx-login-btn{background:none;border:1px solid var(--accent,#D90414);color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:.75rem;font-weight:700;letter-spacing:.08em;padding:.35rem .75rem;border-radius:3px;cursor:pointer;display:none}
+.user-widget{display:none;align-items:center;gap:.3rem;cursor:pointer;padding:.25rem .45rem .25rem .3rem;border:1px solid #2a2a2a;border-radius:6px;background:var(--surface,#141414);transition:border-color .15s}
+.user-widget.visible{display:flex}
+.user-widget:hover{border-color:#444}
+.user-avatar{width:26px;height:26px;border-radius:50%;background:var(--accent,#D90414);color:#fff;font-family:'Barlow Condensed',sans-serif;font-size:.8rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden}
+.user-caret{font-size:.5rem;color:#555;line-height:1}
+.kx-streak-flame{display:none;align-items:center;gap:.25rem;font-size:.8rem;color:#f97316;font-family:'Barlow Condensed',sans-serif;font-weight:700}
+.kx-profile-drop{position:fixed;z-index:9999;background:var(--surface,#141414);border:1px solid var(--border2,#242424);border-radius:6px;overflow:hidden;min-width:180px;box-shadow:0 4px 16px rgba(0,0,0,.6)}
+.kx-profile-drop a,.kx-profile-drop button{display:block;width:100%;padding:.65rem 1rem;background:none;border:none;color:var(--text,#f0ede6);font-family:'Barlow Condensed',sans-serif;font-size:.8rem;font-weight:600;letter-spacing:.04em;text-align:left;cursor:pointer;text-decoration:none;box-sizing:border-box}
+.kx-profile-drop a:hover,.kx-profile-drop button:hover{background:#1a1a1a}
+.kx-drop-summary{padding:.7rem 1rem .65rem;border-bottom:1px solid var(--border2,#242424)}
+.kx-drop-name{font-family:'Barlow Condensed',sans-serif;font-size:.9rem;font-weight:700;color:var(--text,#f0ede6);letter-spacing:.02em}
+.kx-drop-rank{font-family:'Barlow Condensed',sans-serif;font-size:.65rem;color:var(--accent-gold,#F5A623);letter-spacing:.04em;margin-top:.15rem}
+</style>
+<header>
   <a href="/" class="logo-link">${SITE_LOGO_SVG}</a>
   <div class="header-right">
     <div class="kx-streak-flame" id="kxStreakFlame" style="display:none">🔥 <span id="kxStreakCount">0</span></div>
