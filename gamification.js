@@ -167,12 +167,10 @@
     }
   });
 
-  // Also check immediately (onAuthStateChange fires async)
+  // Fast-path for already-loaded session; onAuthStateChange handles the no-session case
   const { data: { session: existing } } = await sb.auth.getSession();
   if (existing?.access_token) {
     await loadAuthUser(existing.access_token);
-  } else {
-    showGuestWidget();
   }
 
   // ── 7. Auth Modal ─────────────────────────────────────────────
