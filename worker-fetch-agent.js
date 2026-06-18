@@ -5307,6 +5307,48 @@ async function matchWatcher(env) {
         }
       }
     } catch(e) { console.error('WATCHER post-match catch-up failed:', e.message); }
+
+    // ── ESPN match auto-evaluation ────────────────────────────────
+    // If an ESPN-based match (Turkey/BJK international) has passed kickoff,
+    // query ESPN for the final score and award prediction bonuses once.
+    try {
+      const espnCached = await env.PITCHOS_CACHE.get('upcoming-match:espn:v4');
+      if (espnCached) {
+        const espnMatch = JSON.parse(espnCached)?.match;
+        if (espnMatch?.match_id && espnMatch?.kickoff_utc) {
+          const kicked = Date.now() >= new Date(espnMatch.kickoff_utc).getTime();
+          const evalDoneKey = `espn:eval-done:${espnMatch.match_id}`;
+          const alreadyDone = kicked ? await env.PITCHOS_CACHE.get(evalDoneKey) : '1';
+          if (kicked && !alreadyDone) {
+            // Derive league from cached match — squad_league is stored in match response
+            const league = espnMatch.squad_league ?? 'fifa.world';
+            const espnSummary = await fetch(
+              `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/summary?event=${espnMatch.match_id}`
+            ).then(r => r.ok ? r.json() : null).catch(() => null);
+            const comp = espnSummary?.header?.competitions?.[0];
+            const status = (comp?.status?.type?.name ?? '').toLowerCase();
+            if (status === 'status_final' || status.includes('final')) {
+              const home = comp?.competitors?.find(c => c.homeAway === 'home') ?? comp?.competitors?.[0] ?? {};
+              const away = comp?.competitors?.find(c => c.homeAway === 'away') ?? comp?.competitors?.[1] ?? {};
+              const homeScore = parseInt(home.score ?? home.winner != null ? home.score : '0') || 0;
+              const awayScore = parseInt(away.score ?? away.winner != null ? away.score : '0') || 0;
+              const sites = await getActiveSites(env);
+              const site  = sites?.[0];
+              if (site?.id) {
+                await fetch(`https://kartalix.com/api/xp/evaluate-predictions`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': env.INTERNAL_SECRET || '' },
+                  body: JSON.stringify({ match_id: espnMatch.match_id, site_id: site.id, home_score: homeScore, away_score: awayScore }),
+                });
+                console.log(`WATCHER ESPN T-PRED: evaluated match ${espnMatch.match_id} (${homeScore}-${awayScore})`);
+              }
+              await env.PITCHOS_CACHE.put(evalDoneKey, '1', { expirationTtl: 7 * 24 * 60 * 60 });
+            }
+          }
+        }
+      }
+    } catch(e) { console.error('WATCHER ESPN eval failed:', e.message); }
+
     console.log(`WATCHER: outside window (${hoursToKickoff.toFixed(1)}h to kickoff), skip`);
     return;
   }
