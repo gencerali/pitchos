@@ -1,17 +1,18 @@
 // Returns Beşiktaş squad for the Starting 11 prediction UI.
 // Uses ESPN's unofficial public API — no key required.
+// Finds BJK's team ID dynamically from the league teams list, then fetches roster.
 // KV-cached for 24 hours.
 
 import { json, err, corsHeaders } from './_shared/auth.js';
 
 const CACHE_TTL  = 24 * 60 * 60;
 const ESPN_BASE  = 'https://site.api.espn.com/apis/site/v2/sports/soccer';
-
-const BJK_LEAGUE  = 'tur.1';
-const BJK_ESPN_ID = '3886'; // Beşiktaş JK
+const BJK_LEAGUE = 'tur.1';
+const BJK_NAMES  = ['beşiktaş', 'besiktas'];
+const BJK_ABBR   = 'BJK';
 
 const POSITION_ORDER = { Goalkeeper: 0, Defender: 1, Midfielder: 2, Attacker: 3 };
-const POSITION_MAP = {
+const POSITION_MAP   = {
   G: 'Goalkeeper', GK: 'Goalkeeper',
   D: 'Defender',   CB: 'Defender', LB: 'Defender', RB: 'Defender',
   LWB: 'Defender', RWB: 'Defender', SW: 'Defender',
@@ -21,13 +22,26 @@ const POSITION_MAP = {
   ST: 'Attacker',  SS: 'Attacker',
 };
 
+async function findBJKTeamId(league) {
+  const res = await fetch(`${ESPN_BASE}/${league}/teams`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  const teams = data?.sports?.[0]?.leagues?.[0]?.teams ?? data?.teams ?? [];
+  const entry = teams.find(t => {
+    const team = t.team ?? t;
+    const n = (team.displayName ?? team.name ?? '').toLowerCase();
+    const a = (team.abbreviation ?? '').toUpperCase();
+    return BJK_NAMES.some(name => n.includes(name)) || a === BJK_ABBR;
+  });
+  return (entry?.team ?? entry)?.id ?? null;
+}
+
 export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return corsHeaders();
   if (request.method !== 'GET') return err('Method not allowed', 405);
 
   const league   = env.ESPN_BJK_LEAGUE ?? BJK_LEAGUE;
-  const teamId   = env.ESPN_BJK_ID     ?? BJK_ESPN_ID;
-  const cacheKey = `squad:espn:v1:${teamId}`;
+  const cacheKey = `squad:espn:v2:${league}`;
 
   if (env.PITCHOS_CACHE) {
     const cached = await env.PITCHOS_CACHE.get(cacheKey);
@@ -38,11 +52,15 @@ export async function onRequest({ request, env }) {
     }
   }
 
+  // Resolve BJK's ESPN ID dynamically from the teams list
+  const teamId = env.ESPN_BJK_ID ?? await findBJKTeamId(league);
+  if (!teamId) return err('Could not resolve Beşiktaş team ID', 503);
+
   const apiRes = await fetch(`${ESPN_BASE}/${league}/teams/${teamId}/roster`);
   if (!apiRes.ok) return err('Could not fetch squad', 503);
   const data = await apiRes.json();
 
-  // ESPN roster: athletes is either a flat array or an array of position groups with .items
+  // ESPN roster: athletes is either a flat array or grouped by position with .items
   const raw  = data?.athletes ?? [];
   const flat = raw.length && Array.isArray(raw[0]?.items) ? raw.flatMap(g => g.items) : raw;
 
