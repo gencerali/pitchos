@@ -1044,9 +1044,10 @@
     }
     btn.disabled = true; btn.textContent = 'Gönderiliyor…';
     try {
+      var token = window.kxToken ?? _accessToken;
       var res = await fetch('/api/xp/predict', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _accessToken },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify({ match_id: _match.match_id, home_score: homeScore, away_score: awayScore }),
       });
       var data = await res.json();
@@ -1164,9 +1165,10 @@
     errEl.classList.remove('visible');
     btn.disabled = true; btn.textContent = 'Gönderiliyor…';
     try {
+      var token = window.kxToken ?? _accessToken;
       var res = await fetch('/api/xp/starting-11', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _accessToken },
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
         body: JSON.stringify({ match_id: _match.match_id, player_ids: _selectedPlayerIds }),
       });
       var data = await res.json();
