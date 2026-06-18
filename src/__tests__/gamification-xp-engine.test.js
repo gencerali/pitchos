@@ -64,10 +64,15 @@ function enqueueTail({ totalXp = 10, articleReadCount = 3, xpEventInsertResult =
   );
   fetchQueue.push(() => jr(LEVEL_1));              // sbRpc get_user_level
   // checkBadges: level 1 → no tier candidates; streak 0 → no streak candidates
-  // articles_100 count query:
+  // read_article count query:
   enqueue(
     Array(articleReadCount).fill({ id: 'e' }),     // read_article count
   );
+  // For every badge threshold met by this read count, enqueue an existence check
+  // returning "already earned" so checkBadges skips the insert and fetches no more.
+  [1, 10, 25, 50, 100, 250, 500]
+    .filter(t => articleReadCount >= t)
+    .forEach(() => enqueue([{ id: 'badge-already-earned' }]));
 }
 
 // ── streakMultiplier pure function ────────────────────────────────────────────
@@ -243,12 +248,29 @@ describe('awardXP — articles_100 badge', () => {
       [{ xp_earned: 10 }],                // total XP sum
     );
     fetchQueue.push(() => jr(LEVEL_1));   // sbRpc level
-    // articles_100 count:
-    enqueue(Array(readCount).fill({ id: 'e' }));
-    if (readCount >= 100) {
-      enqueue([]);                         // user_badges existence check → not found
-      fetchQueue.push(() => jr([{}]));     // user_badges POST (insert)
-      enqueue([{ id: 'articles_100', label: '100 Makale', icon: '📚' }]); // badges GET
+    enqueue(Array(readCount).fill({ id: 'e' })); // read_article count
+
+    // Queue existence checks for every badge threshold met by readCount.
+    // Lower thresholds return "already earned" (no insert); articles_100 is the
+    // one being tested — return "not found" only when readCount reaches it.
+    const badgeDefs = [
+      { id: 'first_read',   min: 1   },
+      { id: 'articles_10',  min: 10  },
+      { id: 'articles_25',  min: 25  },
+      { id: 'articles_50',  min: 50  },
+      { id: 'articles_100', min: 100 },
+      { id: 'articles_250', min: 250 },
+      { id: 'articles_500', min: 500 },
+    ];
+    for (const b of badgeDefs) {
+      if (readCount < b.min) continue;
+      if (b.id === 'articles_100') {
+        enqueue([]);                         // not yet earned → trigger insert
+        fetchQueue.push(() => jr([{}]));     // user_badges POST
+        enqueue([{ id: 'articles_100', label: '100 Makale', icon: '📚' }]); // badges GET
+      } else {
+        enqueue([{ id: 'badge-already-earned' }]); // already exists → skip insert
+      }
     }
   }
 
@@ -265,7 +287,7 @@ describe('awardXP — articles_100 badge', () => {
     expect(result.badge_unlocks[0].id).toBe('articles_100');
   });
 
-  it('does NOT run article count check when action is not read_article', async () => {
+  it('does NOT run article count check when action is react_article (checks reactor count instead)', async () => {
     enqueue(
       [ACTION_REACT],
       [{ shadow_banned: false }],
@@ -275,10 +297,13 @@ describe('awardXP — articles_100 badge', () => {
     );
     fetchQueue.push(() => jr([{}]));       // xp_events POST
     enqueue([{ xp_earned: 1 }]);           // total XP
-    fetchQueue.push(() => jr(LEVEL_1));   // level
+    fetchQueue.push(() => jr(LEVEL_1));    // level
+    // checkBadges: react_article IS in countMap (for reactor_10 / reactor_50).
+    // The engine queries the lifetime reaction count; at 3 neither threshold is met.
+    enqueue(Array(3).fill({ id: 'e' }));   // react_article lifetime count (< 10)
 
     const result = await awardXP(ENV, USER_ID, SITE_ID, 'react_article', 'art-x');
-    // fetchQueue should be empty — no extra call for articles_100
+    // read_article count check was NOT run (no articles_* candidates queued)
     expect(fetchQueue).toHaveLength(0);
     expect(result.badge_unlocks).toHaveLength(0);
   });
