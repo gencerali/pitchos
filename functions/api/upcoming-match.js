@@ -12,13 +12,16 @@ async function fetchNextFixture(teamId, env) {
   const today = new Date().toISOString().slice(0, 10);
   const ahead = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+  // No status filter — NS, TBD, and other scheduled statuses all qualify.
+  // We pick the soonest fixture whose kickoff is still in the future.
   const res = await fetch(
-    `https://v3.football.api-sports.io/fixtures?team=${teamId}&from=${today}&to=${ahead}&status=NS&limit=1`,
+    `https://v3.football.api-sports.io/fixtures?team=${teamId}&from=${today}&to=${ahead}`,
     { headers: { 'x-apisports-key': env.API_FOOTBALL_KEY } }
   );
   if (!res.ok) return null;
   const data = await res.json();
-  return data?.response?.[0] ?? null;
+  const now = Date.now();
+  return (data?.response ?? []).find(f => new Date(f.fixture.date).getTime() > now) ?? null;
 }
 
 function fixtureToMatch(fixture) {
