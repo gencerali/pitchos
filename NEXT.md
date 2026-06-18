@@ -62,7 +62,7 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ---
 
-## Phase 6 — Schema Migrations
+## Phase 6 — Schema Migrations ✅ DONE (ongoing)
 
 - [x] `xp_actions`: `cap_fallback_xp integer default 0`
 - [x] `xp_actions`: insert `react_article` row
@@ -71,10 +71,20 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 - [x] `article_reactions`: add `article_slug`, `site_id`
 - [ ] `article_reactions`: add `emotion` (5-value reactions, Phase 3.8)
 - [ ] `profiles`: add `is_bot boolean default false`
+- [x] `polls`: add `starts_at TIMESTAMPTZ` (scheduled poll publishing)
 
 ---
 
-## Phase 7 — Pre-Launch
+## Phase 7 — Poll Automation (Future)
+
+- [ ] **7.A** AI poll generator — Claude Haiku auto-creates weekly polls from trending article topics; scheduled via cron
+- [ ] **7.B** Poll scheduling engine — batch-create future polls with start/end dates from admin or API
+- [ ] **7.C** Sentiment-driven polls — auto-generate polls triggered by match outcomes or viral articles
+- [ ] **7.D** Poll analytics dashboard — per-poll breakdown, demographic split, time-series vote chart
+
+---
+
+## Phase 8 — Pre-Launch
 
 - [ ] Full XP QA pass — test each action, no double-earning
 - [ ] Set `XP_TOKEN_SECRET` in Cloudflare Pages env vars (not `dev-secret`)

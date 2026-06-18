@@ -3373,12 +3373,18 @@ Sadece JSON döndür:
       const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage('/admin/gamification'), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 
-      const [actions, recentEvts, allEvts, badges] = await Promise.all([
+      const [actions, recentEvts, allEvts, badges, pollRows, pollVoteRows, sites] = await Promise.all([
         supabase(env, 'GET', '/rest/v1/xp_actions?order=category.asc,id.asc&select=*') || [],
         supabase(env, 'GET', '/rest/v1/xp_events?order=created_at.desc&limit=100&select=id,user_id,action_id,xp_earned,multiplier,created_at,nullified,site_id') || [],
         supabase(env, 'GET', '/rest/v1/xp_events?nullified=eq.false&select=xp_earned,user_id') || [],
         supabase(env, 'GET', '/rest/v1/badges?order=trigger_type.asc,id.asc&select=*') || [],
+        supabase(env, 'GET', '/rest/v1/polls?order=created_at.desc&select=*'),
+        supabase(env, 'GET', '/rest/v1/poll_votes?select=poll_id'),
+        getActiveSites(env),
       ]);
+      const voteCountMap = {};
+      for (const v of (pollVoteRows || [])) voteCountMap[v.poll_id] = (voteCountMap[v.poll_id] || 0) + 1;
+      const polls = (pollRows || []).map(p => ({ ...p, total_votes: voteCountMap[p.id] || 0 }));
 
       const userIds = [...new Set((recentEvts || []).map(e => e.user_id))];
       const profileRows = userIds.length
@@ -3392,7 +3398,7 @@ Sadece JSON döndür:
         totalEvents: (allEvts || []).length,
       };
 
-      return new Response(renderGamificationAdminPage(actions || [], recentEvts || [], profileMap, stats, badges || []), {
+      return new Response(renderGamificationAdminPage(actions || [], recentEvts || [], profileMap, stats, badges || [], polls, sites || []), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
     }
@@ -3410,6 +3416,50 @@ Sadece JSON döndür:
         updated_at:           new Date().toISOString(),
         updated_by:           'admin',
       }, { Prefer: 'return=minimal' });
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === '/admin/gamification/save-poll' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const body = await request.json().catch(() => null);
+      if (!body?.question?.trim()) return Response.json({ error: 'missing question' }, { status: 400 });
+      const rawOpts = (body.options || []).filter(s => s?.trim());
+      if (rawOpts.length < 2) return Response.json({ error: 'at least 2 options required' }, { status: 400 });
+      if (!body.site_id) return Response.json({ error: 'missing site_id' }, { status: 400 });
+      const options = rawOpts.map((label, i) => ({ id: String(i + 1), label: label.trim() }));
+      const payload = {
+        site_id: body.site_id,
+        question: body.question.trim(),
+        options,
+        active: body.active !== false,
+        starts_at: body.starts_at || null,
+        expires_at: body.expires_at || null,
+      };
+      if (body.id) {
+        await supabase(env, 'PATCH', `/rest/v1/polls?id=eq.${encodeURIComponent(body.id)}`, payload, { Prefer: 'return=minimal' });
+      } else {
+        await supabase(env, 'POST', '/rest/v1/polls', payload, { Prefer: 'return=minimal' });
+      }
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === '/admin/gamification/toggle-poll' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const { id, active } = await request.json().catch(() => ({}));
+      if (!id) return Response.json({ error: 'missing id' }, { status: 400 });
+      await supabase(env, 'PATCH', `/rest/v1/polls?id=eq.${encodeURIComponent(id)}`, { active: !!active }, { Prefer: 'return=minimal' });
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === '/admin/gamification/delete-poll' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const { id } = await request.json().catch(() => ({}));
+      if (!id) return Response.json({ error: 'missing id' }, { status: 400 });
+      await supabase(env, 'DELETE', `/rest/v1/poll_votes?poll_id=eq.${encodeURIComponent(id)}`);
+      await supabase(env, 'DELETE', `/rest/v1/polls?id=eq.${encodeURIComponent(id)}`);
       return Response.json({ ok: true });
     }
 
@@ -10736,7 +10786,7 @@ load();
 </html>`;
 }
 
-function renderGamificationAdminPage(actions, events, profileMap, stats, badges = []) {
+function renderGamificationAdminPage(actions, events, profileMap, stats, badges = [], polls = [], sites = []) {
   const nav = adminNav('gamification', '', []);
   const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
@@ -10838,6 +10888,94 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
     (badgeGroups[t] = badgeGroups[t] || []).push(b);
   }
 
+  const siteById = Object.fromEntries((sites || []).map(s => [s.id, s]));
+  const siteOptions = (sites || []).map(s => `<option value="${esc(s.id)}">${esc(s.short_code)} — ${esc(s.name || s.short_code)}</option>`).join('');
+
+  const pollTableRows = polls.map(p => {
+    const siteLabel = siteById[p.site_id]?.short_code || p.site_id?.slice(0,8) || '—';
+    const optCount = Array.isArray(p.options) ? p.options.length : 0;
+    const activeBadge = p.active
+      ? `<span style="font-size:.7rem;padding:1px 6px;border-radius:3px;background:#1e3a5f;color:#60a5fa">Aktif</span>`
+      : `<span style="font-size:.7rem;padding:1px 6px;border-radius:3px;background:#3b1515;color:#f87171">Pasif</span>`;
+    const optChips = (p.options || []).map(o => `<span style="font-size:.72rem;padding:2px 8px;background:#1a1a1a;border:1px solid #1f2937;border-radius:3px;color:#d1d5db">${esc(o.label)}</span>`).join(' ');
+    return `<tr style="border-bottom:1px solid #1a1a1a">
+      <td style="padding:.55rem .75rem;font-size:.82rem;color:#e5e7eb;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.question)}">${esc(p.question)}</td>
+      <td style="padding:.55rem .75rem;font-size:.75rem;color:#9ca3af">${esc(siteLabel)}</td>
+      <td style="padding:.55rem .75rem;text-align:center;font-size:.82rem;color:#9ca3af">${optCount}</td>
+      <td style="padding:.55rem .75rem;font-size:.72rem;color:#9ca3af">${p.starts_at ? fmtDate(p.starts_at) : '<span style="color:#374151">—</span>'}</td>
+      <td style="padding:.55rem .75rem;font-size:.72rem;color:#9ca3af">${p.expires_at ? fmtDate(p.expires_at) : '<span style="color:#374151">—</span>'}</td>
+      <td style="padding:.55rem .75rem;text-align:center">${activeBadge}</td>
+      <td style="padding:.55rem .75rem;text-align:right;font-family:monospace;font-size:.82rem;color:#fbbf24;font-weight:700">${p.total_votes}</td>
+      <td style="padding:.55rem .75rem;white-space:nowrap;text-align:right">
+        <button onclick="togglePollActive('${esc(p.id)}',${!p.active})" style="font-size:.68rem;padding:2px 8px;background:#1f2937;border:1px solid #374151;color:#d1d5db;cursor:pointer;border-radius:3px;margin-right:.3rem">${p.active ? 'Kapat' : 'Aç'}</button>
+        <button onclick="showPollResults('${esc(p.id)}')" style="font-size:.68rem;padding:2px 8px;background:#1f2937;border:1px solid #374151;color:#60a5fa;cursor:pointer;border-radius:3px;margin-right:.3rem">Sonuçlar</button>
+        <button onclick="deletePoll('${esc(p.id)}')" style="font-size:.68rem;padding:2px 8px;background:#3b1515;border:1px solid #7f1d1d;color:#f87171;cursor:pointer;border-radius:3px">Sil</button>
+      </td>
+    </tr>
+    <tr id="pr-${esc(p.id)}" style="display:none;background:#0d1117">
+      <td colspan="8" style="padding:.75rem 1rem">
+        <div style="font-size:.68rem;color:#6b7280;margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.08em">Seçenekler</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.5rem">${optChips}</div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const pollsSection = `
+  <div style="background:#111;border:1px solid #1f2937;border-radius:6px;margin-bottom:1.5rem;overflow:hidden">
+    <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-weight:700;font-size:.9rem">Anketler</span>
+      <div style="display:flex;align-items:center;gap:.75rem">
+        <span style="font-size:.72rem;color:#6b7280">${polls.length} anket</span>
+        <button onclick="togglePollForm()" style="font-size:.72rem;padding:4px 14px;background:#E30A17;border:none;color:#fff;font-weight:700;cursor:pointer;border-radius:3px">+ Yeni Anket</button>
+      </div>
+    </div>
+    <div id="pollForm" style="display:none;padding:1.25rem;border-bottom:1px solid #1f2937;background:#0d1117">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+        <label style="display:flex;flex-direction:column;gap:.3rem;font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">
+          Site
+          <select id="pf-site" style="background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:6px 8px;font-size:.82rem;border-radius:3px">${siteOptions}</select>
+        </label>
+        <div style="display:flex;align-items:center;gap:.5rem;padding-top:1.4rem">
+          <input type="checkbox" id="pf-active" checked>
+          <label for="pf-active" style="font-size:.75rem;color:#9ca3af;cursor:pointer">Aktif (hemen yayınla)</label>
+        </div>
+      </div>
+      <div style="margin-bottom:1rem">
+        <label style="display:block;font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em;margin-bottom:.3rem">Soru</label>
+        <textarea id="pf-question" rows="2" placeholder="Anket sorusu girin…" style="width:100%;background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:6px 8px;font-size:.85rem;border-radius:3px;resize:vertical;font-family:inherit"></textarea>
+      </div>
+      <div style="margin-bottom:1rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.4rem">
+          <span style="font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">Seçenekler</span>
+          <button onclick="addPollOption()" style="font-size:.68rem;padding:2px 10px;background:#1f2937;border:1px solid #374151;color:#d1d5db;cursor:pointer;border-radius:3px">+ Seçenek Ekle</button>
+        </div>
+        <div id="pf-options">
+          <div class="pf-opt-row" style="display:flex;gap:.5rem;margin-bottom:.4rem"><input type="text" class="pf-opt" placeholder="Seçenek 1" style="flex:1;background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:5px 8px;font-size:.82rem;border-radius:3px;font-family:inherit"><button onclick="removePollOpt(this)" style="background:none;border:1px solid #374151;color:#9ca3af;cursor:pointer;border-radius:3px;padding:2px 9px;font-size:.8rem">✕</button></div>
+          <div class="pf-opt-row" style="display:flex;gap:.5rem;margin-bottom:.4rem"><input type="text" class="pf-opt" placeholder="Seçenek 2" style="flex:1;background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:5px 8px;font-size:.82rem;border-radius:3px;font-family:inherit"><button onclick="removePollOpt(this)" style="background:none;border:1px solid #374151;color:#9ca3af;cursor:pointer;border-radius:3px;padding:2px 9px;font-size:.8rem">✕</button></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+        <label style="display:flex;flex-direction:column;gap:.25rem;font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">
+          Başlangıç (opsiyonel)<input type="datetime-local" id="pf-starts" style="background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:5px 8px;font-size:.78rem;border-radius:3px">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:.25rem;font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">
+          Bitiş (opsiyonel)<input type="datetime-local" id="pf-expires" style="background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:5px 8px;font-size:.78rem;border-radius:3px">
+        </label>
+      </div>
+      <div style="display:flex;gap:.75rem;align-items:center">
+        <button onclick="savePoll()" style="padding:6px 20px;background:#E30A17;border:none;color:#fff;font-size:.8rem;font-weight:700;cursor:pointer;border-radius:3px">Oluştur</button>
+        <button onclick="togglePollForm()" style="padding:6px 14px;background:#1f2937;border:1px solid #374151;color:#d1d5db;font-size:.78rem;cursor:pointer;border-radius:3px">İptal</button>
+        <span id="pf-msg" style="font-size:.75rem;color:#4ade80"></span>
+      </div>
+    </div>
+    ${polls.length === 0
+      ? '<div style="padding:2rem;text-align:center;color:#6b7280;font-size:.82rem">Henüz anket yok — yukarıdan yeni anket oluşturun.</div>'
+      : `<table><thead><tr>
+          <th>Soru</th><th>Site</th><th style="text-align:center">Seçenek</th><th>Başlangıç</th><th>Bitiş</th><th style="text-align:center">Durum</th><th class="r">Oy</th><th></th>
+        </tr></thead><tbody>${pollTableRows}</tbody></table>`
+    }
+  </div>`;
+
   const badgeSections = GROUP_ORDER.filter(t => badgeGroups[t]?.length).map(t => {
     const grp = BADGE_GROUP_LABELS[t] || { label: t, color: '#9ca3af' };
     const sorted = sortByDifficulty(badgeGroups[t], t);
@@ -10930,6 +11068,8 @@ ${nav}
     ${badgeSections}
   </div>
 
+  ${pollsSection}
+
   <!-- Recent Events -->
   <div style="background:#111;border:1px solid #1f2937;border-radius:6px;overflow:hidden">
     <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
@@ -10977,6 +11117,69 @@ async function saveAction(id) {
   });
   if (res.ok) { msg.style.color = '#4ade80'; msg.textContent = 'Kaydedildi!'; setTimeout(() => location.reload(), 800); }
   else        { msg.style.color = '#f87171'; msg.textContent = 'Hata!'; }
+}
+function togglePollForm() {
+  const f = document.getElementById('pollForm');
+  f.style.display = f.style.display === 'none' ? '' : 'none';
+}
+function addPollOption() {
+  const container = document.getElementById('pf-options');
+  const count = container.querySelectorAll('.pf-opt-row').length + 1;
+  if (count > 6) return;
+  const row = document.createElement('div');
+  row.className = 'pf-opt-row';
+  row.style.cssText = 'display:flex;gap:.5rem;margin-bottom:.4rem';
+  row.innerHTML = '<input type="text" class="pf-opt" placeholder="Seçenek ' + count + '" style="flex:1;background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:5px 8px;font-size:.82rem;border-radius:3px;font-family:inherit"><button onclick="removePollOpt(this)" style="background:none;border:1px solid #374151;color:#9ca3af;cursor:pointer;border-radius:3px;padding:2px 9px;font-size:.8rem">✕</button>';
+  container.appendChild(row);
+}
+function removePollOpt(btn) {
+  const rows = document.querySelectorAll('.pf-opt-row');
+  if (rows.length <= 2) return;
+  btn.closest('.pf-opt-row').remove();
+}
+async function savePoll() {
+  const msg = document.getElementById('pf-msg');
+  msg.style.color = '#9ca3af'; msg.textContent = 'Kaydediliyor…';
+  const question = document.getElementById('pf-question').value.trim();
+  const options = [...document.querySelectorAll('.pf-opt')].map(i => i.value.trim()).filter(Boolean);
+  const site_id = document.getElementById('pf-site').value;
+  const active = document.getElementById('pf-active').checked;
+  const starts_raw = document.getElementById('pf-starts').value;
+  const expires_raw = document.getElementById('pf-expires').value;
+  if (!question) { msg.style.color='#f87171'; msg.textContent='Soru gerekli'; return; }
+  if (options.length < 2) { msg.style.color='#f87171'; msg.textContent='En az 2 seçenek gerekli'; return; }
+  const res = await fetch('/admin/gamification/save-poll', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      question, options, site_id, active,
+      starts_at: starts_raw ? new Date(starts_raw).toISOString() : null,
+      expires_at: expires_raw ? new Date(expires_raw).toISOString() : null,
+    }),
+  });
+  if (res.ok) { msg.style.color='#4ade80'; msg.textContent='Oluşturuldu!'; setTimeout(() => location.reload(), 800); }
+  else { msg.style.color='#f87171'; msg.textContent='Hata!'; }
+}
+async function togglePollActive(id, newActive) {
+  const res = await fetch('/admin/gamification/toggle-poll', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, active: newActive }),
+  });
+  if (res.ok) location.reload();
+}
+function showPollResults(id) {
+  const row = document.getElementById('pr-' + id);
+  if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+async function deletePoll(id) {
+  if (!confirm('Anketi ve tüm oyları sil?')) return;
+  const res = await fetch('/admin/gamification/delete-poll', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  if (res.ok) location.reload();
 }
 </script>
 </body>

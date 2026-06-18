@@ -14,9 +14,10 @@ export async function onRequest({ request, env }) {
 
   const user = await getUser(request, env);
 
+  const now = new Date().toISOString();
   const polls = await sbGet(
     env,
-    `polls?site_id=eq.${site_id}&active=eq.true&order=created_at.desc&limit=5&select=*`
+    `polls?site_id=eq.${site_id}&active=eq.true&and=(or(starts_at.is.null,starts_at.lte.${now}),or(expires_at.is.null,expires_at.gte.${now}))&order=created_at.desc&limit=5&select=*`
   );
 
   if (!polls.length) return json({ polls: [] });
