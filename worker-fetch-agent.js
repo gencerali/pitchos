@@ -66,6 +66,12 @@ const NEXT_MATCH = {
 };
 
 const ALLOWED_ORIGINS = new Set(['https://kartalix.com', 'https://app.kartalix.com', 'https://www.kartalix.com']);
+const EMOTION_KEYS = ['atesli', 'mutlu', 'uzgun', 'kizgin', 'hayal_kirikligi'];
+function countEmotions(rows) {
+  const out = {};
+  for (const k of EMOTION_KEYS) out[k] = (rows||[]).filter(r => r.reaction === k).length;
+  return out;
+}
 function corsOrigin(request) {
   const o = request.headers.get('Origin') || '';
   return ALLOWED_ORIGINS.has(o) ? o : 'https://kartalix.com';
@@ -306,18 +312,16 @@ export default {
           { article_slug: slug, reaction, ip_hash, ...(react_user_id ? { user_id: react_user_id } : {}) });
         const rows = await supabase(env, 'GET',
           `/rest/v1/article_reactions?article_slug=eq.${encodeURIComponent(slug)}&select=reaction`);
-        const likes    = (rows||[]).filter(r => r.reaction === 'like').length;
-        const dislikes = (rows||[]).filter(r => r.reaction === 'dislike').length;
-        return Response.json({ likes, dislikes }, { headers });
+        const rxn = countEmotions(rows);
+        return Response.json({ reactions: rxn }, { headers });
       } else {
         await supabase(env, 'DELETE',
           `/rest/v1/article_reactions?article_url=eq.${encodeURIComponent(legacy_url)}&ip_hash=eq.${encodeURIComponent(ip_hash)}`);
         if (reaction) await supabase(env, 'POST', '/rest/v1/article_reactions', { article_url: legacy_url, reaction, ip_hash });
         const rows = await supabase(env, 'GET',
           `/rest/v1/article_reactions?article_url=eq.${encodeURIComponent(legacy_url)}&select=reaction`);
-        const likes    = (rows||[]).filter(r => r.reaction === 'like').length;
-        const dislikes = (rows||[]).filter(r => r.reaction === 'dislike').length;
-        return Response.json({ likes, dislikes }, { headers });
+        const rxn = countEmotions(rows);
+        return Response.json({ reactions: rxn }, { headers });
       }
     }
 
@@ -412,9 +416,8 @@ export default {
         supabase(env, 'GET',
           `/rest/v1/article_reactions?${reactionFilter}&select=reaction`),
       ]);
-      const likes    = (reactions||[]).filter(r => r.reaction === 'like').length;
-      const dislikes = (reactions||[]).filter(r => r.reaction === 'dislike').length;
-      return Response.json({ comments: comments||[], likes, dislikes }, { headers });
+      const rxn = countEmotions(reactions);
+      return Response.json({ comments: comments||[], reactions: rxn }, { headers });
     }
 
     // Public user profile — for leaderboard / comment section profile links
@@ -12733,7 +12736,7 @@ ${nav}
         <li><span class="rtag next">todo</span> <strong>3.5</strong> Guest commenting — verify name/surname flow end-to-end after slug migration</li>
         <li><span class="rtag next">todo</span> <strong>3.6</strong> Content moderation Layer 1 — client-side Turkish swear word blocklist (~50 terms)</li>
         <li><span class="rtag next">todo</span> <strong>3.7</strong> Content moderation Layer 2 — server-side Claude Haiku toxicity check on <code>/comment</code> POST (<code>max_tokens:5</code>, ~$0.03/1k comments)</li>
-        <li><span class="rtag next">todo</span> <strong>3.8</strong> Emotion reactions — expand <code>article_reactions.reaction</code> to 5 values (ateşli, mutlu, kızgın, üzgün, hayal_kirikligi); update SPA UI</li>
+        <li><span class="rtag fix">done</span> <strong>3.8</strong> Emotion reactions — 5 values (🔥 ateşli · 😄 mutlu · 💔 üzgün · 😡 kızgın · 🤦 hayal_kirikligi); <code>/react</code> + <code>/comments</code> return <code>reactions</code> object; SPA UI updated (modal + article view); comment-level like/dislike unchanged</li>
         <li><span class="rtag next">todo</span> <strong>3.9</strong> Taraftar Nabzı — aggregation endpoint <code>/api/sentiment</code>; article sidebar widget showing emotion breakdown; threshold-based editorial conclusions</li>
       </ul>
       <h4>Phase 4 — Tribün / Community Features</h4>

@@ -1259,6 +1259,8 @@
       font-size: 0.78rem; cursor: pointer; padding: 0.25rem;
       text-decoration: underline; text-underline-offset: 3px;
     }
+    .rxn-btn{display:flex;align-items:center;gap:.35rem;background:rgba(255,255,255,.04);border:1px solid #2a2a2a;color:#666;padding:.38rem .8rem;border-radius:999px;cursor:pointer;font-size:.78rem;font-weight:600;font-family:'Barlow Condensed',sans-serif;letter-spacing:.03em;transition:background .15s,border-color .15s,color .15s}
+    .rxn-btn:hover{border-color:#444;color:#aaa}
   </style>
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-3QK6G366J3"></script>
@@ -1530,13 +1532,12 @@
       <div class="modal-sources" id="modalSources"></div>
 
       <!-- Reactions -->
-      <div class="reactions" style="display:flex;gap:1rem;padding:1rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:1.5rem 0">
-        <button id="btn-like" onclick="react('like')" style="display:flex;align-items:center;gap:0.5rem;background:#0d2a1a;border:1px solid #166534;color:#4ade80;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">
-          👍 <span id="like-count">0</span>
-        </button>
-        <button id="btn-dislike" onclick="react('dislike')" style="display:flex;align-items:center;gap:0.5rem;background:#2e0d0d;border:1px solid #7f1d1d;color:#f87171;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">
-          👎 <span id="dislike-count">0</span>
-        </button>
+      <div class="reactions" style="display:flex;gap:.4rem;flex-wrap:wrap;padding:1rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:1.5rem 0">
+        <button class="rxn-btn" id="btn-atesli" onclick="react('atesli')">🔥 <span>Ateşli</span> <span id="count-atesli">0</span></button>
+        <button class="rxn-btn" id="btn-mutlu" onclick="react('mutlu')">😄 <span>Mutlu</span> <span id="count-mutlu">0</span></button>
+        <button class="rxn-btn" id="btn-uzgun" onclick="react('uzgun')">💔 <span>Üzgün</span> <span id="count-uzgun">0</span></button>
+        <button class="rxn-btn" id="btn-kizgin" onclick="react('kizgin')">😡 <span>Kızgın</span> <span id="count-kizgin">0</span></button>
+        <button class="rxn-btn" id="btn-hayal_kirikligi" onclick="react('hayal_kirikligi')">🤦 <span>Hayal Kr.</span> <span id="count-hayal_kirikligi">0</span></button>
       </div>
 
       <!-- Comments -->
@@ -2067,9 +2068,12 @@
           : `<span>Bu içerik <strong style="color:#888">${esc(source||'Kartalix')}</strong> tarafından üretildi.</span>`}
       </div>
 
-      <div class="av-reactions av-slide-in" style="max-width:720px;margin:0 auto;padding:1rem 1.5rem;display:flex;gap:0.75rem;border-top:1px solid #1A1A1A">
-        <button id="av-btn-like" onclick="avReact('like')" style="display:flex;align-items:center;gap:0.5rem;background:#0d2a1a;border:1px solid #166534;color:#4ade80;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">👍 <span id="av-like-count">0</span></button>
-        <button id="av-btn-dislike" onclick="avReact('dislike')" style="display:flex;align-items:center;gap:0.5rem;background:#2e0d0d;border:1px solid #7f1d1d;color:#f87171;padding:0.5rem 1.25rem;border-radius:999px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:all 0.15s">👎 <span id="av-dislike-count">0</span></button>
+      <div class="av-reactions av-slide-in" style="max-width:720px;margin:0 auto;padding:1rem 1.5rem;display:flex;gap:.4rem;flex-wrap:wrap;border-top:1px solid #1A1A1A">
+        <button class="rxn-btn" id="av-btn-atesli" onclick="avReact('atesli')">🔥 <span>Ateşli</span> <span id="av-count-atesli">0</span></button>
+        <button class="rxn-btn" id="av-btn-mutlu" onclick="avReact('mutlu')">😄 <span>Mutlu</span> <span id="av-count-mutlu">0</span></button>
+        <button class="rxn-btn" id="av-btn-uzgun" onclick="avReact('uzgun')">💔 <span>Üzgün</span> <span id="av-count-uzgun">0</span></button>
+        <button class="rxn-btn" id="av-btn-kizgin" onclick="avReact('kizgin')">😡 <span>Kızgın</span> <span id="av-count-kizgin">0</span></button>
+        <button class="rxn-btn" id="av-btn-hayal_kirikligi" onclick="avReact('hayal_kirikligi')">🤦 <span>Hayal Kr.</span> <span id="av-count-hayal_kirikligi">0</span></button>
       </div>
 
       <div class="av-comments av-slide-in" style="max-width:720px;margin:0 auto;padding:1.25rem 1.5rem;border-top:1px solid #1A1A1A">
@@ -2922,10 +2926,32 @@
     else localStorage.setItem(key, reaction);
   }
 
+  const EMOTIONS = [
+    { key: 'atesli',          emoji: '🔥', label: 'Ateşli',    color: '#f97316' },
+    { key: 'mutlu',           emoji: '😄', label: 'Mutlu',     color: '#22c55e' },
+    { key: 'uzgun',           emoji: '💔', label: 'Üzgün',     color: '#60a5fa' },
+    { key: 'kizgin',          emoji: '😡', label: 'Kızgın',    color: '#ef4444' },
+    { key: 'hayal_kirikligi', emoji: '🤦', label: 'Hayal Kr.', color: '#9ca3af' },
+  ];
+  function updateEmotionButtons(prefix, active) {
+    for (const e of EMOTIONS) {
+      const btn = document.getElementById(`${prefix}btn-${e.key}`);
+      if (!btn) continue;
+      btn.style.background = active === e.key ? e.color + '22' : 'rgba(255,255,255,.04)';
+      btn.style.borderColor = active === e.key ? e.color : '#2a2a2a';
+      btn.style.color       = active === e.key ? e.color : '#666';
+    }
+  }
+  function updateRxnCounts(prefix, rxn) {
+    for (const e of EMOTIONS) {
+      const el = document.getElementById(`${prefix}count-${e.key}`);
+      if (el) el.textContent = (rxn && rxn[e.key]) || 0;
+    }
+  }
+
   async function loadReactions(article) {
     _currentArticle = article;
-    document.getElementById('like-count').textContent = 0;
-    document.getElementById('dislike-count').textContent = 0;
+    updateRxnCounts('', {});
     document.getElementById('comment-count').textContent = '';
     document.getElementById('comments-list').innerHTML = '';
     document.getElementById('comment-msg').textContent = '';
@@ -2935,9 +2961,8 @@
       const res = await fetch(`https://kartalix.com/comments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ article_url: articleUrl }) });
       const data = await res.json();
 
-      document.getElementById('like-count').textContent = data.likes || 0;
-      document.getElementById('dislike-count').textContent = data.dislikes || 0;
-      updateReactionButtons(getUserReaction(_currentArticle));
+      updateRxnCounts('', data.reactions);
+      updateEmotionButtons('', getUserReaction(_currentArticle));
 
       const comments = data.comments || [];
       document.getElementById('comment-count').textContent = `(${comments.length})`;
@@ -2981,8 +3006,7 @@
       });
       const data = await res.json();
       setUserReaction(_currentArticle, newReaction);
-      document.getElementById('av-like-count').textContent = data.likes || 0;
-      document.getElementById('av-dislike-count').textContent = data.dislikes || 0;
+      updateRxnCounts('av-', data.reactions);
       updateAvReactionButtons(newReaction);
       if (newReaction && window.kxToken && _currentArticle?.slug) {
         fetch('/api/xp/react', {
@@ -2994,25 +3018,12 @@
     } catch(e) {}
   }
 
-  function updateAvReactionButtons(active) {
-    const btnLike = document.getElementById('av-btn-like');
-    const btnDislike = document.getElementById('av-btn-dislike');
-    if (!btnLike) return;
-    btnLike.style.background = active === 'like' ? '#166534' : '#0d2a1a';
-    btnLike.style.color = active === 'like' ? '#fff' : '#4ade80';
-    btnLike.style.borderColor = active === 'like' ? '#22c55e' : '#166534';
-    btnDislike.style.background = active === 'dislike' ? '#7f1d1d' : '#2e0d0d';
-    btnDislike.style.color = active === 'dislike' ? '#fff' : '#f87171';
-    btnDislike.style.borderColor = active === 'dislike' ? '#ef4444' : '#7f1d1d';
-  }
+  function updateAvReactionButtons(active) { updateEmotionButtons('av-', active); }
 
   async function loadAvReactions(article) {
     _currentArticle = article;
-    const likeEl = document.getElementById('av-like-count');
-    const dislikeEl = document.getElementById('av-dislike-count');
-    if (!likeEl) return;
-    likeEl.textContent = 0;
-    dislikeEl.textContent = 0;
+    if (!document.getElementById('av-btn-atesli')) return;
+    updateRxnCounts('av-', {});
     const articleSlug = article.slug || '';
     const articleUrl  = article.url || article.original_url || '';
     if (!articleSlug && !articleUrl) return;
@@ -3024,8 +3035,7 @@
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      likeEl.textContent = data.likes || 0;
-      dislikeEl.textContent = data.dislikes || 0;
+      updateRxnCounts('av-', data.reactions);
       updateAvReactionButtons(getUserReaction(_currentArticle));
 
       const comments = data.comments || [];
@@ -3157,19 +3167,7 @@
     btn.disabled = false;
   }
 
-  function updateReactionButtons(active) {
-    const btnLike = document.getElementById('btn-like');
-    const btnDislike = document.getElementById('btn-dislike');
-    if (!btnLike || !btnDislike) return;
-
-    btnLike.style.background = active === 'like' ? '#166534' : '#0d2a1a';
-    btnLike.style.color = active === 'like' ? '#fff' : '#4ade80';
-    btnLike.style.borderColor = active === 'like' ? '#22c55e' : '#166534';
-
-    btnDislike.style.background = active === 'dislike' ? '#7f1d1d' : '#2e0d0d';
-    btnDislike.style.color = active === 'dislike' ? '#fff' : '#f87171';
-    btnDislike.style.borderColor = active === 'dislike' ? '#ef4444' : '#7f1d1d';
-  }
+  function updateReactionButtons(active) { updateEmotionButtons('', active); }
 
   async function react(type) {
     if (!_currentArticle) return;
@@ -3180,17 +3178,14 @@
       const res = await fetch('https://kartalix.com/react', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({
-          article_url: _currentArticle.url || _currentArticle.original_url,
-          reaction: newReaction,
-          previous: current,
-        })
+        body: JSON.stringify(_currentArticle.slug
+          ? { article_slug: _currentArticle.slug, reaction: newReaction }
+          : { article_url: _currentArticle.url || _currentArticle.original_url, reaction: newReaction }),
       });
       const data = await res.json();
       setUserReaction(_currentArticle, newReaction);
-      document.getElementById('like-count').textContent = data.likes || 0;
-      document.getElementById('dislike-count').textContent = data.dislikes || 0;
-      updateReactionButtons(newReaction);
+      updateRxnCounts('', data.reactions);
+      updateEmotionButtons('', newReaction);
       if (newReaction && window.kxToken && _currentArticle?.slug) {
         fetch('/api/xp/react', {
           method: 'POST',
