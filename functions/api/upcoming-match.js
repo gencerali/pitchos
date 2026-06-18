@@ -1,45 +1,83 @@
 // Returns the next scheduled fixture for predictions in tribün.
 // Uses ESPN's unofficial public API — no key required.
-// Priority: 1) admin manual override (KV), 2) next Beşiktaş game, 3) next Turkey national team game.
+// Searches scoreboard by team name so ESPN internal IDs don't matter.
+// Priority: 1) admin manual override (KV), 2) next Turkey national team game, 3) next Beşiktaş game.
 
 import { err, corsHeaders } from './_shared/auth.js';
 
-const CACHE_TTL  = 60 * 60; // 1 hour
-const ESPN_BASE  = 'https://site.api.espn.com/apis/site/v2/sports/soccer';
+const CACHE_TTL = 60 * 60; // 1 hour
+const ESPN_BASE = 'https://site.api.espn.com/apis/site/v2/sports/soccer';
 
-// Env vars override these defaults (set in Cloudflare dashboard if IDs change)
-const BJK_LEAGUE      = 'tur.1';
-const BJK_ESPN_ID     = '3886';    // Beşiktaş JK — Turkish Super Lig
-const TURKEY_LEAGUE   = 'fifa.world';
-const TURKEY_ESPN_ID  = '221';     // Turkey national team — FIFA World Cup
+// Team name fragments to match (case-insensitive)
+const TURKEY_NAMES = ['türkiye', 'turkey'];
+const TURKEY_ABBR  = 'TUR';
+const BJK_NAMES    = ['beşiktaş', 'besiktas'];
+const BJK_ABBR     = 'BJK';
 
-async function fetchNextESPNFixture(league, teamId) {
-  const res = await fetch(`${ESPN_BASE}/${league}/teams/${teamId}/schedule`);
-  if (!res.ok) return null;
-  const data = await res.json();
+// Leagues to search in, ordered by priority per team
+const TURKEY_LEAGUES = ['fifa.world', 'uefa.euro_qualifying', 'uefa.nations', 'intl.friendlies.m'];
+const BJK_LEAGUES    = ['tur.1', 'uefa.el', 'uefa.ucl'];
+
+function teamMatches(competitor, names, abbr) {
+  const n = (competitor.team?.displayName ?? '').toLowerCase();
+  const a = (competitor.team?.abbreviation ?? '').toUpperCase();
+  return names.some(name => n.includes(name)) || a === abbr;
+}
+
+// Scan a league's scoreboard day by day, looking for the first future game
+// involving the target team (identified by name/abbreviation, not ESPN ID).
+async function scanScoreboard(league, names, abbr, maxDays = 45) {
   const now = Date.now();
-  return (data?.events ?? []).find(e => {
-    const state   = e.competitions?.[0]?.status?.type?.state;
-    const kickoff = new Date(e.date).getTime();
-    return state === 'pre' && kickoff > now;
-  }) ?? null;
+
+  for (let i = 0; i <= maxDays; i++) {
+    const dateStr = new Date(now + i * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
+    let res, data;
+    try {
+      res  = await fetch(`${ESPN_BASE}/${league}/scoreboard?dates=${dateStr}`);
+      if (!res.ok) return null;
+      data = await res.json();
+    } catch (_) { return null; }
+
+    const events = data?.events ?? [];
+
+    // Stop early if off-season (no events for 7+ consecutive days)
+    if (events.length === 0 && i >= 7) return null;
+
+    for (const event of events) {
+      if (new Date(event.date).getTime() <= now) continue;
+      const comps = event.competitions?.[0]?.competitors ?? [];
+      if (comps.some(c => teamMatches(c, names, abbr))) return event;
+    }
+  }
+  return null;
+}
+
+// Try every league in the list and return the soonest future event found.
+async function fetchNextEventForTeam(leagues, names, abbr) {
+  for (const league of leagues) {
+    const event = await scanScoreboard(league, names, abbr);
+    if (event) return event;
+  }
+  return null;
 }
 
 function espnEventToMatch(event) {
-  const comp = event.competitions[0];
-  const home = comp.competitors.find(c => c.homeAway === 'home');
-  const away = comp.competitors.find(c => c.homeAway === 'away');
+  const comp        = event.competitions?.[0] ?? {};
+  const competitors = comp.competitors ?? [];
+  const home = competitors.find(c => c.homeAway === 'home') ?? competitors[0] ?? {};
+  const away = competitors.find(c => c.homeAway === 'away') ?? competitors[1] ?? {};
+
   return {
-    match_id:     event.id,
+    match_id:     String(event.id),
     kickoff_utc:  event.date,
-    home_team:    home?.team?.displayName ?? '',
-    home_team_id: home?.team?.id ?? null,
-    away_team:    away?.team?.displayName ?? '',
-    away_team_id: away?.team?.id ?? null,
-    home_logo:    home?.team?.logo ?? null,
-    away_logo:    away?.team?.logo ?? null,
+    home_team:    home.team?.displayName ?? '',
+    home_team_id: home.team?.id ?? null,
+    away_team:    away.team?.displayName ?? '',
+    away_team_id: away.team?.id ?? null,
+    home_logo:    home.team?.logo ?? null,
+    away_logo:    away.team?.logo ?? null,
     league_name:  event.league?.name ?? null,
-    round:        comp.series?.description ?? comp.status?.type?.detail ?? null,
+    round:        comp.series?.description ?? comp.status?.type?.shortDetail ?? null,
     venue:        comp.venue?.fullName ?? null,
   };
 }
@@ -59,7 +97,7 @@ export async function onRequest({ request, env }) {
   }
 
   // 2. KV cache
-  const cacheKey = `upcoming-match:espn:v1:${BJK_ESPN_ID}+${TURKEY_ESPN_ID}`;
+  const cacheKey = 'upcoming-match:espn:v2';
   if (env.PITCHOS_CACHE) {
     const cached = await env.PITCHOS_CACHE.get(cacheKey);
     if (cached) {
@@ -69,26 +107,24 @@ export async function onRequest({ request, env }) {
     }
   }
 
-  // 3. Fetch BJK and Turkey in parallel; pick whichever is soonest
-  const bjkLeague    = env.ESPN_BJK_LEAGUE    ?? BJK_LEAGUE;
-  const bjkId        = env.ESPN_BJK_ID        ?? BJK_ESPN_ID;
-  const turkeyLeague = env.ESPN_TURKEY_LEAGUE ?? TURKEY_LEAGUE;
-  const turkeyId     = env.ESPN_TURKEY_ID     ?? TURKEY_ESPN_ID;
+  // 3. Search ESPN scoreboard — Turkey first (World Cup), then BJK (Super Lig)
+  const turkeyLeagues = (env.ESPN_TURKEY_LEAGUES ?? TURKEY_LEAGUES.join(',')).split(',');
+  const bjkLeagues    = (env.ESPN_BJK_LEAGUES    ?? BJK_LEAGUES.join(',')).split(',');
 
-  const [bjkEvent, turkeyEvent] = await Promise.all([
-    fetchNextESPNFixture(bjkLeague, bjkId).catch(() => null),
-    fetchNextESPNFixture(turkeyLeague, turkeyId).catch(() => null),
+  const [turkeyEvent, bjkEvent] = await Promise.all([
+    fetchNextEventForTeam(turkeyLeagues, TURKEY_NAMES, TURKEY_ABBR).catch(() => null),
+    fetchNextEventForTeam(bjkLeagues,    BJK_NAMES,    BJK_ABBR).catch(() => null),
   ]);
 
   let match = null;
-  if (bjkEvent && turkeyEvent) {
-    const bjkTime    = new Date(bjkEvent.date).getTime();
-    const turkeyTime = new Date(turkeyEvent.date).getTime();
-    match = espnEventToMatch(bjkTime <= turkeyTime ? bjkEvent : turkeyEvent);
-  } else if (bjkEvent) {
-    match = espnEventToMatch(bjkEvent);
+  if (turkeyEvent && bjkEvent) {
+    const t = new Date(turkeyEvent.date).getTime();
+    const b = new Date(bjkEvent.date).getTime();
+    match = espnEventToMatch(t <= b ? turkeyEvent : bjkEvent);
   } else if (turkeyEvent) {
     match = espnEventToMatch(turkeyEvent);
+  } else if (bjkEvent) {
+    match = espnEventToMatch(bjkEvent);
   }
 
   const responseBody = JSON.stringify({ match });
