@@ -26,6 +26,7 @@ function teamMatches(competitor, names, abbr) {
 
 // Scan a league's scoreboard day by day, looking for the first future game
 // involving the target team (identified by name/abbreviation, not ESPN ID).
+// Returns { event, teamId, league } so the caller knows which ESPN team was matched.
 async function scanScoreboard(league, names, abbr, maxDays = 45) {
   const now = Date.now();
 
@@ -46,39 +47,43 @@ async function scanScoreboard(league, names, abbr, maxDays = 45) {
     for (const event of events) {
       if (new Date(event.date).getTime() <= now) continue;
       const comps = event.competitions?.[0]?.competitors ?? [];
-      if (comps.some(c => teamMatches(c, names, abbr))) return event;
+      const matched = comps.find(c => teamMatches(c, names, abbr));
+      if (matched) return { event, league, teamId: matched.team?.id ?? null };
     }
   }
   return null;
 }
 
-// Try every league in the list and return the soonest future event found.
+// Try every league in the list; return the first result found.
 async function fetchNextEventForTeam(leagues, names, abbr) {
   for (const league of leagues) {
-    const event = await scanScoreboard(league, names, abbr);
-    if (event) return event;
+    const result = await scanScoreboard(league, names, abbr);
+    if (result) return result;
   }
   return null;
 }
 
-function espnEventToMatch(event) {
+function espnEventToMatch({ event, league, teamId }) {
   const comp        = event.competitions?.[0] ?? {};
   const competitors = comp.competitors ?? [];
   const home = competitors.find(c => c.homeAway === 'home') ?? competitors[0] ?? {};
   const away = competitors.find(c => c.homeAway === 'away') ?? competitors[1] ?? {};
 
   return {
-    match_id:     String(event.id),
-    kickoff_utc:  event.date,
-    home_team:    home.team?.displayName ?? '',
-    home_team_id: home.team?.id ?? null,
-    away_team:    away.team?.displayName ?? '',
-    away_team_id: away.team?.id ?? null,
-    home_logo:    home.team?.logo ?? null,
-    away_logo:    away.team?.logo ?? null,
-    league_name:  event.league?.name ?? null,
-    round:        comp.series?.description ?? comp.status?.type?.shortDetail ?? null,
-    venue:        comp.venue?.fullName ?? null,
+    match_id:       String(event.id),
+    kickoff_utc:    event.date,
+    home_team:      home.team?.displayName ?? '',
+    home_team_id:   home.team?.id ?? null,
+    away_team:      away.team?.displayName ?? '',
+    away_team_id:   away.team?.id ?? null,
+    home_logo:      home.team?.logo ?? null,
+    away_logo:      away.team?.logo ?? null,
+    league_name:    event.league?.name ?? null,
+    round:          comp.series?.description ?? comp.status?.type?.shortDetail ?? null,
+    venue:          comp.venue?.fullName ?? null,
+    // Squad params — tells the front-end which team's roster to fetch
+    squad_espn_id:  teamId,
+    squad_league:   league,
   };
 }
 
@@ -111,20 +116,20 @@ export async function onRequest({ request, env }) {
   const turkeyLeagues = (env.ESPN_TURKEY_LEAGUES ?? TURKEY_LEAGUES.join(',')).split(',');
   const bjkLeagues    = (env.ESPN_BJK_LEAGUES    ?? BJK_LEAGUES.join(',')).split(',');
 
-  const [turkeyEvent, bjkEvent] = await Promise.all([
+  const [turkeyResult, bjkResult] = await Promise.all([
     fetchNextEventForTeam(turkeyLeagues, TURKEY_NAMES, TURKEY_ABBR).catch(() => null),
     fetchNextEventForTeam(bjkLeagues,    BJK_NAMES,    BJK_ABBR).catch(() => null),
   ]);
 
   let match = null;
-  if (turkeyEvent && bjkEvent) {
-    const t = new Date(turkeyEvent.date).getTime();
-    const b = new Date(bjkEvent.date).getTime();
-    match = espnEventToMatch(t <= b ? turkeyEvent : bjkEvent);
-  } else if (turkeyEvent) {
-    match = espnEventToMatch(turkeyEvent);
-  } else if (bjkEvent) {
-    match = espnEventToMatch(bjkEvent);
+  if (turkeyResult && bjkResult) {
+    const t = new Date(turkeyResult.event.date).getTime();
+    const b = new Date(bjkResult.event.date).getTime();
+    match = espnEventToMatch(t <= b ? turkeyResult : bjkResult);
+  } else if (turkeyResult) {
+    match = espnEventToMatch(turkeyResult);
+  } else if (bjkResult) {
+    match = espnEventToMatch(bjkResult);
   }
 
   const responseBody = JSON.stringify({ match });

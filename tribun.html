@@ -1101,7 +1101,12 @@
       }
     } catch (e) { /* fall through */ }
 
-    var squadData = await fetch('/api/squad')
+    var squadUrl = '/api/squad';
+    if (_match?.squad_espn_id && _match?.squad_league) {
+      squadUrl += '?team_id=' + encodeURIComponent(_match.squad_espn_id) +
+                  '&league='  + encodeURIComponent(_match.squad_league);
+    }
+    var squadData = await fetch(squadUrl)
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; });
 
