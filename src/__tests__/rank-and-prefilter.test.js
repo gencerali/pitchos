@@ -72,6 +72,14 @@ describe('isRivalSubject — deterministic rival guard', () => {
     expect(isRivalSubject('Beşiktaş transfer haberi')).toBe(false);
     expect(isRivalSubject('Milli takım kampa girdi')).toBe(false);
   });
+  it('flags a rival-led title where the only "BJK" token is a surname (İsmail Kartal)', () => {
+    // Regression: bare "kartal" (coach surname) must NOT count as a Beşiktaş angle. (2026-06-18)
+    expect(isRivalSubject("Fenerbahçe'de İsmail Kartal dönemi resmen başlıyor")).toBe(true);
+  });
+  it('still spares a real BJK-vs-rival story (unambiguous Beşiktaş signal)', () => {
+    expect(isRivalSubject("Beşiktaş, Fenerbahçe'nin yıldızını istiyor")).toBe(false);
+    expect(isRivalSubject('BJK, Galatasaraylı oyuncuyu transfer etti')).toBe(false);
+  });
 });
 
 describe('rankAndEvict — homepage composition', () => {

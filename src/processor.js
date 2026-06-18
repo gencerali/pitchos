@@ -10,16 +10,24 @@ const RIVAL_KEYWORDS = [
   'cimbom', 'sarı-lacivert', 'sari-lacivert', 'sarı-kırmızı', 'sari-kirmizi', 'bordo-mavi',
 ];
 
+// Unambiguous Beşiktaş references for the rival-guard exception below. Bare singular "kartal"
+// is deliberately EXCLUDED here: it collides with common Turkish surnames (e.g. Fenerbahçe
+// coach "İsmail Kartal"), which let a rival-led story bypass this guard — published 2026-06-18
+// ("Fenerbahçe'de İsmail Kartal dönemi resmen başlıyor"). "kara kartal" and "kartallar"
+// (the eagles / the fans) are unambiguous and remain valid BJK signals.
+const BJK_ANGLE_RE = /beşiktaş|besiktas|\bbjk\b|siyah.?beyaz|kara kartal|kartallar/i;
+
 // True when an article TITLE is led by a rival club AND carries no BJK keyword in the title
 // — i.e. a rival-internal story (board election, rival-only transfer) with no Beşiktaş angle.
 // Deterministic backstop: the LLM relevance scorer alone has let these through
 // (e.g. a Fenerbahçe genel-kurul article published on the BJK site, 2026-06-06).
 export function isRivalSubject(title) {
   // Substring match (not token) so Turkish suffixes still match: "Fenerbahçe'de" → fenerbahçe.
-  // BJK side uses BJK_REGEX (also suffix-tolerant) so any Beşiktaş angle spares the article.
+  // A genuine Beşiktaş angle spares the article — but only on an UNAMBIGUOUS signal (BJK_ANGLE_RE),
+  // never on the bare word "kartal", which is too easily a person's surname.
   const t = (title || '').toLowerCase();
   const hasRival = RIVAL_KEYWORDS.some(k => t.includes(k));
-  return hasRival && !BJK_REGEX.test(t);
+  return hasRival && !BJK_ANGLE_RE.test(t);
 }
 
 // ─── PRE-FILTER (pure JS, zero Claude calls) ─────────────────
