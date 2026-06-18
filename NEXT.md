@@ -83,6 +83,33 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ---
 
+## Known Failing Tests (pre-existing, unrelated to Phase 4)
+
+All 5 failures are in `src/__tests__/gamification-xp-engine.test.js`.
+**Root cause:** `checkBadges()` in `xp.js` was expanded after the tests were written —
+it now issues more `user_badges` existence-check fetches than the test's fetch-queue
+helper (`enqueueTail`) was set up to handle. The tests assert correct behaviour but
+don't enqueue enough mock responses, so the queue runs dry and throws
+`"Unexpected fetch call: …/user_badges?…"`.
+
+The production code is correct. Only the test fixtures need updating.
+
+| # | Test | Why it fails |
+|---|------|-------------|
+| 1 | `cap fallback (2.1) › awards cap_fallback_xp (1) when daily cap hit` | `checkBadges` checks `first_read` badge existence (1 read ≥ 1) — 1 extra `user_badges` GET not in queue |
+| 2 | `cap fallback (2.1) › awards full XP when under the cap` | Same — `first_read` threshold crossed at 3 reads, badge existence check not queued |
+| 3 | `articles_100 badge › does NOT award articles_100 at 99 reads` | At 99 reads: `first_read`, `articles_10`, `articles_25`, `articles_50` all qualify; `enqueueTail` only queued the count query, not the 4 badge existence checks |
+| 4 | `articles_100 badge › awards articles_100 badge at exactly 100 reads` | At 100 reads: `articles_10` badge existence check fires before `articles_100`; queue only pre-loaded the `articles_100` path |
+| 5 | `articles_100 badge › does NOT run article count check when action is not react_article` | Test assumed `react_article` skips `countMap`; it doesn't — `countMap` includes `react_article` for `reactor_10`/`reactor_50` badges, so a count query fires but no response was queued |
+
+**Fix:** Update `enqueueTail` in `gamification-xp-engine.test.js` to enqueue
+`user_badges` existence-check responses for every badge candidate that crosses
+its threshold at the given article/reaction count. Tests 3 & 4 also need the
+`setupForBadge` helper extended. Test 5 needs an extra reaction-count entry in
+its queue (or the test assertion rewritten to match the real `countMap`).
+
+---
+
 ## Gamification live criteria
 
 - [x] All Phase 2 shipped
