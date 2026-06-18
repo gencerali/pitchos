@@ -776,3 +776,136 @@ describe('/api/xp/evaluate-predictions — query filters', () => {
     expect(queryPath).toContain(`site_id=eq.${FAKE_SITE_ID}`);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Turkey vs Paraguay — upcoming real fixture scenario
+// api-football team IDs: Turkey = 272, Paraguay = 16
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TURKEY_PARAGUAY_ID = 1399001; // upcoming fixture (Turkey home, Paraguay away)
+
+function turkeyParaguayFixture(kickoffDate = FUTURE_KICKOFF) {
+  return {
+    response: [{
+      fixture: { id: TURKEY_PARAGUAY_ID, date: kickoffDate, status: { short: 'NS' } },
+      teams:   { home: { id: 272, name: 'Turkey' }, away: { id: 16, name: 'Paraguay' } },
+      league:  { name: 'Friendly', season: 2026 },
+    }],
+  };
+}
+
+const TURKEY_EXACT_PRED = {
+  id: 'pred-tr-1', user_id: 'user-tr', site_id: FAKE_SITE_ID,
+  match_id: TURKEY_PARAGUAY_ID, home_score: 2, away_score: 1,
+  xp_awarded: false, bonus_awarded: false,
+};
+const TURKEY_WRONG_PRED = {
+  id: 'pred-tr-2', user_id: 'user-tr-2', site_id: FAKE_SITE_ID,
+  match_id: TURKEY_PARAGUAY_ID, home_score: 0, away_score: 0,
+  xp_awarded: false, bonus_awarded: false,
+};
+
+describe('/api/xp/predict — Turkey vs Paraguay fixture', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getUser).mockResolvedValue(FAKE_USER);
+    vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
+  });
+
+  it('accepts a prediction before kickoff', async () => {
+    mockFootball(turkeyParaguayFixture(FUTURE_KICKOFF));
+    vi.mocked(sbGet).mockResolvedValueOnce([]);
+    vi.mocked(sbPost).mockResolvedValueOnce({});
+    vi.mocked(awardXP)
+      .mockResolvedValueOnce(PREDICT_XP)
+      .mockResolvedValueOnce(FIRST_PREDICT_CAPPED);
+
+    const res = await predictHandler({
+      request: predictReq({ match_id: TURKEY_PARAGUAY_ID, home_score: 2, away_score: 1 }),
+      env: makeEnv(),
+    });
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.prediction_saved).toBe(true);
+  });
+
+  it('rejects prediction within 5 min of kickoff', async () => {
+    mockFootball(turkeyParaguayFixture(IMMINENT_KICKOFF));
+    const res = await predictHandler({
+      request: predictReq({ match_id: TURKEY_PARAGUAY_ID, home_score: 1, away_score: 0 }),
+      env: makeEnv(),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects duplicate prediction for the same match', async () => {
+    mockFootball(turkeyParaguayFixture(FUTURE_KICKOFF));
+    vi.mocked(sbGet).mockResolvedValueOnce([{ id: 'existing-pred' }]);
+    const res = await predictHandler({
+      request: predictReq({ match_id: TURKEY_PARAGUAY_ID, home_score: 2, away_score: 0 }),
+      env: makeEnv(),
+    });
+    expect(res.status).toBe(409);
+  });
+});
+
+describe('/api/xp/evaluate-predictions — Turkey vs Paraguay result', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('awards exact bonus when Turkey wins 2-1 as predicted', async () => {
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([TURKEY_EXACT_PRED])
+      .mockResolvedValueOnce([]);
+    vi.mocked(sbPost).mockResolvedValueOnce({});
+    vi.mocked(sbPatch).mockResolvedValueOnce({});
+    vi.mocked(awardXP).mockResolvedValueOnce(BONUS_XP_RESULT);
+
+    const res = await evaluateHandler({
+      request: evaluateReq({
+        body: { match_id: TURKEY_PARAGUAY_ID, site_id: FAKE_SITE_ID, home_score: 2, away_score: 1 },
+      }),
+      env: makeEnv(),
+    });
+    const body = await json(res);
+    expect(res.status).toBe(200);
+    expect(body.results[0].exact).toBe(true);
+    expect(body.results[0].bonus_xp).toBe(100);
+  });
+
+  it('does not award bonus when final score differs from prediction', async () => {
+    vi.mocked(sbGet).mockResolvedValueOnce([TURKEY_WRONG_PRED]);
+    vi.mocked(sbPatch).mockResolvedValueOnce({});
+
+    const res = await evaluateHandler({
+      request: evaluateReq({
+        body: { match_id: TURKEY_PARAGUAY_ID, site_id: FAKE_SITE_ID, home_score: 2, away_score: 1 },
+      }),
+      env: makeEnv(),
+    });
+    const body = await json(res);
+    expect(body.results[0].exact).toBe(false);
+    expect(vi.mocked(awardXP)).not.toHaveBeenCalled();
+  });
+
+  it('evaluates both exact and wrong predictions in the same batch', async () => {
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([TURKEY_EXACT_PRED, TURKEY_WRONG_PRED])
+      .mockResolvedValueOnce([]);
+    vi.mocked(sbPost).mockResolvedValueOnce({});
+    vi.mocked(sbPatch)
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({});
+    vi.mocked(awardXP).mockResolvedValueOnce(BONUS_XP_RESULT);
+
+    const res = await evaluateHandler({
+      request: evaluateReq({
+        body: { match_id: TURKEY_PARAGUAY_ID, site_id: FAKE_SITE_ID, home_score: 2, away_score: 1 },
+      }),
+      env: makeEnv(),
+    });
+    const body = await json(res);
+    expect(body.evaluated).toBe(2);
+    expect(body.results.filter(r => r.exact)).toHaveLength(1);
+    expect(body.results.filter(r => !r.exact)).toHaveLength(1);
+  });
+});

@@ -5271,6 +5271,18 @@ async function matchWatcher(env) {
                   console.log('WATCHER CATCH-UP KV WRITE T-XG: done');
                 }
               }
+              // T-PRED catch-up — evaluate score predictions
+              try {
+                const home_score = finished.home ? (finished.score_bjk ?? 0) : (finished.score_opp ?? 0);
+                const away_score = finished.home ? (finished.score_opp ?? 0) : (finished.score_bjk ?? 0);
+                await fetch('https://kartalix.com/api/xp/evaluate-predictions', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': env.INTERNAL_SECRET || '' },
+                  body: JSON.stringify({ match_id: _fid, site_id: site.id, home_score, away_score }),
+                });
+                console.log(`WATCHER CATCH-UP T-PRED: predictions evaluated for fixture ${_fid} (${home_score}-${away_score})`);
+              } catch(e) { console.error('WATCHER CATCH-UP T-PRED failed:', e.message); }
+
               // Mark done so we don't re-run on next tick
               await env.PITCHOS_CACHE.put('match:BJK:live', JSON.stringify({ ...savedLive, result_published: true }));
             }
@@ -5556,6 +5568,18 @@ async function matchWatcher(env) {
               }
             }
           } catch(e) { console.error('WATCHER T-XG failed:', e.message); }
+
+          // T-PRED — evaluate score predictions for this match
+          try {
+            const home_score = liveFixture.home ? (liveFixture.score_bjk ?? 0) : (liveFixture.score_opp ?? 0);
+            const away_score = liveFixture.home ? (liveFixture.score_opp ?? 0) : (liveFixture.score_bjk ?? 0);
+            await fetch('https://kartalix.com/api/xp/evaluate-predictions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': env.INTERNAL_SECRET || '' },
+              body: JSON.stringify({ match_id: liveFixture.fixture_id, site_id: site.id, home_score, away_score }),
+            });
+            console.log(`WATCHER T-PRED: predictions evaluated for fixture ${liveFixture.fixture_id} (${home_score}-${away_score})`);
+          } catch(e) { console.error('WATCHER T-PRED failed:', e.message); }
         }
 
         await env.PITCHOS_CACHE.put('match:BJK:live', JSON.stringify({
