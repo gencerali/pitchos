@@ -5326,23 +5326,30 @@ async function matchWatcher(env) {
               `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/summary?event=${espnMatch.match_id}`
             ).then(r => r.ok ? r.json() : null).catch(() => null);
             const comp = espnSummary?.header?.competitions?.[0];
-            const status = (comp?.status?.type?.name ?? '').toLowerCase();
-            if (status === 'status_final' || status.includes('final')) {
+            const statusName = (comp?.status?.type?.name ?? '').toLowerCase();
+            const isFinal = statusName === 'status_final' || statusName === 'final' ||
+                            statusName === 'ft' || statusName === 'fulltime' ||
+                            statusName === 'completed' || statusName === 'finished';
+            if (isFinal) {
               const home = comp?.competitors?.find(c => c.homeAway === 'home') ?? comp?.competitors?.[0] ?? {};
               const away = comp?.competitors?.find(c => c.homeAway === 'away') ?? comp?.competitors?.[1] ?? {};
-              const homeScore = parseInt(home.score ?? home.winner != null ? home.score : '0') || 0;
-              const awayScore = parseInt(away.score ?? away.winner != null ? away.score : '0') || 0;
+              const homeScore = parseInt(home.score ?? '0') || 0;
+              const awayScore = parseInt(away.score ?? '0') || 0;
               const sites = await getActiveSites(env);
               const site  = sites?.[0];
               if (site?.id) {
-                await fetch(`https://kartalix.com/api/xp/evaluate-predictions`, {
+                const evalRes = await fetch(`https://kartalix.com/api/xp/evaluate-predictions`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': env.INTERNAL_SECRET || '' },
                   body: JSON.stringify({ match_id: espnMatch.match_id, site_id: site.id, home_score: homeScore, away_score: awayScore }),
                 });
-                console.log(`WATCHER ESPN T-PRED: evaluated match ${espnMatch.match_id} (${homeScore}-${awayScore})`);
+                if (evalRes.ok) {
+                  console.log(`WATCHER ESPN T-PRED: evaluated match ${espnMatch.match_id} (${homeScore}-${awayScore})`);
+                  await env.PITCHOS_CACHE.put(evalDoneKey, '1', { expirationTtl: 7 * 24 * 60 * 60 });
+                } else {
+                  console.error(`WATCHER ESPN T-PRED: evaluate-predictions returned ${evalRes.status} for match ${espnMatch.match_id}`);
+                }
               }
-              await env.PITCHOS_CACHE.put(evalDoneKey, '1', { expirationTtl: 7 * 24 * 60 * 60 });
             }
           }
         }
