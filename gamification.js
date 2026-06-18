@@ -73,6 +73,57 @@
     setTimeout(() => el.remove(), 520);
   };
 
+  // ── 4. Level-up notification ─────────────────────────────────
+  window._kxGetLevel = () => _kxMe?.xp?.level ?? 0;
+
+  window.kxShowLevelUp = function(level, tierName) {
+    if (document.getElementById('kxLevelUpModal')) return;
+    if (!document.getElementById('kxLevelUpStyle')) {
+      const s = document.createElement('style');
+      s.id = 'kxLevelUpStyle';
+      s.textContent = '@keyframes kxLvlIn{from{opacity:0;transform:scale(.88)}to{opacity:1;transform:scale(1)}}';
+      document.head.appendChild(s);
+    }
+    const modal = document.createElement('div');
+    modal.id = 'kxLevelUpModal';
+    modal.style.cssText = `position:fixed;inset:0;z-index:800;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.85);backdrop-filter:blur(6px)`;
+    modal.innerHTML = `<div style="text-align:center;padding:2rem 1.5rem;max-width:300px;width:90%;background:#111;border:1px solid #2a2a2a;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:.85rem;animation:kxLvlIn .28s ease">
+      <div style="font-size:2.8rem">🏆</div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:.65rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#F5A623">SEVİYE ATLADIN!</div>
+      <div style="font-family:'Oswald',sans-serif;font-size:2.2rem;font-weight:700;color:#fff">Seviye ${level}</div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:1rem;font-weight:600;color:#F5A623;letter-spacing:.04em">${tierName}</div>
+      <button id="kxLvlClose" style="margin-top:.2rem;padding:.7rem 0;width:100%;background:#D90414;border:none;border-radius:4px;color:#fff;font-family:'Oswald',sans-serif;font-size:.95rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer">Harika!</button>
+    </div>`;
+    document.body.appendChild(modal);
+    const close = () => modal.remove();
+    modal.querySelector('#kxLvlClose').addEventListener('click', close);
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    setTimeout(close, 8000);
+  };
+
+  // ── 4b. Badge unlock toast queue ─────────────────────────────
+  const _kxBadgeQueue = [];
+  let _kxBadgeBusy = false;
+  function _kxDrainBadge() {
+    if (!_kxBadgeQueue.length) { _kxBadgeBusy = false; return; }
+    _kxBadgeBusy = true;
+    const b = _kxBadgeQueue.shift();
+    const t = document.createElement('div');
+    t.style.cssText = `position:fixed;bottom:80px;right:1rem;z-index:9100;background:#141414;border:1px solid rgba(245,166,35,0.5);border-radius:8px;padding:.7rem .9rem;max-width:230px;display:flex;align-items:center;gap:.6rem;transform:translateX(130%);transition:transform .28s ease;box-shadow:0 4px 16px rgba(0,0,0,0.5)`;
+    t.innerHTML = `<div style="font-size:1.4rem;flex-shrink:0">${b.icon ?? '🏅'}</div><div><div style="font-family:'Barlow Condensed',sans-serif;font-size:.55rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#F5A623;margin-bottom:.1rem">Rozet Kazandın!</div><div style="font-family:'Barlow Condensed',sans-serif;font-size:.82rem;font-weight:700;color:#fff">${b.name ?? b.id}</div></div>`;
+    document.body.appendChild(t);
+    requestAnimationFrame(() => { t.style.transform = 'translateX(0)'; });
+    setTimeout(() => {
+      t.style.transform = 'translateX(130%)';
+      setTimeout(() => { t.remove(); _kxDrainBadge(); }, 300);
+    }, 2800);
+  }
+  window.kxShowBadge = function(badge) {
+    if (!badge) return;
+    _kxBadgeQueue.push(badge);
+    if (!_kxBadgeBusy) _kxDrainBadge();
+  };
+
   // ── 5. Render authenticated user state ───────────────────────
   async function loadAuthUser(accessToken) {
     try {
@@ -119,9 +170,9 @@
         })
           .then(r => r.json())
           .then(data => {
-            if (data.xp_earned > 0) {
-              window.kxSpawnXP(data.xp_earned, flameEl);
-            }
+            if (data.xp_earned > 0) window.kxSpawnXP(data.xp_earned, flameEl);
+            if (data.level > (_kxMe?.xp?.level ?? 0)) window.kxShowLevelUp(data.level, data.tier_name);
+            (data.badge_unlocks ?? []).forEach(b => window.kxShowBadge(b));
           })
           .catch(() => {});
       }
@@ -533,7 +584,11 @@
         body: JSON.stringify({ token: signedToken, article_id: articleId }),
       })
         .then(r => r.json())
-        .then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); })
+        .then(d => {
+          if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned);
+          if (d.level > (_kxMe?.xp?.level ?? 0)) window.kxShowLevelUp(d.level, d.tier_name);
+          (d.badge_unlocks ?? []).forEach(b => window.kxShowBadge(b));
+        })
         .catch(() => {});
     }, 10_000);
 
@@ -552,7 +607,11 @@
             body: JSON.stringify({ token: vtRes.token, video_id: articleId }),
           })
             .then(r => r.json())
-            .then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); })
+            .then(d => {
+              if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned);
+              if (d.level > (_kxMe?.xp?.level ?? 0)) window.kxShowLevelUp(d.level, d.tier_name);
+              (d.badge_unlocks ?? []).forEach(b => window.kxShowBadge(b));
+            })
             .catch(() => {});
         }, 30_000);
       }

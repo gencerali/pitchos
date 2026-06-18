@@ -10,11 +10,13 @@ export async function onRequest({ request, env }) {
   if (!user) return err('Unauthorized', 401);
   if (!site_id) return err('Site not found', 404);
 
-  const [profile, streak, badges, xpRows] = await Promise.all([
+  const [profile, streak, badges, xpRows, recentActivity, predHistory] = await Promise.all([
     sbGet(env, `profiles?id=eq.${user.id}&site_id=eq.${site_id}&select=*&limit=1`),
     getStreak(env, user.id, site_id),
     sbGet(env, `user_badges?user_id=eq.${user.id}&site_id=eq.${site_id}&select=badge_id,earned_at,badges(*)&order=earned_at.desc`),
     sbGet(env, `xp_events?user_id=eq.${user.id}&site_id=eq.${site_id}&nullified=eq.false&select=xp_earned`),
+    sbGet(env, `xp_events?user_id=eq.${user.id}&site_id=eq.${site_id}&nullified=eq.false&select=action_id,xp_earned,created_at,source_ref&order=created_at.desc&limit=20`).catch(() => []),
+    sbGet(env, `score_predictions?user_id=eq.${user.id}&site_id=eq.${site_id}&select=match_id,home_score,away_score,xp_awarded,bonus_awarded,outcome_awarded,created_at&order=created_at.desc&limit=20`).catch(() => []),
   ]);
 
   // User has no profile on this site — deny
@@ -39,5 +41,7 @@ export async function onRequest({ request, env }) {
       last_checkin_date: streak.last_checkin_date,
     },
     badges,
+    recent_activity: recentActivity,
+    prediction_history: predHistory,
   });
 }
