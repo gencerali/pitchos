@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tribün | Kartalix</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Inter:wght@300;400;500&family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+  <style>
+    :root {
+      --accent:       #D90414;
+      --accent-gold:  #F5A623;
+      --accent-dim:   rgba(217,4,20,0.15);
+      --bg:           #0A0A0A;
+      --surface:      #141414;
+      --panel:        #141414;
+      --border:       #1A1A1A;
+      --border2:      #242424;
+      --text:         #f0ede6;
+      --text-on-dark: #ffffff;
+      --muted:        #6b7280;
+      --muted-dark:   #9ca3af;
+    }
+
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+    }
+
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 0;
+    }
+
+    /* ── HEADER ── */
+    header {
+      background: #0d0d0d;
+      border-bottom: 2px solid var(--accent);
+      height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo-link { text-decoration: none; display: flex; align-items: center; }
+    .header-left { display: flex; align-items: center; gap: 0.85rem; }
+    .header-right { display: flex; align-items: center; gap: 0.75rem; }
+
+    .user-widget {
+      display: none; align-items: center; gap: 0.3rem;
+      padding: 0.25rem 0.45rem 0.25rem 0.3rem;
+      border: 1px solid #2a2a2a; border-radius: 6px;
+      background: #141414; cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .user-widget.visible { display: flex; }
+    .user-widget:hover { border-color: #444; }
+    .user-avatar {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--accent); display: flex; align-items: center;
+      justify-content: center; font-family: 'Barlow Condensed', sans-serif;
+      font-weight: 800; font-size: 0.8rem; color: #fff; flex-shrink: 0;
+      overflow: hidden;
+    }
+    .user-caret { font-size: 0.5rem; color: #555; line-height: 1; }
+
+    .kx-login-btn {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.75rem; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      background: var(--accent); border: none; color: #fff;
+      padding: 0.45rem 1rem; cursor: pointer;
+      transition: background 0.15s; flex-shrink: 0;
+    }
+    .kx-login-btn:hover { background: #b8030f; }
+
+    .kx-streak-flame {
+      display: none; align-items: center; gap: 0.25rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em;
+      color: var(--accent-gold); padding: 0.3rem 0.6rem;
+      border: 1px solid rgba(245,166,35,0.3);
+      border-radius: 4px; background: rgba(245,166,35,0.07);
+    }
+    .kx-streak-flame.kx-flame--hot {
+      color: var(--accent); border-color: rgba(217,4,20,0.4);
+      background: rgba(217,4,20,0.07);
+    }
+
+    .kx-profile-drop {
+      position: absolute; z-index: 200;
+      background: #141414; border: 1px solid #242424;
+      border-radius: 6px; overflow: hidden; min-width: 130px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    }
+    .kx-profile-drop a,
+    .kx-profile-drop button {
+      display: block; width: 100%; padding: 0.65rem 1rem;
+      background: none; border: none; color: var(--text);
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; font-weight: 600; letter-spacing: 0.04em;
+      text-align: left; cursor: pointer; transition: background 0.12s;
+      text-decoration: none;
+    }
+    .kx-profile-drop a:hover,
+    .kx-profile-drop button:hover { background: #1a1a1a; }
+    .kx-drop-summary { padding: 0.7rem 1rem 0.65rem; border-bottom: 1px solid #242424; }
+    .kx-drop-name { font-family: 'Barlow Condensed', sans-serif; font-size: 0.9rem; font-weight: 700; color: var(--text); letter-spacing: 0.02em; }
+    .kx-drop-rank { font-family: 'Barlow Condensed', sans-serif; font-size: 0.65rem; color: var(--accent-gold); letter-spacing: 0.04em; margin-top: 0.15rem; }
+
+    /* ── NAV ── */
+    .mainnav{background:#111;border-bottom:1px solid #1e1e1e;position:relative;z-index:90}
+    .mainnav-inner{display:flex;align-items:center;max-width:1280px;margin:0 auto;padding:0 1rem}
+    .mainnav .nav-toggle{display:none;background:none;border:0;color:#fff;cursor:pointer;padding:.7rem .4rem;align-items:center;gap:.5rem;font-family:'Barlow Condensed',sans-serif;font-weight:700;letter-spacing:.1em;text-transform:uppercase;font-size:.8rem}
+    .mainnav .nav-toggle .bars{position:relative;display:block;width:20px;height:2px;background:#fff}
+    .mainnav .nav-toggle .bars::before,.mainnav .nav-toggle .bars::after{content:'';position:absolute;left:0;width:20px;height:2px;background:#fff}
+    .mainnav .nav-toggle .bars::before{top:-6px}
+    .mainnav .nav-toggle .bars::after{top:6px}
+    .mainnav .nav-list{display:flex;align-items:center;list-style:none;margin:0;padding:0}
+    .mainnav .nav-li{position:relative}
+    .mainnav .nav-link,.mainnav .nav-trigger{font-family:'Barlow Condensed',sans-serif;font-size:.82rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#999;background:none;border:0;cursor:pointer;padding:.7rem .95rem;display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap;border-bottom:2px solid transparent;text-decoration:none}
+    .mainnav .nav-link:hover,.mainnav .nav-trigger:hover,.mainnav .nav-li:hover>.nav-trigger{color:#fff}
+    .mainnav .nav-link.active{color:#fff;border-bottom-color:#E30A17}
+    .mainnav .nav-link--soon{color:#777;cursor:default}
+    .mainnav .caret{font-size:.55rem;opacity:.65}
+    .mainnav .nav-mega{position:absolute;top:100%;left:0;min-width:230px;background:#16181c;border:1px solid #2a2d33;border-top:2px solid #E30A17;border-radius:0 0 6px 6px;box-shadow:0 18px 40px rgba(0,0,0,.55);padding:.45rem;z-index:95;opacity:0;visibility:hidden;transform:translateY(4px);transition:opacity .15s,transform .15s}
+    .mainnav .nav-li:hover>.nav-mega{opacity:1;visibility:visible;transform:translateY(0)}
+    .mainnav .nav-li.gold>.nav-mega{border-top-color:#F5A623}
+    .mainnav .nav-mega-item{display:flex;align-items:center;padding:.5rem .7rem;border-radius:4px;text-decoration:none;color:#fff;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:.9rem;letter-spacing:.04em;text-transform:uppercase}
+    .mainnav .nav-mega-item:hover{background:#22252b}
+    .mainnav .nav-mega-item--soon{color:#8b8f97;cursor:default}
+    .mainnav .nav-soon{font-family:'Barlow Condensed',sans-serif;font-size:.5rem;font-weight:800;letter-spacing:.1em;color:#0d0d0d;background:#F5A623;padding:.07rem .3rem;border-radius:3px;margin-left:.4rem}
+    .mainnav .nav-backdrop{display:none}
+    @media(max-width:900px){
+      .mainnav-inner{display:block;padding:0}
+      .mainnav .nav-list{flex-direction:column;align-items:stretch}
+      .mainnav .nav-link,.mainnav .nav-trigger{width:100%;justify-content:space-between;padding:.9rem 1.2rem;font-size:.95rem;border-bottom:1px solid #1c1c1c}
+      .mainnav .nav-mega{position:static;opacity:1;visibility:visible;transform:none;border:0;box-shadow:none;background:#141414;border-radius:0;min-width:0;padding:.2rem 0 .5rem}
+      .mainnav .nav-mega-item{padding:.6rem 1.6rem}
+      .mainnav.js .nav-toggle{display:inline-flex}
+      .mainnav.js .nav-list{position:fixed;top:0;left:0;bottom:0;width:84%;max-width:330px;background:#0d0d0d;padding:1rem 0 2rem;overflow-y:auto;transform:translateX(-100%);transition:transform .25s ease;z-index:210;border-right:1px solid #222}
+      .mainnav.js.open .nav-list{transform:translateX(0)}
+      .mainnav.js.open .nav-backdrop{display:block;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200}
+      .mainnav.js .nav-mega{max-height:0;overflow:hidden;padding:0;transition:max-height .25s ease}
+      .mainnav.js .nav-li.open>.nav-mega{max-height:600px}
+    }
+
+    /* ── BOTTOM DOCK ── */
+    .bottom-dock{display:none;position:fixed;bottom:0;left:0;right:0;z-index:220;background:#0d0d0d;border-top:1px solid #1A1A1A;padding-bottom:env(safe-area-inset-bottom,0px)}
+    @media(max-width:900px){.bottom-dock{display:flex;align-items:stretch}body{padding-bottom:60px}}
+    .dock-btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;flex:1;min-height:56px;padding:7px 4px;background:none;border:none;color:#484848;cursor:pointer;text-decoration:none;font-family:'Barlow Condensed',sans-serif;font-size:.5rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;transition:color .15s}
+    .dock-btn:hover,.dock-btn.active{color:#f0ede6}
+    .dock-btn.active{color:#D90414}
+    .dock-btn svg{width:20px;height:20px;flex-shrink:0}
+    .dock-btn--hero{flex:0 0 56px;align-self:center;width:52px;height:52px;border-radius:50%;background:#D90414;box-shadow:0 0 18px rgba(217,4,20,0.55),0 4px 14px rgba(0,0,0,0.7);color:#fff;border:3px solid #0d0d0d;margin:0 2px;position:relative;top:-6px;font-size:.46rem;padding:5px}
+    .dock-btn--hero svg{width:22px;height:16px;opacity:.9}
+    .dock-btn--hero.active{background:#D90414}
+    .dock-btn--hero:hover{color:#fff;background:#b5030f;box-shadow:0 0 22px rgba(217,4,20,0.7)}
+
+    /* ── TRIBÜN PAGE ── */
+    .tribun-page {
+      max-width: 680px; margin: 0 auto;
+      padding: 2rem 1rem; position: relative; z-index: 1;
+    }
+
+    .tribun-heading {
+      font-family: 'Oswald', sans-serif;
+      font-size: 1.5rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--text-on-dark);
+      margin-bottom: 0.35rem;
+    }
+    .tribun-subheading {
+      font-family: 'Inter', sans-serif;
+      font-size: 0.78rem; color: var(--muted);
+      margin-bottom: 1.75rem;
+    }
+
+    /* ── PREDICTION CARD ── */
+    .predict-card {
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 8px; overflow: hidden;
+    }
+
+    .predict-card-header {
+      background: rgba(217,4,20,0.08);
+      border-bottom: 1px solid rgba(217,4,20,0.2);
+      padding: 0.85rem 1.25rem;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .predict-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.72rem; font-weight: 800; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--accent);
+    }
+    .predict-xp-badge {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em;
+      color: var(--accent-gold);
+      background: rgba(245,166,35,0.1);
+      border: 1px solid rgba(245,166,35,0.25);
+      border-radius: 3px; padding: 0.2rem 0.55rem;
+    }
+
+    .predict-card-body { padding: 1.5rem 1.25rem; }
+
+    /* Match info */
+    .match-info {
+      display: flex; align-items: center; justify-content: center;
+      gap: 1rem; margin-bottom: 1.5rem;
+    }
+    .match-team {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 0.5rem; flex: 1; min-width: 0;
+    }
+    .match-team-logo {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: #1a1a1a; border: 1px solid var(--border2);
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden; flex-shrink: 0;
+    }
+    .match-team-logo img { width: 100%; height: 100%; object-fit: contain; padding: 4px; }
+    .match-team-logo .team-initial {
+      font-family: 'Oswald', sans-serif; font-size: 1.1rem; font-weight: 700;
+      color: var(--muted);
+    }
+    .match-team-name {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.82rem; font-weight: 700; letter-spacing: 0.04em;
+      text-align: center; color: var(--text-on-dark);
+      text-transform: uppercase;
+    }
+    .match-vs {
+      font-family: 'Oswald', sans-serif; font-size: 1.1rem; font-weight: 700;
+      color: var(--muted); flex-shrink: 0; margin: 0 0.25rem;
+    }
+    .match-meta {
+      text-align: center;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.7rem; letter-spacing: 0.06em; color: var(--muted);
+      margin-bottom: 1.5rem;
+    }
+    .match-meta-round {
+      color: var(--accent-gold); margin-bottom: 0.2rem;
+      font-size: 0.68rem; font-weight: 700;
+    }
+
+    /* Score inputs */
+    .score-inputs {
+      display: flex; align-items: center; justify-content: center;
+      gap: 1rem; margin-bottom: 1.25rem;
+    }
+    .score-input-group {
+      display: flex; flex-direction: column; align-items: center; gap: 0.35rem;
+    }
+    .score-input-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.6rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .score-stepper {
+      display: flex; align-items: center; gap: 0;
+      border: 1px solid var(--border2); border-radius: 6px;
+      overflow: hidden; background: #0d0d0d;
+    }
+    .score-step-btn {
+      background: none; border: none; color: var(--muted);
+      font-size: 1.1rem; font-weight: 700; line-height: 1;
+      width: 36px; height: 44px; cursor: pointer;
+      font-family: 'Oswald', sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      transition: color 0.12s, background 0.12s;
+    }
+    .score-step-btn:hover { color: var(--text); background: #1a1a1a; }
+    .score-value {
+      width: 44px; height: 44px; text-align: center;
+      background: transparent; border: none; border-left: 1px solid var(--border2);
+      border-right: 1px solid var(--border2);
+      color: var(--text-on-dark); font-family: 'Oswald', sans-serif;
+      font-size: 1.4rem; font-weight: 700;
+      caret-color: var(--accent);
+      -moz-appearance: textfield;
+    }
+    .score-value::-webkit-outer-spin-button,
+    .score-value::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .score-value:focus { outline: none; color: #fff; }
+    .score-separator {
+      font-family: 'Oswald', sans-serif; font-size: 1.8rem; font-weight: 700;
+      color: var(--border2); flex-shrink: 0; margin: 0 0.25rem; line-height: 1;
+      padding-top: 16px;
+    }
+
+    /* XP hint */
+    .predict-hint {
+      text-align: center;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.7rem; letter-spacing: 0.06em; color: var(--muted);
+      margin-bottom: 1.25rem;
+    }
+    .predict-hint strong { color: var(--accent-gold); }
+
+    /* Submit button */
+    .predict-submit {
+      width: 100%;
+      background: var(--accent); border: none; color: #fff;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.88rem; font-weight: 800; letter-spacing: 0.14em;
+      text-transform: uppercase; padding: 0.85rem 1rem;
+      border-radius: 6px; cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+    }
+    .predict-submit:hover:not(:disabled) { background: #b8030f; }
+    .predict-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* States */
+    .predict-state { display: none; }
+    .predict-state.active { display: block; }
+
+    /* Auth gate */
+    .predict-auth-gate {
+      text-align: center; padding: 2rem 1rem;
+    }
+    .predict-auth-gate-text {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.9rem; letter-spacing: 0.04em; color: var(--muted);
+      margin-bottom: 1rem;
+    }
+    .predict-auth-btn {
+      display: inline-block;
+      background: var(--accent); border: none; color: #fff;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.82rem; font-weight: 800; letter-spacing: 0.14em;
+      text-transform: uppercase; padding: 0.75rem 1.75rem;
+      border-radius: 5px; cursor: pointer; transition: background 0.15s;
+    }
+    .predict-auth-btn:hover { background: #b8030f; }
+
+    /* Loading skeleton */
+    .predict-skeleton {
+      padding: 1.5rem 1.25rem; text-align: center;
+    }
+    .skeleton-spinner {
+      width: 24px; height: 24px; border-radius: 50%;
+      border: 2px solid var(--border2); border-top-color: var(--accent);
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto 0.75rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .skeleton-text {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* No match */
+    .predict-no-match {
+      padding: 2rem 1.25rem; text-align: center;
+    }
+    .predict-no-match-text {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.85rem; letter-spacing: 0.06em; color: var(--muted);
+    }
+
+    /* Success state */
+    .predict-success { padding: 1.25rem; }
+    .predict-success-banner {
+      background: rgba(217,4,20,0.08);
+      border: 1px solid rgba(217,4,20,0.25);
+      border-radius: 6px; padding: 1rem 1.25rem;
+      display: flex; align-items: center; gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .predict-success-icon {
+      font-size: 1.8rem; line-height: 1; flex-shrink: 0;
+    }
+    .predict-success-text {
+      flex: 1;
+    }
+    .predict-success-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 1.05rem; font-weight: 800; letter-spacing: 0.05em;
+      text-transform: uppercase; color: var(--text-on-dark);
+      margin-bottom: 0.2rem;
+    }
+    .predict-success-detail {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.75rem; letter-spacing: 0.05em; color: var(--muted);
+    }
+    .predict-xp-earned {
+      font-family: 'Oswald', sans-serif;
+      font-size: 1.5rem; font-weight: 700; color: var(--accent-gold);
+      text-align: right; flex-shrink: 0;
+    }
+    .predict-xp-earned small {
+      display: block; font-size: 0.6rem; letter-spacing: 0.08em;
+      color: var(--muted); font-family: 'Barlow Condensed', sans-serif;
+    }
+    .predict-submitted-score {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; letter-spacing: 0.04em; color: var(--muted);
+      text-align: center;
+    }
+    .predict-submitted-score strong {
+      color: var(--text); font-size: 0.9rem;
+    }
+
+    /* Already predicted state */
+    .predict-already {
+      padding: 1.25rem;
+    }
+    .predict-already-banner {
+      background: rgba(245,166,35,0.06);
+      border: 1px solid rgba(245,166,35,0.2);
+      border-radius: 6px; padding: 1rem 1.25rem;
+      text-align: center;
+    }
+    .predict-already-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.85rem; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--accent-gold);
+      margin-bottom: 0.4rem;
+    }
+    .predict-already-score {
+      font-family: 'Oswald', sans-serif;
+      font-size: 2rem; font-weight: 700; color: var(--text-on-dark);
+      letter-spacing: 0.04em; margin-bottom: 0.25rem;
+    }
+    .predict-already-sub {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.68rem; letter-spacing: 0.08em; color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    /* Error state */
+    .predict-error-msg {
+      background: rgba(217,4,20,0.08);
+      border: 1px solid rgba(217,4,20,0.2);
+      border-radius: 5px; padding: 0.75rem 1rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.78rem; letter-spacing: 0.04em; color: #ff8080;
+      margin-top: 0.75rem; display: none;
+    }
+    .predict-error-msg.visible { display: block; }
+
+    /* Badge notification */
+    .badge-toast {
+      position: fixed; bottom: 72px; left: 50%;
+      transform: translateX(-50%) translateY(12px);
+      background: #1a1a1a; border: 1px solid var(--accent-gold);
+      border-radius: 6px; padding: 0.6rem 1rem;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.8rem; font-weight: 700; letter-spacing: 0.04em;
+      color: var(--accent-gold); z-index: 300;
+      white-space: nowrap; opacity: 0;
+      transition: opacity 0.25s, transform 0.25s;
+      pointer-events: none;
+    }
+    .badge-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* XP particle */
+    .kx-xp-particle {
+      position: fixed; z-index: 400; pointer-events: none;
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.85rem; font-weight: 800; letter-spacing: 0.1em;
+      color: var(--accent-gold); text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+      opacity: 0; transition: opacity 0.1s;
+    }
+    .kx-xp-particle--rise {
+      animation: kxRise 0.5s ease-out forwards;
+    }
+    @keyframes kxRise {
+      0%   { opacity: 1; transform: translateY(0); }
+      100% { opacity: 0; transform: translateY(-48px); }
+    }
+
+    @media (max-width: 480px) {
+      header { padding: 0 1rem; }
+      .tribun-page { padding: 1.25rem 0.75rem; }
+      .predict-card-body { padding: 1.25rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header>
+  <div class="header-left">
+    <a href="/" class="logo-link" aria-label="Kartalix Ana Sayfa">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 44" height="40" aria-hidden="true">
+        <rect x="0" y="2" width="8" height="40" fill="#ffffff"/>
+        <polygon points="8,22 36,2 29,2 8,16" fill="#ffffff"/>
+        <polygon points="8,22 38,42 46,42 8,25" fill="#D90414"/>
+        <rect x="0" y="20" width="8" height="5" fill="#D90414"/>
+        <text x="54" y="28" font-family="'Barlow Condensed',Impact,Arial Narrow,sans-serif" font-size="24" font-weight="900" letter-spacing="3" fill="#ffffff">KARTALIX</text>
+        <text x="55" y="40" font-family="Arial,Helvetica,sans-serif" font-size="7" letter-spacing="2" fill="#666666">BEŞİKTAŞ HABERLERİ</text>
+      </svg>
+    </a>
+  </div>
+  <div class="header-right">
+    <div class="kx-streak-flame" id="kxStreakFlame">🔥 <span id="kxStreakCount">0</span></div>
+    <button class="kx-login-btn" id="kxLoginBtn">Giriş Yap</button>
+    <div class="user-widget" id="userWidget">
+      <div class="user-avatar" id="userAvatar">K</div>
+      <span class="user-caret">▾</span>
+    </div>
+  </div>
+</header>
+
+<nav class="mainnav" id="mainNav" aria-label="Ana menü">
+  <div class="nav-backdrop" id="navBackdrop"></div>
+  <div class="mainnav-inner">
+    <button class="nav-toggle" id="navToggle" aria-label="Menü" aria-expanded="false"><span class="bars"></span> Menü</button>
+    <ul class="nav-list">
+      <li class="nav-li"><a class="nav-link" href="/">Ana Sayfa</a></li>
+      <li class="nav-li">
+        <button class="nav-trigger" aria-haspopup="true" aria-expanded="false">Videolar <span class="caret">▾</span></button>
+        <div class="nav-mega" role="menu">
+          <a class="nav-mega-item" role="menuitem" href="/konu/videolar">Tümü</a>
+          <a class="nav-mega-item" role="menuitem" href="/konu/videolar?tip=haber">Haberler</a>
+          <a class="nav-mega-item" role="menuitem" href="/konu/videolar?tip=mac">Maç</a>
+          <a class="nav-mega-item" role="menuitem" href="/konu/videolar?tip=roportaj">Röportaj</a>
+          <a class="nav-mega-item" role="menuitem" href="/konu/videolar?tip=unutulmaz">Unutulmazlar</a>
+          <a class="nav-mega-item" role="menuitem" href="/konu/videolar?tip=belgeseller">Belgeseller</a>
+        </div>
+      </li>
+      <li class="nav-li">
+        <button class="nav-trigger" aria-haspopup="true" aria-expanded="false">Analiz <span class="nav-soon">Yakında</span> <span class="caret">▾</span></button>
+        <div class="nav-mega" role="menu">
+          <span class="nav-mega-item nav-mega-item--soon" role="menuitem">Takım <span class="nav-soon">Yakında</span></span>
+          <span class="nav-mega-item nav-mega-item--soon" role="menuitem">Oyuncular <span class="nav-soon">Yakında</span></span>
+          <span class="nav-mega-item nav-mega-item--soon" role="menuitem">Maçlar <span class="nav-soon">Yakında</span></span>
+          <span class="nav-mega-item nav-mega-item--soon" role="menuitem">Lig <span class="nav-soon">Yakında</span></span>
+        </div>
+      </li>
+      <li class="nav-li"><span class="nav-link nav-link--soon">Yazarlar <span class="nav-soon">Yakında</span></span></li>
+      <li class="nav-li"><a class="nav-link" href="/#diger-branslar">Diğer Branşlar</a></li>
+      <li class="nav-li gold"><a class="nav-link active" href="/tribun">Tribün</a></li>
+    </ul>
+  </div>
+</nav>
+<script>(function(){var n=document.getElementById('mainNav');if(!n)return;n.classList.add('js');var t=document.getElementById('navToggle'),b=document.getElementById('navBackdrop');function c(){n.classList.remove('open');if(t)t.setAttribute('aria-expanded','false');n.querySelectorAll('.nav-li.open').forEach(function(x){x.classList.remove('open');});}if(t)t.addEventListener('click',function(){var o=n.classList.toggle('open');t.setAttribute('aria-expanded',o?'true':'false');});if(b)b.addEventListener('click',c);n.querySelectorAll('.nav-trigger').forEach(function(tr){tr.addEventListener('click',function(e){e.preventDefault();var li=tr.closest('.nav-li'),was=li.classList.contains('open');n.querySelectorAll('.nav-li.open').forEach(function(o){if(o!==li)o.classList.remove('open');});li.classList.toggle('open',!was);});});document.addEventListener('keydown',function(e){if(e.key==='Escape')c();});})();</script>
+
+<!-- ── TRIBÜN PAGE ── -->
+<main class="tribun-page">
+
+  <div class="tribun-heading">Tribün</div>
+  <div class="tribun-subheading">Tahmin yap, XP kazan, Kartalix'in en sadık taraftarı ol.</div>
+
+  <!-- ── SCORE PREDICTION CARD ── -->
+  <div class="predict-card">
+    <div class="predict-card-header">
+      <span class="predict-label">Skor Tahmini</span>
+      <span class="predict-xp-badge">+30 XP · +100 Tam Skor</span>
+    </div>
+
+    <!-- Loading skeleton -->
+    <div class="predict-state active" id="stateLoading">
+      <div class="predict-skeleton">
+        <div class="skeleton-spinner"></div>
+        <div class="skeleton-text">Maç bilgisi yükleniyor…</div>
+      </div>
+    </div>
+
+    <!-- No upcoming match -->
+    <div class="predict-state" id="stateNoMatch">
+      <div class="predict-no-match">
+        <div class="predict-no-match-text">Şu an yaklaşan bir maç yok. Bir sonraki maça kadar bekleyin!</div>
+      </div>
+    </div>
+
+    <!-- Auth gate (must login) -->
+    <div class="predict-state" id="stateAuth">
+      <div id="authMatchDisplay"></div>
+      <div class="predict-auth-gate">
+        <div class="predict-auth-gate-text">Tahmin yapabilmek için giriş yapman gerekiyor.</div>
+        <button class="predict-auth-btn" id="predictLoginBtn">Giriş Yap</button>
+      </div>
+    </div>
+
+    <!-- Prediction form -->
+    <div class="predict-state" id="stateForm">
+      <div class="predict-card-body">
+        <!-- Match display -->
+        <div class="match-info" id="matchDisplay"></div>
+        <div class="match-meta" id="matchMeta"></div>
+
+        <!-- Score inputs -->
+        <div class="score-inputs">
+          <div class="score-input-group">
+            <div class="score-input-label" id="homeTeamLabel">Ev Sahibi</div>
+            <div class="score-stepper">
+              <button class="score-step-btn" id="homeDown" aria-label="Azalt">−</button>
+              <input class="score-value" id="homeScore" type="number" min="0" max="20" value="0" inputmode="numeric" />
+              <button class="score-step-btn" id="homeUp" aria-label="Artır">+</button>
+            </div>
+          </div>
+
+          <div class="score-separator">–</div>
+
+          <div class="score-input-group">
+            <div class="score-input-label" id="awayTeamLabel">Misafir</div>
+            <div class="score-stepper">
+              <button class="score-step-btn" id="awayDown" aria-label="Azalt">−</button>
+              <input class="score-value" id="awayScore" type="number" min="0" max="20" value="0" inputmode="numeric" />
+              <button class="score-step-btn" id="awayUp" aria-label="Artır">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="predict-hint">
+          Maç başlamadan <strong>5 dakika öncesine</strong> kadar tahmin yapabilirsin.<br/>
+          Tam skor tahmininde <strong>+100 XP bonus</strong> kazan!
+        </div>
+
+        <button class="predict-submit" id="predictSubmitBtn">Tahmini Gönder</button>
+        <div class="predict-error-msg" id="predictError"></div>
+      </div>
+    </div>
+
+    <!-- Already predicted -->
+    <div class="predict-state" id="stateAlready">
+      <div id="alreadyMatchDisplay" style="padding:1.25rem 1.25rem 0"></div>
+      <div class="predict-already">
+        <div class="predict-already-banner">
+          <div class="predict-already-title">Tahminin Gönderildi</div>
+          <div class="predict-already-score" id="alreadyScore">– : –</div>
+          <div class="predict-already-sub">Maç sonucu bekleniyor…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Success (just submitted) -->
+    <div class="predict-state" id="stateSuccess">
+      <div class="predict-success">
+        <div class="predict-success-banner">
+          <div class="predict-success-icon">🦅</div>
+          <div class="predict-success-text">
+            <div class="predict-success-title">Tahmin Gönderildi!</div>
+            <div class="predict-success-detail" id="successDetail">Maç sonucu açıklandığında XP'n güncellenir.</div>
+          </div>
+          <div class="predict-xp-earned">
+            <span id="successXp">+0</span>
+            <small>XP</small>
+          </div>
+        </div>
+        <div class="predict-submitted-score" id="successScore"></div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Badge toast -->
+<div class="badge-toast" id="badgeToast"></div>
+
+<!-- Bottom dock -->
+<nav class="bottom-dock" aria-label="Alt gezinti">
+  <a href="/" class="dock-btn" title="Ana Sayfa">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+    <span>Ana Sayfa</span>
+  </a>
+  <a href="/konu/videolar" class="dock-btn" title="Videolar">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+    <span>Videolar</span>
+  </a>
+  <a href="/tribun" class="dock-btn dock-btn--hero active" title="Tribün" aria-current="page">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="currentColor" aria-hidden="true"><circle cx="120" cy="28" r="11"/><polygon points="111,24 97,29 111,34"/><path d="M120,36 C111,46 109,68 113,92 C116,114 120,132 120,132 C120,132 124,114 127,92 C131,68 129,46 120,36Z"/><polygon points="116,46 30,26 48,50 62,40 74,60 88,48 100,66 116,58"/><polygon points="124,46 210,26 192,50 178,40 166,60 152,48 140,66 124,58"/></svg>
+    <span>Tribün</span>
+  </a>
+  <button class="dock-btn" id="dockAnaliz" title="Analiz">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+    <span>Analiz</span>
+  </button>
+  <button class="dock-btn" id="dockMenuBtn" title="Menü">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    <span>Menü</span>
+  </button>
+</nav>
+
+<!-- Gamification (auth + user widget + XP particles) -->
+<meta name="kx:gamification" content="true" />
+<script src="/gamification.js" defer></script>
+
+<script>
+(function () {
+  // ── Dock wiring ──────────────────────────────────────────────────────────
+  function kxToast(msg) {
+    var t = document.createElement('div');
+    t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid #333;color:#f0ede6;font-family:\'Barlow Condensed\',sans-serif;font-size:.8rem;font-weight:600;letter-spacing:.04em;padding:.55rem 1.1rem;border-radius:6px;z-index:9999;pointer-events:none;transition:opacity .3s';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function () { t.style.opacity = '0'; setTimeout(function () { t.remove(); }, 300); }, 2200);
+  }
+  document.getElementById('dockMenuBtn')?.addEventListener('click', function () { document.getElementById('navToggle')?.click(); });
+  document.getElementById('dockAnaliz')?.addEventListener('click', function () { kxToast('Analiz çok yakında!'); });
+
+  // ── State helpers ─────────────────────────────────────────────────────────
+  function showState(id) {
+    document.querySelectorAll('.predict-state').forEach(function (el) {
+      el.classList.toggle('active', el.id === id);
+    });
+  }
+
+  // ── XP particle ───────────────────────────────────────────────────────────
+  function spawnXP(amount, sourceEl) {
+    if (!amount || amount <= 0) return;
+    var el = document.createElement('div');
+    el.className = 'kx-xp-particle';
+    el.textContent = '+' + amount + ' XP';
+    if (sourceEl) {
+      var r = sourceEl.getBoundingClientRect();
+      el.style.left = (r.left + r.width / 2 - 24) + 'px';
+      el.style.top  = (r.top + window.scrollY - 8) + 'px';
+    } else {
+      el.style.right = '1rem'; el.style.top = '70px';
+    }
+    document.body.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add('kx-xp-particle--rise'); });
+    setTimeout(function () { el.remove(); }, 520);
+  }
+
+  // ── Badge toast ───────────────────────────────────────────────────────────
+  function showBadgeToast(label) {
+    var toast = document.getElementById('badgeToast');
+    toast.textContent = '🏅 Rozet Kazandın: ' + label;
+    toast.classList.add('show');
+    setTimeout(function () { toast.classList.remove('show'); }, 3000);
+  }
+
+  // ── Match display builder ─────────────────────────────────────────────────
+  function buildMatchHTML(match) {
+    function logo(url, name) {
+      if (url) {
+        return '<div class="match-team-logo"><img src="' + url + '" alt="' + name + '" loading="lazy" /></div>';
+      }
+      return '<div class="match-team-logo"><span class="team-initial">' + (name ? name.charAt(0) : '?') + '</span></div>';
+    }
+    return (
+      '<div class="match-team">' + logo(match.home_logo, match.home_team) +
+        '<div class="match-team-name">' + match.home_team + '</div></div>' +
+      '<div class="match-vs">vs</div>' +
+      '<div class="match-team">' + logo(match.away_logo, match.away_team) +
+        '<div class="match-team-name">' + match.away_team + '</div></div>'
+    );
+  }
+
+  function buildMetaHTML(match) {
+    var d = new Date(match.kickoff_utc);
+    var dateStr = d.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    var timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    return (match.round ? '<div class="match-meta-round">' + match.round + '</div>' : '') +
+      '<div>' + match.league_name + ' · ' + dateStr + ' ' + timeStr + '</div>' +
+      (match.venue ? '<div>' + match.venue + '</div>' : '');
+  }
+
+  // ── Stepper wiring ─────────────────────────────────────────────────────────
+  function stepValue(inputId, delta) {
+    var el = document.getElementById(inputId);
+    var v = parseInt(el.value, 10) || 0;
+    v = Math.max(0, Math.min(20, v + delta));
+    el.value = v;
+  }
+  document.getElementById('homeDown').addEventListener('click', function () { stepValue('homeScore', -1); });
+  document.getElementById('homeUp').addEventListener('click',   function () { stepValue('homeScore', +1); });
+  document.getElementById('awayDown').addEventListener('click', function () { stepValue('awayScore', -1); });
+  document.getElementById('awayUp').addEventListener('click',   function () { stepValue('awayScore', +1); });
+
+  // Clamp on direct input
+  ['homeScore', 'awayScore'].forEach(function (id) {
+    document.getElementById(id).addEventListener('input', function () {
+      var v = parseInt(this.value, 10);
+      if (isNaN(v) || v < 0) this.value = 0;
+      else if (v > 20) this.value = 20;
+    });
+  });
+
+  // ── Main init ─────────────────────────────────────────────────────────────
+  var _match = null;
+  var _accessToken = null;
+
+  async function init() {
+    // 1. Load config
+    var config = await fetch('/api/config')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
+
+    if (!config) { showState('stateNoMatch'); return; }
+
+    // 2. Fetch upcoming match
+    var matchData = await fetch('/api/upcoming-match')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; });
+
+    _match = matchData?.match ?? null;
+    if (!_match) { showState('stateNoMatch'); return; }
+
+    // Populate team labels
+    document.getElementById('homeTeamLabel').textContent = _match.home_team;
+    document.getElementById('awayTeamLabel').textContent = _match.away_team;
+
+    // Populate match displays in all states
+    var matchHTML = buildMatchHTML(_match);
+    var metaHTML  = buildMetaHTML(_match);
+
+    document.getElementById('matchDisplay').innerHTML = matchHTML;
+    document.getElementById('matchMeta').innerHTML = metaHTML;
+    document.getElementById('authMatchDisplay').innerHTML =
+      '<div class="predict-card-body" style="padding-bottom:0">' +
+      '<div class="match-info">' + matchHTML + '</div>' +
+      '<div class="match-meta">' + metaHTML + '</div></div>';
+    document.getElementById('alreadyMatchDisplay').innerHTML =
+      '<div class="match-info">' + matchHTML + '</div>' +
+      '<div class="match-meta" style="margin-bottom:1rem">' + metaHTML + '</div>';
+
+    // 3. Check auth via Supabase (loaded by gamification.js)
+    // gamification.js exposes window.kxAuthReady promise when session is resolved
+    await waitForAuth();
+
+    _accessToken = window.kxToken ?? null;
+
+    if (!_accessToken) {
+      showState('stateAuth');
+      return;
+    }
+
+    // 4. Check if user already predicted this match
+    var alreadyPredicted = await checkExistingPrediction(_accessToken, _match.match_id);
+    if (alreadyPredicted) {
+      document.getElementById('alreadyScore').textContent =
+        alreadyPredicted.home_score + ' : ' + alreadyPredicted.away_score;
+      showState('stateAlready');
+      return;
+    }
+
+    showState('stateForm');
+  }
+
+  // gamification.js dispatches 'kx:authReady' once session is confirmed
+  // and sets window.kxToken to the access token (or null for guests).
+  function waitForAuth() {
+    return new Promise(function (resolve) {
+      // Already fired (gamification.js loaded before this script)
+      if (typeof window.kxToken !== 'undefined') { resolve(); return; }
+      document.addEventListener('kx:authReady', function handler() {
+        document.removeEventListener('kx:authReady', handler);
+        resolve();
+      }, { once: true });
+      // Fallback: if gamification.js fails entirely, unblock after 4 s
+      setTimeout(resolve, 4000);
+    });
+  }
+
+  async function checkExistingPrediction(token, matchId) {
+    try {
+      var config = await fetch('/api/config').then(function (r) { return r.json(); });
+      var userId = getUserIdFromToken(token);
+      if (!userId) return null;
+      var res = await fetch(
+        config.supabase_url + '/rest/v1/score_predictions' +
+        '?user_id=eq.' + encodeURIComponent(userId) +
+        '&match_id=eq.' + matchId +
+        '&select=home_score,away_score&limit=1',
+        {
+          headers: {
+            apikey: config.supabase_anon_key,
+            Authorization: 'Bearer ' + token,
+          },
+        }
+      );
+      if (!res.ok) return null;
+      var rows = await res.json();
+      return rows[0] ?? null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function getUserIdFromToken(token) {
+    try {
+      var payload = token.split('.')[1];
+      // JWT base64url → base64
+      payload = payload.replace(/-/g, '+').replace(/_/g, '/');
+      while (payload.length % 4) payload += '=';
+      return JSON.parse(atob(payload)).sub ?? '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // ── Form submission ────────────────────────────────────────────────────────
+  document.getElementById('predictSubmitBtn').addEventListener('click', async function () {
+    if (!_match || !_accessToken) return;
+
+    var homeScore = parseInt(document.getElementById('homeScore').value, 10);
+    var awayScore = parseInt(document.getElementById('awayScore').value, 10);
+    var errorEl   = document.getElementById('predictError');
+    var btn       = document.getElementById('predictSubmitBtn');
+
+    errorEl.classList.remove('visible');
+
+    if (isNaN(homeScore) || isNaN(awayScore) || homeScore < 0 || awayScore < 0) {
+      errorEl.textContent = 'Lütfen geçerli bir skor girin.';
+      errorEl.classList.add('visible');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Gönderiliyor…';
+
+    try {
+      var res = await fetch('/api/xp/predict', {
+        method: 'POST',
+        headers: {
+          'Content-Type':  'application/json',
+          'Authorization': 'Bearer ' + _accessToken,
+        },
+        body: JSON.stringify({
+          match_id:   _match.match_id,
+          home_score: homeScore,
+          away_score: awayScore,
+        }),
+      });
+
+      var data = await res.json();
+
+      if (!res.ok) {
+        errorEl.textContent = data.error ?? 'Tahmin gönderilemedi. Tekrar dene.';
+        errorEl.classList.add('visible');
+        btn.disabled    = false;
+        btn.textContent = 'Tahmini Gönder';
+        return;
+      }
+
+      // Success
+      document.getElementById('successXp').textContent = '+' + (data.xp_earned ?? 0);
+      document.getElementById('successScore').innerHTML =
+        'Tahminin: <strong>' + _match.home_team + ' ' + homeScore + ' – ' + awayScore + ' ' + _match.away_team + '</strong>';
+      if (data.bonus_xp > 0) {
+        document.getElementById('successDetail').textContent =
+          '+' + data.bonus_xp + ' XP ilk tahmin bonusu! Maç sonucunu bekle.';
+      }
+      showState('stateSuccess');
+
+      // XP particle
+      spawnXP(data.xp_earned, btn);
+
+      // Badge notifications
+      if (data.badge_unlocks?.length) {
+        data.badge_unlocks.forEach(function (b) {
+          setTimeout(function () { showBadgeToast(b.label ?? b.id); }, 400);
+        });
+      }
+
+      // Update global XP counter (gamification.js widget)
+      if (window.kxSpawnXP && data.xp_earned > 0) {
+        window.kxSpawnXP(data.xp_earned, btn);
+      }
+
+    } catch (e) {
+      errorEl.textContent = 'Bağlantı hatası. Lütfen tekrar dene.';
+      errorEl.classList.add('visible');
+      btn.disabled    = false;
+      btn.textContent = 'Tahmini Gönder';
+    }
+  });
+
+  // ── Auth gate button ────────────────────────────────────────────────────────
+  document.getElementById('predictLoginBtn').addEventListener('click', function () {
+    if (window.kxAuth) window.kxAuth.showLogin();
+  });
+
+  // ── Kick off ────────────────────────────────────────────────────────────────
+  init();
+})();
+</script>
+</body>
+</html>

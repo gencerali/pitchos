@@ -44,7 +44,7 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ## Phase 4 — Tribün / Community Features
 
-- [ ] **4.1** Score prediction UI + `/api/xp/predict` wiring
+- [x] **4.1** Score prediction UI + `/api/xp/predict` wiring — `tribun.html`, `/api/upcoming-match`, 52 tests
 - [ ] **4.2** Prediction evaluation — `/api/xp/evaluate-predictions` after match result
 - [ ] **4.3** Starting 11 lineup guess + `/api/xp/starting-11` wiring
 - [ ] **4.4** Poll voting + `/api/xp/poll-vote` wiring
