@@ -449,7 +449,7 @@
       </li>
       <li class="nav-li"><span class="nav-link nav-link--soon">Yazarlar <span class="nav-soon">Yakında</span></span></li>
       <li class="nav-li"><a class="nav-link" href="/#diger-branslar">Diğer Branşlar</a></li>
-      <li class="nav-li gold"><span class="nav-link nav-link--soon">Tribün <span class="nav-soon">Yakında</span></span></li>
+      <li class="nav-li gold"><a class="nav-link" href="/tribun">Tribün</a></li>
     </ul>
   </div>
 </nav>
@@ -873,10 +873,10 @@
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
     <span>Videolar</span>
   </a>
-  <button class="dock-btn dock-btn--hero" id="dockTribun" title="Tribün">
+  <a href="/tribun" class="dock-btn dock-btn--hero" title="Tribün">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="currentColor" aria-hidden="true"><circle cx="120" cy="28" r="11"/><polygon points="111,24 97,29 111,34"/><path d="M120,36 C111,46 109,68 113,92 C116,114 120,132 120,132 C120,132 124,114 127,92 C131,68 129,46 120,36Z"/><polygon points="116,46 30,26 48,50 62,40 74,60 88,48 100,66 116,58"/><polygon points="124,46 210,26 192,50 178,40 166,60 152,48 140,66 124,58"/></svg>
     <span>Tribün</span>
-  </button>
+  </a>
   <button class="dock-btn" id="dockAnaliz" title="Analiz">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
     <span>Analiz</span>
@@ -890,7 +890,7 @@
 (function(){
   function kxToast(msg){var t=document.createElement('div');t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a1a1a;border:1px solid #333;color:#f0ede6;font-family:\'Barlow Condensed\',sans-serif;font-size:.8rem;font-weight:600;letter-spacing:.04em;padding:.55rem 1.1rem;border-radius:6px;z-index:9999;pointer-events:none;transition:opacity .3s';t.textContent=msg;document.body.appendChild(t);setTimeout(()=>{t.style.opacity='0';setTimeout(()=>t.remove(),300)},2200);}
   document.getElementById('dockMenuBtn')?.addEventListener('click',()=>document.getElementById('navToggle')?.click());
-  document.getElementById('dockTribun')?.addEventListener('click',()=>kxToast('Tribün çok yakında! 🦅'));
+  // dockTribun is now an <a href="/tribun"> — no JS handler needed
   document.getElementById('dockAnaliz')?.addEventListener('click',()=>kxToast('Analiz çok yakında!'));
 })();
 </script>

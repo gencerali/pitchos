@@ -1347,7 +1347,7 @@
 
       <li class="nav-li"><a class="nav-link" href="#" data-scroll="otherSportsSection">Diğer Branşlar</a></li>
 
-      <li class="nav-li gold"><a class="nav-link" href="#" data-soon>Tribün <span class="nav-soon">Yakında</span></a></li>
+      <li class="nav-li gold"><a class="nav-link" href="/tribun">Tribün</a></li>
     </ul>
   </div>
 </nav>
@@ -3575,17 +3575,11 @@
   // ── BOTTOM DOCK ──────────────────────────────────────────────
   (function setupBottomDock() {
     const dockMenu   = document.getElementById('dockMenu');
-    const dockTribun = document.getElementById('dockTribun');
     const dockAnaliz = document.getElementById('dock-analiz');
 
     // "Menü" opens the premium side drawer
     if (dockMenu) {
       dockMenu.addEventListener('click', openSideDrawer);
-    }
-
-    // "Tribün" — coming soon toast
-    if (dockTribun) {
-      dockTribun.addEventListener('click', () => navToast('Tribün çok yakında! 🦅'));
     }
 
     // "Analiz" — show filter strip + filter section label + toast
@@ -3769,12 +3763,6 @@
       });
     }
 
-    // Hook: Tribün triggers guest conversion sheet
-    const dockTribun = document.getElementById('dockTribun');
-    if (dockTribun && session.isGuest) {
-      dockTribun.addEventListener('click', showGuestSheet);
-    }
-
     // Session departure: flag for next visit prompt
     if (session.isGuest) {
       window.addEventListener('beforeunload', () => {
@@ -3938,10 +3926,10 @@
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
     <span>Videolar</span>
   </a>
-  <button class="dock-btn dock-btn--hero" id="dockTribun" title="Tribün">
+  <a href="/tribun" class="dock-btn dock-btn--hero" title="Tribün">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="currentColor" aria-hidden="true"><circle cx="120" cy="28" r="11"/><polygon points="111,24 97,29 111,34"/><path d="M120,36 C111,46 109,68 113,92 C116,114 120,132 120,132 C120,132 124,114 127,92 C131,68 129,46 120,36Z"/><polygon points="116,46 30,26 48,50 62,40 74,60 88,48 100,66 116,58"/><polygon points="124,46 210,26 192,50 178,40 166,60 152,48 140,66 124,58"/></svg>
     <span>Tribün</span>
-  </button>
+  </a>
   <button class="dock-btn" id="dock-analiz" title="Analiz">
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
     <span>Analiz</span>
