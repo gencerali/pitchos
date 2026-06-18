@@ -8472,7 +8472,7 @@ body{background:#181818;color:#e8e6e0;font-family:'Segoe UI',system-ui,sans-seri
 input[type=search],input[type=text],input[type=url],select,textarea{background:#1a1a1a;border:1px solid #2a2a2a;color:#e8e6e0;border-radius:4px;font-family:inherit;font-size:.83rem;outline:none;padding:.35rem .6rem}
 input[type=search]:focus,input[type=text]:focus,input[type=url]:focus,select:focus,textarea:focus{border-color:#444}
 input[type=search]{flex:1;height:30px}
-select{height:30px;color:#aaa}
+select{height:30px;color:#aaa;min-width:0}
 .filter-check{font-size:.72rem;color:#888;white-space:nowrap;cursor:pointer;display:flex;align-items:center;gap:.3rem}
 .filter-check input{accent-color:#E30A17}
 .btn{border:none;border-radius:4px;font-size:.75rem;font-weight:700;padding:.35rem .85rem;cursor:pointer;white-space:nowrap}
@@ -8525,6 +8525,22 @@ select{height:30px;color:#aaa}
 .sc-val{font-size:.72rem;font-weight:700;color:#ccc;line-height:1}
 .sc-val.sc-now{color:#4ade80}.sc-val.sc-pinned{color:#a78bfa}.sc-val.sc-floor{color:#ef4444}.sc-val.sc-imminent{color:#f97316}.sc-val.sc-rank{color:#facc15}
 .sc-lbl{font-size:.48rem;letter-spacing:.05em;text-transform:uppercase;color:#777;line-height:1;margin-top:.15rem}
+@media(max-width:767px){
+  body{height:auto;overflow:auto}
+  .cms{flex-direction:column;overflow:visible;flex:none}
+  .list-panel{width:100%;min-width:0;border-right:none;max-height:none;height:auto;overflow:visible}
+  .art-list{max-height:60vh;overflow-y:auto}
+  .editor-panel{width:100%}
+  .list-panel.mob-hidden{display:none!important}
+  .editor-panel:not(.mob-active){display:none!important}
+  .mob-back{display:inline-flex!important}
+  .toolbar{flex-wrap:wrap;row-gap:.35rem}
+  input[type=search]{min-width:120px}
+  .editor-inner{padding:.85rem 1rem}
+  .editor-actions{padding:.65rem 1rem;flex-wrap:wrap;gap:.45rem}
+  .field-row{grid-template-columns:1fr}
+  .field textarea#eBody{height:220px}
+}
 </style>
 </head>
 <body>
@@ -8616,6 +8632,7 @@ ADMINNAV_PLACEHOLDER
         </div>
       </div>
       <div class="editor-actions">
+        <button class="btn btn-secondary btn-sm mob-back" style="display:none" onclick="mobBack()">← Liste</button>
         <button class="btn btn-primary" onclick="saveArticle()">Kaydet</button>
         <button class="btn btn-secondary" id="previewBtn" onclick="previewArticle()" style="display:none">Önizle ↗</button>
         <span class="save-status" id="saveStatus"></span>
@@ -8828,6 +8845,18 @@ async function load(page) {
 
 function openBySlug(slug) { openArticle(articleCache[slug]); }
 
+function mobBack() {
+  document.querySelector('.list-panel').classList.remove('mob-hidden');
+  document.querySelector('.editor-panel').classList.remove('mob-active');
+}
+function mobShowEditor() {
+  if (window.innerWidth < 768) {
+    document.querySelector('.list-panel').classList.add('mob-hidden');
+    document.querySelector('.editor-panel').classList.add('mob-active');
+    window.scrollTo(0, 0);
+  }
+}
+
 async function quickPublish(e, slug) {
   e.stopPropagation();
   const btn = e.target;
@@ -8864,6 +8893,7 @@ function openArticle(a) {
   document.getElementById('eFbRow').style.display = 'block';
   if (a.slug) loadArticleFb(a.slug);
   updateWc();
+  mobShowEditor();
 }
 
 function newArticle() {
@@ -8885,6 +8915,7 @@ function newArticle() {
   document.getElementById('saveStatus').textContent = '';
   document.getElementById('eTitle').focus();
   updateWc();
+  mobShowEditor();
 }
 
 function updateWc() {
