@@ -8155,11 +8155,9 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#16140f;margin-botto
 .btn-wa{background:#25D366;color:#fff}
 .btn-tw{background:#1DA1F2;color:#fff}
 .btn-copy{background:#e0ddd5;color:#16140f}
-.reaction-bar{display:flex;gap:1rem;align-items:center;margin-top:2rem;padding:1rem 1.25rem;background:#222;border:1px solid #333;border-radius:6px}
-.rxn-btn{display:flex;align-items:center;gap:.5rem;background:#f0ede6;border:1px solid #ddd5c8;color:#555;padding:.5rem 1.1rem;border-radius:20px;cursor:pointer;font-size:.9rem;transition:all .15s;user-select:none}
-.rxn-btn:hover{border-color:#b9b1a4;color:#16140f;background:#e8e4db}
-.rxn-btn.active-like{background:#e6f4e6;border-color:#86c986;color:#1f7a1f}
-.rxn-btn.active-dislike{background:#fdeaea;border-color:#e0a0a0;color:#c0392b}
+.reaction-bar{display:flex;gap:.45rem;flex-wrap:wrap;align-items:center;margin-top:2rem;padding:1rem 1.25rem;background:#141414;border:1px solid #1A1A1A;border-radius:6px}
+.rxn-btn{display:flex;align-items:center;gap:.35rem;background:rgba(255,255,255,.04);border:1px solid #2a2a2a;color:#666;padding:.38rem .8rem;border-radius:999px;cursor:pointer;font-size:.78rem;font-weight:600;font-family:'Barlow Condensed',sans-serif;letter-spacing:.03em;transition:background .15s,border-color .15s,color .15s;user-select:none}
+.rxn-btn:hover{border-color:#444;color:#aaa}
 .rxn-count{font-size:.82rem;font-weight:700;min-width:1ch}
 @media(max-width:600px){main{padding:1.5rem 1rem 3rem}h1{font-size:1.35rem}}
 </style>
@@ -8250,8 +8248,11 @@ ${siteHeader('/haber/')}
     </script>` : ''}
   </article>
   <div class="reaction-bar">
-    <button id="btnLike" class="rxn-btn" onclick="react('like')">👍 <span id="likeCount" class="rxn-count">0</span></button>
-    <button id="btnDislike" class="rxn-btn" onclick="react('dislike')">👎 <span id="dislikeCount" class="rxn-count">0</span></button>
+    <button class="rxn-btn" id="btn-atesli" onclick="react('atesli')">🔥 <span>Ateşli</span> <span id="count-atesli" class="rxn-count">0</span></button>
+    <button class="rxn-btn" id="btn-mutlu" onclick="react('mutlu')">😄 <span>Mutlu</span> <span id="count-mutlu" class="rxn-count">0</span></button>
+    <button class="rxn-btn" id="btn-uzgun" onclick="react('uzgun')">💔 <span>Üzgün</span> <span id="count-uzgun" class="rxn-count">0</span></button>
+    <button class="rxn-btn" id="btn-kizgin" onclick="react('kizgin')">😡 <span>Kızgın</span> <span id="count-kizgin" class="rxn-count">0</span></button>
+    <button class="rxn-btn" id="btn-hayal_kirikligi" onclick="react('hayal_kirikligi')">🤦 <span>Hayal Kr.</span> <span id="count-hayal_kirikligi" class="rxn-count">0</span></button>
   </div>
   <div class="share-box">
     <div class="share-title">Bu haberi paylaş</div>
@@ -8278,7 +8279,27 @@ ${siteHeader('/haber/')}
 </main>
 <script>
 const PAGE_URL = ${JSON.stringify(pageUrl)};
+const PAGE_SLUG = ${JSON.stringify(a.slug || '')};
 let currentReaction = null;
+const _EMOTIONS = [
+  { key:'atesli', color:'#f97316' }, { key:'mutlu', color:'#22c55e' },
+  { key:'uzgun', color:'#60a5fa' }, { key:'kizgin', color:'#ef4444' },
+  { key:'hayal_kirikligi', color:'#9ca3af' },
+];
+function _rxnButtons(active) {
+  for (const e of _EMOTIONS) {
+    const b = document.getElementById('btn-' + e.key); if (!b) continue;
+    b.style.background   = active === e.key ? e.color + '22' : 'rgba(255,255,255,.04)';
+    b.style.borderColor  = active === e.key ? e.color : '#2a2a2a';
+    b.style.color        = active === e.key ? e.color : '#666';
+  }
+}
+function _rxnCounts(rxn) {
+  for (const e of _EMOTIONS) {
+    const el = document.getElementById('count-' + e.key);
+    if (el) el.textContent = (rxn && rxn[e.key]) || 0;
+  }
+}
 
 function copyLink(btn){
   navigator.clipboard.writeText(window.location.href).then(()=>{
@@ -8294,29 +8315,25 @@ if (document.cookie.split(';').some(c => c.trim() === 'kx-ui=1')) {
 
 async function loadReactions() {
   try {
-    const res = await fetch('/comments?article_url=' + encodeURIComponent(PAGE_URL));
+    const body = PAGE_SLUG ? { article_slug: PAGE_SLUG } : { article_url: PAGE_URL };
+    const res = await fetch('/comments', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
     if (!res.ok) return;
     const d = await res.json();
-    document.getElementById('likeCount').textContent = d.likes || 0;
-    document.getElementById('dislikeCount').textContent = d.dislikes || 0;
+    _rxnCounts(d.reactions);
+    _rxnButtons(currentReaction);
   } catch(e) {}
 }
 
 async function react(type) {
   const reaction = currentReaction === type ? null : type;
   currentReaction = reaction;
-  document.getElementById('btnLike').className = 'rxn-btn' + (reaction === 'like' ? ' active-like' : '');
-  document.getElementById('btnDislike').className = 'rxn-btn' + (reaction === 'dislike' ? ' active-dislike' : '');
+  _rxnButtons(reaction);
   try {
-    const res = await fetch('/react', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ article_url: PAGE_URL, reaction })
-    });
-    if (res.ok) {
-      const d = await res.json();
-      document.getElementById('likeCount').textContent = d.likes || 0;
-      document.getElementById('dislikeCount').textContent = d.dislikes || 0;
-    }
+    const headers = {'Content-Type':'application/json'};
+    if (window.kxToken) headers['Authorization'] = 'Bearer ' + window.kxToken;
+    const body = PAGE_SLUG ? { article_slug: PAGE_SLUG, reaction } : { article_url: PAGE_URL, reaction };
+    const res = await fetch('/react', { method:'POST', headers, body: JSON.stringify(body) });
+    if (res.ok) { const d = await res.json(); _rxnCounts(d.reactions); }
   } catch(e) {}
   if (reaction && window.kxToken) {
     fetch('/api/xp/react', {
