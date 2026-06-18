@@ -12834,6 +12834,30 @@ ${nav}
       </ul>
     </div>
 
+    <div class="rrow" onclick="toggle('rcss')">
+      <span class="vtag planned">Infrastructure</span>
+      <div><div class="rrow-title">CSS Centralization — style.css for All Pages</div><div class="rrow-sub">style.css created · static pages migrated · worker pages blocked by [[catchall]].js routing · inline fallbacks in place</div></div>
+      <div class="rrow-date">Jun 2026</div>
+    </div>
+    <div id="rcss" class="detail">
+      <h4>Goal</h4>
+      <p style="font-size:.8rem;color:#9ca3af;margin:.5rem 0 1rem">Single <code>style.css</code> served to all pages so theme changes and component CSS have one source of truth. Prerequisite for supporting a second team site.</p>
+      <h4>Done</h4>
+      <ul>
+        <li><span class="rtag fix">done</span> <code>style.css</code> created — <code>:root</code> CSS variables, header, nav, widget, dock, footer CSS</li>
+        <li><span class="rtag fix">done</span> Static pages (<code>index.html</code>, <code>profil.html</code>, <code>liderlik.html</code>) link <code>/style.css</code></li>
+        <li><span class="rtag fix">done</span> <code>_routes.json</code>: <code>/style.css</code> added to exclude list so Cloudflare Pages serves it statically</li>
+        <li><span class="rtag fix">done</span> Worker pages: <code>siteHeader()</code> inlines <code>:root</code> + header/widget/dropdown CSS as self-contained fallback</li>
+        <li><span class="rtag fix">done</span> Worker pages: <code>siteFooter()</code> inlines mobile dock CSS as self-contained fallback</li>
+      </ul>
+      <h4>Blocked</h4>
+      <ul>
+        <li><span class="rtag next">todo</span> <strong>CSS-1</strong> Fix <code>functions/[[catchall]].js</code> — currently intercepts <em>all</em> unmatched Cloudflare Pages paths including <code>/style.css</code> and returns 404; needs to pass through static asset paths before falling back to 404</li>
+        <li><span class="rtag next">todo</span> <strong>CSS-2</strong> Once CSS-1 resolved: remove inline <code>&lt;style&gt;</code> blocks from <code>siteHeader()</code> and <code>siteFooter()</code>; rely on <code>/style.css</code> link only</li>
+        <li><span class="rtag next">todo</span> <strong>CSS-3</strong> Worker pages: add <code>&lt;link rel="stylesheet" href="/style.css"&gt;</code> to all <code>&lt;head&gt;</code> templates in <code>worker-fetch-agent.js</code> (prep for CSS-2)</li>
+      </ul>
+    </div>
+
     <div class="rrow" onclick="toggle('rgam')">
       <span class="vtag wip">Gamification</span>
       <div><div class="rrow-title">Gamification System — Fan XP &amp; Leaderboard</div><div class="rrow-sub">XP engine · levels · streaks · reactions · community tribün · profile</div></div>
