@@ -453,22 +453,32 @@ function evaluateReq({
 const EXACT_PRED = {
   id: 'pred-1', user_id: 'user-1', site_id: FAKE_SITE_ID,
   match_id: MATCH_ID, home_score: 2, away_score: 1,
-  xp_awarded: false, bonus_awarded: false,
+  xp_awarded: false, bonus_awarded: false, outcome_awarded: false,
 };
 const WRONG_PRED = {
   id: 'pred-2', user_id: 'user-2', site_id: FAKE_SITE_ID,
-  match_id: MATCH_ID, home_score: 0, away_score: 0,
-  xp_awarded: false, bonus_awarded: false,
+  match_id: MATCH_ID, home_score: 0, away_score: 0, // draw pred — actual is home win
+  xp_awarded: false, bonus_awarded: false, outcome_awarded: false,
 };
 const CLOSE_PRED = {
   id: 'pred-3', user_id: 'user-3', site_id: FAKE_SITE_ID,
-  match_id: MATCH_ID, home_score: 2, away_score: 2, // right home, wrong away
-  xp_awarded: false, bonus_awarded: false,
+  match_id: MATCH_ID, home_score: 2, away_score: 2, // draw pred — actual is home win
+  xp_awarded: false, bonus_awarded: false, outcome_awarded: false,
+};
+// Correct outcome (home wins) but wrong exact score
+const OUTCOME_PRED = {
+  id: 'pred-4', user_id: 'user-4', site_id: FAKE_SITE_ID,
+  match_id: MATCH_ID, home_score: 3, away_score: 0, // home wins but not 2-1
+  xp_awarded: false, bonus_awarded: false, outcome_awarded: false,
 };
 
 const BONUS_XP_RESULT = {
   xp_earned: 100, total_xp: 180, level: 3,
   tier_name: 'Şahin', xp_to_next: 20, badge_unlocks: [],
+};
+const OUTCOME_XP_RESULT = {
+  xp_earned: 40, total_xp: 120, level: 2,
+  tier_name: 'Şahin', xp_to_next: 0, badge_unlocks: [],
 };
 
 // ── Security ─────────────────────────────────────────────────────────────────
@@ -604,7 +614,7 @@ describe('/api/xp/evaluate-predictions — exact score bonus', () => {
     expect(vi.mocked(sbPatch)).toHaveBeenCalledWith(
       expect.anything(),
       `score_predictions?id=eq.${EXACT_PRED.id}`,
-      { xp_awarded: true, bonus_awarded: true }
+      { xp_awarded: true, bonus_awarded: true, outcome_awarded: true }
     );
   });
 
@@ -774,5 +784,247 @@ describe('/api/xp/evaluate-predictions — query filters', () => {
     const queryPath = vi.mocked(sbGet).mock.calls[0][1];
     expect(queryPath).toContain(`match_id=eq.${MATCH_ID}`);
     expect(queryPath).toContain(`site_id=eq.${FAKE_SITE_ID}`);
+  });
+});
+
+// ── Correct outcome bonus (W/D/L correct, exact score wrong) ──────────────────
+
+describe('/api/xp/evaluate-predictions — correct outcome bonus', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('awards correct_outcome_bonus when outcome matches but score does not', async () => {
+    vi.mocked(sbGet).mockResolvedValueOnce([OUTCOME_PRED]);
+    vi.mocked(sbPatch).mockResolvedValueOnce({});
+    vi.mocked(awardXP).mockResolvedValueOnce(OUTCOME_XP_RESULT);
+
+    // Actual: 2-1 (home wins); OUTCOME_PRED: 3-0 (home wins) — same outcome
+    const res = await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
+    const body = await json(res);
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(awardXP)).toHaveBeenCalledWith(
+      expect.anything(), OUTCOME_PRED.user_id, FAKE_SITE_ID, 'correct_outcome_bonus', String(MATCH_ID)
+    );
+    expect(body.results[0].correct_outcome).toBe(true);
+    expect(body.results[0].exact).toBe(false);
+    expect(body.results[0].outcome_xp).toBe(40);
+  });
+
+  it('sets outcome_awarded=true when outcome is correct', async () => {
+    vi.mocked(sbGet).mockResolvedValueOnce([OUTCOME_PRED]);
+    vi.mocked(sbPatch).mockResolvedValueOnce({});
+    vi.mocked(awardXP).mockResolvedValueOnce(OUTCOME_XP_RESULT);
+
+    await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
+    expect(vi.mocked(sbPatch)).toHaveBeenCalledWith(
+      expect.anything(),
+      `score_predictions?id=eq.${OUTCOME_PRED.id}`,
+      { xp_awarded: true, outcome_awarded: true }
+    );
+  });
+
+  it('does NOT award outcome bonus when outcome is wrong (draw predicted, home won)', async () => {
+    vi.mocked(sbGet).mockResolvedValueOnce([WRONG_PRED]); // 0-0 draw predicted, actual 2-1
+    vi.mocked(sbPatch).mockResolvedValueOnce({});
+
+    const res = await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
+    const body = await json(res);
+
+    expect(vi.mocked(awardXP)).not.toHaveBeenCalled();
+    expect(body.results[0].correct_outcome).toBe(false);
+    expect(body.results[0].exact).toBe(false);
+  });
+
+  it('does NOT award outcome bonus when outcome_awarded is already true (idempotent)', async () => {
+    const alreadyAwarded = { ...OUTCOME_PRED, outcome_awarded: true };
+    vi.mocked(sbGet).mockResolvedValueOnce([alreadyAwarded]);
+    vi.mocked(sbPatch).mockResolvedValueOnce({});
+
+    await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
+    expect(vi.mocked(awardXP)).not.toHaveBeenCalled();
+  });
+
+  it('draw prediction correct — awards outcome bonus for draw result', async () => {
+    const drawPred = {
+      ...OUTCOME_PRED, id: 'pred-draw', home_score: 1, away_score: 1, outcome_awarded: false,
+    };
+    vi.mocked(sbGet).mockResolvedValueOnce([drawPred]);
+    vi.mocked(sbPatch).mockResolvedValueOnce({});
+    vi.mocked(awardXP).mockResolvedValueOnce(OUTCOME_XP_RESULT);
+
+    // Actual: 0-0 (draw); drawPred: 1-1 (draw) — correct outcome
+    const res = await evaluateHandler({
+      request: evaluateReq({ body: { match_id: MATCH_ID, site_id: FAKE_SITE_ID, home_score: 0, away_score: 0 } }),
+      env: makeEnv(),
+    });
+    const body = await json(res);
+    expect(body.results[0].correct_outcome).toBe(true);
+    expect(vi.mocked(awardXP)).toHaveBeenCalledWith(
+      expect.anything(), drawPred.user_id, FAKE_SITE_ID, 'correct_outcome_bonus', String(MATCH_ID)
+    );
+  });
+
+  it('away win prediction correct — awards outcome bonus', async () => {
+    const awayPred = {
+      ...OUTCOME_PRED, id: 'pred-away', home_score: 0, away_score: 2, outcome_awarded: false,
+    };
+    vi.mocked(sbGet).mockResolvedValueOnce([awayPred]);
+    vi.mocked(sbPatch).mockResolvedValueOnce({});
+    vi.mocked(awardXP).mockResolvedValueOnce(OUTCOME_XP_RESULT);
+
+    // Actual: 1-3 (away wins); awayPred: 0-2 (away wins) — correct outcome
+    const res = await evaluateHandler({
+      request: evaluateReq({ body: { match_id: MATCH_ID, site_id: FAKE_SITE_ID, home_score: 1, away_score: 3 } }),
+      env: makeEnv(),
+    });
+    const body = await json(res);
+    expect(body.results[0].correct_outcome).toBe(true);
+  });
+
+  it('exact score also sets correct_outcome: true in result', async () => {
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([EXACT_PRED])
+      .mockResolvedValueOnce([]);
+    vi.mocked(sbPost).mockResolvedValueOnce({});
+    vi.mocked(sbPatch).mockResolvedValueOnce({});
+    vi.mocked(awardXP).mockResolvedValueOnce(BONUS_XP_RESULT);
+
+    const res = await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
+    const body = await json(res);
+    expect(body.results[0].exact).toBe(true);
+    expect(body.results[0].correct_outcome).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Turkey vs Paraguay — upcoming real fixture scenario
+// api-football team IDs: Turkey = 272, Paraguay = 16
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TURKEY_PARAGUAY_ID = 1399001; // upcoming fixture (Turkey home, Paraguay away)
+
+function turkeyParaguayFixture(kickoffDate = FUTURE_KICKOFF) {
+  return {
+    response: [{
+      fixture: { id: TURKEY_PARAGUAY_ID, date: kickoffDate, status: { short: 'NS' } },
+      teams:   { home: { id: 272, name: 'Turkey' }, away: { id: 16, name: 'Paraguay' } },
+      league:  { name: 'Friendly', season: 2026 },
+    }],
+  };
+}
+
+const TURKEY_EXACT_PRED = {
+  id: 'pred-tr-1', user_id: 'user-tr', site_id: FAKE_SITE_ID,
+  match_id: TURKEY_PARAGUAY_ID, home_score: 2, away_score: 1,
+  xp_awarded: false, bonus_awarded: false,
+};
+const TURKEY_WRONG_PRED = {
+  id: 'pred-tr-2', user_id: 'user-tr-2', site_id: FAKE_SITE_ID,
+  match_id: TURKEY_PARAGUAY_ID, home_score: 0, away_score: 0,
+  xp_awarded: false, bonus_awarded: false,
+};
+
+describe('/api/xp/predict — Turkey vs Paraguay fixture', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getUser).mockResolvedValue(FAKE_USER);
+    vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
+  });
+
+  it('accepts a prediction before kickoff', async () => {
+    mockFootball(turkeyParaguayFixture(FUTURE_KICKOFF));
+    vi.mocked(sbGet).mockResolvedValueOnce([]);
+    vi.mocked(sbPost).mockResolvedValueOnce({});
+    vi.mocked(awardXP)
+      .mockResolvedValueOnce(PREDICT_XP)
+      .mockResolvedValueOnce(FIRST_PREDICT_CAPPED);
+
+    const res = await predictHandler({
+      request: predictReq({ match_id: TURKEY_PARAGUAY_ID, home_score: 2, away_score: 1 }),
+      env: makeEnv(),
+    });
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.prediction_saved).toBe(true);
+  });
+
+  it('rejects prediction within 5 min of kickoff', async () => {
+    mockFootball(turkeyParaguayFixture(IMMINENT_KICKOFF));
+    const res = await predictHandler({
+      request: predictReq({ match_id: TURKEY_PARAGUAY_ID, home_score: 1, away_score: 0 }),
+      env: makeEnv(),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects duplicate prediction for the same match', async () => {
+    mockFootball(turkeyParaguayFixture(FUTURE_KICKOFF));
+    vi.mocked(sbGet).mockResolvedValueOnce([{ id: 'existing-pred' }]);
+    const res = await predictHandler({
+      request: predictReq({ match_id: TURKEY_PARAGUAY_ID, home_score: 2, away_score: 0 }),
+      env: makeEnv(),
+    });
+    expect(res.status).toBe(409);
+  });
+});
+
+describe('/api/xp/evaluate-predictions — Turkey vs Paraguay result', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('awards exact bonus when Turkey wins 2-1 as predicted', async () => {
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([TURKEY_EXACT_PRED])
+      .mockResolvedValueOnce([]);
+    vi.mocked(sbPost).mockResolvedValueOnce({});
+    vi.mocked(sbPatch).mockResolvedValueOnce({});
+    vi.mocked(awardXP).mockResolvedValueOnce(BONUS_XP_RESULT);
+
+    const res = await evaluateHandler({
+      request: evaluateReq({
+        body: { match_id: TURKEY_PARAGUAY_ID, site_id: FAKE_SITE_ID, home_score: 2, away_score: 1 },
+      }),
+      env: makeEnv(),
+    });
+    const body = await json(res);
+    expect(res.status).toBe(200);
+    expect(body.results[0].exact).toBe(true);
+    expect(body.results[0].bonus_xp).toBe(100);
+  });
+
+  it('does not award bonus when final score differs from prediction', async () => {
+    vi.mocked(sbGet).mockResolvedValueOnce([TURKEY_WRONG_PRED]);
+    vi.mocked(sbPatch).mockResolvedValueOnce({});
+
+    const res = await evaluateHandler({
+      request: evaluateReq({
+        body: { match_id: TURKEY_PARAGUAY_ID, site_id: FAKE_SITE_ID, home_score: 2, away_score: 1 },
+      }),
+      env: makeEnv(),
+    });
+    const body = await json(res);
+    expect(body.results[0].exact).toBe(false);
+    expect(vi.mocked(awardXP)).not.toHaveBeenCalled();
+  });
+
+  it('evaluates both exact and wrong predictions in the same batch', async () => {
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([TURKEY_EXACT_PRED, TURKEY_WRONG_PRED])
+      .mockResolvedValueOnce([]);
+    vi.mocked(sbPost).mockResolvedValueOnce({});
+    vi.mocked(sbPatch)
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({});
+    vi.mocked(awardXP).mockResolvedValueOnce(BONUS_XP_RESULT);
+
+    const res = await evaluateHandler({
+      request: evaluateReq({
+        body: { match_id: TURKEY_PARAGUAY_ID, site_id: FAKE_SITE_ID, home_score: 2, away_score: 1 },
+      }),
+      env: makeEnv(),
+    });
+    const body = await json(res);
+    expect(body.evaluated).toBe(2);
+    expect(body.results.filter(r => r.exact)).toHaveLength(1);
+    expect(body.results.filter(r => !r.exact)).toHaveLength(1);
   });
 });

@@ -3463,6 +3463,23 @@ Sadece JSON döndür:
       return Response.json({ ok: true });
     }
 
+    if (url.pathname === '/admin/gamification/set-upcoming-match' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const body = await request.json().catch(() => null);
+      if (body === null) {
+        await env.PITCHOS_CACHE.delete('upcoming-match:manual');
+        return Response.json({ ok: true, cleared: true });
+      }
+      const { match_id, kickoff_utc, home_team, away_team, home_team_id, away_team_id, home_logo, away_logo, league_name, venue } = body;
+      if (!match_id || !kickoff_utc || !home_team || !away_team) {
+        return Response.json({ error: 'missing required fields' }, { status: 400 });
+      }
+      const override = JSON.stringify({ match: { match_id, kickoff_utc, home_team, home_team_id: home_team_id || null, away_team, away_team_id: away_team_id || null, home_logo: home_logo || null, away_logo: away_logo || null, league_name: league_name || null, venue: venue || null } });
+      await env.PITCHOS_CACHE.put('upcoming-match:manual', override);
+      return Response.json({ ok: true, match_id });
+    }
+
     if (url.pathname === '/admin/login' && request.method === 'POST') {
       const { pin } = await request.json().catch(() => ({}));
       if (!env.ADMIN_PIN) return Response.json({ error: 'Server misconfigured — ADMIN_PIN secret not set' }, { status: 500 });
@@ -5271,6 +5288,18 @@ async function matchWatcher(env) {
                   console.log('WATCHER CATCH-UP KV WRITE T-XG: done');
                 }
               }
+              // T-PRED catch-up — evaluate score predictions
+              try {
+                const home_score = finished.home ? (finished.score_bjk ?? 0) : (finished.score_opp ?? 0);
+                const away_score = finished.home ? (finished.score_opp ?? 0) : (finished.score_bjk ?? 0);
+                await fetch('https://kartalix.com/api/xp/evaluate-predictions', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': env.INTERNAL_SECRET || '' },
+                  body: JSON.stringify({ match_id: _fid, site_id: site.id, home_score, away_score }),
+                });
+                console.log(`WATCHER CATCH-UP T-PRED: predictions evaluated for fixture ${_fid} (${home_score}-${away_score})`);
+              } catch(e) { console.error('WATCHER CATCH-UP T-PRED failed:', e.message); }
+
               // Mark done so we don't re-run on next tick
               await env.PITCHOS_CACHE.put('match:BJK:live', JSON.stringify({ ...savedLive, result_published: true }));
             }
@@ -5556,6 +5585,18 @@ async function matchWatcher(env) {
               }
             }
           } catch(e) { console.error('WATCHER T-XG failed:', e.message); }
+
+          // T-PRED — evaluate score predictions for this match
+          try {
+            const home_score = liveFixture.home ? (liveFixture.score_bjk ?? 0) : (liveFixture.score_opp ?? 0);
+            const away_score = liveFixture.home ? (liveFixture.score_opp ?? 0) : (liveFixture.score_bjk ?? 0);
+            await fetch('https://kartalix.com/api/xp/evaluate-predictions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': env.INTERNAL_SECRET || '' },
+              body: JSON.stringify({ match_id: liveFixture.fixture_id, site_id: site.id, home_score, away_score }),
+            });
+            console.log(`WATCHER T-PRED: predictions evaluated for fixture ${liveFixture.fixture_id} (${home_score}-${away_score})`);
+          } catch(e) { console.error('WATCHER T-PRED failed:', e.message); }
         }
 
         await env.PITCHOS_CACHE.put('match:BJK:live', JSON.stringify({
@@ -11148,6 +11189,30 @@ ${nav}
 
   ${pollsSection}
 
+  <!-- Upcoming Match Override -->
+  <div style="background:#111;border:1px solid #1f2937;border-radius:6px;margin-bottom:1.5rem;overflow:hidden">
+    <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-weight:700;font-size:.9rem">Tribün — Manuel Maç Ayarı</span>
+      <span style="font-size:.72rem;color:#6b7280">Tahmin kartı için geçici fixture override (test)</span>
+    </div>
+    <div style="padding:1rem">
+      <p style="font-size:.78rem;color:#9ca3af;margin:0 0 .75rem">Beşiktaş veya Milli Takım maçı yokken buradan manuel olarak bir maç sabitleyebilirsiniz. Kayıtlı override varsa API sonucunun önüne geçer.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.5rem;margin-bottom:.75rem">
+        <label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:#9ca3af">Fixture ID (api-football)<input id="om-id" type="number" placeholder="örn. 1399001" style="background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:4px 8px;font-size:.85rem;border-radius:3px"></label>
+        <label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:#9ca3af">Ev sahibi takım<input id="om-home" type="text" placeholder="örn. Turkey" style="background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:4px 8px;font-size:.85rem;border-radius:3px"></label>
+        <label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:#9ca3af">Deplasman takımı<input id="om-away" type="text" placeholder="örn. Paraguay" style="background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:4px 8px;font-size:.85rem;border-radius:3px"></label>
+        <label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:#9ca3af">Kickoff (UTC ISO)<input id="om-kickoff" type="datetime-local" style="background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:4px 8px;font-size:.85rem;border-radius:3px"></label>
+        <label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:#9ca3af">Lig / Turnuva<input id="om-league" type="text" placeholder="örn. FIFA World Cup" style="background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:4px 8px;font-size:.85rem;border-radius:3px"></label>
+        <label style="display:flex;flex-direction:column;gap:.2rem;font-size:.7rem;color:#9ca3af">Stat<input id="om-venue" type="text" placeholder="örn. MetLife Stadium" style="background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:4px 8px;font-size:.85rem;border-radius:3px"></label>
+      </div>
+      <div style="display:flex;gap:.5rem;align-items:center">
+        <button onclick="setUpcomingMatch()" style="padding:5px 18px;background:#E30A17;border:none;color:#fff;font-size:.78rem;font-weight:700;cursor:pointer;border-radius:3px">Kaydet</button>
+        <button onclick="clearUpcomingMatch()" style="padding:5px 14px;background:#1f2937;border:1px solid #374151;color:#d1d5db;font-size:.78rem;cursor:pointer;border-radius:3px">Override Kaldır</button>
+        <span id="om-msg" style="font-size:.75rem;color:#4ade80"></span>
+      </div>
+    </div>
+  </div>
+
   <!-- Recent Events -->
   <div style="background:#111;border:1px solid #1f2937;border-radius:6px;overflow:hidden">
     <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
@@ -11304,6 +11369,36 @@ async function deletePoll(id) {
     body: JSON.stringify({ id }),
   });
   if (res.ok) location.reload();
+}
+async function setUpcomingMatch() {
+  const msg = document.getElementById('om-msg');
+  const id  = parseInt(document.getElementById('om-id').value);
+  const home = document.getElementById('om-home').value.trim();
+  const away = document.getElementById('om-away').value.trim();
+  const kickoff = document.getElementById('om-kickoff').value;
+  if (!id || !home || !away || !kickoff) { msg.style.color='#f87171'; msg.textContent='Tüm zorunlu alanları doldurun (ID, ev sahibi, deplasman, tarih).'; return; }
+  const kickoff_utc = new Date(kickoff).toISOString();
+  const res = await fetch('/admin/gamification/set-upcoming-match', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      match_id: id, kickoff_utc, home_team: home, away_team: away,
+      league_name: document.getElementById('om-league').value.trim() || null,
+      venue: document.getElementById('om-venue').value.trim() || null,
+    }),
+  });
+  if (res.ok) { msg.style.color='#4ade80'; msg.textContent='Override kaydedildi! Tribün sayfasını yenileyin.'; }
+  else        { msg.style.color='#f87171'; msg.textContent='Hata!'; }
+}
+async function clearUpcomingMatch() {
+  const msg = document.getElementById('om-msg');
+  const res = await fetch('/admin/gamification/set-upcoming-match', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'null',
+  });
+  if (res.ok) { msg.style.color='#4ade80'; msg.textContent='Override kaldırıldı.'; }
+  else        { msg.style.color='#f87171'; msg.textContent='Hata!'; }
 }
 </script>
 </body>
