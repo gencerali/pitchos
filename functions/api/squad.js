@@ -1,73 +1,78 @@
-// Returns the squad for a football team.
-// Used by the Starting 11 prediction UI. KV-cached for 24 hours.
+// Returns Beşiktaş squad for the Starting 11 prediction UI.
+// Uses ESPN's unofficial public API — no key required.
+// KV-cached for 24 hours.
 
 import { json, err, corsHeaders } from './_shared/auth.js';
 
-const CACHE_TTL = 24 * 60 * 60; // 24 hours
+const CACHE_TTL  = 24 * 60 * 60;
+const ESPN_BASE  = 'https://site.api.espn.com/apis/site/v2/sports/soccer';
+
+const BJK_LEAGUE  = 'tur.1';
+const BJK_ESPN_ID = '3886'; // Beşiktaş JK
 
 const POSITION_ORDER = { Goalkeeper: 0, Defender: 1, Midfielder: 2, Attacker: 3 };
+const POSITION_MAP = {
+  G: 'Goalkeeper', GK: 'Goalkeeper',
+  D: 'Defender',   CB: 'Defender', LB: 'Defender', RB: 'Defender',
+  LWB: 'Defender', RWB: 'Defender', SW: 'Defender',
+  M: 'Midfielder', CM: 'Midfielder', DM: 'Midfielder', AM: 'Midfielder',
+  LM: 'Midfielder', RM: 'Midfielder',
+  F: 'Attacker',   CF: 'Attacker', LW: 'Attacker', RW: 'Attacker',
+  ST: 'Attacker',  SS: 'Attacker',
+};
 
 export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return corsHeaders();
   if (request.method !== 'GET') return err('Method not allowed', 405);
 
-  if (!env.API_FOOTBALL_KEY) return err('Service unavailable', 503);
-
-  const url = new URL(request.url);
-  const teamId = url.searchParams.get('team_id') ?? (env.FOOTBALL_TEAM_ID ?? '2672');
-
-  const cacheKey = `squad:team:${teamId}`;
+  const league   = env.ESPN_BJK_LEAGUE ?? BJK_LEAGUE;
+  const teamId   = env.ESPN_BJK_ID     ?? BJK_ESPN_ID;
+  const cacheKey = `squad:espn:v1:${teamId}`;
 
   if (env.PITCHOS_CACHE) {
     const cached = await env.PITCHOS_CACHE.get(cacheKey);
     if (cached) {
       return new Response(cached, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Cache-Control': `public, max-age=${CACHE_TTL}`,
-          'X-Cache': 'HIT',
-        },
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${CACHE_TTL}`, 'X-Cache': 'HIT' },
       });
     }
   }
 
-  const apiRes = await fetch(
-    `https://v3.football.api-sports.io/players/squads?team=${teamId}`,
-    { headers: { 'x-apisports-key': env.API_FOOTBALL_KEY } }
-  );
-
+  const apiRes = await fetch(`${ESPN_BASE}/${league}/teams/${teamId}/roster`);
   if (!apiRes.ok) return err('Could not fetch squad', 503);
-
   const data = await apiRes.json();
-  const rawSquad = data?.response?.[0]?.players ?? [];
 
-  if (!rawSquad.length) return json({ team_id: Number(teamId), players: [] });
+  // ESPN roster: athletes is either a flat array or an array of position groups with .items
+  const raw  = data?.athletes ?? [];
+  const flat = raw.length && Array.isArray(raw[0]?.items) ? raw.flatMap(g => g.items) : raw;
 
-  const players = rawSquad
-    .map(p => ({
-      id: p.id,
-      name: p.name,
-      position: p.position,
-      photo: p.photo ?? null,
-      number: p.number ?? null,
-    }))
+  if (!flat.length) return json({ team_id: teamId, players: [] });
+
+  const players = flat
+    .map(p => {
+      const abbr     = p.position?.abbreviation ?? '';
+      const position = POSITION_MAP[abbr] ?? p.position?.displayName ?? 'Unknown';
+      return {
+        id:       parseInt(p.id, 10) || p.id,
+        name:     p.displayName ?? p.fullName ?? p.shortName ?? '',
+        position,
+        photo:    p.headshot?.href ?? null,
+        number:   p.jersey != null ? parseInt(p.jersey, 10) : null,
+      };
+    })
     .sort((a, b) => {
       const pa = POSITION_ORDER[a.position] ?? 4;
       const pb = POSITION_ORDER[b.position] ?? 4;
       return pa !== pb ? pa - pb : a.name.localeCompare(b.name, 'tr');
     });
 
-  const responseBody = JSON.stringify({ team_id: Number(teamId), players });
+  const responseBody = JSON.stringify({ team_id: teamId, players });
 
   if (env.PITCHOS_CACHE) {
     await env.PITCHOS_CACHE.put(cacheKey, responseBody, { expirationTtl: CACHE_TTL });
   }
 
   return new Response(responseBody, {
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': `public, max-age=${CACHE_TTL}`,
-      'X-Cache': 'MISS',
-    },
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': `public, max-age=${CACHE_TTL}`, 'X-Cache': 'MISS' },
   });
 }

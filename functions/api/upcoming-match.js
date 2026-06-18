@@ -1,50 +1,52 @@
 // Returns the next scheduled fixture for predictions in tribün.
+// Uses ESPN's unofficial public API — no key required.
 // Priority: 1) admin manual override (KV), 2) next Beşiktaş game, 3) next Turkey national team game.
-// All three fall back gracefully so tribün always has a match to predict when either team plays.
 
-import { json, err, corsHeaders } from './_shared/auth.js';
+import { err, corsHeaders } from './_shared/auth.js';
 
-const CACHE_TTL     = 60 * 60; // 1 hour
-const BJK_TEAM_ID   = '2672';
-const TURKEY_TEAM_ID = '272';
+const CACHE_TTL  = 60 * 60; // 1 hour
+const ESPN_BASE  = 'https://site.api.espn.com/apis/site/v2/sports/soccer';
 
-async function fetchNextFixture(teamId, env) {
-  const today = new Date().toISOString().slice(0, 10);
-  const ahead = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+// Env vars override these defaults (set in Cloudflare dashboard if IDs change)
+const BJK_LEAGUE      = 'tur.1';
+const BJK_ESPN_ID     = '3886';    // Beşiktaş JK — Turkish Super Lig
+const TURKEY_LEAGUE   = 'fifa.world';
+const TURKEY_ESPN_ID  = '221';     // Turkey national team — FIFA World Cup
 
-  // No status filter — NS, TBD, and other scheduled statuses all qualify.
-  // We pick the soonest fixture whose kickoff is still in the future.
-  const res = await fetch(
-    `https://v3.football.api-sports.io/fixtures?team=${teamId}&from=${today}&to=${ahead}`,
-    { headers: { 'x-apisports-key': env.API_FOOTBALL_KEY } }
-  );
+async function fetchNextESPNFixture(league, teamId) {
+  const res = await fetch(`${ESPN_BASE}/${league}/teams/${teamId}/schedule`);
   if (!res.ok) return null;
   const data = await res.json();
   const now = Date.now();
-  return (data?.response ?? []).find(f => new Date(f.fixture.date).getTime() > now) ?? null;
+  return (data?.events ?? []).find(e => {
+    const state   = e.competitions?.[0]?.status?.type?.state;
+    const kickoff = new Date(e.date).getTime();
+    return state === 'pre' && kickoff > now;
+  }) ?? null;
 }
 
-function fixtureToMatch(fixture) {
+function espnEventToMatch(event) {
+  const comp = event.competitions[0];
+  const home = comp.competitors.find(c => c.homeAway === 'home');
+  const away = comp.competitors.find(c => c.homeAway === 'away');
   return {
-    match_id:      fixture.fixture.id,
-    kickoff_utc:   fixture.fixture.date,
-    home_team:     fixture.teams.home.name,
-    home_team_id:  fixture.teams.home.id,
-    away_team:     fixture.teams.away.name,
-    away_team_id:  fixture.teams.away.id,
-    home_logo:     fixture.teams.home.logo,
-    away_logo:     fixture.teams.away.logo,
-    league_name:   fixture.league.name,
-    round:         fixture.league.round ?? null,
-    venue:         fixture.fixture.venue?.name ?? null,
+    match_id:     event.id,
+    kickoff_utc:  event.date,
+    home_team:    home?.team?.displayName ?? '',
+    home_team_id: home?.team?.id ?? null,
+    away_team:    away?.team?.displayName ?? '',
+    away_team_id: away?.team?.id ?? null,
+    home_logo:    home?.team?.logo ?? null,
+    away_logo:    away?.team?.logo ?? null,
+    league_name:  event.league?.name ?? null,
+    round:        comp.series?.description ?? comp.status?.type?.detail ?? null,
+    venue:        comp.venue?.fullName ?? null,
   };
 }
 
 export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return corsHeaders();
   if (request.method !== 'GET') return err('Method not allowed', 405);
-
-  if (!env.API_FOOTBALL_KEY) return err('Service unavailable', 503);
 
   // 1. Admin manual override — bypasses API and cache entirely
   if (env.PITCHOS_CACHE) {
@@ -56,8 +58,8 @@ export async function onRequest({ request, env }) {
     }
   }
 
-  // 2. KV cache for both team lookups
-  const cacheKey = `upcoming-match:v2:${BJK_TEAM_ID}+${TURKEY_TEAM_ID}`;
+  // 2. KV cache
+  const cacheKey = `upcoming-match:espn:v1:${BJK_ESPN_ID}+${TURKEY_ESPN_ID}`;
   if (env.PITCHOS_CACHE) {
     const cached = await env.PITCHOS_CACHE.get(cacheKey);
     if (cached) {
@@ -68,21 +70,25 @@ export async function onRequest({ request, env }) {
   }
 
   // 3. Fetch BJK and Turkey in parallel; pick whichever is soonest
-  const [bjkFixture, turkeyFixture] = await Promise.all([
-    fetchNextFixture(BJK_TEAM_ID, env).catch(() => null),
-    fetchNextFixture(TURKEY_TEAM_ID, env).catch(() => null),
+  const bjkLeague    = env.ESPN_BJK_LEAGUE    ?? BJK_LEAGUE;
+  const bjkId        = env.ESPN_BJK_ID        ?? BJK_ESPN_ID;
+  const turkeyLeague = env.ESPN_TURKEY_LEAGUE ?? TURKEY_LEAGUE;
+  const turkeyId     = env.ESPN_TURKEY_ID     ?? TURKEY_ESPN_ID;
+
+  const [bjkEvent, turkeyEvent] = await Promise.all([
+    fetchNextESPNFixture(bjkLeague, bjkId).catch(() => null),
+    fetchNextESPNFixture(turkeyLeague, turkeyId).catch(() => null),
   ]);
 
   let match = null;
-  if (bjkFixture && turkeyFixture) {
-    // Both available — pick the sooner kickoff
-    const bjkDate    = new Date(bjkFixture.fixture.date).getTime();
-    const turkeyDate = new Date(turkeyFixture.fixture.date).getTime();
-    match = fixtureToMatch(bjkDate <= turkeyDate ? bjkFixture : turkeyFixture);
-  } else if (bjkFixture) {
-    match = fixtureToMatch(bjkFixture);
-  } else if (turkeyFixture) {
-    match = fixtureToMatch(turkeyFixture);
+  if (bjkEvent && turkeyEvent) {
+    const bjkTime    = new Date(bjkEvent.date).getTime();
+    const turkeyTime = new Date(turkeyEvent.date).getTime();
+    match = espnEventToMatch(bjkTime <= turkeyTime ? bjkEvent : turkeyEvent);
+  } else if (bjkEvent) {
+    match = espnEventToMatch(bjkEvent);
+  } else if (turkeyEvent) {
+    match = espnEventToMatch(turkeyEvent);
   }
 
   const responseBody = JSON.stringify({ match });
