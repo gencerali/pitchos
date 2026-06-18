@@ -40,8 +40,13 @@ export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return corsHeaders();
   if (request.method !== 'GET') return err('Method not allowed', 405);
 
-  const league   = env.ESPN_BJK_LEAGUE ?? BJK_LEAGUE;
-  const cacheKey = `squad:espn:v2:${league}`;
+  // team_id + league come from upcoming-match response (squad_espn_id, squad_league).
+  // Fall back to finding Beşiktaş by name in the Super Lig.
+  const url      = new URL(request.url);
+  const qLeague  = url.searchParams.get('league');
+  const qTeamId  = url.searchParams.get('team_id');
+  const league   = qLeague  ?? env.ESPN_BJK_LEAGUE ?? BJK_LEAGUE;
+  const cacheKey = `squad:espn:v2:${league}:${qTeamId ?? 'auto'}`;
 
   if (env.PITCHOS_CACHE) {
     const cached = await env.PITCHOS_CACHE.get(cacheKey);
@@ -52,9 +57,8 @@ export async function onRequest({ request, env }) {
     }
   }
 
-  // Resolve BJK's ESPN ID dynamically from the teams list
-  const teamId = env.ESPN_BJK_ID ?? await findBJKTeamId(league);
-  if (!teamId) return err('Could not resolve Beşiktaş team ID', 503);
+  const teamId = qTeamId ?? env.ESPN_BJK_ID ?? await findBJKTeamId(league);
+  if (!teamId) return err('Could not resolve team ID', 503);
 
   const apiRes = await fetch(`${ESPN_BASE}/${league}/teams/${teamId}/roster`);
   if (!apiRes.ok) return err('Could not fetch squad', 503);
