@@ -771,47 +771,26 @@
     </div>
   </div>
 
-  <!-- ── POLL CARD ── -->
+  <!-- ── POLL SECTION ── -->
   <div class="tribun-section" id="pollSection">
-    <div class="poll-card" id="pollCard">
+    <div class="poll-card" id="pollLoadingCard">
       <div class="poll-card-header">
         <span class="poll-label">Anket</span>
-        <span class="poll-xp-badge">+15 XP</span>
       </div>
-      <div class="predict-state active" id="pollStateLoading">
-        <div class="predict-skeleton">
-          <div class="skeleton-spinner"></div>
-          <div class="skeleton-text">Anket yükleniyor…</div>
-        </div>
-      </div>
-      <div class="predict-state" id="pollStateNone">
-        <div class="predict-no-match">
-          <div class="predict-no-match-text">Şu an aktif bir anket bulunmuyor.</div>
-        </div>
-      </div>
-      <div class="predict-state" id="pollStateAuth">
-        <div class="poll-body">
-          <div class="poll-question" id="pollAuthQuestion"></div>
-          <div class="predict-auth-gate">
-            <div class="predict-auth-gate-text">Oy kullanmak için giriş yapman gerekiyor.</div>
-            <button class="predict-auth-btn" id="pollLoginBtn">Giriş Yap</button>
-          </div>
-        </div>
-      </div>
-      <div class="predict-state" id="pollStateVote">
-        <div class="poll-body">
-          <div class="poll-question" id="pollQuestion"></div>
-          <div id="pollOptions"></div>
-          <div class="s11-error-msg" id="pollError"></div>
-        </div>
-      </div>
-      <div class="predict-state" id="pollStateResults">
-        <div class="poll-body">
-          <div class="poll-question" id="pollResultsQuestion"></div>
-          <div id="pollResults"></div>
-        </div>
+      <div class="predict-skeleton" style="padding:1.5rem">
+        <div class="skeleton-spinner"></div>
+        <div class="skeleton-text">Anketler yükleniyor…</div>
       </div>
     </div>
+    <div class="poll-card" id="pollNoneCard" style="display:none">
+      <div class="poll-card-header">
+        <span class="poll-label">Anket</span>
+      </div>
+      <div class="predict-no-match">
+        <div class="predict-no-match-text">Şu an aktif bir anket bulunmuyor.</div>
+      </div>
+    </div>
+    <div id="pollContainer" style="display:flex;flex-direction:column;gap:.75rem"></div>
   </div>
 
   <!-- ── COMMUNITY SECTION ── -->
@@ -963,7 +942,6 @@
   // ── Shared state ──────────────────────────────────────────────────────────
   var _match = null;
   var _accessToken = null;
-  var _activePoll = null;
   var _selectedPlayerIds = [];
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -1210,94 +1188,104 @@
   });
 
   // ── Poll ──────────────────────────────────────────────────────────────────
+  function escHtml(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
   async function initPoll() {
     var headers = _accessToken ? { Authorization: 'Bearer ' + _accessToken } : {};
     var pollRes = await fetch('/api/polls', { headers: headers })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; });
 
-    if (!pollRes?.polls?.length) { showPollState('pollStateNone'); return; }
+    document.getElementById('pollLoadingCard').style.display = 'none';
 
-    var poll = pollRes.polls[0];
-    _activePoll = poll;
+    if (!pollRes || !pollRes.polls || !pollRes.polls.length) {
+      document.getElementById('pollNoneCard').style.display = '';
+      return;
+    }
 
+    var container = document.getElementById('pollContainer');
+    pollRes.polls.forEach(function (poll) {
+      container.appendChild(buildPollCard(poll));
+    });
+  }
+
+  function buildPollCard(poll) {
+    var card = document.createElement('div');
+    card.className = 'poll-card';
+    var headerHtml = '<div class="poll-card-header"><span class="poll-label">Anket</span><span class="poll-xp-badge">+15 XP</span></div>';
+    var bodyHtml = '<div class="poll-body"><div class="poll-question">' + escHtml(poll.question) + '</div>';
     if (poll.user_vote) {
-      document.getElementById('pollResultsQuestion').textContent = poll.question;
-      renderPollResults(poll.options, poll.total_votes, poll.user_vote);
-      showPollState('pollStateResults'); return;
+      bodyHtml += buildPollResultsHtml(poll.options, poll.total_votes, poll.user_vote);
+    } else if (!_accessToken) {
+      bodyHtml += '<div class="predict-auth-gate"><div class="predict-auth-gate-text">Oy kullanmak için giriş yapman gerekiyor.</div>';
+      bodyHtml += '<button class="predict-auth-btn poll-auth-btn">Giriş Yap</button></div>';
+    } else {
+      bodyHtml += '<div class="poll-vote-opts">';
+      poll.options.forEach(function (opt) {
+        bodyHtml += '<button class="poll-option-btn" data-opt-id="' + escHtml(opt.id) + '">' + escHtml(opt.label) + '</button>';
+      });
+      bodyHtml += '</div><div class="s11-error-msg poll-err"></div>';
     }
-    if (!_accessToken) {
-      document.getElementById('pollAuthQuestion').textContent = poll.question;
-      showPollState('pollStateAuth'); return;
-    }
-    document.getElementById('pollQuestion').textContent = poll.question;
-    renderPollVoteForm(poll.options);
-    showPollState('pollStateVote');
+    bodyHtml += '</div>';
+    card.innerHTML = headerHtml + bodyHtml;
+    var authBtn = card.querySelector('.poll-auth-btn');
+    if (authBtn) authBtn.addEventListener('click', function () { if (window.kxAuth) window.kxAuth.showLogin(); });
+    card.querySelectorAll('.poll-option-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () { submitPollVoteInCard(poll, btn.dataset.optId, btn, card); });
+    });
+    return card;
   }
 
-  function renderPollVoteForm(options) {
+  function buildPollResultsHtml(options, total, userVote) {
+    var maxVotes = Math.max.apply(null, options.map(function (o) { return o.vote_count || 0; }));
     var html = '';
     options.forEach(function (opt) {
-      html += '<button class="poll-option-btn" data-id="' + opt.id + '">' + opt.label + '</button>';
-    });
-    document.getElementById('pollOptions').innerHTML = html;
-    document.getElementById('pollOptions').querySelectorAll('.poll-option-btn').forEach(function (btn) {
-      btn.addEventListener('click', function () { submitPollVote(this.dataset.id, this); });
-    });
-  }
-
-  function renderPollResults(options, total, userVote) {
-    var maxVotes = Math.max.apply(null, options.map(function (o) { return o.vote_count; }));
-    var html = '';
-    options.forEach(function (opt) {
-      var pct = total > 0 ? Math.round(opt.vote_count / total * 100) : 0;
-      var isWinner = opt.vote_count === maxVotes && maxVotes > 0;
+      var pct = total > 0 ? Math.round((opt.vote_count || 0) / total * 100) : 0;
+      var isWinner = (opt.vote_count || 0) === maxVotes && maxVotes > 0;
       var isMyPick = opt.id === userVote;
       html += '<div class="poll-result-row">' +
-        '<div class="poll-result-label' + (isWinner ? ' winner' : '') + '">' + opt.label + '</div>' +
+        '<div class="poll-result-label' + (isWinner ? ' winner' : '') + '">' + escHtml(opt.label) + '</div>' +
         '<div class="poll-bar-wrap"><div class="poll-bar' + (isWinner ? ' winner' : '') + '" style="width:' + pct + '%"></div></div>' +
         '<div class="poll-result-pct">' + pct + '%</div></div>';
       if (isMyPick) html += '<div class="poll-voted-badge my-pick">&#10003; Senin oyun</div>';
     });
     if (total > 0) html += '<div class="poll-voted-badge" style="display:block;margin-top:.5rem">' + total + ' oy kullanıldı</div>';
-    document.getElementById('pollResults').innerHTML = html;
+    return html;
   }
 
-  async function submitPollVote(optionId, triggerEl) {
-    if (!_activePoll || !_accessToken) return;
-    var errEl = document.getElementById('pollError');
-    errEl.classList.remove('visible');
-    document.getElementById('pollOptions').querySelectorAll('.poll-option-btn').forEach(function (b) { b.disabled = true; });
+  async function submitPollVoteInCard(poll, optionId, triggerEl, card) {
+    if (!_accessToken) return;
+    var errEl = card.querySelector('.poll-err');
+    if (errEl) errEl.classList.remove('visible');
+    card.querySelectorAll('.poll-option-btn').forEach(function (b) { b.disabled = true; });
     try {
       var res = await fetch('/api/xp/poll-vote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _accessToken },
-        body: JSON.stringify({ poll_id: _activePoll.id, option_id: optionId }),
+        body: JSON.stringify({ poll_id: poll.id, option_id: optionId }),
       });
       var data = await res.json();
       if (!res.ok) {
-        errEl.textContent = data.error ?? 'Oy verilemedi. Tekrar dene.';
-        errEl.classList.add('visible');
-        document.getElementById('pollOptions').querySelectorAll('.poll-option-btn').forEach(function (b) { b.disabled = false; });
+        if (errEl) { errEl.textContent = data.error || 'Oy verilemedi. Tekrar dene.'; errEl.classList.add('visible'); }
+        card.querySelectorAll('.poll-option-btn').forEach(function (b) { b.disabled = false; });
         return;
       }
-      document.getElementById('pollResultsQuestion').textContent = _activePoll.question;
-      var totalVotes = data.poll_results.reduce(function (s, r) { return s + r.vote_count; }, 0);
-      renderPollResults(data.poll_results, totalVotes, optionId);
-      showPollState('pollStateResults');
+      var totalVotes = data.poll_results.reduce(function (s, r) { return s + (r.vote_count || 0); }, 0);
+      var body = card.querySelector('.poll-body');
+      body.innerHTML = '<div class="poll-question">' + escHtml(poll.question) + '</div>' +
+        buildPollResultsHtml(data.poll_results, totalVotes, optionId);
       spawnXP(data.xp_earned, triggerEl);
-      if (data.badge_unlocks?.length) data.badge_unlocks.forEach(function (b) { setTimeout(function () { showBadgeToast(b.label ?? b.id); }, 400); });
       if (window.kxSpawnXP && data.xp_earned > 0) window.kxSpawnXP(data.xp_earned, triggerEl);
+      if (data.badge_unlocks && data.badge_unlocks.length) {
+        data.badge_unlocks.forEach(function (b) { setTimeout(function () { showBadgeToast(b.label || b.id); }, 400); });
+      }
     } catch (e) {
-      errEl.textContent = 'Bağlantı hatası. Lütfen tekrar dene.';
-      errEl.classList.add('visible');
-      document.getElementById('pollOptions').querySelectorAll('.poll-option-btn').forEach(function (b) { b.disabled = false; });
+      if (errEl) { errEl.textContent = 'Bağlantı hatası. Lütfen tekrar dene.'; errEl.classList.add('visible'); }
+      card.querySelectorAll('.poll-option-btn').forEach(function (b) { b.disabled = false; });
     }
   }
-
-  document.getElementById('pollLoginBtn').addEventListener('click', function () {
-    if (window.kxAuth) window.kxAuth.showLogin();
-  });
 
   // ── Community stats ───────────────────────────────────────────────────────
   async function loadCommunityStats() {

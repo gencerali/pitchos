@@ -10891,6 +10891,8 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
   const siteById = Object.fromEntries((sites || []).map(s => [s.id, s]));
   const siteOptions = (sites || []).map(s => `<option value="${esc(s.id)}">${esc(s.short_code)} — ${esc(s.name || s.short_code)}</option>`).join('');
 
+  const toLocalDt = iso => iso ? new Date(iso).toISOString().slice(0,16) : '';
+
   const pollTableRows = polls.map(p => {
     const siteLabel = siteById[p.site_id]?.short_code || p.site_id?.slice(0,8) || '—';
     const optCount = Array.isArray(p.options) ? p.options.length : 0;
@@ -10898,7 +10900,13 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
       ? `<span style="font-size:.7rem;padding:1px 6px;border-radius:3px;background:#1e3a5f;color:#60a5fa">Aktif</span>`
       : `<span style="font-size:.7rem;padding:1px 6px;border-radius:3px;background:#3b1515;color:#f87171">Pasif</span>`;
     const optChips = (p.options || []).map(o => `<span style="font-size:.72rem;padding:2px 8px;background:#1a1a1a;border:1px solid #1f2937;border-radius:3px;color:#d1d5db">${esc(o.label)}</span>`).join(' ');
-    return `<tr style="border-bottom:1px solid #1a1a1a">
+    const editOptInputs = (p.options || []).map((o, i) =>
+      `<div class="poe-row" style="display:flex;gap:.5rem;margin-bottom:.35rem"><input type="text" class="poe-opt" value="${esc(o.label)}" placeholder="Seçenek ${i+1}" style="flex:1;background:#0d1117;border:1px solid #374151;color:#e5e7eb;padding:4px 7px;font-size:.78rem;border-radius:3px;font-family:inherit"><button onclick="removePollEditOpt(this)" style="background:none;border:1px solid #374151;color:#9ca3af;cursor:pointer;border-radius:3px;padding:1px 7px;font-size:.75rem">✕</button></div>`
+    ).join('');
+    const editSiteOptions = (sites || []).map(s =>
+      `<option value="${esc(s.id)}"${s.id === p.site_id ? ' selected' : ''}>${esc(s.short_code)} — ${esc(s.name || s.short_code)}</option>`
+    ).join('');
+    return `<tr style="border-bottom:1px solid #1a1a1a" id="pr-main-${esc(p.id)}">
       <td style="padding:.55rem .75rem;font-size:.82rem;color:#e5e7eb;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(p.question)}">${esc(p.question)}</td>
       <td style="padding:.55rem .75rem;font-size:.75rem;color:#9ca3af">${esc(siteLabel)}</td>
       <td style="padding:.55rem .75rem;text-align:center;font-size:.82rem;color:#9ca3af">${optCount}</td>
@@ -10907,15 +10915,54 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
       <td style="padding:.55rem .75rem;text-align:center">${activeBadge}</td>
       <td style="padding:.55rem .75rem;text-align:right;font-family:monospace;font-size:.82rem;color:#fbbf24;font-weight:700">${p.total_votes}</td>
       <td style="padding:.55rem .75rem;white-space:nowrap;text-align:right">
+        <button onclick="editPoll('${esc(p.id)}')" style="font-size:.68rem;padding:2px 8px;background:#1f2937;border:1px solid #374151;color:#d1d5db;cursor:pointer;border-radius:3px;margin-right:.3rem">Düzenle</button>
         <button onclick="togglePollActive('${esc(p.id)}',${!p.active})" style="font-size:.68rem;padding:2px 8px;background:#1f2937;border:1px solid #374151;color:#d1d5db;cursor:pointer;border-radius:3px;margin-right:.3rem">${p.active ? 'Kapat' : 'Aç'}</button>
-        <button onclick="showPollResults('${esc(p.id)}')" style="font-size:.68rem;padding:2px 8px;background:#1f2937;border:1px solid #374151;color:#60a5fa;cursor:pointer;border-radius:3px;margin-right:.3rem">Sonuçlar</button>
+        <button onclick="showPollResults('${esc(p.id)}')" style="font-size:.68rem;padding:2px 8px;background:#1f2937;border:1px solid #374151;color:#60a5fa;cursor:pointer;border-radius:3px;margin-right:.3rem">Seçenekler</button>
         <button onclick="deletePoll('${esc(p.id)}')" style="font-size:.68rem;padding:2px 8px;background:#3b1515;border:1px solid #7f1d1d;color:#f87171;cursor:pointer;border-radius:3px">Sil</button>
       </td>
     </tr>
-    <tr id="pr-${esc(p.id)}" style="display:none;background:#0d1117">
-      <td colspan="8" style="padding:.75rem 1rem">
-        <div style="font-size:.68rem;color:#6b7280;margin-bottom:.5rem;text-transform:uppercase;letter-spacing:.08em">Seçenekler</div>
+    <tr id="pr-${esc(p.id)}" style="display:none;background:#0a0a0a">
+      <td colspan="8" style="padding:.6rem .75rem;border-bottom:1px solid #1f2937">
+        <div style="font-size:.68rem;color:#6b7280;margin-bottom:.35rem;text-transform:uppercase;letter-spacing:.08em">Seçenekler</div>
         <div style="display:flex;flex-wrap:wrap;gap:.5rem">${optChips}</div>
+      </td>
+    </tr>
+    <tr id="pe-${esc(p.id)}" style="display:none;background:#0d1117">
+      <td colspan="8" style="padding:.9rem 1rem;border-bottom:1px solid #1f2937">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
+          <label style="display:flex;flex-direction:column;gap:.25rem;font-size:.68rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">
+            Site
+            <select id="pe-site-${esc(p.id)}" style="background:#1a1a1a;border:1px solid #374151;color:#e5e7eb;padding:5px 7px;font-size:.78rem;border-radius:3px">${editSiteOptions}</select>
+          </label>
+          <div style="display:flex;align-items:center;gap:.5rem;padding-top:1.2rem">
+            <input type="checkbox" id="pe-active-${esc(p.id)}"${p.active ? ' checked' : ''}>
+            <label for="pe-active-${esc(p.id)}" style="font-size:.72rem;color:#9ca3af;cursor:pointer">Aktif</label>
+          </div>
+        </div>
+        <div style="margin-bottom:.75rem">
+          <label style="display:block;font-size:.68rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em;margin-bottom:.25rem">Soru</label>
+          <textarea id="pe-question-${esc(p.id)}" rows="2" style="width:100%;background:#1a1a1a;border:1px solid #374151;color:#e5e7eb;padding:5px 7px;font-size:.82rem;border-radius:3px;resize:vertical;font-family:inherit">${esc(p.question)}</textarea>
+        </div>
+        <div style="margin-bottom:.75rem">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.3rem">
+            <span style="font-size:.68rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">Seçenekler</span>
+            <button onclick="addPollEditOpt('${esc(p.id)}')" style="font-size:.65rem;padding:1px 8px;background:#1f2937;border:1px solid #374151;color:#d1d5db;cursor:pointer;border-radius:3px">+ Ekle</button>
+          </div>
+          <div id="pe-opts-${esc(p.id)}">${editOptInputs}</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
+          <label style="display:flex;flex-direction:column;gap:.2rem;font-size:.68rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">
+            Başlangıç (opsiyonel)<input type="datetime-local" id="pe-starts-${esc(p.id)}" value="${toLocalDt(p.starts_at)}" style="background:#1a1a1a;border:1px solid #374151;color:#e5e7eb;padding:4px 7px;font-size:.75rem;border-radius:3px">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:.2rem;font-size:.68rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">
+            Bitiş (opsiyonel)<input type="datetime-local" id="pe-expires-${esc(p.id)}" value="${toLocalDt(p.expires_at)}" style="background:#1a1a1a;border:1px solid #374151;color:#e5e7eb;padding:4px 7px;font-size:.75rem;border-radius:3px">
+          </label>
+        </div>
+        <div style="display:flex;gap:.5rem;align-items:center">
+          <button onclick="savePollEdit('${esc(p.id)}')" style="padding:4px 16px;background:#E30A17;border:none;color:#fff;font-size:.75rem;font-weight:700;cursor:pointer;border-radius:3px">Kaydet</button>
+          <button onclick="cancelPollEdit('${esc(p.id)}')" style="padding:4px 10px;background:#1f2937;border:1px solid #374151;color:#d1d5db;font-size:.75rem;cursor:pointer;border-radius:3px">İptal</button>
+          <span id="pe-msg-${esc(p.id)}" style="font-size:.72rem;color:#4ade80"></span>
+        </div>
       </td>
     </tr>`;
   }).join('');
@@ -11171,6 +11218,52 @@ async function togglePollActive(id, newActive) {
 function showPollResults(id) {
   const row = document.getElementById('pr-' + id);
   if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
+}
+function editPoll(id) {
+  document.getElementById('pr-main-' + id).style.display = 'none';
+  document.getElementById('pe-' + id).style.display = '';
+}
+function cancelPollEdit(id) {
+  document.getElementById('pe-' + id).style.display = 'none';
+  document.getElementById('pr-main-' + id).style.display = '';
+}
+function addPollEditOpt(id) {
+  const container = document.getElementById('pe-opts-' + id);
+  const count = container.querySelectorAll('.poe-row').length + 1;
+  if (count > 6) return;
+  const row = document.createElement('div');
+  row.className = 'poe-row';
+  row.style.cssText = 'display:flex;gap:.5rem;margin-bottom:.35rem';
+  row.innerHTML = '<input type="text" class="poe-opt" placeholder="Seçenek ' + count + '" style="flex:1;background:#0d1117;border:1px solid #374151;color:#e5e7eb;padding:4px 7px;font-size:.78rem;border-radius:3px;font-family:inherit"><button onclick="removePollEditOpt(this)" style="background:none;border:1px solid #374151;color:#9ca3af;cursor:pointer;border-radius:3px;padding:1px 7px;font-size:.75rem">✕</button>';
+  container.appendChild(row);
+}
+function removePollEditOpt(btn) {
+  const rows = btn.closest('[id^="pe-opts-"]').querySelectorAll('.poe-row');
+  if (rows.length <= 2) return;
+  btn.closest('.poe-row').remove();
+}
+async function savePollEdit(id) {
+  const msg = document.getElementById('pe-msg-' + id);
+  msg.style.color = '#9ca3af'; msg.textContent = 'Kaydediliyor…';
+  const question = document.getElementById('pe-question-' + id).value.trim();
+  const options = [...document.getElementById('pe-opts-' + id).querySelectorAll('.poe-opt')].map(i => i.value.trim()).filter(Boolean);
+  const site_id = document.getElementById('pe-site-' + id).value;
+  const active = document.getElementById('pe-active-' + id).checked;
+  const starts_raw = document.getElementById('pe-starts-' + id).value;
+  const expires_raw = document.getElementById('pe-expires-' + id).value;
+  if (!question) { msg.style.color='#f87171'; msg.textContent='Soru gerekli'; return; }
+  if (options.length < 2) { msg.style.color='#f87171'; msg.textContent='En az 2 seçenek'; return; }
+  const res = await fetch('/admin/gamification/save-poll', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id, question, options, site_id, active,
+      starts_at: starts_raw ? new Date(starts_raw).toISOString() : null,
+      expires_at: expires_raw ? new Date(expires_raw).toISOString() : null,
+    }),
+  });
+  if (res.ok) { msg.style.color='#4ade80'; msg.textContent='Kaydedildi!'; setTimeout(() => location.reload(), 800); }
+  else { msg.style.color='#f87171'; msg.textContent='Hata!'; }
 }
 async function deletePoll(id) {
   if (!confirm('Anketi ve tüm oyları sil?')) return;
