@@ -44,15 +44,17 @@ export async function onRequest({ request, env }) {
   if (!fixture) return json({ match: null });
 
   const match = {
-    match_id:    fixture.fixture.id,
-    kickoff_utc: fixture.fixture.date,
-    home_team:   fixture.teams.home.name,
-    away_team:   fixture.teams.away.name,
-    home_logo:   fixture.teams.home.logo,
-    away_logo:   fixture.teams.away.logo,
-    league_name: fixture.league.name,
-    round:       fixture.league.round,
-    venue:       fixture.fixture.venue?.name ?? null,
+    match_id:      fixture.fixture.id,
+    kickoff_utc:   fixture.fixture.date,
+    home_team:     fixture.teams.home.name,
+    home_team_id:  fixture.teams.home.id,
+    away_team:     fixture.teams.away.name,
+    away_team_id:  fixture.teams.away.id,
+    home_logo:     fixture.teams.home.logo,
+    away_logo:     fixture.teams.away.logo,
+    league_name:   fixture.league.name,
+    round:         fixture.league.round,
+    venue:         fixture.fixture.venue?.name ?? null,
   };
 
   const responseBody = JSON.stringify({ match });
