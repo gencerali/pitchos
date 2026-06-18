@@ -923,8 +923,14 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
         const aNorm = normalizeTitle(a.title);
         const aKeys = extractKeyTokens(a.title);
         const isDupe = recentTitles.some(rt => {
-          if (titleSimilarity(aNorm, normalizeTitle(rt)) >= 0.5) return true;
-          return sharedStoryTokens(aKeys, extractKeyTokens(rt)) >= 3;
+          const sim = titleSimilarity(aNorm, normalizeTitle(rt));
+          if (sim >= 0.5) return true;
+          const shared = sharedStoryTokens(aKeys, extractKeyTokens(rt), true); // root-aware
+          if (shared >= 3) return true;
+          // Paraphrased same-story headlines share few EXACT words but ≥2 meaningful roots
+          // plus moderate word overlap — e.g. the 4× "Beşiktaş UEFA kısıtlamaları" story
+          // ("geride bıraktı" / "tamamladı" / "tamamen kurtuldu"). (2026-06-18)
+          return shared >= 2 && sim >= 0.3;
         });
         if (isDupe) {
           console.log(`CROSS-RUN DEDUP: "${(a.title || '').slice(0, 60)}" — similar article already published in last 24h`);
@@ -945,8 +951,11 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
     const aNorm = normalizeTitle(a.title);
     const aKeys = extractKeyTokens(a.title);
     const isDupe = batchKept.some(k => {
-      if (titleSimilarity(aNorm, normalizeTitle(k.title)) >= 0.5) return true;
-      return sharedStoryTokens(aKeys, extractKeyTokens(k.title)) >= 3;
+      const sim = titleSimilarity(aNorm, normalizeTitle(k.title));
+      if (sim >= 0.5) return true;
+      const shared = sharedStoryTokens(aKeys, extractKeyTokens(k.title), true); // root-aware
+      if (shared >= 3) return true;
+      return shared >= 2 && sim >= 0.3; // paraphrased same-story headlines
     });
     if (isDupe) console.log(`WITHIN-BATCH DEDUP: "${(a.title || '').slice(0, 60)}" — similar article in same batch`);
     else batchKept.push(a);

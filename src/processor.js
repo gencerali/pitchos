@@ -175,21 +175,30 @@ export function extractKeyTokens(title) {
 // Returns true when two tokens are morphologically related (same Turkish root).
 // Handles common suffixes: "Muciyi" → "Muci", "Beşiktaşa" → "Beşiktaş", etc.
 // Match if one token is a prefix of the other and the prefix is ≥4 chars.
-function tokensMatch(a, b) {
+// rootAware (cross-run dedup only): also match two DIFFERENT inflections of one root that
+// share a long common prefix even though neither is a clean prefix of the other —
+// "kısıtlamalarını" vs "kısıtlamalarından". Kept opt-in so within-batch recall is unchanged.
+function tokensMatch(a, b, rootAware = false) {
   if (a === b) return true;
   const minLen = Math.min(a.length, b.length);
   if (minLen < 4) return false;
-  return a.startsWith(b.slice(0, minLen)) || b.startsWith(a.slice(0, minLen));
+  if (a.startsWith(b.slice(0, minLen)) || b.startsWith(a.slice(0, minLen))) return true;
+  if (rootAware) {
+    let cp = 0;
+    while (cp < minLen && a[cp] === b[cp]) cp++;
+    return cp >= 5 && cp >= 0.7 * minLen;
+  }
+  return false;
 }
 
 // Count non-stopword token matches between two token sets, using morphological matching.
-export function sharedStoryTokens(aKeys, bKeys) {
+export function sharedStoryTokens(aKeys, bKeys, rootAware = false) {
   let shared = 0;
   for (const t of aKeys) {
     if (DEDUP_STOPWORDS.has(t)) continue;
     for (const s of bKeys) {
       if (DEDUP_STOPWORDS.has(s)) continue;
-      if (tokensMatch(t, s)) { shared++; break; }
+      if (tokensMatch(t, s, rootAware)) { shared++; break; }
     }
   }
   return shared;

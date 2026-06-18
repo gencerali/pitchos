@@ -56,6 +56,40 @@ describe('dedupeByTitle — pre-synthesis dedup', () => {
   });
 });
 
+describe('cross-run dedup — paraphrased same-story headlines (root-aware)', () => {
+  // Mirrors the gate predicate in publisher.js saveArticles (cross-run + within-batch).
+  const sameStory = (a, b) => {
+    const sim = titleSimilarity(normalizeTitle(a), normalizeTitle(b));
+    if (sim >= 0.5) return true;
+    const shared = sharedStoryTokens(extractKeyTokens(a), extractKeyTokens(b), true);
+    if (shared >= 3) return true;
+    return shared >= 2 && sim >= 0.3;
+  };
+
+  // The 4× live duplicate that slipped through (2026-06-18): same UEFA event, all synonyms.
+  const T1 = 'Beşiktaş UEFA Kısıtlamalarını Geride Bıraktı';
+  const T2 = 'Beşiktaş UEFA yükümlülüklerini tamamladı, kısıtlamalar kalktı';
+  const T3 = 'Beşiktaş UEFA kısıtlamalarından tamamen kurtuldu';
+
+  it('flags the paraphrased UEFA-kısıtlama story as duplicates', () => {
+    expect(sameStory(T1, T2)).toBe(true);
+    expect(sameStory(T1, T3)).toBe(true);
+    expect(sameStory(T2, T3)).toBe(true);
+  });
+
+  it('root-aware matches divergent inflections of one root; strict mode does not', () => {
+    // "tamamladı"/"tamamlandı" share root "tamamla" but neither token is a prefix of the
+    // other (…lad vs …land), so only root-aware mode links them.
+    const a = extractKeyTokens('tamamladı'), b = extractKeyTokens('tamamlandı');
+    expect(sharedStoryTokens(a, b, true)).toBe(1);
+    expect(sharedStoryTokens(a, b)).toBe(0);
+  });
+
+  it('does NOT collapse genuinely different stories (only the club stopword in common)', () => {
+    expect(sameStory('Beşiktaş Orkun sözleşme uzattı', 'Beşiktaş stadyum yenileme projesi')).toBe(false);
+  });
+});
+
 describe('dedupeByStory — post-scoring story dedup (keeps first / highest-NVS)', () => {
   it('collapses same-story articles by token overlap', () => {
     const arts = [
