@@ -1,0 +1,24 @@
+# wrangler-intel.toml — pitchos-intel: ESPN data sync worker
+#
+# Separate worker, separate deploy lifecycle, minimal subrequest budget.
+# No public routes — producer only. HTTP /sync for manual trigger only.
+#
+# Deploy:  npx wrangler deploy -c wrangler-intel.toml
+# Secrets: npx wrangler secret put SUPABASE_SERVICE_KEY -c wrangler-intel.toml
+
+name = "pitchos-intel"
+main = "worker-sync.js"
+compatibility_date = "2024-01-01"
+workers_dev = true
+
+[vars]
+SUPABASE_URL = "https://qfgstxswcsodaaksjztz.supabase.co"
+
+[limits]
+subrequests = 50
+
+[triggers]
+# Daily 06:00 UTC (09:00 Istanbul) — picks up completed results from previous day
+# Monday 05:00 UTC — squad after weekend matches
+# Every 30 min 17:00–22:00 UTC on Sat+Sun — near-RT score update on match days
+crons = ["0 6 * * *", "0 5 * * 1", "*/30 17-22 * * 6,0"]

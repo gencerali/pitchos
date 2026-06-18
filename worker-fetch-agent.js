@@ -12765,6 +12765,7 @@ ${nav}
       </ul>
       <h4>Phase 4 — Tribün / Community Features</h4>
       <ul>
+        <li><span class="rtag fix">done</span> <strong>4.0</strong> Data layer — <code>pitchos-intel</code> worker (ESPN daily sync: fixtures + squad → Supabase); <code>fixtures</code> + <code>squad_members</code> tables; schema future-proofed with <code>apifootball_id</code> bridge for paid API upgrade</li>
         <li><span class="rtag next">todo</span> <strong>4.1</strong> Score prediction UI — form before each match; calls <code>/api/xp/predict</code> (endpoint exists)</li>
         <li><span class="rtag next">todo</span> <strong>4.2</strong> Prediction evaluation — <code>/api/xp/evaluate-predictions</code> runs after match result; XP for correct/near guesses</li>
         <li><span class="rtag next">todo</span> <strong>4.3</strong> Starting 11 lineup guess — pick 11 before match; calls <code>/api/xp/starting-11</code> (endpoint exists)</li>
@@ -12920,11 +12921,12 @@ ${nav}
         <li><span class="rtag fix">done</span> <strong>3.5</strong> Guest commenting — login-required; name from profile</li>
         <li><span class="rtag fix">done</span> <strong>3.6</strong> Moderation Layer 1 — 63-term Turkish profanity blocklist</li>
         <li><span class="rtag fix">done</span> <strong>3.7</strong> Moderation Layer 2 — Haiku toxicity live; 3 blocked of 24</li>
-        <li><span class="rtag next">todo</span> <strong>3.8</strong> Emotion reactions — expand <code>article_reactions.reaction</code> to 5 values; update SPA UI</li>
-        <li><span class="rtag next">todo</span> <strong>3.9</strong> Taraftar Nabzı — <code>/api/sentiment</code> aggregation + article sidebar widget</li>
+        <li><span class="rtag fix">done</span> <strong>3.8</strong> Emotion reactions — 5 values; SPA + worker pages updated</li>
+        <li><span class="rtag fix">done</span> <strong>3.9</strong> Taraftar Nabzı — <code>/api/sentiment</code> + homepage sidebar fanPulse</li>
       </ul>
       <h4>Phase 4 — Tribün / Community Features</h4>
       <ul>
+        <li><span class="rtag fix">done</span> <strong>4.0</strong> Data layer — <code>pitchos-intel</code> ESPN sync worker; <code>fixtures</code> + <code>squad_members</code> DB</li>
         <li><span class="rtag next">todo</span> <strong>4.1</strong> Score prediction UI + <code>/api/xp/predict</code> wiring</li>
         <li><span class="rtag next">todo</span> <strong>4.2</strong> Prediction evaluation — <code>/api/xp/evaluate-predictions</code> after match result</li>
         <li><span class="rtag next">todo</span> <strong>4.3</strong> Starting 11 lineup guess + <code>/api/xp/starting-11</code> wiring</li>
