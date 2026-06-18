@@ -21,36 +21,41 @@ export async function onRequest({ request, env }) {
     return err('Invalid score values');
   }
 
-  // Validate kickoff via internal upcoming-match endpoint (handles caching + ESPN scan)
-  const origin = new URL(request.url).origin;
-  const upcomingRes = await fetch(`${origin}/api/upcoming-match`).catch(() => null);
-  if (!upcomingRes?.ok) return err('Could not verify match', 503);
-  const upcoming = (await upcomingRes.json())?.match;
-  if (!upcoming || String(upcoming.match_id) !== String(match_id)) {
-    return err('Match not found');
+  try {
+    // Validate kickoff via internal upcoming-match endpoint (handles caching + ESPN scan)
+    const origin = new URL(request.url).origin;
+    const upcomingRes = await fetch(`${origin}/api/upcoming-match`).catch(() => null);
+    if (!upcomingRes?.ok) return err('Could not verify match', 503);
+    const upcomingBody = await upcomingRes.json().catch(() => null);
+    const upcoming = upcomingBody?.match;
+    if (!upcoming || String(upcoming.match_id) !== String(match_id)) {
+      return err('Match not found');
+    }
+    const lockTime = new Date(upcoming.kickoff_utc).getTime() - 5 * 60 * 1000;
+    if (Date.now() >= lockTime) return err('Tahmin süresi doldu — maç başlamak üzere');
+
+    // One prediction per user per match per site
+    const existing = await sbGet(
+      env,
+      `score_predictions?user_id=eq.${user.id}&site_id=eq.${site_id}&match_id=eq.${match_id}&select=id&limit=1`
+    );
+    if (existing.length) return err('Bu maç için zaten tahmin yaptınız', 409);
+
+    await sbPost(env, 'score_predictions', { user_id: user.id, site_id, match_id, home_score, away_score });
+
+    const result = await awardXP(env, user.id, site_id, 'predict_score', String(match_id));
+    const bonus = await awardXP(env, user.id, site_id, 'first_score_predict');
+
+    return json({
+      ...result,
+      prediction_saved: true,
+      bonus_xp: bonus.xp_earned,
+      total_xp: bonus.total_xp ?? result.total_xp,
+      level: bonus.level ?? result.level,
+      tier_name: bonus.tier_name ?? result.tier_name,
+      badge_unlocks: [...(result.badge_unlocks ?? []), ...(bonus.badge_unlocks ?? [])],
+    });
+  } catch (e) {
+    return err(e?.message ?? 'Internal error', 500);
   }
-  const lockTime = new Date(upcoming.kickoff_utc).getTime() - 5 * 60 * 1000;
-  if (Date.now() >= lockTime) return err('Tahmin süresi doldu — maç başlamak üzere');
-
-  // One prediction per user per match per site
-  const existing = await sbGet(
-    env,
-    `score_predictions?user_id=eq.${user.id}&site_id=eq.${site_id}&match_id=eq.${match_id}&select=id&limit=1`
-  );
-  if (existing.length) return err('Bu maç için zaten tahmin yaptınız', 409);
-
-  await sbPost(env, 'score_predictions', { user_id: user.id, site_id, match_id, home_score, away_score });
-
-  const result = await awardXP(env, user.id, site_id, 'predict_score', String(match_id));
-  const bonus = await awardXP(env, user.id, site_id, 'first_score_predict');
-
-  return json({
-    ...result,
-    prediction_saved: true,
-    bonus_xp: bonus.xp_earned,
-    total_xp: bonus.total_xp ?? result.total_xp,
-    level: bonus.level ?? result.level,
-    tier_name: bonus.tier_name ?? result.tier_name,
-    badge_unlocks: [...(result.badge_unlocks ?? []), ...(bonus.badge_unlocks ?? [])],
-  });
 }
