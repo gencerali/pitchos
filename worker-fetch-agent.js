@@ -7747,7 +7747,7 @@ function renderEditorialPolicyPage() {
 }
 
 function renderPrivacyPage() {
-  const date = '16 Mayıs 2026';
+  const date = '18 Haziran 2026';
   return renderStaticPage('Gizlilik Politikası', `
 <h1>Gizlilik Politikası</h1>
 <p>Son güncelleme: ${date}</p>
@@ -7765,8 +7765,11 @@ function renderPrivacyPage() {
 <p>Kişisel verilerinizi toplamıyor veya satmıyoruz. Reklam teknolojileri aracılığıyla oluşturulan anonim kullanım verileri, hizmet iyileştirme amacıyla kullanılabilir.</p>
 <h2>Değişiklikler</h2>
 <p>Bu politikayı zaman zaman güncelleyebiliriz. Değişiklikler bu sayfada yayımlandığı tarihten itibaren geçerlidir.</p>
+<h2>KVKK Kapsamında Haklarınız</h2>
+<p>6698 sayılı Kişisel Verilerin Korunması Kanunu ("KVKK") kapsamında kişisel verilerinize ilişkin aşağıdaki haklara sahipsiniz: verilerinizin işlenip işlenmediğini öğrenme, işlenmişse bilgi talep etme, işlenme amacını ve amacına uygun kullanılıp kullanılmadığını öğrenme, yurt içinde veya yurt dışında aktarıldığı üçüncü kişileri bilme, eksik veya yanlış işlenmişse düzeltilmesini talep etme, kanunda öngörülen şartlar çerçevesinde silinmesini veya yok edilmesini talep etme.</p>
+<p>KVKK kapsamındaki veri talepleriniz için: <a href="mailto:gencerali@gmail.com">gencerali@gmail.com</a></p>
 <h2>İletişim</h2>
-<p>Gizlilik politikamızla ilgili sorularınız için: <a href="mailto:iletisim@kartalix.com">iletisim@kartalix.com</a></p>
+<p>Gizlilik politikamızla ilgili diğer sorularınız için: <a href="mailto:iletisim@kartalix.com">iletisim@kartalix.com</a></p>
 `, { path: '/gizlilik', metaDescription: 'Kartalix Gizlilik Politikası: çerez kullanımı, üçüncü taraf reklam hizmetleri, veri toplama uygulamaları ve kullanıcı haklarına ilişkin detaylar.' });
 }
 
