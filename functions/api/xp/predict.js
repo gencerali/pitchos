@@ -21,16 +21,16 @@ export async function onRequest({ request, env }) {
     return err('Invalid score values');
   }
 
-  // Validate kickoff time via api-football
-  const fixtureRes = await fetch(
-    `https://v3.football.api-sports.io/fixtures?id=${match_id}`,
-    { headers: { 'x-apisports-key': env.API_FOOTBALL_KEY } }
+  // Validate kickoff time via ESPN public API (no key required)
+  const eventRes = await fetch(
+    `https://site.api.espn.com/apis/site/v2/sports/soccer/summary?event=${match_id}`
   );
-  if (!fixtureRes.ok) return err('Could not verify match', 503);
-  const fixture = (await fixtureRes.json())?.response?.[0];
-  if (!fixture) return err('Match not found');
+  if (!eventRes.ok) return err('Could not verify match', 503);
+  const eventData = await eventRes.json();
+  const comp = eventData?.header?.competitions?.[0];
+  if (!comp) return err('Match not found');
 
-  const lockTime = new Date(fixture.fixture.date).getTime() - 5 * 60 * 1000;
+  const lockTime = new Date(comp.date).getTime() - 5 * 60 * 1000;
   if (Date.now() >= lockTime) return err('Tahmin süresi doldu — maç başlamak üzere');
 
   // One prediction per user per match per site

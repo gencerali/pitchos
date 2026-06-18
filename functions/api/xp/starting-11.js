@@ -17,15 +17,16 @@ export async function onRequest({ request, env }) {
   if (player_ids.length !== 11) return err('Exactly 11 players required');
   if (!player_ids.every(id => Number.isInteger(id) && id > 0)) return err('Invalid player IDs');
 
-  const fixtureRes = await fetch(
-    `https://v3.football.api-sports.io/fixtures?id=${match_id}`,
-    { headers: { 'x-apisports-key': env.API_FOOTBALL_KEY } }
+  // Validate kickoff time via ESPN public API (no key required)
+  const eventRes = await fetch(
+    `https://site.api.espn.com/apis/site/v2/sports/soccer/summary?event=${match_id}`
   );
-  if (!fixtureRes.ok) return err('Could not verify match', 503);
-  const fixture = (await fixtureRes.json())?.response?.[0];
-  if (!fixture) return err('Match not found');
+  if (!eventRes.ok) return err('Could not verify match', 503);
+  const eventData = await eventRes.json();
+  const comp = eventData?.header?.competitions?.[0];
+  if (!comp) return err('Match not found');
 
-  if (Date.now() >= new Date(fixture.fixture.date).getTime()) {
+  if (Date.now() >= new Date(comp.date).getTime()) {
     return err('Maç başladı — İlk 11 artık gönderilemez');
   }
 
