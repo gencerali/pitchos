@@ -458,6 +458,15 @@
     }
     .sidebar .pulse-item:last-child { border-bottom: none; }
     .sidebar-ad-box { min-height: 250px; }
+    /* Taraftar Nabzı widget */
+    .nabiz-bar-row{display:flex;align-items:center;gap:.4rem;margin:.18rem 0;font-size:.75rem;color:#888}
+    .nabiz-bar-track{flex:1;height:5px;background:#1e1e1e;border-radius:3px;overflow:hidden}
+    .nabiz-bar-fill{height:100%;border-radius:3px;transition:width .4s ease}
+    .nabiz-bar-pct{min-width:2.5ch;text-align:right;font-size:.7rem;color:#555}
+    .nabiz-conclusion{font-size:.78rem;color:#aaa;margin-top:.6rem;padding-top:.6rem;border-top:1px solid #1e1e1e;font-style:italic;line-height:1.4}
+    .nabiz-dominant{font-weight:700}
+    /* Article view nabız widget */
+    .av-nabiz{max-width:720px;margin:0 auto;padding:.9rem 1.5rem;border-top:1px solid #1A1A1A;background:#0d0d0d}
 
     /* ── BJK FIXTURE LIST ── */
     .fixture-list { display: flex; flex-direction: column; gap: 0; }
@@ -2078,6 +2087,8 @@
         <button class="rxn-btn" id="av-btn-hayal_kirikligi" data-tip="Hayal Kr." onclick="avReact('hayal_kirikligi')" ontouchstart="_rxnTip(this)">🤦 <span id="av-count-hayal_kirikligi">0</span></button>
       </div>
 
+      <div class="av-nabiz av-slide-in" id="av-nabiz" style="display:none"></div>
+
       <div class="av-comments av-slide-in" style="max-width:720px;margin:0 auto;padding:1.25rem 1.5rem;border-top:1px solid #1A1A1A">
         <h3 style="font-family:'Oswald','Barlow Condensed',sans-serif;font-size:1.1rem;font-weight:600;letter-spacing:0.05em;margin-bottom:1rem;color:#f0ede6">YORUMLAR <span id="av-comment-count" style="color:#888;font-weight:400"></span></h3>
         <div id="av-comments-list" style="margin-bottom:1.5rem"></div>
@@ -2639,30 +2650,83 @@
   }
 
   // ── RENDER PULSE (sidebar) ───────────────────────────────────
-  function renderPulseLive(articles) {
-    if (!articles.length) {
-      renderPulse([
-        { label: 'Genel', emoji: '⏳', mood: 'Bekleniyor' },
-      ]);
+  // ── TARAFTAR NABZI ───────────────────────────────────────────────
+  const _NABIZ_META = {
+    atesli:          { emoji: '🔥', label: 'Ateşli',   color: '#f97316' },
+    mutlu:           { emoji: '😄', label: 'Mutlu',    color: '#22c55e' },
+    uzgun:           { emoji: '💔', label: 'Üzgün',    color: '#60a5fa' },
+    kizgin:          { emoji: '😡', label: 'Kızgın',   color: '#ef4444' },
+    hayal_kirikligi: { emoji: '🤦', label: 'Hayal Kr.', color: '#9ca3af' },
+  };
+
+  function _nabizBarHTML(breakdown, total, dominant) {
+    return Object.entries(_NABIZ_META).map(([key, m]) => {
+      const cnt = breakdown[key] || 0;
+      const pct = total ? Math.round(cnt / total * 100) : 0;
+      const isDom = key === dominant;
+      return `<div class="nabiz-bar-row">
+        <span style="width:1.4rem;text-align:center">${m.emoji}</span>
+        <div class="nabiz-bar-track"><div class="nabiz-bar-fill" style="width:${pct}%;background:${m.color}${isDom ? '' : '88'}"></div></div>
+        <span class="nabiz-bar-pct">${pct}%</span>
+      </div>`;
+    }).join('');
+  }
+
+  function renderNabizWidget(el, data) {
+    if (!el) return;
+    if (!data || data.total === 0) {
+      el.innerHTML = `<div style="font-size:.78rem;color:#555">Henüz tepki yok.</div>`;
+      el.style.display = '';
       return;
     }
+    const dom = _NABIZ_META[data.dominant] || {};
+    el.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem">
+        <span style="font-size:.7rem;font-weight:700;letter-spacing:.08em;color:#555;text-transform:uppercase">Taraftar Nabzı</span>
+        <span style="font-size:.7rem;color:#444">${data.total} tepki</span>
+      </div>
+      ${_nabizBarHTML(data.breakdown, data.total, data.dominant)}
+      <div class="nabiz-conclusion">${dom.emoji || ''} <span class="nabiz-dominant">${dom.label || ''}</span> · ${data.conclusion}</div>`;
+    el.style.display = '';
+  }
 
-    const avgNvs    = articles.reduce((s, a) => s + (a.nvs || 50), 0) / articles.length;
-    const injuries  = articles.filter(a => (a.category||'').toLowerCase() === 'injury').length;
-    const transfers = articles.filter(a => (a.category||'').toLowerCase() === 'transfer').length;
-    const matchNews = articles.filter(a => (a.category||'').toLowerCase() === 'match').length;
+  async function loadSidebarSentiment() {
+    try {
+      const res  = await fetch('/api/sentiment?window=7');
+      if (!res.ok) return;
+      const data = await res.json();
+      const el   = document.getElementById('fanPulse');
+      if (!el) return;
+      if (!data || data.total === 0) {
+        el.innerHTML = '<div class="pulse-item" style="color:#555">Henüz tepki yok.</div>';
+        return;
+      }
+      const dom = _NABIZ_META[data.dominant] || {};
+      el.innerHTML = `
+        <div style="padding:.25rem 0 .5rem">
+          ${_nabizBarHTML(data.breakdown, data.total, data.dominant)}
+          <div style="font-size:.73rem;color:#777;margin-top:.5rem;font-style:italic">${dom.emoji || ''} ${data.conclusion}</div>
+        </div>`;
+    } catch(e) {}
+  }
 
-    const genelMood    = avgNvs >= 70 ? ['🔥','Heyecanlı'] : avgNvs >= 55 ? ['💪','Kararlı'] : ['🤔','Beklemede'];
-    const transferMood = transfers >= 3 ? ['🤞','Hareketli'] : transfers >= 1 ? ['👀','Takipte'] : ['😴','Sakin'];
-    const macMood      = matchNews >= 2 ? ['⚽','Maç modu'] : ['📰','Günlük'];
-    const saglikMood   = injuries >= 2 ? ['😟','Endişeli'] : ['💚','Sağlıklı'];
+  async function loadArticleNabiz(article) {
+    const el = document.getElementById('av-nabiz');
+    if (!el) return;
+    el.style.display = 'none';
+    const slug = article?.slug;
+    if (!slug) return;
+    try {
+      const res  = await fetch(`/api/sentiment?slug=${encodeURIComponent(slug)}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data || data.total === 0) return;
+      renderNabizWidget(el, data);
+    } catch(e) {}
+  }
 
-    renderPulse([
-      { label: 'Genel',    emoji: genelMood[0],    mood: genelMood[1] },
-      { label: 'Transfer', emoji: transferMood[0], mood: transferMood[1] },
-      { label: 'Maç',      emoji: macMood[0],      mood: macMood[1] },
-      { label: 'Sağlık',   emoji: saglikMood[0],   mood: saglikMood[1] },
-    ]);
+  function renderPulseLive(articles) {
+    loadSidebarSentiment();
   }
 
   function renderPulse(items) {
@@ -3031,6 +3095,7 @@
     _currentArticle = article;
     if (!document.getElementById('av-btn-atesli')) return;
     updateRxnCounts('av-', {});
+    loadArticleNabiz(article);
     const articleSlug = article.slug || '';
     const articleUrl  = article.url || article.original_url || '';
     if (!articleSlug && !articleUrl) return;
