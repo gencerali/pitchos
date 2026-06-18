@@ -17,16 +17,15 @@ export async function onRequest({ request, env }) {
   if (player_ids.length !== 11) return err('Exactly 11 players required');
   if (!player_ids.every(id => Number.isInteger(id) && id > 0)) return err('Invalid player IDs');
 
-  // Validate kickoff time via ESPN public API (no key required)
-  const eventRes = await fetch(
-    `https://site.api.espn.com/apis/site/v2/sports/soccer/summary?event=${match_id}`
-  );
-  if (!eventRes.ok) return err('Could not verify match', 503);
-  const eventData = await eventRes.json();
-  const comp = eventData?.header?.competitions?.[0];
-  if (!comp) return err('Match not found');
-
-  if (Date.now() >= new Date(comp.date).getTime()) {
+  // Validate kickoff from the upcoming-match KV cache (same source the front-end uses)
+  const cached = env.PITCHOS_CACHE
+    ? JSON.parse(await env.PITCHOS_CACHE.get('upcoming-match:espn:v3') ?? 'null')
+    : null;
+  const upcoming = cached?.match;
+  if (!upcoming || String(upcoming.match_id) !== String(match_id)) {
+    return err('Match not found');
+  }
+  if (Date.now() >= new Date(upcoming.kickoff_utc).getTime()) {
     return err('Maç başladı — İlk 11 artık gönderilemez');
   }
 
