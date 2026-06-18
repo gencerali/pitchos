@@ -18,6 +18,17 @@ const BJK_ABBR     = 'BJK';
 const TURKEY_LEAGUES = ['fifa.world', 'uefa.euro_qualifying', 'uefa.nations', 'intl.friendlies.m'];
 const BJK_LEAGUES    = ['tur.1', 'uefa.el', 'uefa.ucl'];
 
+function extractTeamId(competitor) {
+  // Try direct team.id first, then parse from UID (format: s:600~l:23~t:221)
+  if (competitor.team?.id) return String(competitor.team.id);
+  const uid = competitor.team?.uid ?? competitor.uid ?? '';
+  const m = uid.match(/~t:(\d+)/);
+  if (m) return m[1];
+  // Last resort: competitor.id but only if it looks like a real ID (>2 digits)
+  if (competitor.id && String(competitor.id).length > 2) return String(competitor.id);
+  return null;
+}
+
 function teamMatches(competitor, names, abbr) {
   // ESPN structures vary: team info may be nested under .team or flat on the competitor
   const n = (competitor.team?.displayName ?? competitor.displayName ?? '').toLowerCase();
@@ -49,8 +60,11 @@ async function scanScoreboard(league, names, abbr, maxDays = 45) {
       if (new Date(event.date).getTime() <= now) continue;
       const comps = event.competitions?.[0]?.competitors ?? [];
       const matched = comps.find(c => teamMatches(c, names, abbr));
-      // ESPN stores the ID at competitor.id or competitor.team.id depending on endpoint
-      if (matched) return { event, league, teamId: matched.team?.id ?? matched.id ?? null };
+      if (matched) return {
+        event, league,
+        teamId:   extractTeamId(matched),
+        teamName: matched.team?.displayName ?? matched.displayName ?? null,
+      };
     }
   }
   return null;
@@ -65,7 +79,7 @@ async function fetchNextEventForTeam(leagues, names, abbr) {
   return null;
 }
 
-function espnEventToMatch({ event, league, teamId }) {
+function espnEventToMatch({ event, league, teamId, teamName }) {
   const comp        = event.competitions?.[0] ?? {};
   const competitors = comp.competitors ?? [];
   const home = competitors.find(c => c.homeAway === 'home') ?? competitors[0] ?? {};
@@ -84,8 +98,9 @@ function espnEventToMatch({ event, league, teamId }) {
     round:          comp.series?.description ?? comp.status?.type?.shortDetail ?? null,
     venue:          comp.venue?.fullName ?? null,
     // Squad params — tells the front-end which team's roster to fetch
-    squad_espn_id:  teamId,
-    squad_league:   league,
+    squad_espn_id:   teamId,
+    squad_team_name: teamName,
+    squad_league:    league,
   };
 }
 
@@ -104,7 +119,7 @@ export async function onRequest({ request, env }) {
   }
 
   // 2. KV cache
-  const cacheKey = 'upcoming-match:espn:v3';
+  const cacheKey = 'upcoming-match:espn:v4';
   if (env.PITCHOS_CACHE) {
     const cached = await env.PITCHOS_CACHE.get(cacheKey);
     if (cached) {

@@ -1102,9 +1102,10 @@
     } catch (e) { /* fall through */ }
 
     var squadUrl = '/api/squad';
-    if (_match?.squad_espn_id && _match?.squad_league) {
-      squadUrl += '?team_id=' + encodeURIComponent(_match.squad_espn_id) +
-                  '&league='  + encodeURIComponent(_match.squad_league);
+    if (_match?.squad_league) {
+      squadUrl += '?league=' + encodeURIComponent(_match.squad_league);
+      if (_match.squad_espn_id) squadUrl += '&team_id='   + encodeURIComponent(_match.squad_espn_id);
+      if (_match.squad_team_name) squadUrl += '&team_name=' + encodeURIComponent(_match.squad_team_name);
     }
     var squadData = await fetch(squadUrl)
       .then(function (r) { return r.ok ? r.json() : null; })

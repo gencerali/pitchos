@@ -40,13 +40,13 @@ export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return corsHeaders();
   if (request.method !== 'GET') return err('Method not allowed', 405);
 
-  // team_id + league come from upcoming-match response (squad_espn_id, squad_league).
-  // Fall back to finding Beşiktaş by name in the Super Lig.
-  const url      = new URL(request.url);
-  const qLeague  = url.searchParams.get('league');
-  const qTeamId  = url.searchParams.get('team_id');
-  const league   = qLeague  ?? env.ESPN_BJK_LEAGUE ?? BJK_LEAGUE;
-  const cacheKey = `squad:espn:v2:${league}:${qTeamId ?? 'auto'}`;
+  // Params come from upcoming-match response (squad_espn_id, squad_team_name, squad_league).
+  const url       = new URL(request.url);
+  const qLeague   = url.searchParams.get('league');
+  const qTeamId   = url.searchParams.get('team_id');
+  const qTeamName = url.searchParams.get('team_name');
+  const league    = qLeague ?? env.ESPN_BJK_LEAGUE ?? BJK_LEAGUE;
+  const cacheKey  = `squad:espn:v3:${league}:${qTeamId ?? qTeamName ?? 'bjk'}`;
 
   if (env.PITCHOS_CACHE) {
     const cached = await env.PITCHOS_CACHE.get(cacheKey);
@@ -57,7 +57,23 @@ export async function onRequest({ request, env }) {
     }
   }
 
-  const teamId = qTeamId ?? env.ESPN_BJK_ID ?? await findBJKTeamId(league);
+  // Resolve team ID: direct param → name lookup → BJK fallback
+  let teamId = qTeamId ?? env.ESPN_BJK_ID ?? null;
+  if (!teamId && qTeamName) {
+    // Look up the team by display name in the league's teams list
+    const teamsRes = await fetch(`${ESPN_BASE}/${league}/teams`).catch(() => null);
+    if (teamsRes?.ok) {
+      const teamsData = await teamsRes.json();
+      const teams = teamsData?.sports?.[0]?.leagues?.[0]?.teams ?? teamsData?.teams ?? [];
+      const entry = teams.find(t => {
+        const team = t.team ?? t;
+        return (team.displayName ?? team.name ?? '').toLowerCase()
+          .includes(qTeamName.toLowerCase());
+      });
+      teamId = (entry?.team ?? entry)?.id ?? null;
+    }
+  }
+  if (!teamId) teamId = await findBJKTeamId(league);
   if (!teamId) return err('Could not resolve team ID', 503);
 
   const apiRes = await fetch(`${ESPN_BASE}/${league}/teams/${teamId}/roster`);
