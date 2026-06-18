@@ -3131,7 +3131,16 @@
       });
       const data = await res.json();
       if (data.success) {
-        if (_currentArticle) setTimeout(() => loadAvReactions(_currentArticle), 300);
+        if (data.pending) {
+          if (msg) { msg.style.color='#888'; msg.textContent='Cevabınız inceleniyor...'; }
+          if (_currentArticle) {
+            setTimeout(() => loadAvReactions(_currentArticle), 3000);
+            setTimeout(() => loadAvReactions(_currentArticle), 8000);
+          }
+        } else {
+          if (msg) { msg.style.color='#166534'; msg.textContent='Cevabınız eklendi!'; }
+          if (_currentArticle) setTimeout(() => loadAvReactions(_currentArticle), 400);
+        }
       } else {
         if (msg) { msg.style.color='#D90414'; msg.textContent='Hata: ' + (data.error || 'Tekrar deneyin'); }
       }
