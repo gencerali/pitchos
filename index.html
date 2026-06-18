@@ -1259,8 +1259,10 @@
       font-size: 0.78rem; cursor: pointer; padding: 0.25rem;
       text-decoration: underline; text-underline-offset: 3px;
     }
-    .rxn-btn{display:flex;align-items:center;gap:.35rem;background:rgba(255,255,255,.04);border:1px solid #2a2a2a;color:#666;padding:.38rem .8rem;border-radius:999px;cursor:pointer;font-size:.78rem;font-weight:600;font-family:'Barlow Condensed',sans-serif;letter-spacing:.03em;transition:background .15s,border-color .15s,color .15s}
+    .rxn-btn{display:flex;align-items:center;gap:.35rem;background:rgba(255,255,255,.04);border:1px solid #2a2a2a;color:#666;padding:.38rem .8rem;border-radius:999px;cursor:pointer;font-size:.78rem;font-weight:600;font-family:'Barlow Condensed',sans-serif;letter-spacing:.03em;transition:background .15s,border-color .15s,color .15s;position:relative}
     .rxn-btn:hover{border-color:#444;color:#aaa}
+    .rxn-btn::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:#333;color:#f0ede6;padding:3px 8px;border-radius:4px;font-size:.68rem;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s;z-index:200;font-weight:500;letter-spacing:.02em}
+    .rxn-btn:hover::after,.rxn-btn.tip-show::after{opacity:1}
   </style>
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-3QK6G366J3"></script>
@@ -1533,11 +1535,11 @@
 
       <!-- Reactions -->
       <div class="reactions" style="display:flex;gap:.4rem;flex-wrap:wrap;padding:1rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:1.5rem 0">
-        <button class="rxn-btn" id="btn-atesli" onclick="react('atesli')">🔥 <span>Ateşli</span> <span id="count-atesli">0</span></button>
-        <button class="rxn-btn" id="btn-mutlu" onclick="react('mutlu')">😄 <span>Mutlu</span> <span id="count-mutlu">0</span></button>
-        <button class="rxn-btn" id="btn-uzgun" onclick="react('uzgun')">💔 <span>Üzgün</span> <span id="count-uzgun">0</span></button>
-        <button class="rxn-btn" id="btn-kizgin" onclick="react('kizgin')">😡 <span>Kızgın</span> <span id="count-kizgin">0</span></button>
-        <button class="rxn-btn" id="btn-hayal_kirikligi" onclick="react('hayal_kirikligi')">🤦 <span>Hayal Kr.</span> <span id="count-hayal_kirikligi">0</span></button>
+        <button class="rxn-btn" id="btn-atesli" data-tip="Ateşli" onclick="react('atesli')" ontouchstart="_rxnTip(this)">🔥 <span id="count-atesli">0</span></button>
+        <button class="rxn-btn" id="btn-mutlu" data-tip="Mutlu" onclick="react('mutlu')" ontouchstart="_rxnTip(this)">😄 <span id="count-mutlu">0</span></button>
+        <button class="rxn-btn" id="btn-uzgun" data-tip="Üzgün" onclick="react('uzgun')" ontouchstart="_rxnTip(this)">💔 <span id="count-uzgun">0</span></button>
+        <button class="rxn-btn" id="btn-kizgin" data-tip="Kızgın" onclick="react('kizgin')" ontouchstart="_rxnTip(this)">😡 <span id="count-kizgin">0</span></button>
+        <button class="rxn-btn" id="btn-hayal_kirikligi" data-tip="Hayal Kr." onclick="react('hayal_kirikligi')" ontouchstart="_rxnTip(this)">🤦 <span id="count-hayal_kirikligi">0</span></button>
       </div>
 
       <!-- Comments -->
@@ -2069,11 +2071,11 @@
       </div>
 
       <div class="av-reactions av-slide-in" style="max-width:720px;margin:0 auto;padding:1rem 1.5rem;display:flex;gap:.4rem;flex-wrap:wrap;border-top:1px solid #1A1A1A">
-        <button class="rxn-btn" id="av-btn-atesli" onclick="avReact('atesli')">🔥 <span>Ateşli</span> <span id="av-count-atesli">0</span></button>
-        <button class="rxn-btn" id="av-btn-mutlu" onclick="avReact('mutlu')">😄 <span>Mutlu</span> <span id="av-count-mutlu">0</span></button>
-        <button class="rxn-btn" id="av-btn-uzgun" onclick="avReact('uzgun')">💔 <span>Üzgün</span> <span id="av-count-uzgun">0</span></button>
-        <button class="rxn-btn" id="av-btn-kizgin" onclick="avReact('kizgin')">😡 <span>Kızgın</span> <span id="av-count-kizgin">0</span></button>
-        <button class="rxn-btn" id="av-btn-hayal_kirikligi" onclick="avReact('hayal_kirikligi')">🤦 <span>Hayal Kr.</span> <span id="av-count-hayal_kirikligi">0</span></button>
+        <button class="rxn-btn" id="av-btn-atesli" data-tip="Ateşli" onclick="avReact('atesli')" ontouchstart="_rxnTip(this)">🔥 <span id="av-count-atesli">0</span></button>
+        <button class="rxn-btn" id="av-btn-mutlu" data-tip="Mutlu" onclick="avReact('mutlu')" ontouchstart="_rxnTip(this)">😄 <span id="av-count-mutlu">0</span></button>
+        <button class="rxn-btn" id="av-btn-uzgun" data-tip="Üzgün" onclick="avReact('uzgun')" ontouchstart="_rxnTip(this)">💔 <span id="av-count-uzgun">0</span></button>
+        <button class="rxn-btn" id="av-btn-kizgin" data-tip="Kızgın" onclick="avReact('kizgin')" ontouchstart="_rxnTip(this)">😡 <span id="av-count-kizgin">0</span></button>
+        <button class="rxn-btn" id="av-btn-hayal_kirikligi" data-tip="Hayal Kr." onclick="avReact('hayal_kirikligi')" ontouchstart="_rxnTip(this)">🤦 <span id="av-count-hayal_kirikligi">0</span></button>
       </div>
 
       <div class="av-comments av-slide-in" style="max-width:720px;margin:0 auto;padding:1.25rem 1.5rem;border-top:1px solid #1A1A1A">
@@ -2924,6 +2926,11 @@
     const key = getArticleKey(article);
     if (reaction === null) localStorage.removeItem(key);
     else localStorage.setItem(key, reaction);
+  }
+
+  function _rxnTip(btn) {
+    btn.classList.add('tip-show');
+    setTimeout(() => btn.classList.remove('tip-show'), 1200);
   }
 
   const EMOTIONS = [

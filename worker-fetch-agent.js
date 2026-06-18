@@ -8159,8 +8159,10 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#16140f;margin-botto
 .btn-tw{background:#1DA1F2;color:#fff}
 .btn-copy{background:#e0ddd5;color:#16140f}
 .reaction-bar{display:flex;gap:.45rem;flex-wrap:wrap;align-items:center;margin-top:2rem;padding:1rem 1.25rem;background:#141414;border:1px solid #1A1A1A;border-radius:6px}
-.rxn-btn{display:flex;align-items:center;gap:.35rem;background:rgba(255,255,255,.04);border:1px solid #2a2a2a;color:#666;padding:.38rem .8rem;border-radius:999px;cursor:pointer;font-size:.78rem;font-weight:600;font-family:'Barlow Condensed',sans-serif;letter-spacing:.03em;transition:background .15s,border-color .15s,color .15s;user-select:none}
+.rxn-btn{display:flex;align-items:center;gap:.35rem;background:rgba(255,255,255,.04);border:1px solid #2a2a2a;color:#666;padding:.38rem .8rem;border-radius:999px;cursor:pointer;font-size:.78rem;font-weight:600;font-family:'Barlow Condensed',sans-serif;letter-spacing:.03em;transition:background .15s,border-color .15s,color .15s;user-select:none;position:relative}
 .rxn-btn:hover{border-color:#444;color:#aaa}
+.rxn-btn::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:#333;color:#f0ede6;padding:3px 8px;border-radius:4px;font-size:.68rem;white-space:nowrap;pointer-events:none;opacity:0;transition:opacity .15s;z-index:200;font-weight:500;letter-spacing:.02em}
+.rxn-btn:hover::after,.rxn-btn.tip-show::after{opacity:1}
 .rxn-count{font-size:.82rem;font-weight:700;min-width:1ch}
 @media(max-width:600px){main{padding:1.5rem 1rem 3rem}h1{font-size:1.35rem}}
 </style>
@@ -8251,11 +8253,11 @@ ${siteHeader('/haber/')}
     </script>` : ''}
   </article>
   <div class="reaction-bar">
-    <button class="rxn-btn" id="btn-atesli" onclick="react('atesli')">🔥 <span>Ateşli</span> <span id="count-atesli" class="rxn-count">0</span></button>
-    <button class="rxn-btn" id="btn-mutlu" onclick="react('mutlu')">😄 <span>Mutlu</span> <span id="count-mutlu" class="rxn-count">0</span></button>
-    <button class="rxn-btn" id="btn-uzgun" onclick="react('uzgun')">💔 <span>Üzgün</span> <span id="count-uzgun" class="rxn-count">0</span></button>
-    <button class="rxn-btn" id="btn-kizgin" onclick="react('kizgin')">😡 <span>Kızgın</span> <span id="count-kizgin" class="rxn-count">0</span></button>
-    <button class="rxn-btn" id="btn-hayal_kirikligi" onclick="react('hayal_kirikligi')">🤦 <span>Hayal Kr.</span> <span id="count-hayal_kirikligi" class="rxn-count">0</span></button>
+    <button class="rxn-btn" id="btn-atesli" data-tip="Ateşli" onclick="react('atesli')" ontouchstart="_rxnTip(this)">🔥 <span id="count-atesli" class="rxn-count">0</span></button>
+    <button class="rxn-btn" id="btn-mutlu" data-tip="Mutlu" onclick="react('mutlu')" ontouchstart="_rxnTip(this)">😄 <span id="count-mutlu" class="rxn-count">0</span></button>
+    <button class="rxn-btn" id="btn-uzgun" data-tip="Üzgün" onclick="react('uzgun')" ontouchstart="_rxnTip(this)">💔 <span id="count-uzgun" class="rxn-count">0</span></button>
+    <button class="rxn-btn" id="btn-kizgin" data-tip="Kızgın" onclick="react('kizgin')" ontouchstart="_rxnTip(this)">😡 <span id="count-kizgin" class="rxn-count">0</span></button>
+    <button class="rxn-btn" id="btn-hayal_kirikligi" data-tip="Hayal Kr." onclick="react('hayal_kirikligi')" ontouchstart="_rxnTip(this)">🤦 <span id="count-hayal_kirikligi" class="rxn-count">0</span></button>
   </div>
   <div class="share-box">
     <div class="share-title">Bu haberi paylaş</div>
@@ -8289,6 +8291,7 @@ const _EMOTIONS = [
   { key:'uzgun', color:'#60a5fa' }, { key:'kizgin', color:'#ef4444' },
   { key:'hayal_kirikligi', color:'#9ca3af' },
 ];
+function _rxnTip(btn) { btn.classList.add('tip-show'); setTimeout(() => btn.classList.remove('tip-show'), 1200); }
 function _rxnButtons(active) {
   for (const e of _EMOTIONS) {
     const b = document.getElementById('btn-' + e.key); if (!b) continue;
