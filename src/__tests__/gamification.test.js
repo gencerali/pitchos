@@ -105,13 +105,16 @@ describe('/api/me', () => {
     vi.mocked(getUser).mockResolvedValue(FAKE_USER);
     vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
 
-    // Default sbGet responses (ordered by call sequence in me.js):
-    // 1. profiles, 2. user_badges, 3. xp_events, 4. level_thresholds
+    // Default sbGet responses (ordered by call sequence in me.js Promise.all):
+    // 1. profiles, 2. user_badges, 3. xp_events (sum), 4. xp_events (recent),
+    // 5. score_predictions, then sequential: 6. level_thresholds
     vi.mocked(sbGet)
-      .mockResolvedValueOnce([FAKE_PROFILE])            // profiles
-      .mockResolvedValueOnce([])                         // user_badges
-      .mockResolvedValueOnce([{ xp_earned: 100 }, { xp_earned: 50 }]) // xp_events
-      .mockResolvedValueOnce([{ xp_required: 75 }]);     // level_thresholds
+      .mockResolvedValueOnce([FAKE_PROFILE])                              // profiles
+      .mockResolvedValueOnce([])                                          // user_badges
+      .mockResolvedValueOnce([{ xp_earned: 100 }, { xp_earned: 50 }])   // xp_events sum
+      .mockResolvedValueOnce([])                                          // recent_activity
+      .mockResolvedValueOnce([])                                          // prediction_history
+      .mockResolvedValueOnce([{ xp_required: 75 }]);                     // level_thresholds
 
     vi.mocked(getStreak).mockResolvedValue({
       current_streak: 5, longest_streak: 12,
@@ -131,7 +134,9 @@ describe('/api/me', () => {
 
   it('returns 403 when profile does not exist on this site', async () => {
     vi.mocked(sbGet).mockReset();
-    vi.mocked(sbGet).mockResolvedValueOnce([]); // empty profiles
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([])  // profiles → empty → 403
+      .mockResolvedValue([]);      // all remaining calls (badges, xp, activity, preds, etc.)
     vi.mocked(getStreak).mockResolvedValue({ current_streak: 0, longest_streak: 0, shield_active: false, last_checkin_date: null });
     const res = await meHandler({ request: makeReq(), env: makeEnv() });
     expect(res.status).toBe(403);
@@ -160,12 +165,13 @@ describe('/api/me', () => {
 
   // THE KEY REGRESSION TEST — would have caught the login-breaking bug:
   it('does NOT crash when level_thresholds table is missing (returns xp_at_level: 0)', async () => {
-    // Override the last sbGet call (level_thresholds) to throw
     vi.mocked(sbGet)
       .mockReset()
-      .mockResolvedValueOnce([FAKE_PROFILE])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ xp_earned: 100 }])
+      .mockResolvedValueOnce([FAKE_PROFILE])             // profiles
+      .mockResolvedValueOnce([])                          // user_badges
+      .mockResolvedValueOnce([{ xp_earned: 100 }])       // xp_events sum
+      .mockResolvedValueOnce([])                          // recent_activity (catch → [])
+      .mockResolvedValueOnce([])                          // prediction_history (catch → [])
       .mockRejectedValueOnce(new Error('Supabase GET level_thresholds: 404'));
 
     const res = await meHandler({ request: makeReq(), env: makeEnv() });
@@ -180,6 +186,105 @@ describe('/api/me', () => {
     expect(body.streak.current).toBe(5);
     expect(body.streak.longest).toBe(12);
     expect(body.streak.shield_active).toBe(true);
+  });
+
+  // ── Phase 5.1 — Activity Feed ─────────────────────────────────
+  it('returns recent_activity as empty array when no events', async () => {
+    const res = await meHandler({ request: makeReq(), env: makeEnv() });
+    const body = await jsonBody(res);
+    expect(Array.isArray(body.recent_activity)).toBe(true);
+    expect(body.recent_activity).toHaveLength(0);
+  });
+
+  it('returns recent_activity with correct event fields', async () => {
+    const FAKE_EVENT = {
+      action_id: 'daily_checkin', xp_earned: 10,
+      created_at: '2026-06-18T10:00:00Z', source_ref: null,
+    };
+    vi.mocked(sbGet)
+      .mockReset()
+      .mockResolvedValueOnce([FAKE_PROFILE])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ xp_earned: 10 }])
+      .mockResolvedValueOnce([FAKE_EVENT])        // recent_activity
+      .mockResolvedValueOnce([])                   // prediction_history
+      .mockResolvedValueOnce([{ xp_required: 0 }]);
+    vi.mocked(sbRpc).mockResolvedValue([{ level: 1, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 40 }]);
+
+    const res = await meHandler({ request: makeReq(), env: makeEnv() });
+    const body = await jsonBody(res);
+    expect(body.recent_activity).toHaveLength(1);
+    expect(body.recent_activity[0].action_id).toBe('daily_checkin');
+    expect(body.recent_activity[0].xp_earned).toBe(10);
+    expect(body.recent_activity[0].created_at).toBe('2026-06-18T10:00:00Z');
+  });
+
+  it('recent_activity does not crash me endpoint when xp_events table missing', async () => {
+    vi.mocked(sbGet)
+      .mockReset()
+      .mockResolvedValueOnce([FAKE_PROFILE])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ xp_earned: 50 }])
+      .mockRejectedValueOnce(new Error('xp_events: 500'))  // recent_activity throws
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ xp_required: 0 }]);
+    vi.mocked(sbRpc).mockResolvedValue([{ level: 1, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 40 }]);
+
+    const res = await meHandler({ request: makeReq(), env: makeEnv() });
+    expect(res.status).toBe(200);
+    const body = await jsonBody(res);
+    expect(body.recent_activity).toEqual([]);  // graceful fallback
+  });
+
+  // ── Phase 5.3 — Prediction History ────────────────────────────
+  it('returns prediction_history as empty array when no predictions', async () => {
+    const res = await meHandler({ request: makeReq(), env: makeEnv() });
+    const body = await jsonBody(res);
+    expect(Array.isArray(body.prediction_history)).toBe(true);
+    expect(body.prediction_history).toHaveLength(0);
+  });
+
+  it('returns prediction_history with correct fields', async () => {
+    const FAKE_PRED = {
+      match_id: 'match-abc', home_score: 2, away_score: 1,
+      xp_awarded: 30, bonus_awarded: 100, outcome_awarded: 0,
+      created_at: '2026-06-15T20:00:00Z',
+    };
+    vi.mocked(sbGet)
+      .mockReset()
+      .mockResolvedValueOnce([FAKE_PROFILE])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ xp_earned: 130 }])
+      .mockResolvedValueOnce([])                    // recent_activity
+      .mockResolvedValueOnce([FAKE_PRED])            // prediction_history
+      .mockResolvedValueOnce([{ xp_required: 0 }]);
+    vi.mocked(sbRpc).mockResolvedValue([{ level: 2, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 25 }]);
+
+    const res = await meHandler({ request: makeReq(), env: makeEnv() });
+    const body = await jsonBody(res);
+    expect(body.prediction_history).toHaveLength(1);
+    const p = body.prediction_history[0];
+    expect(p.match_id).toBe('match-abc');
+    expect(p.home_score).toBe(2);
+    expect(p.away_score).toBe(1);
+    expect(p.bonus_awarded).toBe(100);
+  });
+
+  it('prediction_history does not crash me endpoint when table missing', async () => {
+    vi.mocked(sbGet)
+      .mockReset()
+      .mockResolvedValueOnce([FAKE_PROFILE])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ xp_earned: 50 }])
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error('score_predictions: 500'))  // throws
+      .mockResolvedValueOnce([{ xp_required: 0 }]);
+    vi.mocked(sbRpc).mockResolvedValue([{ level: 1, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 40 }]);
+
+    const res = await meHandler({ request: makeReq(), env: makeEnv() });
+    expect(res.status).toBe(200);
+    const body = await jsonBody(res);
+    expect(body.prediction_history).toEqual([]);  // graceful fallback
   });
 });
 

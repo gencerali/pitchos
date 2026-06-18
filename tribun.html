@@ -1161,6 +1161,7 @@
       spawnXP(data.xp_earned, btn);
       if (data.badge_unlocks?.length) data.badge_unlocks.forEach(function (b) { setTimeout(function () { showBadgeToast(b.label ?? b.id); }, 400); });
       if (window.kxSpawnXP && data.xp_earned > 0) window.kxSpawnXP(data.xp_earned, btn);
+      if (window.kxShowLevelUp && window._kxGetLevel && data.level > window._kxGetLevel()) window.kxShowLevelUp(data.level, data.tier_name);
     } catch (e) {
       errorEl.textContent = 'Bağlantı hatası. Lütfen tekrar dene.';
       errorEl.classList.add('visible');
@@ -1278,6 +1279,7 @@
       spawnXP(data.xp_earned, btn);
       if (data.badge_unlocks?.length) data.badge_unlocks.forEach(function (b) { setTimeout(function () { showBadgeToast(b.label ?? b.id); }, 400); });
       if (window.kxSpawnXP && data.xp_earned > 0) window.kxSpawnXP(data.xp_earned, btn);
+      if (window.kxShowLevelUp && window._kxGetLevel && data.level > window._kxGetLevel()) window.kxShowLevelUp(data.level, data.tier_name);
     } catch (e) {
       errEl.textContent = 'Bağlantı hatası. Lütfen tekrar dene.';
       errEl.classList.add('visible');
@@ -1383,6 +1385,7 @@
       if (data.badge_unlocks && data.badge_unlocks.length) {
         data.badge_unlocks.forEach(function (b) { setTimeout(function () { showBadgeToast(b.label || b.id); }, 400); });
       }
+      if (window.kxShowLevelUp && window._kxGetLevel && data.level > window._kxGetLevel()) window.kxShowLevelUp(data.level, data.tier_name);
     } catch (e) {
       if (errEl) { errEl.textContent = 'Bağlantı hatası. Lütfen tekrar dene.'; errEl.classList.add('visible'); }
       card.querySelectorAll('.poll-option-btn').forEach(function (b) { b.disabled = false; });
