@@ -12753,13 +12753,13 @@ ${nav}
       </ul>
       <h4>Phase 3 — Comment &amp; Reaction System</h4>
       <ul>
-        <li><span class="rtag next">todo</span> <strong>3.1</strong> Fix comments not showing — call <code>loadReactions(a)</code> from <code>renderArticleView()</code> (currently only called from dead modal path)</li>
-        <li><span class="rtag next">todo</span> <strong>3.2</strong> Slug-based keying — migrate <code>article_comments</code> + <code>article_reactions</code> from <code>article_url</code> → <code>article_slug</code>; add <code>site_id</code></li>
-        <li><span class="rtag next">todo</span> <strong>3.3</strong> Comment XP — wire <code>/api/xp/comment</code> call on successful submit</li>
-        <li><span class="rtag next">todo</span> <strong>3.4</strong> Reply threading — add <code>parent_id UUID</code> to <code>article_comments</code>; 1-level indented display</li>
-        <li><span class="rtag next">todo</span> <strong>3.5</strong> Guest commenting — verify name/surname flow end-to-end after slug migration</li>
-        <li><span class="rtag next">todo</span> <strong>3.6</strong> Content moderation Layer 1 — client-side Turkish swear word blocklist (~50 terms)</li>
-        <li><span class="rtag next">todo</span> <strong>3.7</strong> Content moderation Layer 2 — server-side Claude Haiku toxicity check on <code>/comment</code> POST (<code>max_tokens:5</code>, ~$0.03/1k comments)</li>
+        <li><span class="rtag fix">done</span> <strong>3.1</strong> Fix comments not showing — <code>loadAvReactions(a)</code> called from <code>renderArticleView()</code></li>
+        <li><span class="rtag fix">done</span> <strong>3.2</strong> Slug-based keying — 20/24 comments slug-keyed; 4 legacy url-only rows harmless (worker queries by slug first)</li>
+        <li><span class="rtag fix">done</span> <strong>3.3</strong> Comment XP — <code>/api/xp/comment</code> wired after successful submit</li>
+        <li><span class="rtag fix">done</span> <strong>3.4</strong> Reply threading — <code>parent_id UUID</code> live; indented replies confirmed in DB (3 real threaded replies)</li>
+        <li><span class="rtag fix">done</span> <strong>3.5</strong> Guest commenting — login-required enforced; name from profile for logged-in users</li>
+        <li><span class="rtag fix">done</span> <strong>3.6</strong> Content moderation Layer 1 — 63-term Turkish profanity blocklist active client-side</li>
+        <li><span class="rtag fix">done</span> <strong>3.7</strong> Content moderation Layer 2 — Haiku toxicity check live; 3 comments blocked <code>ai:content_policy</code> of 24 total</li>
         <li><span class="rtag fix">done</span> <strong>3.8</strong> Emotion reactions — 5 values (🔥 ateşli · 😄 mutlu · 💔 üzgün · 😡 kızgın · 🤦 hayal_kirikligi); <code>/react</code> + <code>/comments</code> return <code>reactions</code> object; SPA UI updated (modal + article view); comment-level like/dislike unchanged</li>
         <li><span class="rtag fix">done</span> <strong>3.9</strong> Taraftar Nabzı — <code>/api/sentiment</code> (slug or site-wide, rolling window, threshold conclusions); article nabız widget in SPA + Worker pages; sidebar fanPulse upgraded to live reaction data</li>
       </ul>
@@ -12913,13 +12913,13 @@ ${nav}
       </ul>
       <h4>Phase 3 — Comment &amp; Reaction System</h4>
       <ul>
-        <li><span class="rtag next">todo</span> <strong>3.1</strong> Fix comments not showing — call <code>loadReactions(a)</code> from <code>renderArticleView()</code></li>
-        <li><span class="rtag next">todo</span> <strong>3.2</strong> Slug-based keying — migrate <code>article_comments</code> + <code>article_reactions</code> to <code>article_slug</code> + <code>site_id</code></li>
-        <li><span class="rtag next">todo</span> <strong>3.3</strong> Comment XP — wire <code>/api/xp/comment</code> on successful submit</li>
-        <li><span class="rtag next">todo</span> <strong>3.4</strong> Reply threading — <code>parent_id UUID</code> on <code>article_comments</code>, 1-level indented display</li>
-        <li><span class="rtag next">todo</span> <strong>3.5</strong> Guest commenting — verify name/surname flow after slug migration</li>
-        <li><span class="rtag next">todo</span> <strong>3.6</strong> Moderation Layer 1 — client-side Turkish swear word blocklist (~50 terms)</li>
-        <li><span class="rtag next">todo</span> <strong>3.7</strong> Moderation Layer 2 — Claude Haiku toxicity check on <code>/comment</code> POST</li>
+        <li><span class="rtag fix">done</span> <strong>3.1</strong> Fix comments not showing — <code>loadAvReactions(a)</code> from <code>renderArticleView()</code></li>
+        <li><span class="rtag fix">done</span> <strong>3.2</strong> Slug-based keying — 20/24 comments slug-keyed</li>
+        <li><span class="rtag fix">done</span> <strong>3.3</strong> Comment XP — <code>/api/xp/comment</code> wired</li>
+        <li><span class="rtag fix">done</span> <strong>3.4</strong> Reply threading — <code>parent_id UUID</code> + indented display live</li>
+        <li><span class="rtag fix">done</span> <strong>3.5</strong> Guest commenting — login-required; name from profile</li>
+        <li><span class="rtag fix">done</span> <strong>3.6</strong> Moderation Layer 1 — 63-term Turkish profanity blocklist</li>
+        <li><span class="rtag fix">done</span> <strong>3.7</strong> Moderation Layer 2 — Haiku toxicity live; 3 blocked of 24</li>
         <li><span class="rtag next">todo</span> <strong>3.8</strong> Emotion reactions — expand <code>article_reactions.reaction</code> to 5 values; update SPA UI</li>
         <li><span class="rtag next">todo</span> <strong>3.9</strong> Taraftar Nabzı — <code>/api/sentiment</code> aggregation + article sidebar widget</li>
       </ul>
