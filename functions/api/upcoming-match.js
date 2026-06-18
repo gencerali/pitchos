@@ -19,8 +19,9 @@ const TURKEY_LEAGUES = ['fifa.world', 'uefa.euro_qualifying', 'uefa.nations', 'i
 const BJK_LEAGUES    = ['tur.1', 'uefa.el', 'uefa.ucl'];
 
 function teamMatches(competitor, names, abbr) {
-  const n = (competitor.team?.displayName ?? '').toLowerCase();
-  const a = (competitor.team?.abbreviation ?? '').toUpperCase();
+  // ESPN structures vary: team info may be nested under .team or flat on the competitor
+  const n = (competitor.team?.displayName ?? competitor.displayName ?? '').toLowerCase();
+  const a = (competitor.team?.abbreviation ?? competitor.abbreviation ?? '').toUpperCase();
   return names.some(name => n.includes(name)) || a === abbr;
 }
 
@@ -48,7 +49,8 @@ async function scanScoreboard(league, names, abbr, maxDays = 45) {
       if (new Date(event.date).getTime() <= now) continue;
       const comps = event.competitions?.[0]?.competitors ?? [];
       const matched = comps.find(c => teamMatches(c, names, abbr));
-      if (matched) return { event, league, teamId: matched.team?.id ?? null };
+      // ESPN stores the ID at competitor.id or competitor.team.id depending on endpoint
+      if (matched) return { event, league, teamId: matched.team?.id ?? matched.id ?? null };
     }
   }
   return null;
@@ -72,12 +74,12 @@ function espnEventToMatch({ event, league, teamId }) {
   return {
     match_id:       String(event.id),
     kickoff_utc:    event.date,
-    home_team:      home.team?.displayName ?? '',
-    home_team_id:   home.team?.id ?? null,
-    away_team:      away.team?.displayName ?? '',
-    away_team_id:   away.team?.id ?? null,
-    home_logo:      home.team?.logo ?? null,
-    away_logo:      away.team?.logo ?? null,
+    home_team:      home.team?.displayName ?? home.displayName ?? '',
+    home_team_id:   home.team?.id ?? home.id ?? null,
+    away_team:      away.team?.displayName ?? away.displayName ?? '',
+    away_team_id:   away.team?.id ?? away.id ?? null,
+    home_logo:      home.team?.logo ?? home.logo ?? null,
+    away_logo:      away.team?.logo ?? away.logo ?? null,
     league_name:    event.league?.name ?? null,
     round:          comp.series?.description ?? comp.status?.type?.shortDetail ?? null,
     venue:          comp.venue?.fullName ?? null,
@@ -102,7 +104,7 @@ export async function onRequest({ request, env }) {
   }
 
   // 2. KV cache
-  const cacheKey = 'upcoming-match:espn:v2';
+  const cacheKey = 'upcoming-match:espn:v3';
   if (env.PITCHOS_CACHE) {
     const cached = await env.PITCHOS_CACHE.get(cacheKey);
     if (cached) {
