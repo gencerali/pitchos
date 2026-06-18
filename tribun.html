@@ -411,6 +411,53 @@
       color: var(--text); font-size: 0.9rem;
     }
 
+    /* Result state (post-evaluation) */
+    .predict-result { padding: 1.25rem; }
+    .predict-result-exact {
+      background: rgba(245,166,35,0.10);
+      border: 1px solid rgba(245,166,35,0.35);
+      border-radius: 6px; padding: 1rem 1.25rem;
+      display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;
+    }
+    .predict-result-correct {
+      background: rgba(46,160,67,0.08);
+      border: 1px solid rgba(46,160,67,0.28);
+      border-radius: 6px; padding: 1rem 1.25rem;
+      display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;
+    }
+    .predict-result-wrong {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 6px; padding: 1rem 1.25rem;
+      display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem;
+    }
+    .predict-result-icon { font-size: 1.8rem; line-height: 1; flex-shrink: 0; }
+    .predict-result-text { flex: 1; }
+    .predict-result-title {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 1.05rem; font-weight: 800; letter-spacing: 0.05em;
+      text-transform: uppercase; color: var(--text-on-dark); margin-bottom: 0.2rem;
+    }
+    .predict-result-sub {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.72rem; letter-spacing: 0.05em; color: var(--muted);
+    }
+    .predict-result-xp {
+      font-family: 'Oswald', sans-serif;
+      font-size: 1.5rem; font-weight: 700; color: var(--accent-gold);
+      text-align: right; flex-shrink: 0;
+    }
+    .predict-result-xp small {
+      display: block; font-size: 0.6rem; letter-spacing: 0.08em;
+      color: var(--muted); font-family: 'Barlow Condensed', sans-serif;
+    }
+    .predict-result-your-score {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.78rem; letter-spacing: 0.04em; color: var(--muted);
+      text-align: center;
+    }
+    .predict-result-your-score strong { color: var(--text); font-size: 0.88rem; }
+
     /* Already predicted state */
     .predict-already {
       padding: 1.25rem;
@@ -679,7 +726,7 @@
       </div>
     </div>
 
-    <!-- Already predicted -->
+    <!-- Already predicted (awaiting result) -->
     <div class="predict-state" id="stateAlready">
       <div id="alreadyMatchDisplay" style="padding:1.25rem 1.25rem 0"></div>
       <div class="predict-already">
@@ -688,6 +735,14 @@
           <div class="predict-already-score" id="alreadyScore">– : –</div>
           <div class="predict-already-sub">Maç sonucu bekleniyor…</div>
         </div>
+      </div>
+    </div>
+
+    <!-- Result revealed -->
+    <div class="predict-state" id="stateResult">
+      <div class="predict-result">
+        <div id="resultBanner"></div>
+        <div class="predict-result-your-score" id="resultYourScore"></div>
       </div>
     </div>
 
@@ -972,7 +1027,8 @@
       var res = await fetch(
         config.supabase_url + '/rest/v1/score_predictions' +
         '?user_id=eq.' + encodeURIComponent(userId) +
-        '&match_id=eq.' + matchId + '&select=home_score,away_score&limit=1',
+        '&match_id=eq.' + matchId +
+        '&select=home_score,away_score,xp_awarded,bonus_awarded,outcome_awarded&limit=1',
         { headers: { apikey: config.supabase_anon_key, Authorization: 'Bearer ' + token } }
       );
       if (!res.ok) return null;
@@ -1020,11 +1076,49 @@
     if (!config || !_match) { showPredictState('stateNoMatch'); return; }
     if (!_accessToken) { showPredictState('stateAuth'); return; }
 
-    var alreadyPredicted = await checkExistingPrediction(_accessToken, _match.match_id);
+    var alreadyPredicted = await checkExistingPrediction(window.kxToken ?? _accessToken, _match.match_id);
     if (alreadyPredicted) {
-      document.getElementById('alreadyScore').textContent =
-        alreadyPredicted.home_score + ' : ' + alreadyPredicted.away_score;
-      showPredictState('stateAlready');
+      if (alreadyPredicted.xp_awarded) {
+        var yourScore = alreadyPredicted.home_score + ' – ' + alreadyPredicted.away_score;
+        var banner, xpText;
+        if (alreadyPredicted.bonus_awarded) {
+          xpText = '+100 XP';
+          banner = '<div class="predict-result-exact">' +
+            '<div class="predict-result-icon">🎯</div>' +
+            '<div class="predict-result-text">' +
+              '<div class="predict-result-title">Skor Tam Tuttu!</div>' +
+              '<div class="predict-result-sub">Mükemmel tahmin — bonus XP kazandın</div>' +
+            '</div>' +
+            '<div class="predict-result-xp">' + xpText + '<small>BONUS</small></div>' +
+          '</div>';
+        } else if (alreadyPredicted.outcome_awarded) {
+          xpText = '+40 XP';
+          banner = '<div class="predict-result-correct">' +
+            '<div class="predict-result-icon">✓</div>' +
+            '<div class="predict-result-text">' +
+              '<div class="predict-result-title">Sonucu Bildin!</div>' +
+              '<div class="predict-result-sub">Doğru sonuç — bonus XP kazandın</div>' +
+            '</div>' +
+            '<div class="predict-result-xp">' + xpText + '<small>BONUS</small></div>' +
+          '</div>';
+        } else {
+          banner = '<div class="predict-result-wrong">' +
+            '<div class="predict-result-icon">✗</div>' +
+            '<div class="predict-result-text">' +
+              '<div class="predict-result-title">Bu Sefer Olmadı</div>' +
+              '<div class="predict-result-sub">Sonraki maçta şansını dene</div>' +
+            '</div>' +
+          '</div>';
+        }
+        document.getElementById('resultBanner').innerHTML = banner;
+        document.getElementById('resultYourScore').innerHTML =
+          'Tahminin: <strong>' + yourScore + '</strong>';
+        showPredictState('stateResult');
+      } else {
+        document.getElementById('alreadyScore').textContent =
+          alreadyPredicted.home_score + ' : ' + alreadyPredicted.away_score;
+        showPredictState('stateAlready');
+      }
       return;
     }
     showPredictState('stateForm');
