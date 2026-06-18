@@ -8259,7 +8259,6 @@ ${siteHeader('/haber/')}
     <button class="rxn-btn" id="btn-kizgin" data-tip="Kızgın" onclick="react('kizgin')" ontouchstart="_rxnTip(this)">😡 <span id="count-kizgin" class="rxn-count">0</span></button>
     <button class="rxn-btn" id="btn-hayal_kirikligi" data-tip="Hayal Kr." onclick="react('hayal_kirikligi')" ontouchstart="_rxnTip(this)">🤦 <span id="count-hayal_kirikligi" class="rxn-count">0</span></button>
   </div>
-  <div id="nabiz-widget" style="margin-top:1rem;padding:.9rem 1.25rem;background:#141414;border:1px solid #1A1A1A;border-radius:6px;display:none"></div>
   <div class="share-box">
     <div class="share-title">Bu haberi paylaş</div>
     <div class="share-btns">
@@ -8331,41 +8330,6 @@ async function loadReactions() {
   } catch(e) {}
 }
 
-const _NM = {
-  atesli:          { emoji:'🔥', label:'Ateşli',    color:'#f97316' },
-  mutlu:           { emoji:'😄', label:'Mutlu',     color:'#22c55e' },
-  uzgun:           { emoji:'💔', label:'Üzgün',     color:'#60a5fa' },
-  kizgin:          { emoji:'😡', label:'Kızgın',    color:'#ef4444' },
-  hayal_kirikligi: { emoji:'🤦', label:'Hayal Kr.', color:'#9ca3af' },
-};
-async function loadNabiz() {
-  const el = document.getElementById('nabiz-widget'); if (!el || !PAGE_SLUG) return;
-  try {
-    const res = await fetch('/api/sentiment?slug=' + encodeURIComponent(PAGE_SLUG));
-    if (!res.ok) return;
-    const d = await res.json();
-    if (!d || d.total === 0) return;
-    const dom = _NM[d.dominant] || {};
-    const bars = Object.entries(_NM).map(([k, m]) => {
-      const pct = d.total ? Math.round((d.breakdown[k]||0) / d.total * 100) : 0;
-      const isDom = k === d.dominant;
-      return \`<div style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.74rem;color:#888">
-        <span style="width:1.3rem;text-align:center">\${m.emoji}</span>
-        <div style="flex:1;height:5px;background:#1e1e1e;border-radius:3px;overflow:hidden">
-          <div style="height:100%;border-radius:3px;width:\${pct}%;background:\${m.color}\${isDom?'':'88'}"></div>
-        </div>
-        <span style="min-width:2.5ch;text-align:right;font-size:.7rem;color:#555">\${pct}%</span>
-      </div>\`;
-    }).join('');
-    el.innerHTML = \`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.35rem">
-        <span style="font-size:.7rem;font-weight:700;letter-spacing:.08em;color:#555;text-transform:uppercase">Taraftar Nabzı</span>
-        <span style="font-size:.7rem;color:#444">\${d.total} tepki</span>
-      </div>
-      \${bars}
-      <div style="font-size:.76rem;color:#888;margin-top:.5rem;padding-top:.5rem;border-top:1px solid #1e1e1e;font-style:italic">\${dom.emoji||''} <strong style="font-style:normal">\${dom.label||''}</strong> · \${d.conclusion}</div>\`;
-    el.style.display = '';
-  } catch(e) {}
-}
 
 async function react(type) {
   const reaction = currentReaction === type ? null : type;
@@ -8433,7 +8397,6 @@ async function submitFb(){
 }
 
 loadReactions();
-loadNabiz();
 </script>
 ${gamificationMeta({ xp_type: 'article', slug, publish_mode: a.publish_mode || '' })}
 ${siteFooter()}
