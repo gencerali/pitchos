@@ -299,6 +299,12 @@
       color: var(--text); line-height: 1.2;
     }
     .profil-badge.earned .profil-badge-name { color: var(--accent-gold); }
+    .profil-badge-desc {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.58rem; color: var(--muted); letter-spacing: 0.02em;
+      line-height: 1.3; text-align: center;
+    }
+    .profil-badge.earned .profil-badge-desc { color: #6b7280; }
     .profil-badge-date {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.55rem; color: var(--muted); letter-spacing: 0.02em;
@@ -713,6 +719,7 @@
           div.innerHTML = `
             <div class="profil-badge-icon">${def.icon}</div>
             <div class="profil-badge-name">${def.name}</div>
+            <div class="profil-badge-desc">${def.desc}</div>
             ${earned ? `<div class="profil-badge-date">${fmtDate(earnedMap[def.id])}</div>` : ''}
           `;
           rowEl.appendChild(div);
@@ -835,7 +842,7 @@
               const div2 = document.createElement('div');
               div2.className = 'profil-badge ' + (earned ? 'earned' : 'locked');
               div2.title = def.desc || def.name;
-              div2.innerHTML = `<div class="profil-badge-icon">${def.icon}</div><div class="profil-badge-name">${def.name}</div>${earned ? `<div class="profil-badge-date">${fmtDate(earnedMap2[def.id])}</div>` : ''}`;
+              div2.innerHTML = `<div class="profil-badge-icon">${def.icon}</div><div class="profil-badge-name">${def.name}</div><div class="profil-badge-desc">${def.desc}</div>${earned ? `<div class="profil-badge-date">${fmtDate(earnedMap2[def.id])}</div>` : ''}`;
               rowEl.appendChild(div2);
             });
             groupEl.appendChild(rowEl);

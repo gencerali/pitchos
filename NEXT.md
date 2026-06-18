@@ -55,7 +55,7 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 ## Phase 5 — Profile & UX Polish
 
 - [ ] **5.1** Profile: XP activity feed (recent `xp_events`)
-- [ ] **5.2** Profile: badge grid (earned + locked as goals)
+- [x] **5.2** Profile: badge grid (earned + locked as goals)
 - [ ] **5.3** Profile: prediction history tab
 - [ ] **5.4** Level-up notification (modal/banner)
 - [ ] **5.5** Badge unlock notification
