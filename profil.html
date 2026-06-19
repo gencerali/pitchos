@@ -397,10 +397,24 @@
       border-radius: 8px; padding: 0.85rem 1rem; margin-bottom: 0.55rem;
     }
     .profil-pred-card:last-child { margin-bottom: 0; }
+    .profil-pred-teams {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.68rem; font-weight: 700; color: var(--muted);
+      letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0.25rem;
+    }
     .profil-pred-score {
       font-family: 'Oswald', sans-serif; font-size: 1.1rem;
-      font-weight: 700; color: var(--text-on-dark); margin-bottom: 0.3rem;
+      font-weight: 700; color: var(--text-on-dark); margin-bottom: 0.2rem;
     }
+    .profil-pred-result {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em;
+      margin-bottom: 0.3rem;
+    }
+    .profil-pred-result--exact  { color: #22c55e; }
+    .profil-pred-result--ok     { color: #84cc16; }
+    .profil-pred-result--wrong  { color: var(--muted); }
+    .profil-pred-result--pending { color: #F5A623; }
     .profil-pred-meta { display: flex; gap: 0.45rem; flex-wrap: wrap; align-items: center; }
     .profil-pred-xp {
       font-family: 'Barlow Condensed', sans-serif;
@@ -712,28 +726,44 @@
   ];
 
   const ACTION_LABELS = {
-    daily_checkin:   'Günlük Giriş',
-    read_article:    'Makale Okudu',
-    comment:         'Yorum Yaptı',
-    share_link:      'Paylaşım',
-    watch_video_30s: 'Video İzledi',
-    react_article:   'Tepki Verdi',
-    predict_score:   'Tahmin Yaptı',
-    starting_11:     'İlk 11 Seçti',
-    poll_vote:       'Anket Oyladı',
-    streak_5_bonus:  'Seri Bonusu',
+    daily_checkin:         'Günlük Giriş',
+    streak_5_bonus:        'Seri Bonusu',
+    read_article:          'Makale Okudu',
+    comment:               'Yorum Yaptı',
+    first_comment:         'İlk Yorum',
+    share_link:            'Paylaşım',
+    first_share:           'İlk Paylaşım',
+    watch_video_30s:       'Video İzledi',
+    react_article:         'Tepki Verdi',
+    predict_score:         'Tahmin Yaptı',
+    first_score_predict:   'İlk Tahmin Bonusu',
+    submit_starting_11:    'İlk 11 Seçti',
+    first_starting_11:     'İlk 11 Bonusu',
+    poll_vote:             'Anket Oyladı',
+    first_poll_vote:       'İlk Anket Oyu',
+    exact_score_bonus:     'Kesin Skor Bonusu',
+    correct_outcome_bonus: 'Doğru Sonuç Bonusu',
+    guest_claim:           'Misafir XP Aktarımı',
   };
   const ACTION_ICONS = {
-    daily_checkin:   '🔥',
-    read_article:    '📰',
-    comment:         '💬',
-    share_link:      '📤',
-    watch_video_30s: '🎬',
-    react_article:   '😊',
-    predict_score:   '🎯',
-    starting_11:     '⚽',
-    poll_vote:       '🗳️',
-    streak_5_bonus:  '⚡',
+    daily_checkin:         '🔥',
+    streak_5_bonus:        '⚡',
+    read_article:          '📰',
+    comment:               '💬',
+    first_comment:         '💬',
+    share_link:            '📤',
+    first_share:           '📤',
+    watch_video_30s:       '🎬',
+    react_article:         '😊',
+    predict_score:         '🎯',
+    first_score_predict:   '🎯',
+    submit_starting_11:    '⚽',
+    first_starting_11:     '⚽',
+    poll_vote:             '🗳️',
+    first_poll_vote:       '🗳️',
+    exact_score_bonus:     '🎯',
+    correct_outcome_bonus: '✅',
+    guest_claim:           '🎁',
   };
 
   function relativeTime(iso) {
@@ -879,12 +909,40 @@
         predBox.innerHTML = '<div class="profil-empty-state">Henüz tahmin yapmadın.<br><a href="/tribun">Tribüne git ve ilk tahmini yap →</a></div>';
       } else {
         predBox.innerHTML = preds.map(p => {
-          const bonusTotal = (p.bonus_awarded ?? 0) + (p.outcome_awarded ?? 0);
+          const teams = p.home_team && p.away_team ? `${p.home_team} – ${p.away_team}` : null;
+          const evaluated = p.xp_awarded === true;
+          const isExact   = evaluated && p.bonus_awarded === true;
+          const isCorrect = evaluated && p.outcome_awarded === true && !isExact;
+          const hasResult = p.actual_home_score != null && p.actual_away_score != null;
+
+          let resultHtml = '';
+          if (!evaluated) {
+            resultHtml = `<div class="profil-pred-result profil-pred-result--pending">⏳ Sonuç bekleniyor</div>`;
+          } else if (hasResult) {
+            const actualStr = `${p.actual_home_score} – ${p.actual_away_score}`;
+            if (isExact) {
+              resultHtml = `<div class="profil-pred-result profil-pred-result--exact">🎯 Kesin skor! Gerçek: ${actualStr}</div>`;
+            } else if (isCorrect) {
+              resultHtml = `<div class="profil-pred-result profil-pred-result--ok">✓ Doğru sonuç. Gerçek: ${actualStr}</div>`;
+            } else {
+              resultHtml = `<div class="profil-pred-result profil-pred-result--wrong">Gerçek: ${actualStr}</div>`;
+            }
+          }
+
+          // XP display: score_predictions.xp_awarded is a boolean (was it evaluated?),
+          // actual XP earned is tracked via xp_events — show bonus type instead
+          const bonusTag = isExact
+            ? `<span class="profil-pred-bonus">+Kesin Skor XP</span>`
+            : isCorrect
+              ? `<span class="profil-pred-bonus">+Doğru Sonuç XP</span>`
+              : '';
+
           return `<div class="profil-pred-card">
-            <div class="profil-pred-score">${p.home_score} – ${p.away_score}</div>
+            ${teams ? `<div class="profil-pred-teams">${teams}</div>` : ''}
+            <div class="profil-pred-score">Tahminin: ${p.home_score} – ${p.away_score}</div>
+            ${resultHtml}
             <div class="profil-pred-meta">
-              ${p.xp_awarded ? `<span class="profil-pred-xp">+${p.xp_awarded} XP</span>` : ''}
-              ${bonusTotal > 0 ? `<span class="profil-pred-bonus">+${bonusTotal} XP bonus</span>` : ''}
+              ${bonusTag}
               <span class="profil-pred-date">${fmtDate(p.created_at)}</span>
             </div>
           </div>`;

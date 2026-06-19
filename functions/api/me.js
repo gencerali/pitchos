@@ -16,7 +16,7 @@ export async function onRequest({ request, env }) {
     sbGet(env, `user_badges?user_id=eq.${user.id}&site_id=eq.${site_id}&select=badge_id,earned_at,badges(*)&order=earned_at.desc`),
     sbGet(env, `xp_events?user_id=eq.${user.id}&site_id=eq.${site_id}&nullified=eq.false&select=xp_earned`),
     sbGet(env, `xp_events?user_id=eq.${user.id}&site_id=eq.${site_id}&nullified=eq.false&select=action_id,xp_earned,created_at,source_ref&order=created_at.desc&limit=20`).catch(() => []),
-    sbGet(env, `score_predictions?user_id=eq.${user.id}&site_id=eq.${site_id}&select=match_id,home_score,away_score,xp_awarded,bonus_awarded,outcome_awarded,created_at&order=created_at.desc&limit=20`).catch(() => []),
+    sbGet(env, `score_predictions?user_id=eq.${user.id}&site_id=eq.${site_id}&select=match_id,home_team,away_team,home_score,away_score,xp_awarded,bonus_awarded,outcome_awarded,actual_home_score,actual_away_score,created_at&order=created_at.desc&limit=20`).catch(() => []),
   ]);
 
   // User has no profile on this site — deny

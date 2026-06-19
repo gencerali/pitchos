@@ -41,7 +41,12 @@ export async function onRequest({ request, env }) {
     );
     if (existing.length) return err('Bu maç için zaten tahmin yaptınız', 409);
 
-    await sbPost(env, 'score_predictions', { user_id: user.id, site_id, match_id, home_score, away_score });
+    await sbPost(env, 'score_predictions', {
+      user_id: user.id, site_id, match_id,
+      home_score, away_score,
+      home_team: upcoming.home_team ?? null,
+      away_team: upcoming.away_team ?? null,
+    });
 
     const result = await awardXP(env, user.id, site_id, 'predict_score', String(match_id));
     const bonus = await awardXP(env, user.id, site_id, 'first_score_predict');
