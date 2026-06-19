@@ -59,13 +59,13 @@
     return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
   };
 
-  // Short timezone label for the browser's local timezone, e.g. "GMT+3", "CET", "CEST"
+  // UTC offset label for the browser's local timezone, e.g. "UTC+3", "UTC+2", "UTC-5"
   window._kxTZLabel = (function() {
-    try {
-      return new Intl.DateTimeFormat('en', { timeZoneName: 'short' })
-        .formatToParts(new Date())
-        .find(p => p.type === 'timeZoneName')?.value ?? '';
-    } catch { return ''; }
+    const off = -new Date().getTimezoneOffset(); // minutes east of UTC
+    const sign = off >= 0 ? '+' : '-';
+    const h = Math.floor(Math.abs(off) / 60);
+    const m = Math.abs(off) % 60;
+    return 'UTC' + sign + h + (m ? ':' + String(m).padStart(2, '0') : '');
   })();
 
   window.kxSpawnXP = function(amount, sourceEl) {

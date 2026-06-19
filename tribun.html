@@ -973,7 +973,7 @@
     var timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
     var tzSuffix = window._kxTZLabel ? ' ' + window._kxTZLabel : '';
     return (match.round ? '<div class="match-meta-round">' + match.round + '</div>' : '') +
-      '<div>' + match.league_name + ' · ' + dateStr + ' ' + timeStr + tzSuffix + '</div>' +
+      '<div>' + (match.league_name ? match.league_name + ' · ' : '') + dateStr + ' ' + timeStr + tzSuffix + '</div>' +
       (match.venue ? '<div>' + match.venue + '</div>' : '');
   }
 
