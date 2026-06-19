@@ -48,5 +48,11 @@ export async function onRequest({ request, env, params }) {
     }
   }
 
-  return json({ type, site_id, rows: ranked, user_rank });
+  return new Response(JSON.stringify({ type, site_id, rows: ranked, user_rank }), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store',
+    },
+  });
 }
