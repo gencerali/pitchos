@@ -2189,7 +2189,7 @@
                 method: 'POST',
                 headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ article_id: _avShareSlug, local_day_start: window._kxLDS?.() }),
-              }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+              }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); if (d.level > (window._kxGetLevel?.() ?? 0)) window.kxShowLevelUp?.(d.level, d.tier_name); (d.badge_unlocks ?? []).forEach(b => window.kxShowBadge?.(b)); }).catch(() => {});
             }
           } catch {} // User cancelled — no XP
         } else {
@@ -2199,7 +2199,7 @@
               method: 'POST',
               headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({ article_id: _avShareSlug, local_day_start: window._kxLDS?.() }),
-            }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+            }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); if (d.level > (window._kxGetLevel?.() ?? 0)) window.kxShowLevelUp?.(d.level, d.tier_name); (d.badge_unlocks ?? []).forEach(b => window.kxShowBadge?.(b)); }).catch(() => {});
           }
         }
       });
@@ -2870,7 +2870,7 @@
                 method: 'POST',
                 headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ article_id: _shareSlug, local_day_start: window._kxLDS?.() }),
-              }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+              }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); if (d.level > (window._kxGetLevel?.() ?? 0)) window.kxShowLevelUp?.(d.level, d.tier_name); (d.badge_unlocks ?? []).forEach(b => window.kxShowBadge?.(b)); }).catch(() => {});
             }
           } catch {} // User cancelled — no XP
         } else {
@@ -2879,7 +2879,7 @@
               method: 'POST',
               headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({ article_id: _shareSlug, local_day_start: window._kxLDS?.() }),
-            }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+            }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); if (d.level > (window._kxGetLevel?.() ?? 0)) window.kxShowLevelUp?.(d.level, d.tier_name); (d.badge_unlocks ?? []).forEach(b => window.kxShowBadge?.(b)); }).catch(() => {});
           }
         }
       };
@@ -3052,7 +3052,7 @@
           method: 'POST',
           headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ article_slug: _currentArticle.slug, local_day_start: window._kxLDS?.() }),
-        }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+        }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); if (d.level > (window._kxGetLevel?.() ?? 0)) window.kxShowLevelUp?.(d.level, d.tier_name); (d.badge_unlocks ?? []).forEach(b => window.kxShowBadge?.(b)); }).catch(() => {});
       }
     } catch(e) {}
   }
@@ -3239,7 +3239,7 @@
           method: 'POST',
           headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ article_slug: _currentArticle.slug, local_day_start: window._kxLDS?.() }),
-        }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+        }).then(r => r.json()).then(d => { if (d.xp_earned > 0) window.kxSpawnXP(d.xp_earned); if (d.level > (window._kxGetLevel?.() ?? 0)) window.kxShowLevelUp?.(d.level, d.tier_name); (d.badge_unlocks ?? []).forEach(b => window.kxShowBadge?.(b)); }).catch(() => {});
       }
     } catch(e) { console.error('react error:', e); }
   }
@@ -3415,7 +3415,7 @@
           method: 'POST',
           headers: { Authorization: `Bearer ${window.kxToken}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ article_slug: slug, local_day_start: window._kxLDS?.() }),
-        }).then(r => r.json()).then(d => { if (d.xp_earned > 0 && window.kxSpawnXP) window.kxSpawnXP(d.xp_earned); }).catch(() => {});
+        }).then(r => r.json()).then(d => { if (d.xp_earned > 0 && window.kxSpawnXP) window.kxSpawnXP(d.xp_earned); if (d.level > (window._kxGetLevel?.() ?? 0)) window.kxShowLevelUp?.(d.level, d.tier_name); (d.badge_unlocks ?? []).forEach(b => window.kxShowBadge?.(b)); }).catch(() => {});
       } else {
         msg.style.color='#D90414'; msg.textContent='Hata: ' + (data.error || 'Tekrar deneyin');
       }

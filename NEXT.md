@@ -59,7 +59,7 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 - [x] **5.3** Profile: prediction history tab — rendered in `profil.html`, backed by `/api/me` (queries `score_predictions`, shows predicted vs actual score, exact/outcome/wrong outcome indicator)
 - [x] **5.4** Level-up notification — `window.kxShowLevelUp` in `gamification.js`, wired in checkin/article-read/video-watch and all three tribün XP handlers
 - [x] **5.5** Badge unlock notification — `window.kxShowBadge` in `gamification.js`, wired same as 5.4
-- [ ] **5.6** *(minor gap)* Wire badge + level-up notifications in `index.html` for comment / react / share XP handlers — those 3 success handlers currently don't call `kxShowBadge` / `kxShowLevelUp`
+- [x] **5.6** Wire badge + level-up notifications in `index.html` for comment / react / share XP handlers
 
 ---
 
