@@ -365,6 +365,16 @@
       font-size: 0.75rem; font-weight: 700; color: var(--accent-gold);
       letter-spacing: 0.04em; flex-shrink: 0;
     }
+    .profil-more-btn {
+      display: block; width: 100%; margin-top: 0.5rem;
+      padding: 0.6rem 1rem; background: transparent;
+      border: 1px solid var(--border2); border-radius: 6px;
+      color: var(--muted); font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.75rem; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; cursor: pointer; transition: border-color .15s, color .15s;
+    }
+    .profil-more-btn:hover:not(:disabled) { border-color: var(--accent-gold); color: var(--accent-gold); }
+    .profil-more-btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .profil-empty-state {
       text-align: center; padding: 2rem 1rem;
       font-family: 'Barlow Condensed', sans-serif;
@@ -633,6 +643,7 @@
       </div>
       <div id="profilTabActivity" class="profil-tab-panel" style="margin-top:0.75rem">
         <div id="profilActivityFeed" class="profil-activity-wrap"></div>
+        <button id="profilActivityMore" class="profil-more-btn" style="display:none">Daha Fazla</button>
       </div>
       <div id="profilTabPreds" class="profil-tab-panel" style="margin-top:0.75rem">
         <div id="profilPredHistory"></div>
@@ -894,21 +905,52 @@
 
     // Activity feed
     const feed = el('profilActivityFeed');
+    const moreBtn = el('profilActivityMore');
+    let _activityOffset = 0;
+    function activityItemHtml(a) {
+      return `<div class="profil-activity-item">
+        <div class="profil-activity-icon">${ACTION_ICONS[a.action_id] ?? '⚡'}</div>
+        <div class="profil-activity-text">
+          <div class="profil-activity-label">${ACTION_LABELS[a.action_id] ?? a.action_id}</div>
+          <div class="profil-activity-time">${relativeTime(a.created_at)}</div>
+        </div>
+        <div class="profil-activity-xp">+${a.xp_earned} XP</div>
+      </div>`;
+    }
     if (feed) {
       const acts = me.recent_activity ?? [];
       if (!acts.length) {
         feed.innerHTML = '<div class="profil-empty-state">Henüz aktivite yok.<br>XP kazan, buraya yansır.</div>';
       } else {
-        feed.innerHTML = acts.map(a => `
-          <div class="profil-activity-item">
-            <div class="profil-activity-icon">${ACTION_ICONS[a.action_id] ?? '⚡'}</div>
-            <div class="profil-activity-text">
-              <div class="profil-activity-label">${ACTION_LABELS[a.action_id] ?? a.action_id}</div>
-              <div class="profil-activity-time">${relativeTime(a.created_at)}</div>
-            </div>
-            <div class="profil-activity-xp">+${a.xp_earned} XP</div>
-          </div>`).join('');
+        feed.innerHTML = acts.map(activityItemHtml).join('');
+        _activityOffset = acts.length;
+        if (moreBtn && acts.length >= 20) moreBtn.style.display = 'block';
       }
+    }
+    if (moreBtn) {
+      moreBtn.addEventListener('click', async () => {
+        moreBtn.disabled = true;
+        moreBtn.textContent = 'Yükleniyor…';
+        try {
+          const token = window.kxToken;
+          const data = await fetch(`/api/activity?offset=${_activityOffset}&limit=20`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          }).then(r => r.ok ? r.json() : null);
+          if (data?.events?.length) {
+            feed.insertAdjacentHTML('beforeend', data.events.map(activityItemHtml).join(''));
+            _activityOffset += data.events.length;
+          }
+          if (!data?.has_more) {
+            moreBtn.style.display = 'none';
+          } else {
+            moreBtn.disabled = false;
+            moreBtn.textContent = 'Daha Fazla';
+          }
+        } catch {
+          moreBtn.disabled = false;
+          moreBtn.textContent = 'Daha Fazla';
+        }
+      });
     }
 
     // Prediction history
