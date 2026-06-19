@@ -301,6 +301,9 @@ describe('awardXP — articles_100 badge', () => {
     // checkBadges: react_article IS in countMap (for reactor_10 / reactor_50).
     // The engine queries the lifetime reaction count; at 3 neither threshold is met.
     enqueue(Array(3).fill({ id: 'e' }));   // react_article lifetime count (< 10)
+    // Triple Crown check: react_article is a qualifying action; engine queries for
+    // daily_checkin and comment in parallel — neither found today so no triple crown.
+    enqueue([], []);
 
     const result = await awardXP(ENV, USER_ID, SITE_ID, 'react_article', 'art-x');
     // read_article count check was NOT run (no articles_* candidates queued)
