@@ -164,8 +164,51 @@
       justify-content: center; font-family: 'Oswald', sans-serif;
       font-size: 1.6rem; font-weight: 700; color: #fff;
       flex-shrink: 0; overflow: hidden; border: 2px solid var(--border2);
+      cursor: pointer; position: relative;
     }
     .profil-avatar-lg img { width: 100%; height: 100%; object-fit: cover; }
+    .profil-avatar-edit-hint {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: rgba(0,0,0,0.45); display: flex; align-items: center;
+      justify-content: center; opacity: 0; transition: opacity .15s;
+      font-size: 1.1rem; pointer-events: none;
+    }
+    .profil-avatar-lg:hover .profil-avatar-edit-hint,
+    .profil-avatar-lg:focus .profil-avatar-edit-hint { opacity: 1; }
+    /* Avatar picker bottom-sheet */
+    #avatarSheet {
+      position: fixed; inset: 0; z-index: 9000;
+      display: flex; flex-direction: column; justify-content: flex-end;
+    }
+    #avatarSheet .sheet-backdrop {
+      position: absolute; inset: 0; background: rgba(0,0,0,0.6);
+    }
+    #avatarSheet .sheet-body {
+      position: relative; background: var(--surface);
+      border-radius: 16px 16px 0 0; padding: 1.25rem 1.25rem 2rem;
+      max-height: 80vh; overflow-y: auto;
+    }
+    #avatarSheet h3 { margin: 0 0 1rem; font-size: 1rem; color: var(--text-on-dark); }
+    .avatar-presets {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .avatar-preset {
+      width: 100%; aspect-ratio: 1; border-radius: 50%; overflow: hidden;
+      border: 2px solid var(--border2); cursor: pointer; transition: border-color .15s;
+    }
+    .avatar-preset:hover, .avatar-preset.selected { border-color: var(--accent); }
+    .avatar-preset img { width: 100%; height: 100%; object-fit: cover; }
+    .avatar-url-row { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+    .avatar-url-row input {
+      flex: 1; background: var(--bg); border: 1px solid var(--border2);
+      color: var(--text-on-dark); border-radius: 8px; padding: 0.5rem 0.75rem;
+      font-size: 0.85rem;
+    }
+    .avatar-save-btn {
+      background: var(--accent); color: #000; border: none; border-radius: 8px;
+      padding: 0.5rem 1rem; font-weight: 700; cursor: pointer; white-space: nowrap;
+    }
     .profil-hero-info { flex: 1; min-width: 0; }
     .profil-display-name {
       font-family: 'Oswald', sans-serif; font-size: 1.4rem;
@@ -586,7 +629,7 @@
 
     <!-- Hero -->
     <div class="profil-hero">
-      <div class="profil-avatar-lg" id="profilAvatarLg">K</div>
+      <div class="profil-avatar-lg" id="profilAvatarLg" tabindex="0" role="button" aria-label="Avatarı değiştir">K<span class="profil-avatar-edit-hint">✏️</span></div>
       <div class="profil-hero-info">
         <div class="profil-display-name" id="profilDisplayName">—</div>
         <div class="profil-username" id="profilUsername"></div>
@@ -676,6 +719,19 @@
 
   </div><!-- /profil-content -->
 </main>
+
+<!-- Avatar picker sheet -->
+<div id="avatarSheet" style="display:none" role="dialog" aria-modal="true" aria-label="Avatar seç">
+  <div class="sheet-backdrop" id="avatarBackdrop"></div>
+  <div class="sheet-body">
+    <h3>Avatar Seç</h3>
+    <div class="avatar-presets" id="avatarPresets"></div>
+    <div class="avatar-url-row">
+      <input id="avatarUrlInput" type="url" placeholder="veya resim URL yapıştır…">
+      <button class="avatar-save-btn" id="avatarSaveBtn">Kaydet</button>
+    </div>
+  </div>
+</div>
 
 <script src="/gamification.js" defer></script>
 <script>
@@ -1088,6 +1144,70 @@
       });
     }
   }
+
+  // ── Avatar picker ─────────────────────────────────────────────
+  const AVATAR_SEEDS = [
+    'kartal1903','besiktas88','siyahbeyaz','tribun','kartalix',
+    'besik7','eagle22','bjk1903','carsidan','kartaliyim'
+  ];
+  const AVATAR_BASE = 'https://api.dicebear.com/7.x/avataaars-neutral/svg?seed=';
+
+  (function initAvatarPicker() {
+    const sheet     = document.getElementById('avatarSheet');
+    const backdrop  = document.getElementById('avatarBackdrop');
+    const presetsEl = document.getElementById('avatarPresets');
+    const urlInput  = document.getElementById('avatarUrlInput');
+    const saveBtn   = document.getElementById('avatarSaveBtn');
+    const avatarEl  = document.getElementById('profilAvatarLg');
+    if (!sheet || !avatarEl) return;
+
+    // Populate presets
+    let selectedUrl = null;
+    AVATAR_SEEDS.forEach(seed => {
+      const url = AVATAR_BASE + seed;
+      const div = document.createElement('div');
+      div.className = 'avatar-preset';
+      div.innerHTML = `<img src="${url}" alt="${seed}" loading="lazy">`;
+      div.addEventListener('click', () => {
+        presetsEl.querySelectorAll('.avatar-preset').forEach(p => p.classList.remove('selected'));
+        div.classList.add('selected');
+        selectedUrl = url;
+        urlInput.value = '';
+      });
+      presetsEl.appendChild(div);
+    });
+
+    const openSheet = () => {
+      if (document.getElementById('profilContent')?.classList.contains('loaded') &&
+          !new URLSearchParams(location.search).get('uid')) {
+        sheet.style.display = 'flex';
+      }
+    };
+    const closeSheet = () => { sheet.style.display = 'none'; selectedUrl = null; };
+
+    avatarEl.addEventListener('click', openSheet);
+    avatarEl.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') openSheet(); });
+    backdrop.addEventListener('click', closeSheet);
+
+    saveBtn.addEventListener('click', async () => {
+      const url = urlInput.value.trim() || selectedUrl;
+      if (!url) { closeSheet(); return; }
+      if (!window.kxAuth?.supabase) return;
+      const { data: { user } } = await window.kxAuth.supabase.auth.getUser();
+      if (!user) return;
+      await window.kxAuth.supabase.from('profiles').update({ avatar_url: url }).eq('id', user.id);
+      // Reflect immediately
+      avatarEl.textContent = '';
+      const img = document.createElement('img');
+      img.src = url;
+      avatarEl.appendChild(img);
+      const editHint = document.createElement('span');
+      editHint.className = 'profil-avatar-edit-hint';
+      editHint.textContent = '✏️';
+      avatarEl.appendChild(editHint);
+      closeSheet();
+    });
+  })();
 
   // ── Tab switching (Rozetler / Aktivite / Tahminler) ──────────
   document.querySelectorAll('.profil-tab-btn').forEach(btn => {
