@@ -14,8 +14,9 @@ export async function onRequest({ request, env }) {
   const { article_slug } = body ?? {};
   if (!article_slug) return err('Missing article_slug');
 
-  const result = await awardXP(env, user.id, site_id, 'comment', article_slug);
-  const bonus = await awardXP(env, user.id, site_id, 'first_comment');
+  const lds = body?.local_day_start ?? null;
+  const result = await awardXP(env, user.id, site_id, 'comment', article_slug, lds);
+  const bonus = await awardXP(env, user.id, site_id, 'first_comment', null, lds);
 
   return json({
     ...result,

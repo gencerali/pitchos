@@ -82,9 +82,20 @@ export async function isShadowBanned(env, user_id, site_id) {
 
 // ── Daily cap helpers ─────────────────────────────────────────
 
-export async function getDailyCount(env, user_id, site_id, action_id) {
-  const now = new Date();
-  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+export async function getDailyCount(env, user_id, site_id, action_id, local_day_start = null) {
+  let since;
+  if (local_day_start) {
+    const provided = new Date(local_day_start).getTime();
+    const now = new Date();
+    const utcMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).getTime();
+    // Accept local midnight if within ±14h of UTC midnight (covers all real timezones)
+    since = Number.isFinite(provided) && Math.abs(provided - utcMidnight) <= 14 * 3600000
+      ? local_day_start
+      : new Date(utcMidnight).toISOString();
+  } else {
+    const now = new Date();
+    since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+  }
   const rows = await sbGet(
     env,
     `xp_events?user_id=eq.${user_id}&site_id=eq.${site_id}&action_id=eq.${action_id}&created_at=gte.${since}&nullified=eq.false&select=id`
@@ -112,7 +123,7 @@ export async function hasLifetimeEvent(env, user_id, site_id, action_id) {
  * @param {string} [source_ref] - optional content ID for dedup
  * @returns {{ xp_earned, total_xp, level, tier_name, xp_to_next, badge_unlocks, capped }}
  */
-export async function awardXP(env, user_id, site_id, action_id, source_ref = null) {
+export async function awardXP(env, user_id, site_id, action_id, source_ref = null, local_day_start = null) {
   // 1. Load action config (xp_actions are global, not per-site)
   const actions = await sbGet(env, `xp_actions?id=eq.${action_id}&active=eq.true&select=*&limit=1`);
   if (!actions.length) return { xp_earned: 0, capped: false, reason: 'unknown_action' };
@@ -134,7 +145,7 @@ export async function awardXP(env, user_id, site_id, action_id, source_ref = nul
       );
       if (dupes.length) return { xp_earned: 0, capped: true, reason: 'already_earned_source' };
     }
-    const count = await getDailyCount(env, user_id, site_id, action_id);
+    const count = await getDailyCount(env, user_id, site_id, action_id, local_day_start);
     if (count >= action.daily_cap) {
       if (!action.cap_fallback_xp) return { xp_earned: 0, capped: true, reason: 'daily_cap' };
       fallback_only = true;

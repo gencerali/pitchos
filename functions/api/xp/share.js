@@ -13,8 +13,9 @@ export async function onRequest({ request, env }) {
   const body = await request.json().catch(() => null);
   if (!body?.article_id) return err('Missing article_id');
 
-  const result = await awardXP(env, user.id, site_id, 'share_link', body.article_id);
-  const bonus = await awardXP(env, user.id, site_id, 'first_share');
+  const lds = body?.local_day_start ?? null;
+  const result = await awardXP(env, user.id, site_id, 'share_link', body.article_id, lds);
+  const bonus = await awardXP(env, user.id, site_id, 'first_share', null, lds);
 
   return json({
     ...result,

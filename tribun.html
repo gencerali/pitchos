@@ -971,8 +971,9 @@
     var d = new Date(match.kickoff_utc);
     var dateStr = d.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     var timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    var tzSuffix = window._kxTZLabel ? ' ' + window._kxTZLabel : '';
     return (match.round ? '<div class="match-meta-round">' + match.round + '</div>' : '') +
-      '<div>' + match.league_name + ' · ' + dateStr + ' ' + timeStr + '</div>' +
+      '<div>' + match.league_name + ' · ' + dateStr + ' ' + timeStr + tzSuffix + '</div>' +
       (match.venue ? '<div>' + match.venue + '</div>' : '');
   }
 
@@ -1143,7 +1144,7 @@
       var res = await fetch('/api/xp/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-        body: JSON.stringify({ match_id: _match.match_id, home_score: homeScore, away_score: awayScore }),
+        body: JSON.stringify({ match_id: _match.match_id, home_score: homeScore, away_score: awayScore, local_day_start: window._kxLDS?.() }),
       });
       var data = await res.json();
       if (!res.ok) {
@@ -1265,7 +1266,7 @@
       var res = await fetch('/api/xp/starting-11', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-        body: JSON.stringify({ match_id: _match.match_id, player_ids: _selectedPlayerIds }),
+        body: JSON.stringify({ match_id: _match.match_id, player_ids: _selectedPlayerIds, local_day_start: window._kxLDS?.() }),
       });
       var data = await res.json();
       if (!res.ok) {
@@ -1369,7 +1370,7 @@
       var res = await fetch('/api/xp/poll-vote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + _accessToken },
-        body: JSON.stringify({ poll_id: poll.id, option_id: optionId }),
+        body: JSON.stringify({ poll_id: poll.id, option_id: optionId, local_day_start: window._kxLDS?.() }),
       });
       var data = await res.json();
       if (!res.ok) {

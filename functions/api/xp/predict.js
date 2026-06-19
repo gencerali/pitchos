@@ -48,8 +48,9 @@ export async function onRequest({ request, env }) {
       away_team: upcoming.away_team ?? null,
     });
 
-    const result = await awardXP(env, user.id, site_id, 'predict_score', String(match_id));
-    const bonus = await awardXP(env, user.id, site_id, 'first_score_predict');
+    const lds = body?.local_day_start ?? null;
+    const result = await awardXP(env, user.id, site_id, 'predict_score', String(match_id), lds);
+    const bonus = await awardXP(env, user.id, site_id, 'first_score_predict', null, lds);
 
     return json({
       ...result,
