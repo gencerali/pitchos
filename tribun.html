@@ -538,6 +538,22 @@
     .s11-error-msg { background:rgba(217,4,20,0.08);border:1px solid rgba(217,4,20,0.2);border-radius:5px;padding:.65rem 1rem;font-family:'Barlow Condensed',sans-serif;font-size:.75rem;letter-spacing:.04em;color:#ff8080;margin-top:.75rem;display:none; }
     .s11-error-msg.visible { display:block; }
 
+    /* ── PITCH ── */
+    .s11-pitch-wrap{position:relative;background:#2e7d46;border-radius:6px;overflow:hidden;margin-bottom:1rem;padding:.55rem .45rem .35rem;min-height:200px}
+    .s11-pitch-wrap::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(180deg,transparent 0,transparent 22px,rgba(0,0,0,.07) 22px,rgba(0,0,0,.07) 44px);pointer-events:none}
+    .s11-pitch-border{position:absolute;inset:6px;border:1px solid rgba(255,255,255,.18);border-radius:2px;pointer-events:none}
+    .s11-pitch-halftime{position:absolute;left:8%;right:8%;top:50%;height:1px;background:rgba(255,255,255,.2);pointer-events:none}
+    .s11-pitch-centercircle{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:44px;height:44px;border-radius:50%;border:1px solid rgba(255,255,255,.2);pointer-events:none}
+    .s11-pitch{position:relative;z-index:1;display:flex;flex-direction:column;gap:4px}
+    .s11-pitch-zone{display:flex;justify-content:center;align-items:center;gap:.45rem;flex-wrap:wrap;min-height:44px;padding:2px 4px}
+    .s11-zone-gk{min-height:38px}
+    .s11-pitch-player{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}
+    .s11-pitch-player:active .s11-pitch-circle{transform:scale(.9)}
+    .s11-pitch-circle{width:32px;height:32px;border-radius:50%;background:var(--accent-gold);color:#0a0a0a;font-family:'Oswald',sans-serif;font-weight:800;font-size:.7rem;display:flex;align-items:center;justify-content:center;border:2px solid rgba(255,255,255,.35);transition:transform .1s,opacity .1s}
+    .s11-pitch-circle:hover{opacity:.8}
+    .s11-pitch-circle.gk{background:#e8621a}
+    .s11-pitch-pname{font-family:'Barlow Condensed',sans-serif;font-size:.46rem;font-weight:700;letter-spacing:.03em;color:#fff;text-align:center;max-width:42px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+
     /* ── POLL CARD ── */
     .poll-card { background:var(--surface);border:1px solid var(--border2);border-radius:8px;overflow:hidden; }
     .poll-card-header { background:rgba(217,4,20,0.06);border-bottom:1px solid rgba(217,4,20,0.15);padding:.85rem 1.25rem;display:flex;align-items:center;justify-content:space-between; }
@@ -776,6 +792,17 @@
             <span id="s11TeamName">Kadro</span>
             <span class="s11-selection-count" id="s11CountLabel">0 / 11 seçildi</span>
           </div>
+          <div class="s11-pitch-wrap" id="s11PitchWrap">
+            <div class="s11-pitch-border"></div>
+            <div class="s11-pitch-halftime"></div>
+            <div class="s11-pitch-centercircle"></div>
+            <div class="s11-pitch" id="s11Pitch">
+              <div class="s11-pitch-zone" id="s11ZoneAtt"></div>
+              <div class="s11-pitch-zone" id="s11ZoneMid"></div>
+              <div class="s11-pitch-zone" id="s11ZoneDef"></div>
+              <div class="s11-pitch-zone s11-zone-gk" id="s11ZoneGk"></div>
+            </div>
+          </div>
           <div id="s11PlayerGroups"></div>
           <button class="s11-submit" id="s11SubmitBtn" disabled>11 Oyuncu Seç (0/11)</button>
           <div class="s11-error-msg" id="s11Error"></div>
@@ -984,6 +1011,7 @@
   var _match = null;
   var _accessToken = null;
   var _selectedPlayerIds = [];
+  var _playersById = {};
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function getUserIdFromToken(token) {
@@ -1201,9 +1229,10 @@
   }
 
   function renderS11Grid(players) {
+    _playersById = {};
     var groups = { Goalkeeper: [], Defender: [], Midfielder: [], Attacker: [] };
     var labels = { Goalkeeper: 'Kaleci', Defender: 'Defans', Midfielder: 'Orta Saha', Attacker: 'Forvet' };
-    players.forEach(function (p) { if (groups[p.position]) groups[p.position].push(p); });
+    players.forEach(function (p) { _playersById[p.id] = p; if (groups[p.position]) groups[p.position].push(p); });
 
     var html = '';
     ['Goalkeeper', 'Defender', 'Midfielder', 'Attacker'].forEach(function (pos) {
@@ -1231,12 +1260,47 @@
     updateS11Counter();
   }
 
+  function renderPitch() {
+    var zones = {
+      Attacker:   document.getElementById('s11ZoneAtt'),
+      Midfielder: document.getElementById('s11ZoneMid'),
+      Defender:   document.getElementById('s11ZoneDef'),
+      Goalkeeper: document.getElementById('s11ZoneGk'),
+    };
+    Object.values(zones).forEach(function (z) { if (z) z.innerHTML = ''; });
+    _selectedPlayerIds.forEach(function (id) {
+      var p = _playersById[id];
+      if (!p) return;
+      var zone = zones[p.position] || zones['Midfielder'];
+      if (!zone) return;
+      var num = p.number != null ? p.number : p.name.charAt(0);
+      var shortName = p.name.split(' ').pop();
+      var el = document.createElement('div');
+      el.className = 's11-pitch-player';
+      el.title = p.name + ' — tıkla çıkar';
+      el.innerHTML =
+        '<div class="s11-pitch-circle' + (p.position === 'Goalkeeper' ? ' gk' : '') + '">' + num + '</div>' +
+        '<div class="s11-pitch-pname">' + shortName + '</div>';
+      el.addEventListener('click', function () {
+        var idx = _selectedPlayerIds.indexOf(id);
+        if (idx !== -1) {
+          _selectedPlayerIds.splice(idx, 1);
+          var btn = document.querySelector('.s11-player-btn[data-id="' + id + '"]');
+          if (btn) btn.classList.remove('selected');
+          updateS11Counter();
+        }
+      });
+      zone.appendChild(el);
+    });
+  }
+
   function updateS11Counter() {
     var n = _selectedPlayerIds.length;
     document.getElementById('s11CountLabel').textContent = n + ' / 11 seçildi';
     var btn = document.getElementById('s11SubmitBtn');
     btn.disabled = n !== 11;
     btn.textContent = n === 11 ? "11'i Gönder" : '11 Oyuncu Seç (' + n + '/11)';
+    renderPitch();
   }
 
   document.getElementById('s11SubmitBtn').addEventListener('click', async function () {
