@@ -109,13 +109,14 @@ describe('/api/me', () => {
 
     // Default sbGet responses (ordered by call sequence in me.js Promise.all):
     // 1. profiles, 2. user_badges, 3. xp_events (sum), 4. xp_events (recent),
-    // 5. score_predictions, then sequential: 6. level_thresholds
+    // 5. score_predictions, 6. starting_elevens, then sequential: 7. level_thresholds
     vi.mocked(sbGet)
       .mockResolvedValueOnce([FAKE_PROFILE])                              // profiles
       .mockResolvedValueOnce([])                                          // user_badges
       .mockResolvedValueOnce([{ xp_earned: 100 }, { xp_earned: 50 }])   // xp_events sum
       .mockResolvedValueOnce([])                                          // recent_activity
       .mockResolvedValueOnce([])                                          // prediction_history
+      .mockResolvedValueOnce([])                                          // lineup_history
       .mockResolvedValueOnce([{ xp_required: 75 }]);                     // level_thresholds
 
     vi.mocked(getStreak).mockResolvedValue({
@@ -174,6 +175,7 @@ describe('/api/me', () => {
       .mockResolvedValueOnce([{ xp_earned: 100 }])       // xp_events sum
       .mockResolvedValueOnce([])                          // recent_activity (catch → [])
       .mockResolvedValueOnce([])                          // prediction_history (catch → [])
+      .mockResolvedValueOnce([])                          // lineup_history (catch → [])
       .mockRejectedValueOnce(new Error('Supabase GET level_thresholds: 404'));
 
     const res = await meHandler({ request: makeReq(), env: makeEnv() });
@@ -210,6 +212,7 @@ describe('/api/me', () => {
       .mockResolvedValueOnce([{ xp_earned: 10 }])
       .mockResolvedValueOnce([FAKE_EVENT])        // recent_activity
       .mockResolvedValueOnce([])                   // prediction_history
+      .mockResolvedValueOnce([])                   // lineup_history
       .mockResolvedValueOnce([{ xp_required: 0 }]);
     vi.mocked(sbRpc).mockResolvedValue([{ level: 1, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 40 }]);
 
@@ -228,7 +231,8 @@ describe('/api/me', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ xp_earned: 50 }])
       .mockRejectedValueOnce(new Error('xp_events: 500'))  // recent_activity throws
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])                             // prediction_history
+      .mockResolvedValueOnce([])                             // lineup_history
       .mockResolvedValueOnce([{ xp_required: 0 }]);
     vi.mocked(sbRpc).mockResolvedValue([{ level: 1, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 40 }]);
 
@@ -261,6 +265,7 @@ describe('/api/me', () => {
       .mockResolvedValueOnce([{ xp_earned: 130 }])
       .mockResolvedValueOnce([])                    // recent_activity
       .mockResolvedValueOnce([FAKE_PRED])            // prediction_history
+      .mockResolvedValueOnce([])                     // lineup_history
       .mockResolvedValueOnce([{ xp_required: 0 }]);
     vi.mocked(sbRpc).mockResolvedValue([{ level: 2, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 25 }]);
 
@@ -284,8 +289,9 @@ describe('/api/me', () => {
       .mockResolvedValueOnce([FAKE_PROFILE])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ xp_earned: 50 }])
-      .mockResolvedValueOnce([])
-      .mockRejectedValueOnce(new Error('score_predictions: 500'))  // throws
+      .mockResolvedValueOnce([])                                    // recent_activity
+      .mockRejectedValueOnce(new Error('score_predictions: 500'))  // prediction_history throws
+      .mockResolvedValueOnce([])                                    // lineup_history
       .mockResolvedValueOnce([{ xp_required: 0 }]);
     vi.mocked(sbRpc).mockResolvedValue([{ level: 1, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 40 }]);
 
