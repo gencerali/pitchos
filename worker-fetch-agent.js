@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, costTrajectory, costAlarmConditions, rollupDailyCost, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle, saveSourceFact } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { renderArticleCardSVG, pickBackground } from './src/card.js';
@@ -6044,6 +6044,19 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
 
       const pubResult   = toPublish.length > 0 ? await saveArticles(env, site.id, toPublish, 'published') : { saved: [], failed: [], thinDropped: [] };
       stats.published = pubResult.saved.length;
+
+      // Fire-and-forget fact extraction — runs after save so article.id is real.
+      // All P4 articles regardless of NVS; no cap. routine facts are skipped inside extractFactsForStory.
+      const p4Saved = pubResult.saved.filter(a => a.is_p4);
+      if (p4Saved.length > 0) {
+        ctx.waitUntil(
+          Promise.all(
+            p4Saved.map(a => extractFactsForStory(a, env).catch(e =>
+              console.error(`FACTS extract failed [${a.slug}]:`, e.message)
+            ))
+          )
+        );
+      }
       publishedLogItems = pubResult.saved
         .map(a => ({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, nvs_score: a.nvs, publish_mode: a.publish_mode, _stage: 'published',
           trust_tier: a.trust_tier || a.trust || null,
@@ -8706,7 +8719,6 @@ ${adminNav('config', sc, allSites)}
     <div class="card-body">
       <div class="section-note">Controls how much work each cron run does. Directly affects cost and throughput.</div>
       ${rRow('Max Rewrites Per Run', SYNTHESIS_CAP_PER_RUN, 'CONST', 'Maximum articles rewritten per cron cycle. Overflow articles are queued in KV.')}
-      ${rRow('Max Fact Extracts Per Run', MAX_FACTS_EXTRACTS, 'CONST', 'Maximum Claude calls for fact extraction per run.')}
       ${rRow('Rewrite Queue Max Size', REWRITE_QUEUE_MAX, 'CONST', 'Maximum number of articles that can wait in the KV queue.')}
       ${rRow('Rewrite Queue TTL', `${REWRITE_QUEUE_TTL / 3600}h`, 'CONST', 'Queue entries older than this are discarded.')}
     </div>

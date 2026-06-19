@@ -1,7 +1,7 @@
 ﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, getVoicePatterns, addUsagePhase, addCost, flushCostStats, saveSourceFact } from './utils.js';
 import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens } from './processor.js';
 import { articleBodyToHtml } from './render.js';
-import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
+import { extractFacts, writeTransfer } from './firewall.js';
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
 // Note: getBJKLastLineupData + getOpponentLastLineup imported by caller (worker) to avoid circular deps
 
@@ -391,11 +391,8 @@ Bilmiyorsan null yaz.`;
 }
 
 // ─── WRITE ARTICLES (Readability for top 3 only, rss_summary rest) ─
-// extractFacts is capped at MAX_FACTS_EXTRACTS per run — each is a Claude call.
-// Articles arrive sorted by NVS, so only the highest-value P4 articles get facts.
 export const SYNTHESIS_NVS_THRESHOLD = 30;
 export const SYNTHESIS_CAP_PER_RUN = 12;
-export const MAX_FACTS_EXTRACTS = 5;
 
 async function extractKeyEntities(title, sourceText, env, _usages = null) {
   const prompt = `Aşağıdaki spor haberinin en kritik bilgilerini çıkar. Sadece metinde geçen gerçek bilgileri yaz — tahmin etme.
@@ -713,7 +710,6 @@ ${targetWords} kelime — fazlası yasak. Kaynak kaç bilgi veriyorsa o kadar ya
 
 export async function writeArticles(articles, site, env) {
   const results = [];
-  let factsExtracted = 0;
   const _writeUsage = { haiku: { input_tokens: 0, output_tokens: 0 }, sonnet: { input_tokens: 0, output_tokens: 0 } };
 
   // Warm proxy once before the loop if any article is likely to need synthesis.
@@ -838,23 +834,7 @@ export async function writeArticles(articles, site, env) {
         }
       }
 
-      // Extract facts for story matching (top P4 articles only, capped at MAX_FACTS_EXTRACTS).
-      // Classifies story type first — skips match_result/squad (handled by templates).
-      if (article.is_p4 && factsExtracted < MAX_FACTS_EXTRACTS) {
-        try {
-          const facts = await extractFactsForStory(article, env);
-          if (!SKIP_STORY_TYPES.has(facts.story_type)) {
-            published._facts = facts;
-            console.log(`FACTS [${facts.story_type}]: "${article.title?.slice(0, 50)}"`);
-          } else {
-            console.log(`FACTS [${facts.story_type}]: skipped story intake — "${article.title?.slice(0, 50)}"`);
-          }
-          factsExtracted++;
-        } catch (e) {
-          console.error('extractFactsForStory failed:', e.message, '| article:', article.title?.slice(0, 60));
-        }
-        await new Promise(r => setTimeout(r, 200));
-      }
+
     }
 
     results.push(published);
