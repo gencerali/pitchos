@@ -1,10 +1,11 @@
 name: Deploy
 
-# Deploys the main worker (pitchos-fetch-agent) and the Pages site
-# whenever code lands on main, or on demand via "Run workflow".
+# Deploys the main worker (pitchos-fetch-agent), the Pages site,
+# and the bot-cron worker whenever code lands on main, or on demand.
 #
 # One-time setup (repo Settings → Secrets and variables → Actions):
-#   PITCHOS_DEPLOY  — Cloudflare API token with Workers + Pages Edit permissions
+#   PITCHOS_DEPLOY    — Cloudflare API token with Workers + Pages Edit permissions
+#   XP_TOKEN_SECRET   — shared secret for bot-cron → /api/bot/tick auth
 
 on:
   push:
@@ -30,3 +31,15 @@ jobs:
           apiToken: ${{ secrets.PITCHOS_DEPLOY }}
           wranglerVersion: '4.80.0'
           command: pages deploy . --project-name=pitchos --branch=main
+
+      - name: Deploy pitchos-bot-cron (Worker)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.PITCHOS_DEPLOY }}
+          wranglerVersion: '4.80.0'
+          workingDirectory: workers/bot-cron
+          command: deploy
+          secrets: |
+            XP_TOKEN_SECRET
+        env:
+          XP_TOKEN_SECRET: ${{ secrets.XP_TOKEN_SECRET }}
