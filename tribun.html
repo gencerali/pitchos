@@ -971,9 +971,13 @@
     var d = new Date(match.kickoff_utc);
     var dateStr = d.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
     var timeStr = d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
-    var tzSuffix = window._kxTZLabel ? ' ' + window._kxTZLabel : '';
+    var tzLabel = window._kxTZLabel || (function() {
+      var off = -new Date().getTimezoneOffset();
+      var h = Math.floor(Math.abs(off) / 60), m = Math.abs(off) % 60;
+      return 'UTC' + (off >= 0 ? '+' : '-') + h + (m ? ':' + String(m).padStart(2, '0') : '');
+    })();
     return (match.round ? '<div class="match-meta-round">' + match.round + '</div>' : '') +
-      '<div>' + (match.league_name ? match.league_name + ' · ' : '') + dateStr + ' ' + timeStr + tzSuffix + '</div>' +
+      '<div>' + (match.league_name ? match.league_name + ' · ' : '') + dateStr + ' ' + timeStr + ' ' + tzLabel + '</div>' +
       (match.venue ? '<div>' + match.venue + '</div>' : '');
   }
 
