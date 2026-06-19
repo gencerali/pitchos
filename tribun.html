@@ -810,9 +810,20 @@
       </div>
       <div class="predict-state" id="s11StateAlready">
         <div class="s11-body">
-          <div class="predict-already-banner">
+          <div class="predict-already-banner" style="margin-bottom:0.75rem">
             <div class="predict-already-title">İlk 11'ini Zaten Gönderdin!</div>
             <div class="predict-already-sub" id="s11AlreadySub">Bu maç için seçimini yaptın.</div>
+          </div>
+          <div class="s11-pitch-wrap" id="s11AlreadyPitchWrap" style="pointer-events:none">
+            <div class="s11-pitch-border"></div>
+            <div class="s11-pitch-halftime"></div>
+            <div class="s11-pitch-centercircle"></div>
+            <div class="s11-pitch">
+              <div class="s11-pitch-zone" id="s11AlreadyZoneAtt"></div>
+              <div class="s11-pitch-zone" id="s11AlreadyZoneMid"></div>
+              <div class="s11-pitch-zone" id="s11AlreadyZoneDef"></div>
+              <div class="s11-pitch-zone s11-zone-gk" id="s11AlreadyZoneGk"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -1199,14 +1210,45 @@
         var existing = await fetch(
           config.supabase_url + '/rest/v1/starting_elevens' +
           '?user_id=eq.' + encodeURIComponent(userId) +
-          '&match_id=eq.' + _match.match_id + '&select=id&limit=1',
+          '&match_id=eq.' + _match.match_id + '&select=id,player_ids&limit=1',
           { headers: { apikey: config.supabase_anon_key, Authorization: 'Bearer ' + _accessToken } }
         ).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; });
 
         if (existing.length) {
           document.getElementById('s11AlreadySub').textContent =
             _match.home_team + ' – ' + _match.away_team + ' maçı için seçimini yaptın.';
-          showS11State('s11StateAlready'); return;
+          showS11State('s11StateAlready');
+          // Load squad to render the submitted lineup on the read-only pitch
+          var sUrl = '/api/squad';
+          if (_match.squad_league) {
+            sUrl += '?league=' + encodeURIComponent(_match.squad_league);
+            if (_match.squad_espn_id)   sUrl += '&team_id='   + encodeURIComponent(_match.squad_espn_id);
+            if (_match.squad_team_name) sUrl += '&team_name=' + encodeURIComponent(_match.squad_team_name);
+          }
+          fetch(sUrl).then(function (r) { return r.ok ? r.json() : null; }).then(function (sq) {
+            if (!sq?.players?.length) return;
+            var byId = {};
+            sq.players.forEach(function (p) { byId[p.id] = p; });
+            var submitted = (existing[0].player_ids ?? []).map(Number);
+            var zones = {
+              Attacker:   document.getElementById('s11AlreadyZoneAtt'),
+              Midfielder: document.getElementById('s11AlreadyZoneMid'),
+              Defender:   document.getElementById('s11AlreadyZoneDef'),
+              Goalkeeper: document.getElementById('s11AlreadyZoneGk'),
+            };
+            submitted.forEach(function (id) {
+              var p = byId[id]; if (!p) return;
+              var zone = zones[p.position] || zones['Midfielder']; if (!zone) return;
+              var num = p.number != null ? p.number : p.name.charAt(0);
+              var div = document.createElement('div');
+              div.className = 's11-pitch-player';
+              div.title = p.name;
+              div.innerHTML = '<div class="s11-pitch-circle' + (p.position === 'Goalkeeper' ? ' gk' : '') + '">' + num + '</div>' +
+                '<div class="s11-pitch-pname">' + p.name.split(' ').pop() + '</div>';
+              zone.appendChild(div);
+            });
+          }).catch(function () {});
+          return;
         }
       }
     } catch (e) { /* fall through */ }
