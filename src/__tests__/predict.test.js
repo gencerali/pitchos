@@ -1036,3 +1036,117 @@ describe('/api/xp/evaluate-predictions — Turkey vs Paraguay result', () => {
     expect(body.results.filter(r => !r.exact)).toHaveLength(1);
   });
 });
+
+// ── Score prediction milestone badges ─────────────────────────────────────────
+// evaluate-predictions awards EXACT_BADGES (predict_exact_5/10/25) when
+// bonus_awarded count reaches threshold, and OUTCOME_BADGES (predict_correct_5/20/50)
+// when outcome_awarded count reaches threshold.
+
+describe('/api/xp/evaluate-predictions — score prediction milestone badges', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('awards predict_exact_5 badge on 5th bonus_awarded prediction (exact path)', async () => {
+    const fiveExact = Array.from({ length: 5 }, (_, i) => ({ id: String(i) }));
+    const fiveOutcome = Array.from({ length: 5 }, (_, i) => ({ id: String(i) }));
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([EXACT_PRED])   // predictions
+      .mockResolvedValueOnce([])              // exact_score_first: not earned
+      .mockResolvedValueOnce(fiveExact)       // bonus_awarded count = 5
+      .mockResolvedValueOnce([])              // predict_exact_5: not earned
+      .mockResolvedValueOnce(fiveOutcome)     // outcome_awarded count = 5
+      .mockResolvedValueOnce([]);             // predict_correct_5: not earned
+    vi.mocked(sbPost).mockResolvedValue({});
+    vi.mocked(sbPatch).mockResolvedValue({});
+    vi.mocked(awardXP).mockResolvedValueOnce(BONUS_XP_RESULT);
+
+    await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
+
+    const badgePosts = vi.mocked(sbPost).mock.calls.filter(c => c[1] === 'user_badges');
+    const badgeIds = badgePosts.map(c => c[2].badge_id);
+    expect(badgeIds).toContain('predict_exact_5');
+  });
+
+  it('does NOT award predict_exact_5 when user has only 4 bonus_awarded predictions', async () => {
+    const fourExact   = Array.from({ length: 4 }, (_, i) => ({ id: String(i) }));
+    const fourOutcome = Array.from({ length: 4 }, (_, i) => ({ id: String(i) }));
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([EXACT_PRED])   // predictions
+      .mockResolvedValueOnce([])              // exact_score_first: not earned
+      .mockResolvedValueOnce(fourExact)       // bonus_awarded count = 4 → all EXACT_BADGES skipped
+      .mockResolvedValueOnce(fourOutcome);    // outcome_awarded count = 4 → all OUTCOME_BADGES skipped
+    vi.mocked(sbPost).mockResolvedValue({});
+    vi.mocked(sbPatch).mockResolvedValue({});
+    vi.mocked(awardXP).mockResolvedValueOnce(BONUS_XP_RESULT);
+
+    await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
+
+    const badgePosts = vi.mocked(sbPost).mock.calls.filter(c => c[1] === 'user_badges');
+    const badgeIds = badgePosts.map(c => c[2].badge_id);
+    expect(badgeIds).not.toContain('predict_exact_5');
+  });
+
+  it('awards predict_correct_5 badge on 5th outcome_awarded prediction (outcome path)', async () => {
+    const fiveOutcome = Array.from({ length: 5 }, (_, i) => ({ id: String(i) }));
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([OUTCOME_PRED]) // predictions
+      .mockResolvedValueOnce(fiveOutcome)    // outcome_awarded count = 5
+      .mockResolvedValueOnce([]);            // predict_correct_5: not earned
+    vi.mocked(sbPost).mockResolvedValue({});
+    vi.mocked(sbPatch).mockResolvedValue({});
+    vi.mocked(awardXP).mockResolvedValueOnce(OUTCOME_XP_RESULT);
+
+    await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
+
+    const badgePosts = vi.mocked(sbPost).mock.calls.filter(c => c[1] === 'user_badges');
+    const badgeIds = badgePosts.map(c => c[2].badge_id);
+    expect(badgeIds).toContain('predict_correct_5');
+  });
+
+  it('does NOT award predict_correct_5 when user has only 4 outcome_awarded predictions', async () => {
+    const fourOutcome = Array.from({ length: 4 }, (_, i) => ({ id: String(i) }));
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([OUTCOME_PRED]) // predictions
+      .mockResolvedValueOnce(fourOutcome);   // outcome_awarded count = 4 → OUTCOME_BADGES skipped
+    vi.mocked(sbPatch).mockResolvedValue({});
+    vi.mocked(awardXP).mockResolvedValueOnce(OUTCOME_XP_RESULT);
+
+    await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
+
+    const badgePosts = vi.mocked(sbPost).mock.calls.filter(c => c[1] === 'user_badges');
+    expect(badgePosts).toHaveLength(0);
+  });
+
+  it('exact score path also awards predict_correct_5 (exact counts as correct outcome)', async () => {
+    const fiveOutcome = Array.from({ length: 5 }, (_, i) => ({ id: String(i) }));
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([EXACT_PRED])  // predictions
+      .mockResolvedValueOnce([{ id: 'badge-already' }]) // exact_score_first: already earned
+      .mockResolvedValueOnce([])            // bonus_awarded count = 0 → no EXACT_BADGES
+      .mockResolvedValueOnce(fiveOutcome)   // outcome_awarded count = 5
+      .mockResolvedValueOnce([]);           // predict_correct_5: not earned
+    vi.mocked(sbPost).mockResolvedValue({});
+    vi.mocked(sbPatch).mockResolvedValue({});
+    vi.mocked(awardXP).mockResolvedValueOnce(BONUS_XP_RESULT);
+
+    await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
+
+    const badgePosts = vi.mocked(sbPost).mock.calls.filter(c => c[1] === 'user_badges');
+    const badgeIds = badgePosts.map(c => c[2].badge_id);
+    expect(badgeIds).toContain('predict_correct_5');
+  });
+
+  it('badge grants are idempotent — predict_correct_5 not re-awarded if already earned', async () => {
+    const fiveOutcome = Array.from({ length: 5 }, (_, i) => ({ id: String(i) }));
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([OUTCOME_PRED])
+      .mockResolvedValueOnce(fiveOutcome)
+      .mockResolvedValueOnce([{ id: 'badge-already' }]); // predict_correct_5 already earned
+    vi.mocked(sbPatch).mockResolvedValue({});
+    vi.mocked(awardXP).mockResolvedValueOnce(OUTCOME_XP_RESULT);
+
+    await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
+
+    const badgePosts = vi.mocked(sbPost).mock.calls.filter(c => c[1] === 'user_badges');
+    expect(badgePosts).toHaveLength(0);
+  });
+});

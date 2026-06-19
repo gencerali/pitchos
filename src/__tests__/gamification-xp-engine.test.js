@@ -378,3 +378,79 @@ describe('isRateLimited', () => {
     expect(fetchCalls[0]).toContain('limit=6'); // maxRequests + 1
   });
 });
+
+// ── Streak multiplier end-to-end ──────────────────────────────────────────────
+// Verifies that streakMultiplier is applied inside awardXP when the action
+// is streak_bonus_eligible, and NOT applied when it isn't.
+
+const STREAK_5  = { current_streak: 5,  longest_streak: 5,  shield_active: false, last_checkin_date: '2026-06-14' };
+const STREAK_10 = { current_streak: 10, longest_streak: 10, shield_active: false, last_checkin_date: '2026-06-09' };
+
+describe('awardXP — streak multiplier end-to-end', () => {
+  it('applies 1.20× to xp_per_action for streak_bonus_eligible action at streak=5', async () => {
+    // Fetch order: action, shadowBan, sourceDedup, dailyCount, getStreak,
+    //   xp_events POST, totalXP, level RPC,
+    //   countMap GET (read_article), streak_3 badge check, first_read badge check
+    enqueue(
+      [ACTION_READ],
+      [{ shadow_banned: false }],
+      [],                              // source dedup
+      Array(3).fill({ id: 'e' }),     // daily count (3 < cap 5)
+      [STREAK_5],                      // getStreak → streak 5
+    );
+    fetchQueue.push(() => jr([{}]));   // xp_events POST
+    enqueue([{ xp_earned: 12 }]);      // total XP (12 = 10 * 1.20)
+    fetchQueue.push(() => jr(LEVEL_1)); // level RPC
+    enqueue(Array(3).fill({ id: 'e' })); // read_article count (countMap)
+    // streak badge candidates: streak_3 (5 >= 3) — already earned
+    enqueue([{ id: 'badge-already' }]); // streak_3 existence check
+    // activity count candidates: first_read (3 >= 1) — already earned
+    enqueue([{ id: 'badge-already' }]); // first_read existence check
+
+    const result = await awardXP(ENV, USER_ID, SITE_ID, 'read_article', 'art-s5');
+    expect(result.xp_earned).toBe(12); // Math.floor(10 * 1.20)
+  });
+
+  it('applies 1.50× to xp_per_action for streak_bonus_eligible action at streak=10', async () => {
+    // At streak=10: streak badges streak_3 (>=3) and streak_7 (>=7) both qualify
+    enqueue(
+      [ACTION_READ],
+      [{ shadow_banned: false }],
+      [],
+      Array(3).fill({ id: 'e' }),     // daily count
+      [STREAK_10],                     // getStreak → streak 10
+    );
+    fetchQueue.push(() => jr([{}]));   // xp_events POST
+    enqueue([{ xp_earned: 15 }]);      // total XP (15 = 10 * 1.50)
+    fetchQueue.push(() => jr(LEVEL_1));
+    enqueue(Array(3).fill({ id: 'e' })); // read_article count
+    enqueue(
+      [{ id: 'badge-already' }],       // streak_3 check
+      [{ id: 'badge-already' }],       // streak_7 check (10 >= 7)
+      [{ id: 'badge-already' }],       // first_read check
+    );
+
+    const result = await awardXP(ENV, USER_ID, SITE_ID, 'read_article', 'art-s10');
+    expect(result.xp_earned).toBe(15); // Math.floor(10 * 1.50)
+  });
+
+  it('does NOT apply streak multiplier for non-eligible action (react_article) at streak=5', async () => {
+    // react_article: streak_bonus_eligible=false → multiplier always 1.00 → xp_earned=1
+    enqueue(
+      [ACTION_REACT],
+      [{ shadow_banned: false }],
+      [],
+      Array(3).fill({ id: 'e' }),     // daily count (3 < cap 10)
+      [STREAK_5],                      // getStreak → streak 5
+    );
+    fetchQueue.push(() => jr([{}]));   // xp_events POST
+    enqueue([{ xp_earned: 1 }]);       // total XP (1 = 1 * 1.00)
+    fetchQueue.push(() => jr(LEVEL_1));
+    enqueue(Array(3).fill({ id: 'e' })); // react_article count (countMap: reactor_10 min=10, 3<10)
+    // streak badge candidates: streak_3 (5 >= 3) — already earned
+    enqueue([{ id: 'badge-already' }]); // streak_3 check
+
+    const result = await awardXP(ENV, USER_ID, SITE_ID, 'react_article', 'art-react-s5');
+    expect(result.xp_earned).toBe(1);  // no multiplier applied
+  });
+});

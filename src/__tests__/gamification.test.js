@@ -8,7 +8,7 @@
  *  3. streakMultiplier thresholds being wrong
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ── Pure function imports (no mocking needed) ─────────────────────────────────
 
@@ -50,7 +50,7 @@ vi.mock('../../functions/api/_shared/xp.js', async (importOriginal) => {
 
 import { getUser }   from '../../functions/api/_shared/auth.js';
 import { getSiteId } from '../../functions/api/_shared/site.js';
-import { sbGet, sbRpc, getStreak, awardXP, isRateLimited } from '../../functions/api/_shared/xp.js';
+import { sbGet, sbPost, sbPatch, sbRpc, getStreak, awardXP, isRateLimited } from '../../functions/api/_shared/xp.js';
 
 import { onRequest as meHandler }      from '../../functions/api/me.js';
 import { onRequest as checkinHandler } from '../../functions/api/xp/checkin.js';
@@ -646,5 +646,124 @@ describe('/api/xp/share', () => {
     const body = await jsonBody(res);
     expect(body.bonus_xp).toBe(0);
     expect(body.total_xp).toBe(100);  // falls back to share_link total
+  });
+});
+
+// ── /api/xp/checkin — time-of-day badges ─────────────────────────────────────
+// early_bird: localHour >= 0 && < 7
+// night_owl:  localHour >= 22
+// localHour is derived from local_day_start body param; vi.setSystemTime controls Date.now()
+
+describe('/api/xp/checkin — time-of-day badges', () => {
+  // Fixed fake date: 2026-06-19. Yesterday's checkin ensures streak continues.
+  const FAKE_DATE     = '2026-06-19';
+  const YESTERDAY     = '2026-06-18';
+  const LOCAL_MIDNIGHT = '2026-06-19T00:00:00Z';  // UTC midnight = local midnight for UTC+0
+
+  function checkinReqWithBody(body) {
+    return new Request('https://kartalix.com/api/xp/checkin', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer fake-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(getUser).mockResolvedValue(FAKE_USER);
+    vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
+    vi.mocked(awardXP).mockResolvedValue({
+      xp_earned: 10, total_xp: 160, level: 3,
+      tier_name: 'Şahin', xp_to_next: 15, badge_unlocks: [],
+    });
+    vi.mocked(getStreak).mockResolvedValue({
+      current_streak: 3, longest_streak: 10,
+      shield_active: false, last_checkin_date: YESTERDAY,
+    });
+    vi.mocked(sbPatch).mockResolvedValue(undefined);
+    vi.mocked(sbPost).mockResolvedValue([{}]);
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it('awards early_bird badge when local hour is before 7am', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T03:30:00Z')); // 3:30am UTC → localHour=3.5
+
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([{ user_id: FAKE_USER.id }])    // streakExists
+      .mockResolvedValueOnce([])                               // early_bird: not earned
+      .mockResolvedValueOnce([{ id: 'early_bird', label: 'Sabahçı Kartal', icon: '🐦' }]); // badge meta
+
+    const res = await checkinHandler({
+      request: checkinReqWithBody({ local_date: FAKE_DATE, local_day_start: LOCAL_MIDNIGHT }),
+      env: makeEnv(),
+    });
+    const body = await jsonBody(res);
+
+    expect(body.badge_unlocks.some(b => b.id === 'early_bird')).toBe(true);
+    expect(vi.mocked(sbPost)).toHaveBeenCalledWith(
+      expect.anything(), 'user_badges',
+      expect.objectContaining({ badge_id: 'early_bird', user_id: FAKE_USER.id })
+    );
+  });
+
+  it('awards night_owl badge when local hour is 22 or later', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T23:00:00Z')); // 11pm UTC → localHour=23
+
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([{ user_id: FAKE_USER.id }])
+      .mockResolvedValueOnce([])                               // night_owl: not earned
+      .mockResolvedValueOnce([{ id: 'night_owl', label: 'Gece Kuşu', icon: '🦉' }]);
+
+    const res = await checkinHandler({
+      request: checkinReqWithBody({ local_date: FAKE_DATE, local_day_start: LOCAL_MIDNIGHT }),
+      env: makeEnv(),
+    });
+    const body = await jsonBody(res);
+
+    expect(body.badge_unlocks.some(b => b.id === 'night_owl')).toBe(true);
+    expect(vi.mocked(sbPost)).toHaveBeenCalledWith(
+      expect.anything(), 'user_badges',
+      expect.objectContaining({ badge_id: 'night_owl', user_id: FAKE_USER.id })
+    );
+  });
+
+  it('does NOT award either time badge for mid-day checkin (local hour = 12)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T12:00:00Z')); // noon UTC → localHour=12
+
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([{ user_id: FAKE_USER.id }]); // streakExists only
+
+    const res = await checkinHandler({
+      request: checkinReqWithBody({ local_date: FAKE_DATE, local_day_start: LOCAL_MIDNIGHT }),
+      env: makeEnv(),
+    });
+    const body = await jsonBody(res);
+
+    const badgeIds = body.badge_unlocks.map(b => b.id);
+    expect(badgeIds).not.toContain('early_bird');
+    expect(badgeIds).not.toContain('night_owl');
+    const badgeInserts = vi.mocked(sbPost).mock.calls.filter(c => c[1] === 'user_badges');
+    expect(badgeInserts).toHaveLength(0);
+  });
+
+  it('does NOT re-award early_bird if already earned (idempotent)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-19T05:00:00Z')); // 5am UTC → localHour=5
+
+    vi.mocked(sbGet)
+      .mockResolvedValueOnce([{ user_id: FAKE_USER.id }])    // streakExists
+      .mockResolvedValueOnce([{ id: 'badge-already' }]);      // early_bird already earned
+
+    await checkinHandler({
+      request: checkinReqWithBody({ local_date: FAKE_DATE, local_day_start: LOCAL_MIDNIGHT }),
+      env: makeEnv(),
+    });
+
+    const badgeInserts = vi.mocked(sbPost).mock.calls.filter(c => c[1] === 'user_badges');
+    expect(badgeInserts).toHaveLength(0);
   });
 });
