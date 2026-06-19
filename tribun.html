@@ -531,6 +531,11 @@
     .s11-player-btn { background:#0d0d0d;border:1px solid var(--border2);border-radius:4px;padding:.35rem .6rem;font-family:'Barlow Condensed',sans-serif;font-size:.72rem;font-weight:600;letter-spacing:.03em;color:var(--muted-dark);cursor:pointer;transition:all .1s;white-space:nowrap;display:flex;align-items:center;gap:.3rem; }
     .s11-player-btn:hover { border-color:var(--accent-gold);color:#fff; }
     .s11-player-btn.selected { border-color:var(--accent-gold);background:rgba(245,166,35,0.12);color:var(--accent-gold); }
+    .s11-player-btn.unavailable { opacity:.42;cursor:not-allowed;text-decoration:line-through; }
+    .s11-player-btn.unavailable:hover { border-color:var(--border2) !important;color:var(--muted-dark) !important; }
+    .s11-player-status-tag { font-size:.48rem;font-weight:700;letter-spacing:.04em;padding:1px 4px;border-radius:2px;margin-left:.2rem;vertical-align:middle; }
+    .s11-player-status-tag.injured { background:rgba(220,60,60,.18);color:#ff8080; }
+    .s11-player-status-tag.suspended { background:rgba(245,166,35,.18);color:var(--accent-gold); }
     .s11-player-num { font-size:.6rem;color:var(--muted);font-family:'Oswald',sans-serif;font-weight:700; }
     .s11-submit { width:100%;margin-top:1rem;background:var(--accent-gold);border:none;color:#0a0a0a;font-family:'Barlow Condensed',sans-serif;font-size:.88rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;padding:.85rem 1rem;border-radius:6px;cursor:pointer;transition:background .15s,opacity .15s; }
     .s11-submit:hover:not(:disabled) { background:#d4901c; }
@@ -1296,9 +1301,16 @@
       if (!list.length) return;
       html += '<div class="s11-position-group"><div class="s11-position-label">' + labels[pos] + '</div><div class="s11-player-grid">';
       list.forEach(function (p) {
-        html += '<button class="s11-player-btn" data-id="' + p.id + '">' +
+        var unavCls = p.unavailable ? ' unavailable' : '';
+        var statusTag = p.status_type === 'suspended'
+          ? '<span class="s11-player-status-tag suspended">Cezalı</span>'
+          : p.status_type === 'injured'
+            ? '<span class="s11-player-status-tag injured">Yaralı</span>'
+            : '';
+        html += '<button class="s11-player-btn' + unavCls + '" data-id="' + p.id + '"' +
+          (p.unavailable ? ' disabled title="' + (p.status_type === 'suspended' ? 'Cezalı oyuncu' : 'Yaralı oyuncu') + '"' : '') + '>' +
           (p.number ? '<span class="s11-player-num">' + p.number + '</span>' : '') +
-          p.name + '</button>';
+          p.name + statusTag + '</button>';
       });
       html += '</div></div>';
     });

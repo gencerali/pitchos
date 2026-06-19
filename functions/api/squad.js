@@ -88,15 +88,22 @@ export async function onRequest({ request, env }) {
 
   const players = flat
     .map(p => {
-      const abbr     = p.position?.abbreviation ?? '';
-      const position = POSITION_MAP[abbr] ?? p.position?.displayName ?? 'Unknown';
+      const abbr       = p.position?.abbreviation ?? '';
+      const position   = POSITION_MAP[abbr] ?? p.position?.displayName ?? 'Unknown';
+      const statusType = (p.status?.type ?? p.status?.name ?? '').toLowerCase();
+      const isInjured  = ['injured', 'day-to-day', 'out', 'doubtful'].includes(statusType)
+        || (Array.isArray(p.injuries) && p.injuries.length > 0)
+        || p.injured === true;
+      const isSuspended = statusType === 'suspended';
       return {
-        id:       parseInt(p.id, 10) || p.id,
-        name:     p.displayName ?? p.fullName ?? p.shortName ?? '',
+        id:          parseInt(p.id, 10) || p.id,
+        name:        p.displayName ?? p.fullName ?? p.shortName ?? '',
         position,
         abbr,
-        photo:    p.headshot?.href ?? null,
-        number:   p.jersey != null ? parseInt(p.jersey, 10) : null,
+        photo:       p.headshot?.href ?? null,
+        number:      p.jersey != null ? parseInt(p.jersey, 10) : null,
+        unavailable: isInjured || isSuspended,
+        status_type: isSuspended ? 'suspended' : isInjured ? 'injured' : null,
       };
     })
     .sort((a, b) => {
