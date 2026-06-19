@@ -87,10 +87,10 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ## Phase 8 — Pre-Launch
 
-- [ ] Full XP QA pass — test each action, no double-earning
-- [ ] Set `XP_TOKEN_SECRET` in Cloudflare Pages env vars (not `dev-secret`)
-- [ ] Bot seeding — 1500 synthetic users + weekly cron engine. Needs `profiles.is_bot` column (Phase 6).
-- [ ] Rate limiting on `/api/xp/react` and `/api/xp/comment`
+- [x] Full XP QA pass — 399 tests; lifetime dedup (daily_cap=-1) + isRateLimited + comment handler all covered
+- [ ] Set `XP_TOKEN_SECRET` in Cloudflare Pages env vars (not `dev-secret`) ← config only, set in Cloudflare dashboard
+- [ ] Bot seeding — 1500 synthetic users + weekly cron engine. `profiles.is_bot` column now ready (Phase 6 ✅)
+- [x] Rate limiting on `/api/xp/react` and `/api/xp/comment` — DB-based sliding window, returns 429
 
 ---
 

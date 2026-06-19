@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { awardXP, streakMultiplier } from '../../functions/api/_shared/xp.js';
+import { awardXP, isRateLimited, streakMultiplier } from '../../functions/api/_shared/xp.js';
 
 const ENV     = { SUPABASE_URL: 'https://x.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'svc' };
 const USER_ID = 'u-1';
@@ -306,5 +306,75 @@ describe('awardXP — articles_100 badge', () => {
     // read_article count check was NOT run (no articles_* candidates queued)
     expect(fetchQueue).toHaveLength(0);
     expect(result.badge_unlocks).toHaveLength(0);
+  });
+});
+
+// ── Lifetime event dedup (daily_cap = -1) ────────────────────────────────────
+
+const ACTION_FIRST_COMMENT = {
+  id: 'first_comment', xp_per_action: 25, daily_cap: -1,
+  cap_fallback_xp: 0, streak_bonus_eligible: false, active: true,
+};
+
+describe('awardXP — lifetime event dedup (daily_cap = -1)', () => {
+  it('awards XP on first call when no prior lifetime event', async () => {
+    enqueue(
+      [ACTION_FIRST_COMMENT],
+      [{ shadow_banned: false }],
+      [],                           // hasLifetimeEvent → none
+      [NO_STREAK],                  // getStreak
+    );
+    fetchQueue.push(() => jr([{}]));             // xp_events POST
+    enqueue([{ xp_earned: 25 }]);               // total XP
+    fetchQueue.push(() => jr(LEVEL_1));          // level
+    // checkBadges: no countMap entry for first_comment; 25 XP < 500 milestone
+
+    const result = await awardXP(ENV, USER_ID, SITE_ID, 'first_comment', null);
+    expect(result.xp_earned).toBe(25);
+    expect(result.capped).toBe(false);
+  });
+
+  it('returns capped:true / already_earned on second call without touching DB again', async () => {
+    enqueue(
+      [ACTION_FIRST_COMMENT],
+      [{ shadow_banned: false }],
+      [{ id: 'prior-event' }],      // hasLifetimeEvent → already done
+    );
+
+    const result = await awardXP(ENV, USER_ID, SITE_ID, 'first_comment', null);
+    expect(result.xp_earned).toBe(0);
+    expect(result.capped).toBe(true);
+    expect(result.reason).toBe('already_earned');
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3); // no event insert, no streak, no total
+  });
+});
+
+// ── isRateLimited ─────────────────────────────────────────────────────────────
+
+describe('isRateLimited', () => {
+  it('returns false when event count is under maxRequests', async () => {
+    enqueue(Array(3).fill({ id: 'e' }));
+    expect(await isRateLimited(ENV, USER_ID, SITE_ID, 'react_article', { maxRequests: 5, windowMs: 10_000 })).toBe(false);
+  });
+
+  it('returns false when event count equals maxRequests (not over)', async () => {
+    enqueue(Array(5).fill({ id: 'e' }));
+    expect(await isRateLimited(ENV, USER_ID, SITE_ID, 'react_article', { maxRequests: 5, windowMs: 10_000 })).toBe(false);
+  });
+
+  it('returns true when event count exceeds maxRequests', async () => {
+    enqueue(Array(6).fill({ id: 'e' }));
+    expect(await isRateLimited(ENV, USER_ID, SITE_ID, 'react_article', { maxRequests: 5, windowMs: 10_000 })).toBe(true);
+  });
+
+  it('uses maxRequests+1 as DB limit to avoid counting more rows than needed', async () => {
+    const fetchCalls = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+      fetchCalls.push(url.toString());
+      return jr(Array(6).fill({ id: 'e' }));
+    });
+
+    await isRateLimited(ENV, USER_ID, SITE_ID, 'react_article', { maxRequests: 5, windowMs: 10_000 });
+    expect(fetchCalls[0]).toContain('limit=6'); // maxRequests + 1
   });
 });
