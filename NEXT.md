@@ -37,8 +37,8 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 - [x] ~~**3.5** Guest commenting~~ — **cancelled**: require login to comment; guest CTA shown instead
 - [x] **3.6** Moderation Layer 1 — client-side Turkish swear word blocklist (~50 terms)
 - [ ] **3.7** Moderation Layer 2 — Claude Haiku toxicity check on `/api/xp/comment` POST. Needs `ANTHROPIC_API_KEY` in Cloudflare env.
-- [ ] **3.8** Emotion reactions — 5 emotions: atesli/mutlu/uzgun/kizgin/hayal_kirikligi. Backend (`/api/sentiment.js`) and XP hook (`/api/xp/react`) are ready; needs: (a) schema migration to add `emotion` column on `article_reactions`, (b) update react.js to write `emotion` field, (c) replace like button with 5-emotion picker UI in `index.html` article view + article page.
-- [ ] **3.9** Taraftar Nabzı widget — sentiment aggregation widget in article sidebar/bottom. `/api/sentiment.js` is fully built with 5-emotion breakdown + Turkish conclusion text. Needs: frontend widget in `index.html` article view that calls `GET /api/sentiment?slug={slug}` and renders a bar/summary.
+- [x] **3.8** Emotion reactions — 5 emotions (🔥 Ateşli / 😊 Mutlu / ❤️ Uzgun / 😔 Hayal kırıklığı / 💛 Kızgın) live in `index.html` article view and article page; XP wired via `/api/xp/react`.
+- [x] **3.9** Taraftar Nabzı widget — live in `tribun.html` (community hub) and `index.html`; calls `/api/sentiment`; shows 5-emotion bar + Turkish conclusion text (e.g. "Taraftar ateşli! Heyecan dorukta.").
 
 ---
 
