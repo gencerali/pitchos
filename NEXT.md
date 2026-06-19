@@ -71,8 +71,8 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 - [x] `article_comments`: add `parent_id` (reply threading, Phase 3.4)
 - [x] `article_reactions`: add `article_slug`, `site_id`
 - [x] `polls`: add `starts_at TIMESTAMPTZ` (scheduled poll publishing)
-- [ ] `article_reactions`: add `emotion VARCHAR(20) DEFAULT 'like'` ← **needed for 3.8**
-- [ ] `profiles`: add `is_bot BOOLEAN DEFAULT false` ← needed for bot seeding
+- [x] `article_reactions`: `reaction` column already stores emotion type (atesli/mutlu/uzgun/kizgin/hayal_kirikligi) — separate `emotion` col not needed
+- [x] `profiles`: add `is_bot BOOLEAN DEFAULT false` — applied; all 5 leaderboard views updated to filter `is_bot = false`
 
 ---
 
