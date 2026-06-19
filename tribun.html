@@ -568,6 +568,9 @@
     .s11-slot-name { display:none;font-family:'Barlow Condensed',sans-serif;font-size:.58rem;font-weight:700;letter-spacing:.02em;color:#fff;text-align:center;line-height:1.15;max-width:42px;word-break:break-word; }
     .s11-slot.filled .s11-slot-name { display:block; }
     .s11-slot-pos-label { position:absolute;bottom:-15px;left:50%;transform:translateX(-50%);font-family:'Barlow Condensed',sans-serif;font-size:.5rem;letter-spacing:.06em;font-weight:800;color:rgba(255,255,255,0.5);white-space:nowrap;text-transform:uppercase; }
+    .s11-drag-ghost{position:fixed;z-index:9999;pointer-events:none;background:rgba(245,166,35,0.92);color:#0a0a0a;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:.75rem;padding:3px 10px;border-radius:12px;transform:translate(-50%,-130%);white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.5);transition:none}
+    .s11-slot.drag-over .s11-slot-disc{border-color:#fff!important;border-style:solid!important;background:rgba(255,255,255,0.22)!important;transform:scale(1.12)}
+    .s11-slot.dragging{opacity:0.3}
     /* pool */
     .s11-pool-wrap { padding:.25rem 1.25rem .75rem; }
     .s11-pool-hint { font-family:'Barlow Condensed',sans-serif;font-size:.65rem;letter-spacing:.05em;color:var(--muted);margin-bottom:.5rem; }
@@ -1070,6 +1073,7 @@
   var _slots = {};              // { 'GK-0': playerObj, 'DEF-2': playerObj, ... }
   var _s11EditMode = false;
   var _s11ExistingPlayerIds = [];
+  var _drag = null; // active drag state: { type, player, sourceKey?, ghost, startX, startY, active }
   var _allPlayers = [];
   var _currentFormation = '4-4-2';
 
@@ -1284,6 +1288,70 @@
     if (window.kxAuth) window.kxAuth.showLogin();
   });
 
+  // ── Drag & drop (pointer-based, works for both mouse and touch) ──────────
+  document.addEventListener('pointermove', function (e) {
+    if (!_drag) return;
+    if (!_drag.active) {
+      var dx = e.clientX - _drag.startX, dy = e.clientY - _drag.startY;
+      if (Math.sqrt(dx * dx + dy * dy) > 8) _drag.active = true;
+    }
+    if (_drag.active) {
+      if (_drag.ghost) { _drag.ghost.style.left = e.clientX + 'px'; _drag.ghost.style.top = e.clientY + 'px'; }
+      var el = document.elementFromPoint(e.clientX, e.clientY);
+      var over = el && el.closest('#s11Pitch .s11-slot');
+      document.querySelectorAll('#s11Pitch .s11-slot.drag-over').forEach(function (s) { s.classList.remove('drag-over'); });
+      if (over) over.classList.add('drag-over');
+      e.preventDefault();
+    }
+  }, { passive: false });
+
+  document.addEventListener('pointerup', function (e) {
+    if (!_drag) return;
+    var saved = _drag; _drag = null;
+    if (saved.ghost) saved.ghost.remove();
+    document.querySelectorAll('#s11Pitch .s11-slot.drag-over').forEach(function (s) { s.classList.remove('drag-over'); });
+    document.querySelectorAll('#s11Pitch .s11-slot.dragging').forEach(function (s) { s.classList.remove('dragging'); });
+
+    if (!saved.active) {
+      // Treat as tap/click
+      if (saved.type === 'pool') {
+        assignPlayerToSlot(saved.player);
+      } else if (saved.type === 'slot') {
+        delete _slots[saved.sourceKey];
+        renderPitch(); renderPool(); updateS11Counter();
+      } else if (saved.type === 'empty') {
+        var pitch = document.getElementById('s11Pitch');
+        pitch.querySelectorAll('.s11-slot.active').forEach(function (s) { s.classList.remove('active'); });
+        var el2 = pitch.querySelector('[data-key="' + saved.sourceKey + '"]');
+        if (el2) el2.classList.add('active');
+      }
+      return;
+    }
+
+    // Drop on a pitch slot
+    var el = document.elementFromPoint(e.clientX, e.clientY);
+    var slotEl = el && el.closest('#s11Pitch .s11-slot');
+    if (!slotEl) return;
+    var tKey = slotEl.dataset.key;
+    var tPlayer = _slots[tKey] || null;
+    if (saved.type === 'pool') {
+      _slots[tKey] = saved.player;
+      // tPlayer (if any) returns to pool automatically since it's no longer in _slots
+    } else if (saved.type === 'slot') {
+      if (saved.sourceKey === tKey) return;
+      _slots[tKey] = saved.player;
+      if (tPlayer) _slots[saved.sourceKey] = tPlayer;
+      else delete _slots[saved.sourceKey];
+    } else if (saved.type === 'empty') {
+      // Dragged an empty slot → no player to place, just treat as activating the target slot
+      var pitch2 = document.getElementById('s11Pitch');
+      pitch2.querySelectorAll('.s11-slot.active').forEach(function (s) { s.classList.remove('active'); });
+      if (slotEl) slotEl.classList.add('active');
+      return;
+    }
+    renderPitch(); renderPool(); updateS11Counter();
+  });
+
   // ── İlk 11 ───────────────────────────────────────────────────────────────
   async function initStarting11() {
     if (!_match) { showS11State('s11StateNoMatch'); return; }
@@ -1430,19 +1498,18 @@
           '</div>' +
           '<span class="s11-slot-pos-label">' + ROW_LABEL[row] + '</span>';
 
-        slot.addEventListener('click', function () {
+        slot.addEventListener('pointerdown', function (e) {
+          if (e.pointerType === 'mouse' && e.button !== 0) return;
           var k = this.dataset.key;
-          if (_slots[k]) {
-            // Deassign
-            delete _slots[k];
-            renderPitch();
-            renderPool();
-            updateS11Counter();
-          } else {
-            // Mark active — next pool click assigns here
-            pitch.querySelectorAll('.s11-slot.active').forEach(function (s) { s.classList.remove('active'); });
-            this.classList.add('active');
-          }
+          var p = _slots[k] || null;
+          var ghost = document.createElement('div');
+          ghost.className = 's11-drag-ghost';
+          ghost.textContent = p ? (p.name || '').split(' ').slice(-1)[0] : '';
+          ghost.style.left = e.clientX + 'px';
+          ghost.style.top = e.clientY + 'px';
+          document.body.appendChild(ghost);
+          _drag = { type: p ? 'slot' : 'empty', player: p, sourceKey: k, ghost, startX: e.clientX, startY: e.clientY, active: false };
+          if (p) this.classList.add('dragging');
         });
 
         pitch.appendChild(slot);
@@ -1477,11 +1544,19 @@
     pool.innerHTML = html;
 
     pool.querySelectorAll('.s11-player-btn:not(:disabled)').forEach(function (btn) {
-      btn.addEventListener('click', function () {
+      btn.addEventListener('pointerdown', function (e) {
+        if (this.disabled) return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
         var id = Number(this.dataset.playerId);
         var player = _allPlayers.find(function (p) { return p.id === id; });
         if (!player) return;
-        assignPlayerToSlot(player);
+        var ghost = document.createElement('div');
+        ghost.className = 's11-drag-ghost';
+        ghost.textContent = (player.name || '').split(' ').slice(-1)[0];
+        ghost.style.left = e.clientX + 'px';
+        ghost.style.top = e.clientY + 'px';
+        document.body.appendChild(ghost);
+        _drag = { type: 'pool', player: player, ghost: ghost, startX: e.clientX, startY: e.clientY, active: false };
       });
     });
   }
