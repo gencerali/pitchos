@@ -916,15 +916,16 @@
     }
 
     .kx-xp-particle {
-      position: absolute; z-index: 9999;
+      position: fixed; z-index: 9999;
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.85rem; font-weight: 700; color: var(--accent-gold);
+      font-size: 2rem; font-weight: 800; color: var(--accent-gold);
       pointer-events: none; white-space: nowrap;
-      opacity: 1; text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+      opacity: 1; text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+      transform: translateY(0) scale(1); transition: none;
     }
     .kx-xp-particle--rise {
-      transform: translateY(-36px); opacity: 0;
-      transition: transform 0.5s ease-out, opacity 0.5s ease-out;
+      transform: translateY(-90px) scale(0.9); opacity: 0;
+      transition: transform 1.4s ease-out, opacity 1.2s ease-out 0.2s;
     }
 
     .kx-auth-modal {

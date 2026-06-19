@@ -83,7 +83,8 @@ export async function isShadowBanned(env, user_id, site_id) {
 // ── Daily cap helpers ─────────────────────────────────────────
 
 export async function getDailyCount(env, user_id, site_id, action_id) {
-  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const now = new Date();
+  const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
   const rows = await sbGet(
     env,
     `xp_events?user_id=eq.${user_id}&site_id=eq.${site_id}&action_id=eq.${action_id}&created_at=gte.${since}&nullified=eq.false&select=id`

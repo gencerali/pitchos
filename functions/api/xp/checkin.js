@@ -10,14 +10,23 @@ export async function onRequest({ request, env }) {
   if (!user) return err('Unauthorized', 401);
   if (!site_id) return err('Site not found', 404);
 
-  const todayUTC = new Date().toISOString().slice(0, 10);
+  const body = await request.json().catch(() => null);
+  const serverDate   = new Date().toISOString().slice(0, 10);
+  const tomorrowDate = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const clientDate   = body?.local_date;
+  // Accept client's local date if it's today or at most 1 calendar day ahead (UTC+ timezones)
+  const todayLocal = (clientDate && /^\d{4}-\d{2}-\d{2}$/.test(clientDate)
+    && clientDate >= serverDate && clientDate <= tomorrowDate)
+    ? clientDate
+    : serverDate;
+
   const streak = await getStreak(env, user.id, site_id);
 
-  if (streak.last_checkin_date === todayUTC) {
+  if (streak.last_checkin_date === todayLocal) {
     return json({ already_checked_in: true, current_streak: streak.current_streak });
   }
 
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const yesterday = new Date(new Date(todayLocal + 'T00:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
   let new_streak;
   let shield_consumed = false;
 
@@ -49,7 +58,7 @@ export async function onRequest({ request, env }) {
     await sbPatch(env, `user_streaks?user_id=eq.${user.id}&site_id=eq.${site_id}`, {
       current_streak: new_streak,
       longest_streak: new_longest,
-      last_checkin_date: todayUTC,
+      last_checkin_date: todayLocal,
       shield_active: shield_consumed ? false : streak.shield_active,
       streak_started_at: started_at,
       updated_at: new Date().toISOString(),
@@ -60,7 +69,7 @@ export async function onRequest({ request, env }) {
       site_id,
       current_streak: new_streak,
       longest_streak: new_longest,
-      last_checkin_date: todayUTC,
+      last_checkin_date: todayLocal,
       shield_active: false,
       streak_started_at: new Date().toISOString(),
     });
