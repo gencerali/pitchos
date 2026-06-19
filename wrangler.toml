@@ -16,6 +16,7 @@ subrequests = 1000
 
 [triggers]
 crons = ["*/5 * * * *", "0 */3 * * *", "0 4 * * *", "0 3 * * 1", "0 2 * * 7"]
+# Bot cron is handled by workers/bot-cron — separate tiny worker, not this one.
 
 [[routes]]
 pattern = "kartalix.com/haber/*"

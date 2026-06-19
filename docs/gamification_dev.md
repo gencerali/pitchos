@@ -19,7 +19,8 @@
 9. [Phase 8 — Anti-Cheat & Economy Protection](#phase-8--anti-cheat--economy-protection)
 10. [Phase 9 — XP Admin Panel](#phase-9--xp-admin-panel)
 11. [Phase 10 — Media & Card UI](#phase-10--media--card-ui)
-12. [XP Economy Reference Table](#xp-economy-reference-table)
+12. [Phase 11 — Gamification Boost Plan](#phase-11--gamification-boost-plan)
+13. [XP Economy Reference Table](#xp-economy-reference-table)
 13. [Level Threshold Reference](#level-threshold-reference)
 14. [Open Questions](#open-questions)
 
@@ -791,6 +792,235 @@ Full log of all admin panel changes (XP values, threshold edits, shadow bans, ma
 - [ ] No external images loaded for RSS/text news cards. Zero external image requests for this card type.
 - [ ] Category-appropriate vector hero placeholder renders instead.
 - [ ] Placeholder background uses the category design token from 5.4.
+
+---
+
+## Phase 11 — Gamification Boost Plan
+
+Phased improvements to retention, virality, and depth. All audio follows the Phase 7 contract: default OFF, stored server-side, MP3+WebM dual-format, ≤100KB total payload.
+
+---
+
+### Phase B1 — Quick Wins
+
+#### B1.1 Badge Progress Visibility
+
+**Logic:** Every badge card in the profile grid shows a progress bar toward the unlock condition, even for unearned badges. Progress is computed at read time from existing `xp_events` data — no new DB columns required.
+
+**Acceptance Criteria:**
+- [ ] Unearned badge shows progress bar: "3 / 5 maç yorumu yapıldı" style copy below the badge icon.
+- [ ] Earned badge shows full bar and unlock date.
+- [ ] Progress bar updates on next profile page load after an XP event (no real-time push required).
+- [ ] Badges with one-time conditions (e.g. first comment) show "Tamamlandı" or remain locked without a progress bar (no misleading fraction like 0/1).
+
+---
+
+#### B1.2 Prediction Accuracy Stat
+
+**Logic:** For each user, compute `correct_exact` (exact score), `correct_outcome` (right winner/draw), and `total_predictions` from `score_predictions`. Show accuracy % on profile. Add a sortable accuracy column to the weekly leaderboard.
+
+**Acceptance Criteria:**
+- [ ] Profile page → Tahminler tab shows: Total predictions, Exact score %, Correct outcome %.
+- [ ] Accuracy is computed server-side on each `/api/me` call — never cached to a mutable column.
+- [ ] Leaderboard `/liderlik` gets a new **Tahmin Doğruluğu** tab: ranked by exact score %, tie-broken by total predictions (≥5 minimum to appear).
+- [ ] Users with fewer than 5 predictions are excluded from the accuracy leaderboard to prevent noise from 1-prediction outliers.
+
+---
+
+#### B1.3 Streak Drama + XP Revival
+
+**Logic:** On streak loss, a dramatic counter animation plays showing the lost streak count before resetting to 0. User is offered a revival option: spend 100 XP to restore the streak, limited to once per 7 rolling days.
+
+**Acceptance Criteria:**
+- [ ] First check-in after a broken streak triggers a "Seriniz koptu! 12 günlük serini kaybettin." modal/toast with streak count animated down to 0.
+- [ ] Modal offers "Seriyi Geri Getir — 100 XP" CTA (only if user has ≥100 XP and hasn't used revival in past 7 days).
+- [ ] Revival accepted → streak restored to previous value − 1 (the missed day is "forgiven"); 100 XP deducted via a new `streak_revival` action row in `xp_events` with negative `xp_earned`.
+- [ ] Revival rejected → streak resets to 1 on next check-in.
+- [ ] Revival CTA absent if user has already used it within 7 rolling days. Tooltip: "Bu haftanın canlanma hakkını kullandın."
+- [ ] Revival is server-enforced: client cannot bypass XP deduction or the 7-day cooldown.
+
+---
+
+#### B1.S Sound — Quick Wins
+
+Activate the existing Phase 7 audio spec which is specced but not yet shipped.
+
+**Acceptance Criteria:**
+- [ ] All Phase 7 acceptance criteria pass (see Phase 7 above).
+- [ ] Streak revival denial plays a short "miss" sound (≤0.3s) when the revival is unavailable.
+
+---
+
+### Phase B2 — Core Retention Loop
+
+#### B2.1 Weekly Leagues
+
+**Logic:** A parallel competitive layer where users race for XP within a weekly window (Monday 00:00 UTC → Sunday 23:59 UTC). Tiers: Bronze / Silver / Gold / Diamond. Each tier holds ~50 users drawn from similar XP ranges. At week end: top 20% promote, bottom 20% relegate.
+
+**Schema additions:**
+```sql
+league_tiers (id TEXT PRIMARY KEY, name TEXT, label TEXT, promotion_pct NUMERIC, relegation_pct NUMERIC)
+league_memberships (user_id UUID, tier_id TEXT, week_start DATE, week_xp INTEGER, rank INTEGER, outcome TEXT CHECK (outcome IN ('promoted','relegated','stayed',NULL)))
+```
+
+**Acceptance Criteria:**
+- [ ] Every registered user is assigned to a league tier at the start of the first week they earn XP.
+- [ ] `/liderlik` gets a **Lig** tab showing the user's current tier, weekly XP earned, rank within tier, and promotion/relegation thresholds.
+- [ ] At Monday 00:00 UTC cron: finalize previous week outcomes, promote/relegate, create new week memberships.
+- [ ] User who earned 0 XP in a week is relegated one tier but not shown a "relegated" notification — they simply see their new tier on next login.
+- [ ] Newly registered users start in Bronze regardless of total XP.
+- [ ] League tier badge (🥉🥈🥇💎) shown in user profile header next to existing tier badge.
+
+---
+
+#### B2.2 Daily Quest Banner
+
+**Logic:** A persistent banner on Tribün and Profile pages showing the day's primary action and a countdown to the next match prediction lock.
+
+**Acceptance Criteria:**
+- [ ] Banner shows: "Bugünün Görevi: Skor Tahmin Et" with remaining time to lock.
+- [ ] If no upcoming match within 48h, banner shows the next best available action (check-in, poll vote, etc.).
+- [ ] Countdown timer updates client-side every minute (no server polling).
+- [ ] Banner is absent for unauthenticated users.
+- [ ] Banner dismissed by user stays dismissed for the rest of the calendar day (localStorage flag).
+
+---
+
+#### B2.3 Web Push + PWA
+
+**Logic:** Progressive Web App baseline so users can install the site to home screen and receive push notifications without a native app.
+
+**Deliverables:**
+- `manifest.json` (name, icons, display: standalone, theme_color)
+- Service worker (offline shell, push subscription endpoint)
+- Push triggers (3): match-day reminder 3h before kickoff, Starting 11 prediction window open, streak-break warning (if user hasn't checked in by 21:00 local)
+
+**Acceptance Criteria:**
+- [ ] `/manifest.json` served with correct MIME type; Chrome/Safari show "Add to Home Screen" prompt.
+- [ ] Installed PWA launches in standalone mode (no browser chrome).
+- [ ] `/api/push/subscribe` endpoint stores `PushSubscription` (endpoint + keys) in new `push_subscriptions` table per user.
+- [ ] Push cron fires 3h before upcoming match kickoff → sends "Maç yaklaşıyor! Skor tahminini yap." to all subscribed users who haven't yet predicted.
+- [ ] Push cron fires when Starting 11 window opens (match confirmed ≥2h before kickoff).
+- [ ] Streak-break warning sent at 21:00 TRT to subscribed users with current streak ≥3 who haven't checked in today.
+- [ ] User can unsubscribe from pushes in Profile → Bildirimler settings.
+- [ ] Push payload ≤4KB (Web Push limit).
+
+---
+
+#### B2.S Sound — Core Retention Loop
+
+**Acceptance Criteria:**
+- [ ] League promotion: on first visit after promotion, play ascending stadium cheer (≤2s). Fires once per promotion event.
+- [ ] League relegation: silent — no sound on relegation (avoid punishing the user with audio).
+- [ ] Streak break revival modal: plays a short "alert" stinger (≤0.5s) when the modal appears.
+
+---
+
+### Phase B3 — Social & Viral
+
+#### B3.1 Shareable Result Card
+
+**Logic:** After match result is confirmed and predictions evaluated, each user who predicted can see a generated image card showing their predicted score vs actual score, their accuracy badge, and their streak. Card is generated as a dynamic OG image (Cloudflare Worker + Canvas or SVG template).
+
+**Acceptance Criteria:**
+- [ ] `/api/share-card?match_id=X` returns a PNG (or redirect to cached PNG URL) for the authenticated user's prediction result.
+- [ ] Card includes: Beşiktaş crest, match score (predicted vs actual), "TAHMİNİM TUTTU! ✅" or "Fark az!" or "Yanıldım 😔" label, user's streak, kartalix.com branding.
+- [ ] Share button on Tribün result view opens native share sheet with the card image pre-attached.
+- [ ] Cards are generated once and cached to R2 or KV with a `match_id:user_id` key — not regenerated on every request.
+- [ ] Users who did not submit a prediction for the match cannot generate a card.
+
+---
+
+#### B3.2 Community Prediction Reveal
+
+**Logic:** After prediction lock (kickoff − 5 min), Tribün shows an aggregate heatmap of all users' predicted scores. Users who have submitted their prediction see the full heatmap; users who did not predict see a blurred teaser with "Tahmin yap ve gör!" CTA.
+
+**Acceptance Criteria:**
+- [ ] `/api/predictions-summary` (already exists) extended to return a score-frequency matrix (e.g. {home: 2, away: 1} → N users).
+- [ ] Heatmap rendered client-side: grid of scoreline cells, cell darkness proportional to prediction count.
+- [ ] Heatmap only visible after lock time (server enforces; no peeking before lock).
+- [ ] Users who haven't predicted see blurred heatmap + CTA if match is still before lock time.
+- [ ] After match: heatmap persists and shows correct score highlighted.
+
+---
+
+#### B3.3 Weekly Email Digest
+
+**Logic:** Every Monday morning, users who have opted in receive a short email recap: their weekly XP earned, rank change, upcoming match prediction window, and a Tribün activity highlight.
+
+**Acceptance Criteria:**
+- [ ] Opt-in toggle in Profile → Bildirimler. Default: opted in for users who have earned XP in the past 14 days; opted out for inactive users.
+- [ ] Email sent via Resend every Monday 08:00 TRT.
+- [ ] Email includes: personal weekly XP, rank vs last week (▲ / ▼ / =), league tier, next match kickoff time + prediction CTA link, top 3 community predictions from last week.
+- [ ] Email is plain-text + HTML (responsive, dark-mode-friendly).
+- [ ] Unsubscribe link in every email → one-click opt-out stored server-side; no re-opt-in from backend.
+- [ ] Users with no XP in the past 30 days are excluded from the weekly send (inactive user suppression).
+
+---
+
+#### B3.S Sound — Social & Viral
+
+**Acceptance Criteria:**
+- [ ] Exact prediction confirmed (post-match evaluation): plays crowd roar + goal-horn variant (≤1.5s). Triggers alongside existing Kara Kartal fly-in animation if that animation is also queued.
+- [ ] Correct outcome (not exact): plays a shorter cheer (≤0.5s).
+- [ ] Wrong prediction: no sound.
+
+---
+
+### Phase B4 — Depth & Seasonal
+
+#### B4.1 Seasonal Events
+
+**Logic:** Time-boxed events tied to real BJK fixtures (Kadıköy Derbisi, European nights, championship run) that grant double XP on specific actions and unlock limited-time badges.
+
+**Schema additions:**
+```sql
+seasonal_events (id TEXT PRIMARY KEY, label TEXT, starts_at TIMESTAMPTZ, ends_at TIMESTAMPTZ, xp_multiplier NUMERIC DEFAULT 2.0, badge_id TEXT REFERENCES badges(id), active BOOLEAN)
+```
+
+**Acceptance Criteria:**
+- [ ] Admin can create a seasonal event in `/admin/gamification` with label, date range, XP multiplier, and optional badge.
+- [ ] During an active seasonal event, all XP awards respect the event multiplier (applied on top of existing streak multiplier).
+- [ ] Limited badge awarded to every user who earns ≥1 XP action during the event window.
+- [ ] Seasonal event banner shown on Tribün and homepage during the active window.
+- [ ] Seasonal badges are marked visually as "limited" (gold border, event name stamped on badge).
+- [ ] Events are enforced server-side: the multiplier is applied in `awardXP()` when `seasonal_events` has an active row.
+
+---
+
+#### B4.2 Prediction Accuracy Leaderboard Tab
+
+**Logic:** Separate leaderboard view ranked purely by prediction accuracy. Two sub-tabs: all-time and current season.
+
+**Acceptance Criteria:**
+- [ ] New tab **Tahmin** on `/liderlik` page.
+- [ ] Ranked by exact score % descending, tie-broken by total predictions (minimum 5 to appear).
+- [ ] Columns: rank, user, exact score %, correct outcome %, total predictions.
+- [ ] Season sub-tab resets June 1 (same as Seasonal leaderboard).
+- [ ] User's own rank shown below the table even if outside top 100.
+
+---
+
+#### B4.3 Match Alerts
+
+**Logic:** Opt-in push/message alerts for upcoming matches. Delivery channel: WhatsApp Business API or Telegram Bot (whichever is simpler to configure first).
+
+**Acceptance Criteria:**
+- [ ] Profile → Bildirimler shows "Maç Bildirimleri" toggle with channel selector (WhatsApp / Telegram).
+- [ ] User links their phone number or Telegram username.
+- [ ] Alert sent 3h before kickoff: "Beşiktaş maçı yaklaşıyor — tahminini yap: [link]".
+- [ ] Alert sent at final whistle: "Maç bitti! Sonucu gör: [link]".
+- [ ] User can unlink their number/username at any time; alerts stop immediately.
+- [ ] Backend sends via Twilio WhatsApp or Telegram Bot API; credentials stored in Cloudflare env vars.
+
+---
+
+#### B4.S Sound — Depth & Seasonal
+
+**Acceptance Criteria:**
+- [ ] Seasonal event activated for user (first XP earned during event): plays a distinct seasonal jingle (≤1s), different from the standard XP coin-drop.
+- [ ] Seasonal jingle plays at most once per event activation per user (not on every XP award during the event).
+- [ ] Audio file added to the shared audio payload budget (≤100KB total across all sounds).
 
 ---
 

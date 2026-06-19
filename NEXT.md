@@ -88,9 +88,43 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 ## Phase 8 — Pre-Launch
 
 - [x] Full XP QA pass — 399 tests; lifetime dedup (daily_cap=-1) + isRateLimited + comment handler all covered
-- [ ] Set `XP_TOKEN_SECRET` in Cloudflare Pages env vars (not `dev-secret`) ← config only, set in Cloudflare dashboard
+- [x] Set `XP_TOKEN_SECRET` in Cloudflare Pages env vars (not `dev-secret`) ← config only, set in Cloudflare dashboard
 - [ ] Bot seeding — 1500 synthetic users + weekly cron engine. `profiles.is_bot` column now ready (Phase 6 ✅)
 - [x] Rate limiting on `/api/xp/react` and `/api/xp/comment` — DB-based sliding window, returns 429
+
+---
+
+## Phase 9 — Gamification Boost Plan
+
+Four phased improvements to drive retention, virality, and depth. Each phase has a sound design component (all audio default OFF per Phase 7 spec: MP3+WebM, ≤100KB total, server-side toggle).
+
+### Phase B1 — Quick Wins
+
+- [ ] **B1.1** Badge progress visibility — show "3/5 articles read" progress toward every unearned badge
+- [ ] **B1.2** Prediction accuracy stat — % correct predictions shown on profile + accuracy column on leaderboard
+- [ ] **B1.3** Streak drama — animated counter on streak loss; XP-cost revival option (spend 100 XP to restore a broken streak once per week)
+- [ ] **B1.S** Sound: activate existing Phase 7 design — coin-drop for XP award, chime for badge unlock
+
+### Phase B2 — Core Retention Loop
+
+- [ ] **B2.1** Weekly leagues — Bronze/Silver/Gold/Diamond tiers; weekly XP race; top 20% promoted, bottom 20% relegated; resets Monday 00:00 UTC
+- [ ] **B2.2** Daily quest banner — countdown to next match prediction lock; "günün görevi" banner on tribün and profile
+- [ ] **B2.3** Web Push + PWA — `manifest.json` + service worker; push triggers: match-day reminder, lineup prediction open, streak-break warning
+- [ ] **B2.S** Sound: league promotion fanfare (ascending stadium cheer ≤2s); streak-break drama (low drum hit ≤0.5s)
+
+### Phase B3 — Social & Viral
+
+- [ ] **B3.1** Shareable result card — dynamic OG image generated after match result; shows user's predicted vs actual score + accuracy badge; share button on Tribün
+- [ ] **B3.2** Community prediction reveal — after prediction lock, show score heatmap of what all users predicted; unlocked only after user has submitted own prediction
+- [ ] **B3.3** Weekly email digest — Monday morning; personal stats recap + leaderboard rank + upcoming week preview; skimmable format via Resend
+- [ ] **B3.S** Sound: exact-prediction celebration — crowd roar + goal-horn variant (≤1.5s); triggers with existing Kara Kartal animation
+
+### Phase B4 — Depth & Seasonal
+
+- [ ] **B4.1** Seasonal events — double XP weekends tied to derby fixtures; limited-time badges (Kadıköy Derbisi, Şampiyonluk, etc.)
+- [ ] **B4.2** Prediction accuracy leaderboard tab — separate tab on `/liderlik`; ranked by % exact + % correct outcome; lifetime and seasonal views
+- [ ] **B4.3** Match alerts — WhatsApp or Telegram channel; kickoff reminders + result pings; opt-in via profile settings
+- [ ] **B4.S** Sound: seasonal event jingle — distinct limited-time audio cue (≤1s); only plays during active seasonal event window
 
 ---
 
