@@ -95,7 +95,7 @@ function espnEventToMatch({ event, league, teamId, teamName }) {
     home_logo:      home.team?.logo ?? home.logo ?? null,
     away_logo:      away.team?.logo ?? away.logo ?? null,
     league_name:    event.league?.name ?? null,
-    round:          comp.series?.description ?? comp.status?.type?.shortDetail ?? null,
+    round:          comp.series?.description ?? null,
     venue:          comp.venue?.fullName ?? null,
     // Squad params — tells the front-end which team's roster to fetch
     squad_espn_id:   teamId,
