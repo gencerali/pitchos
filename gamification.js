@@ -53,6 +53,21 @@
   const sb = window.supabase.createClient(config.supabase_url, config.supabase_anon_key);
 
   // ── 3. XP Particle animation ──────────────────────────────────
+  // Returns UTC ISO string of the user's local midnight — used for timezone-aware daily caps
+  window._kxLDS = function() {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+  };
+
+  // Short timezone label for the browser's local timezone, e.g. "GMT+3", "CET", "CEST"
+  window._kxTZLabel = (function() {
+    try {
+      return new Intl.DateTimeFormat('en', { timeZoneName: 'short' })
+        .formatToParts(new Date())
+        .find(p => p.type === 'timeZoneName')?.value ?? '';
+    } catch { return ''; }
+  })();
+
   window.kxSpawnXP = function(amount, sourceEl) {
     if (!amount || amount <= 0) return;
     const el = document.createElement('div');
@@ -167,7 +182,7 @@
         fetch('/api/xp/checkin', {
           method: 'POST',
           headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ local_date: new Date().toLocaleDateString('sv-SE') }),
+          body: JSON.stringify({ local_date: new Date().toLocaleDateString('sv-SE'), local_day_start: window._kxLDS() }),
         })
           .then(r => r.json())
           .then(data => {
@@ -597,7 +612,7 @@
       fetch('/api/xp/article-read', {
         method: 'POST',
         headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: signedToken, article_id: articleId }),
+        body: JSON.stringify({ token: signedToken, article_id: articleId, local_day_start: window._kxLDS() }),
       })
         .then(r => r.json())
         .then(d => {
@@ -620,7 +635,7 @@
           fetch('/api/xp/video-watch', {
             method: 'POST',
             headers: { Authorization: `Bearer ${authToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ token: vtRes.token, video_id: articleId }),
+            body: JSON.stringify({ token: vtRes.token, video_id: articleId, local_day_start: window._kxLDS() }),
           })
             .then(r => r.json())
             .then(d => {

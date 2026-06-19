@@ -20,6 +20,19 @@ export async function onRequest({ request, env }) {
     ? clientDate
     : serverDate;
 
+  // Compute local hour for time-of-day badges (early_bird / night_owl)
+  const localDayStart = body?.local_day_start ?? null;
+  const utcMidnight = new Date(serverDate + 'T00:00:00Z').getTime();
+  let localHour = new Date().getUTCHours();
+  if (localDayStart) {
+    const provided = new Date(localDayStart).getTime();
+    if (Number.isFinite(provided) && Math.abs(provided - utcMidnight) <= 14 * 3600000) {
+      localHour = (Date.now() - provided) / 3600000;
+    }
+  }
+  const isEarlyBird = localHour >= 0 && localHour < 7;
+  const isNightOwl  = localHour >= 22;
+
   const streak = await getStreak(env, user.id, site_id);
 
   if (streak.last_checkin_date === todayLocal) {
@@ -93,6 +106,18 @@ export async function onRequest({ request, env }) {
     }
   }
 
+  // Time-of-day special badges
+  const specialBadges = [];
+  for (const [badge_id, cond] of [['early_bird', isEarlyBird], ['night_owl', isNightOwl]]) {
+    if (!cond) continue;
+    const existing = await sbGet(env, `user_badges?user_id=eq.${user.id}&site_id=eq.${site_id}&badge_id=eq.${badge_id}&select=id&limit=1`);
+    if (!existing.length) {
+      await sbPost(env, 'user_badges', { user_id: user.id, site_id, badge_id });
+      const info = await sbGet(env, `badges?id=eq.${badge_id}&select=*&limit=1`);
+      if (info[0]) specialBadges.push(info[0]);
+    }
+  }
+
   return json({
     current_streak: new_streak,
     longest_streak: new_longest,
@@ -108,6 +133,7 @@ export async function onRequest({ request, env }) {
     badge_unlocks: [
       ...(result.badge_unlocks ?? []),
       ...(streak_bonus?.badge_unlocks ?? []),
+      ...specialBadges,
     ],
   });
 }

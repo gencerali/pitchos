@@ -36,6 +36,6 @@ export async function onRequest({ request, env }) {
     return json({ xp_earned: 0, reason: 'invalid_token' });
   }
 
-  const result = await awardXP(env, user.id, site_id, 'read_article', body.article_id);
+  const result = await awardXP(env, user.id, site_id, 'read_article', body.article_id, body.local_day_start ?? null);
   return json(result);
 }

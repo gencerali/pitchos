@@ -35,8 +35,9 @@ export async function onRequest({ request, env }) {
 
   await sbPost(env, 'poll_votes', { poll_id, user_id: user.id, site_id, option_id });
 
-  const result = await awardXP(env, user.id, site_id, 'poll_vote', poll_id);
-  const bonus  = await awardXP(env, user.id, site_id, 'first_poll_vote');
+  const lds = body?.local_day_start ?? null;
+  const result = await awardXP(env, user.id, site_id, 'poll_vote', poll_id, lds);
+  const bonus  = await awardXP(env, user.id, site_id, 'first_poll_vote', null, lds);
 
   // Return updated distribution so the UI can render results immediately
   const allVotes = await sbGet(

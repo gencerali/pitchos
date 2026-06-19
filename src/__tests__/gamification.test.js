@@ -468,7 +468,7 @@ describe('/api/xp/react', () => {
   it('calls awardXP with react_article action and slug as source_ref', async () => {
     await reactHandler({ request: reactReq({ article_slug: 'besiktas-sampiyonluk' }), env: makeEnv() });
     expect(vi.mocked(awardXP)).toHaveBeenCalledWith(
-      expect.anything(), FAKE_USER.id, FAKE_SITE_ID, 'react_article', 'besiktas-sampiyonluk'
+      expect.anything(), FAKE_USER.id, FAKE_SITE_ID, 'react_article', 'besiktas-sampiyonluk', null
     );
   });
 

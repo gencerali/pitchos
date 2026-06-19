@@ -39,8 +39,9 @@ export async function onRequest({ request, env }) {
 
     await sbPost(env, 'starting_elevens', { user_id: user.id, site_id, match_id, player_ids });
 
-    const result = await awardXP(env, user.id, site_id, 'submit_starting_11', String(match_id));
-    const bonus = await awardXP(env, user.id, site_id, 'first_starting_11');
+    const lds = body?.local_day_start ?? null;
+    const result = await awardXP(env, user.id, site_id, 'submit_starting_11', String(match_id), lds);
+    const bonus = await awardXP(env, user.id, site_id, 'first_starting_11', null, lds);
 
     return json({
       ...result,
