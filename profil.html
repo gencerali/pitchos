@@ -877,6 +877,7 @@
     const avatarEl = document.getElementById('profilAvatarLg');
     if (avatarEl) {
       const initial = (profile.display_name || profile.username || 'K').charAt(0).toUpperCase();
+      const hint = avatarEl.querySelector('.profil-avatar-edit-hint');
       if (profile.avatar_url) {
         const img = document.createElement('img');
         img.src = profile.avatar_url;
@@ -885,6 +886,7 @@
       } else {
         avatarEl.textContent = initial;
       }
+      if (hint) avatarEl.appendChild(hint);
     }
 
     const displayName = profile.display_name || profile.username || 'Kartal';

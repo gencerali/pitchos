@@ -440,7 +440,7 @@
   }
 
   function buildRowHtml(row, tabCfg) {
-    const name    = row.display_name || row.username || 'Taraftar';
+    const name    = row.username || row.display_name || 'Taraftar';
     const val     = row[tabCfg.valueKey];
     const valStr  = val != null ? val.toLocaleString('tr-TR') + ' ' + tabCfg.unit : '—';
     const rank    = row.rank;
