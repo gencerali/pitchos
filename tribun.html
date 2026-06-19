@@ -852,11 +852,21 @@
         <button class="s11-submit" id="s11SubmitBtn" disabled>11 Oyuncu Seç (0/11)</button>
       </div>
       <div class="predict-state" id="s11StateAlready">
-        <div class="s11-body">
-          <div class="predict-already-banner">
-            <div class="predict-already-title">İlk 11'ini Zaten Gönderdin!</div>
-            <div class="predict-already-sub" id="s11AlreadySub">Bu maç için seçimini yaptın.</div>
-          </div>
+        <div class="predict-already-banner" style="padding:1rem 1.25rem .5rem">
+          <div class="predict-already-title">İlk 11'ini Zaten Gönderdin!</div>
+          <div class="predict-already-sub" id="s11AlreadySub">Bu maç için seçimini yaptın.</div>
+        </div>
+        <!-- Mini pitch showing submitted picks -->
+        <div class="s11-pitch" id="s11AlreadyPitch" style="margin:.5rem 1.25rem .75rem;height:220px">
+          <svg class="s11-pitch-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <line class="s11-pitch-line" x1="2" y1="50" x2="98" y2="50"/>
+            <circle class="s11-pitch-circle" cx="50" cy="50" r="14"/>
+            <circle class="s11-pitch-circle" cx="50" cy="50" r="1.2" style="fill:rgba(255,255,255,0.18)"/>
+            <rect class="s11-pitch-line" x="27" y="2" width="46" height="17"/>
+            <rect class="s11-pitch-line" x="38" y="2" width="24" height="7"/>
+            <rect class="s11-pitch-line" x="27" y="81" width="46" height="17"/>
+            <rect class="s11-pitch-line" x="38" y="91" width="24" height="7"/>
+          </svg>
         </div>
       </div>
       <div class="predict-state" id="s11StateSuccess">
@@ -1281,14 +1291,52 @@
         var existing = await fetch(
           config.supabase_url + '/rest/v1/starting_elevens' +
           '?user_id=eq.' + encodeURIComponent(userId) +
-          '&match_id=eq.' + _match.match_id + '&select=id&limit=1',
+          '&match_id=eq.' + _match.match_id + '&select=id,player_ids&limit=1',
           { headers: { apikey: config.supabase_anon_key, Authorization: 'Bearer ' + _accessToken } }
         ).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; });
 
         if (existing.length) {
           document.getElementById('s11AlreadySub').textContent =
             _match.home_team + ' – ' + _match.away_team + ' maçı için seçimini yaptın.';
-          showS11State('s11StateAlready'); return;
+          showS11State('s11StateAlready');
+          // Show submitted picks on mini pitch
+          var submittedIds = existing[0]?.player_ids || [];
+          if (submittedIds.length) {
+            var squadUrl2 = '/api/squad';
+            if (_match?.squad_league) {
+              squadUrl2 += '?league=' + encodeURIComponent(_match.squad_league);
+              if (_match.squad_espn_id) squadUrl2 += '&team_id=' + encodeURIComponent(_match.squad_espn_id);
+              if (_match.squad_team_name) squadUrl2 += '&team_name=' + encodeURIComponent(_match.squad_team_name);
+            }
+            fetch(squadUrl2).then(function (r) { return r.ok ? r.json() : null; }).then(function (sq) {
+              if (!sq?.players?.length) return;
+              var pitchEl = document.getElementById('s11AlreadyPitch');
+              if (!pitchEl) return;
+              var idSet = new Set(submittedIds.map(Number));
+              var picked = sq.players.filter(function (p) { return idSet.has(Number(p.id)); });
+              var byRow = { GK:[], DEF:[], MID:[], ATT:[] };
+              picked.forEach(function (p) { var r = POS_TO_ROW[p.position] || 'MID'; byRow[r].push(p); });
+              var rowCount = { GK: byRow.GK.length, DEF: byRow.DEF.length, MID: byRow.MID.length, ATT: byRow.ATT.length };
+              Object.keys(byRow).forEach(function (row) {
+                byRow[row].forEach(function (player, i) {
+                  var total = rowCount[row];
+                  var xPct = total === 1 ? 50 : 10 + (i / (total - 1)) * 80;
+                  var slot = document.createElement('div');
+                  slot.className = 's11-slot filled';
+                  slot.style.left = xPct + '%';
+                  slot.style.top  = ROW_Y[row] + '%';
+                  var shortName = (player.name || '').split(' ').slice(-1)[0];
+                  slot.innerHTML =
+                    '<div class="s11-slot-disc" style="width:36px;height:36px">' +
+                      '<span class="s11-slot-name">' + shortName + '</span>' +
+                    '</div>' +
+                    '<span class="s11-slot-pos-label">' + ROW_LABEL[row] + '</span>';
+                  pitchEl.appendChild(slot);
+                });
+              });
+            }).catch(function () {});
+          }
+          return;
         }
       }
     } catch (e) { /* fall through */ }
