@@ -195,14 +195,14 @@ export async function awardXP(env, user_id, site_id, action_id, source_ref = nul
   };
 
   // 7. Badge checks scoped to site
-  const badge_unlocks = await checkBadges(env, user_id, site_id, { level, tier_number, streak, action_id, total_xp });
+  const badge_unlocks = await checkBadges(env, user_id, site_id, { level, tier_number, streak, action_id, total_xp, local_day_start });
 
   return { xp_earned, total_xp, level, tier_name, xp_to_next, badge_unlocks, capped: false };
 }
 
 // ── Badge unlock check ────────────────────────────────────────
 
-async function checkBadges(env, user_id, site_id, { level, streak, action_id, total_xp = 0 }) {
+async function checkBadges(env, user_id, site_id, { level, streak, action_id, total_xp = 0, local_day_start = null }) {
   const candidates = [];
 
   // Tier badges
@@ -270,6 +270,27 @@ async function checkBadges(env, user_id, site_id, { level, streak, action_id, to
     );
     const n = rows.length;
     countMap[action_id].filter(b => n >= b.min_count).forEach(b => candidates.push(b));
+  }
+
+  // Triple Crown — daily_checkin + comment + react_article on the same day
+  const TRIPLE_CROWN_ACTIONS = ['daily_checkin', 'comment', 'react_article'];
+  if (TRIPLE_CROWN_ACTIONS.includes(action_id)) {
+    const now = new Date();
+    const utcMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).getTime();
+    let daySince;
+    if (local_day_start) {
+      const provided = new Date(local_day_start).getTime();
+      daySince = Number.isFinite(provided) && Math.abs(provided - utcMidnight) <= 14 * 3600000
+        ? local_day_start
+        : new Date(utcMidnight).toISOString();
+    } else {
+      daySince = new Date(utcMidnight).toISOString();
+    }
+    const others = TRIPLE_CROWN_ACTIONS.filter(a => a !== action_id);
+    const [r1, r2] = await Promise.all(others.map(a =>
+      sbGet(env, `xp_events?user_id=eq.${user_id}&site_id=eq.${site_id}&action_id=eq.${a}&created_at=gte.${encodeURIComponent(daySince)}&nullified=eq.false&select=id&limit=1`)
+    ));
+    if (r1.length && r2.length) candidates.push({ badge_id: 'triple_crown' });
   }
 
   if (!candidates.length) return [];
