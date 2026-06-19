@@ -15,7 +15,17 @@ MONTHLY_CLAUDE_CAP = "16"
 subrequests = 1000
 
 [triggers]
-crons = ["*/5 * * * *", "0 */3 * * *", "0 4 * * *", "0 3 * * 1", "0 2 * * 7"]
+crons = ["*/5 * * * *", "0 */3 * * *", "0 4 * * *", "0 3 * * 1", "0 2 * * 7", "0 4 * * *", "10 13 * * *", "0 15 * * *", "0 19 * * *"]
+# Bot tick windows (TRT = UTC+3 → UTC times shown):
+#   morning   = 07:00 TRT = 04:00 UTC  ← "0 4 * * *" already present above
+#   afternoon = 13:00 TRT = 10:10 UTC  ← "10 13 * * *" (intentional offset from content cron)
+#   evening   = 18:00 TRT = 15:00 UTC  ← "0 15 * * *" (15 + 3 = 18 TRT)
+#   night     = 22:00 TRT = 19:00 UTC  ← "0 19 * * *"
+# In worker-fetch-agent.js scheduled() handler, add:
+#   if (cron === '10 13 * * *') await fetch('https://kartalix.com/api/bot/tick', { method:'POST', headers:{'Content-Type':'application/json','X-Internal-Secret':env.XP_TOKEN_SECRET}, body: JSON.stringify({window:'afternoon'}) });
+#   if (cron === '0 15 * * *')  await fetch('https://kartalix.com/api/bot/tick', { method:'POST', headers:{'Content-Type':'application/json','X-Internal-Secret':env.XP_TOKEN_SECRET}, body: JSON.stringify({window:'evening'}) });
+#   if (cron === '0 19 * * *')  await fetch('https://kartalix.com/api/bot/tick', { method:'POST', headers:{'Content-Type':'application/json','X-Internal-Secret':env.XP_TOKEN_SECRET}, body: JSON.stringify({window:'night'}) });
+#   if (cron === '0 4 * * *')   await fetch('https://kartalix.com/api/bot/tick', { method:'POST', headers:{'Content-Type':'application/json','X-Internal-Secret':env.XP_TOKEN_SECRET}, body: JSON.stringify({window:'morning'}) });
 
 [[routes]]
 pattern = "kartalix.com/haber/*"
