@@ -503,7 +503,7 @@
 
     try {
       const qs  = meUserId ? `?user_id=${encodeURIComponent(meUserId)}` : '';
-      const res = await fetch(`/api/leaderboard/${tab}${qs}`);
+      const res = await fetch(`/api/leaderboard/${tab}${qs}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(res.status);
       const data = await res.json();
       cache[cacheKey] = data;
