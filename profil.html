@@ -410,6 +410,31 @@
       font-size: 0.6rem; color: var(--muted); margin-left: auto;
     }
 
+    /* ── Lineup history ── */
+    .profil-lineup-card {
+      background: var(--surface); border: 1px solid var(--border2);
+      border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.55rem;
+      display: flex; align-items: center; gap: 0.75rem;
+    }
+    .profil-lineup-card:last-child { margin-bottom: 0; }
+    .profil-lineup-score {
+      font-family: 'Oswald', sans-serif; font-size: 1.4rem;
+      font-weight: 800; min-width: 2.8rem; text-align: center;
+    }
+    .profil-lineup-score--perfect { color: #22c55e; }
+    .profil-lineup-score--good    { color: #F5A623; }
+    .profil-lineup-score--bad     { color: var(--muted); }
+    .profil-lineup-score--pending { color: var(--muted); font-size: 1rem; }
+    .profil-lineup-info { flex: 1; }
+    .profil-lineup-label {
+      font-family: 'Barlow Condensed', sans-serif; font-size: 0.72rem;
+      font-weight: 700; letter-spacing: 0.04em; color: var(--text-on-dark);
+    }
+    .profil-lineup-sub {
+      font-family: 'Barlow Condensed', sans-serif; font-size: 0.6rem;
+      color: var(--muted); margin-top: 0.1rem;
+    }
+
     @media (max-width: 480px) {
       header { padding: 0 1rem; }
       .profil-page { padding: 1.25rem 0.75rem; }
@@ -601,6 +626,7 @@
         <button class="profil-tab-btn active" data-panel="profilTabBadges">Rozetler</button>
         <button class="profil-tab-btn" data-panel="profilTabActivity">Aktivite</button>
         <button class="profil-tab-btn" data-panel="profilTabPreds">Tahminler</button>
+        <button class="profil-tab-btn" data-panel="profilTabLineup">Kadro</button>
       </div>
       <div id="profilTabBadges" class="profil-tab-panel active" style="margin-top:0.75rem">
         <div id="profilBadgesGrid"></div>
@@ -610,6 +636,9 @@
       </div>
       <div id="profilTabPreds" class="profil-tab-panel" style="margin-top:0.75rem">
         <div id="profilPredHistory"></div>
+      </div>
+      <div id="profilTabLineup" class="profil-tab-panel" style="margin-top:0.75rem">
+        <div id="profilLineupHistory"></div>
       </div>
     </div>
 
@@ -925,6 +954,44 @@
             <div class="profil-pred-meta">
               ${bonusTag}
               <span class="profil-pred-date">${fmtDate(p.created_at)}</span>
+            </div>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // Lineup history
+    const lineupBox = el('profilLineupHistory');
+    if (lineupBox) {
+      const lineups = me.lineup_history ?? [];
+      if (!lineups.length) {
+        lineupBox.innerHTML = '<div class="profil-empty-state">Henüz kadro tahmini yapmadın.<br><a href="/tribun">Tribüne git ve ilk 11\'ini seç →</a></div>';
+      } else {
+        lineupBox.innerHTML = lineups.map(l => {
+          const evaluated = l.correct_count != null;
+          let scoreClass, scoreText, labelText;
+          if (!evaluated) {
+            scoreClass = 'profil-lineup-score--pending';
+            scoreText  = '⏳';
+            labelText  = 'Sonuç bekleniyor';
+          } else if (l.correct_count === 11) {
+            scoreClass = 'profil-lineup-score--perfect';
+            scoreText  = '11/11';
+            labelText  = 'Mükemmel kadro!';
+          } else if (l.correct_count >= 8) {
+            scoreClass = 'profil-lineup-score--good';
+            scoreText  = `${l.correct_count}/11`;
+            labelText  = `${l.correct_count} doğru oyuncu`;
+          } else {
+            scoreClass = 'profil-lineup-score--bad';
+            scoreText  = `${l.correct_count}/11`;
+            labelText  = `${l.correct_count} doğru oyuncu`;
+          }
+          return `<div class="profil-lineup-card">
+            <div class="profil-lineup-score ${scoreClass}">${scoreText}</div>
+            <div class="profil-lineup-info">
+              <div class="profil-lineup-label">${labelText}</div>
+              <div class="profil-lineup-sub">${fmtDate(l.created_at)}</div>
             </div>
           </div>`;
         }).join('');
