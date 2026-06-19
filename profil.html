@@ -417,6 +417,11 @@
     .profil-pred-result--wrong  { color: var(--muted); }
     .profil-pred-result--pending { color: #F5A623; }
     .profil-pred-meta { display: flex; gap: 0.45rem; flex-wrap: wrap; align-items: center; }
+    .profil-lineup-mini { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 0.4rem; }
+    .profil-lineup-dot { display: inline-block; width: 16px; height: 16px; border-radius: 50%; }
+    .profil-lineup-dot.hit     { background: #22c55e; }
+    .profil-lineup-dot.miss    { background: #374151; }
+    .profil-lineup-dot.pending { background: #4b5563; border: 1px dashed #6b7280; }
     .profil-pred-xp {
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.68rem; font-weight: 700; color: var(--accent-gold); letter-spacing: 0.04em;
@@ -711,6 +716,20 @@
       { id: 'predictor_25',       icon: '🔮', name: 'Kahin',              desc: '25 tahmin' },
       { id: 'exact_score_first',  icon: '🎯', name: 'Skor Avcısı',        desc: 'İlk kesin skor' },
       { id: 'exact_score_5',      icon: '🎯', name: 'Skor Dehası',        desc: '5 kesin skor' },
+      { id: 'predict_correct_5',  icon: '✅', name: 'Sonuç Kahini',       desc: '5 doğru sonuç' },
+      { id: 'predict_correct_20', icon: '🔮', name: 'Tahmin Gurusu',      desc: '20 doğru sonuç' },
+      { id: 'predict_correct_50', icon: '🏅', name: 'Sonuç Efsanesi',     desc: '50 doğru sonuç' },
+      { id: 'predict_exact_5',    icon: '🎯', name: 'Skor Dahisi',        desc: '5 tam skor' },
+      { id: 'predict_exact_10',   icon: '⚖️', name: 'Terazi Ustası',      desc: '10 tam skor' },
+      { id: 'predict_exact_25',   icon: '🏆', name: 'Skor Efsanesi',      desc: '25 tam skor' },
+      { id: 'lineup_predict_1',   icon: '⚽', name: 'İlk Kadro Kahin',    desc: '8+ oyuncu doğru (1 maç)' },
+      { id: 'lineup_predict_5',   icon: '⚽', name: 'Kadro İzleyici',     desc: '8+ oyuncu doğru (5 maç)' },
+      { id: 'lineup_predict_10',  icon: '⚽', name: 'Takım Analisti',     desc: '8+ oyuncu doğru (10 maç)' },
+      { id: 'lineup_predict_20',  icon: '🏅', name: 'Kadro Uzmanı',       desc: '8+ oyuncu doğru (20 maç)' },
+      { id: 'lineup_predict_50',  icon: '🏆', name: 'Kadro Efsanesi',     desc: '8+ oyuncu doğru (50 maç)' },
+      { id: 'lineup_predict_100', icon: '👑', name: 'İlk 11 Ustası',      desc: '8+ oyuncu doğru (100 maç)' },
+      { id: 'lineup_perfect_1',   icon: '🦅', name: 'Mükemmel Kadro',     desc: '11/11 oyuncu doğru' },
+      { id: 'lineup_perfect_5',   icon: '👑', name: '11ler Sultanı',       desc: '5 kez 11/11 doğru' },
     ]},
     { key: 'xp_milestone', label: 'XP Kilometre Taşları', color: '#60a5fa', badges: [
       { id: 'xp_500',   icon: '💫', name: '500 XP',    desc: '500 XP kazandın' },
@@ -745,6 +764,10 @@
     exact_score_bonus:     'Kesin Skor Bonusu',
     correct_outcome_bonus: 'Doğru Sonuç Bonusu',
     guest_claim:           'Misafir XP Aktarımı',
+    lineup_8_correct:      '8 Oyuncu Doğru',
+    lineup_9_correct:      '9 Oyuncu Doğru',
+    lineup_10_correct:     '10 Oyuncu Doğru',
+    lineup_11_correct:     'Mükemmel İlk 11',
   };
   const ACTION_ICONS = {
     daily_checkin:         '🔥',
@@ -765,6 +788,10 @@
     exact_score_bonus:     '🎯',
     correct_outcome_bonus: '✅',
     guest_claim:           '🎁',
+    lineup_8_correct:      '⚽',
+    lineup_9_correct:      '⚽',
+    lineup_10_correct:     '⚽',
+    lineup_11_correct:     '🏆',
   };
 
   function relativeTime(iso) {
@@ -906,10 +933,16 @@
     const predBox = el('profilPredHistory');
     if (predBox) {
       const preds = me.prediction_history ?? [];
+      const lineups = me.lineup_history ?? [];
+
+      let html = '';
+
+      // Score predictions section
+      html += `<div style="font-family:'Barlow Condensed',sans-serif;font-size:.7rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.6rem">Skor Tahminleri</div>`;
       if (!preds.length) {
-        predBox.innerHTML = '<div class="profil-empty-state">Henüz tahmin yapmadın.<br><a href="/tribun">Tribüne git ve ilk tahmini yap →</a></div>';
+        html += '<div class="profil-empty-state" style="margin-bottom:1.25rem">Henüz skor tahmini yapmadın.<br><a href="/tribun">Tribüne git →</a></div>';
       } else {
-        predBox.innerHTML = preds.map(p => {
+        html += preds.map(p => {
           const teams = p.home_team && p.away_team ? `${p.home_team} – ${p.away_team}` : null;
           const evaluated = p.xp_awarded === true;
           const isExact   = evaluated && p.bonus_awarded === true;
@@ -930,8 +963,6 @@
             }
           }
 
-          // XP display: score_predictions.xp_awarded is a boolean (was it evaluated?),
-          // actual XP earned is tracked via xp_events — show bonus type instead
           const bonusTag = isExact
             ? `<span class="profil-pred-bonus">+Kesin Skor XP</span>`
             : isCorrect
@@ -949,6 +980,52 @@
           </div>`;
         }).join('');
       }
+
+      // İlk 11 history section
+      html += `<div style="font-family:'Barlow Condensed',sans-serif;font-size:.7rem;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-top:1.25rem;margin-bottom:.6rem">İlk 11 Tahminleri</div>`;
+      if (!lineups.length) {
+        html += '<div class="profil-empty-state">Henüz İlk 11 tahmini yapmadın.<br><a href="/tribun">Tribüne git →</a></div>';
+      } else {
+        html += lineups.map(lu => {
+          const evaluated = lu.xp_awarded === true && lu.correct_count != null;
+          const correct = lu.correct_count ?? null;
+          const predicted = lu.player_ids ?? [];
+          const actual = lu.actual_player_ids ?? [];
+          const actualSet = new Set(actual.map(Number));
+
+          let resultHtml = '';
+          if (!evaluated) {
+            resultHtml = `<div class="profil-pred-result profil-pred-result--pending">⏳ Maç değerlendirmesi bekleniyor</div>`;
+          } else {
+            const icon = correct >= 11 ? '🏆' : correct >= 10 ? '🥇' : correct >= 9 ? '🥈' : correct >= 8 ? '✅' : '❌';
+            resultHtml = `<div class="profil-pred-result profil-pred-result--${correct >= 8 ? 'ok' : 'wrong'}">${icon} ${correct}/11 oyuncu doğru</div>`;
+          }
+
+          // Mini pitch: show player discs coloured green/red if evaluated
+          let pitchHtml = '';
+          if (predicted.length === 11 && actual.length === 11) {
+            pitchHtml = `<div class="profil-lineup-mini">${predicted.map(id => {
+              const hit = actualSet.has(Number(id));
+              return `<span class="profil-lineup-dot${hit ? ' hit' : ' miss'}"></span>`;
+            }).join('')}</div>`;
+          } else if (predicted.length === 11) {
+            pitchHtml = `<div class="profil-lineup-mini">${predicted.map(() =>
+              `<span class="profil-lineup-dot pending"></span>`
+            ).join('')}</div>`;
+          }
+
+          return `<div class="profil-pred-card">
+            <div class="profil-pred-teams" style="font-size:.7rem;color:var(--muted)">Maç #${lu.match_id}</div>
+            ${pitchHtml}
+            ${resultHtml}
+            <div class="profil-pred-meta">
+              <span class="profil-pred-date">${fmtDate(lu.created_at)}</span>
+            </div>
+          </div>`;
+        }).join('');
+      }
+
+      predBox.innerHTML = html;
     }
   }
 

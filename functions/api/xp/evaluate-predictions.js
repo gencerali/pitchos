@@ -4,6 +4,26 @@
 import { json, err } from '../_shared/auth.js';
 import { sbGet, sbPost, sbPatch, awardXP } from '../_shared/xp.js';
 
+// Milestone badges: [badge_id, min_count, field] — checked after awarding correct/exact XP
+const OUTCOME_BADGES = [
+  { badge_id: 'predict_correct_50', min_count: 50 },
+  { badge_id: 'predict_correct_20', min_count: 20 },
+  { badge_id: 'predict_correct_5',  min_count: 5  },
+];
+const EXACT_BADGES = [
+  { badge_id: 'predict_exact_25', min_count: 25 },
+  { badge_id: 'predict_exact_10', min_count: 10 },
+  { badge_id: 'predict_exact_5',  min_count: 5  },
+];
+
+async function grantBadgeIfNew(env, user_id, site_id, badge_id) {
+  const existing = await sbGet(env,
+    `user_badges?user_id=eq.${user_id}&site_id=eq.${site_id}&badge_id=eq.${badge_id}&select=id&limit=1`
+  );
+  if (existing.length) return;
+  await sbPost(env, 'user_badges', { user_id, site_id, badge_id });
+}
+
 function outcome(home, away) {
   return home > away ? 'home' : home < away ? 'away' : 'draw';
 }
@@ -57,6 +77,22 @@ export async function onRequest({ request, env }) {
         xp_awarded: true, bonus_awarded: true, outcome_awarded: true,
         actual_home_score: home_score, actual_away_score: away_score,
       });
+
+      // Exact score milestone badges
+      const exactPreds = (await sbGet(env,
+        `score_predictions?user_id=eq.${pred.user_id}&site_id=eq.${site_id}&bonus_awarded=eq.true&select=id`
+      )) ?? [];
+      for (const { badge_id, min_count } of EXACT_BADGES) {
+        if (exactPreds.length >= min_count) await grantBadgeIfNew(env, pred.user_id, site_id, badge_id);
+      }
+      // Also counts as a correct outcome
+      const outcomePreds = (await sbGet(env,
+        `score_predictions?user_id=eq.${pred.user_id}&site_id=eq.${site_id}&outcome_awarded=eq.true&select=id`
+      )) ?? [];
+      for (const { badge_id, min_count } of OUTCOME_BADGES) {
+        if (outcomePreds.length >= min_count) await grantBadgeIfNew(env, pred.user_id, site_id, badge_id);
+      }
+
       results.push({ user_id: pred.user_id, exact: true, correct_outcome: true, bonus_xp });
     } else if (isCorrect && !pred.outcome_awarded) {
       const outcomeResult = await awardXP(env, pred.user_id, site_id, 'correct_outcome_bonus', String(match_id));
@@ -66,6 +102,15 @@ export async function onRequest({ request, env }) {
         xp_awarded: true, outcome_awarded: true,
         actual_home_score: home_score, actual_away_score: away_score,
       });
+
+      // Correct outcome milestone badges
+      const outcomePreds = (await sbGet(env,
+        `score_predictions?user_id=eq.${pred.user_id}&site_id=eq.${site_id}&outcome_awarded=eq.true&select=id`
+      )) ?? [];
+      for (const { badge_id, min_count } of OUTCOME_BADGES) {
+        if (outcomePreds.length >= min_count) await grantBadgeIfNew(env, pred.user_id, site_id, badge_id);
+      }
+
       results.push({ user_id: pred.user_id, exact: false, correct_outcome: true, outcome_xp });
     } else {
       await sbPatch(env, `score_predictions?id=eq.${pred.id}`, {

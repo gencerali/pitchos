@@ -28,7 +28,7 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ---
 
-## Phase 3 — Comment & Reaction System
+## Phase 3 — Comment & Reaction System ✅ DONE
 
 - [x] **3.1** Fix comments not showing in SPA article view (`renderArticleView`)
 - [x] **3.2** Slug-based keying — `article_comments` + `article_reactions` now use `article_slug` + `user_id`; no guest commenting (auth required)
@@ -63,7 +63,7 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ---
 
-## Phase 6 — Schema Migrations
+## Phase 6 — Schema Migrations ✅ DONE
 
 - [x] `xp_actions`: `cap_fallback_xp integer default 0`
 - [x] `xp_actions`: insert `react_article` row
@@ -73,6 +73,10 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 - [x] `polls`: add `starts_at TIMESTAMPTZ` (scheduled poll publishing)
 - [x] `article_reactions`: `reaction` column already stores emotion type (atesli/mutlu/uzgun/kizgin/hayal_kirikligi) — separate `emotion` col not needed
 - [x] `profiles`: add `is_bot BOOLEAN DEFAULT false` — applied; all 5 leaderboard views updated to filter `is_bot = false`
+- [x] `starting_elevens`: add `correct_count INT`, `actual_player_ids INT[]` for post-evaluation comparison
+- [x] `actual_lineups`: new table — stores confirmed starting 11 per match (match_id, site_id, player_ids, formation)
+- [x] `xp_actions`: insert `lineup_8_correct`, `lineup_9_correct`, `lineup_10_correct`, `lineup_11_correct` (tiered XP for correct players)
+- [x] `badges`: insert 8 lineup prediction badges (`lineup_predict_1/5/10/20/50/100`, `lineup_perfect_1/5`) and 6 score prediction milestone badges (`predict_correct_5/20/50`, `predict_exact_5/10/25`)
 
 ---
 
@@ -87,10 +91,20 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ## Phase 8 — Pre-Launch
 
-- [x] Full XP QA pass — 399 tests; lifetime dedup (daily_cap=-1) + isRateLimited + comment handler all covered
+- [x] Full XP QA pass — 400 tests; lifetime dedup (daily_cap=-1) + isRateLimited + comment handler all covered
 - [ ] Set `XP_TOKEN_SECRET` in Cloudflare Pages env vars (not `dev-secret`) ← config only, set in Cloudflare dashboard
 - [ ] Bot seeding — 1500 synthetic users + weekly cron engine. `profiles.is_bot` column now ready (Phase 6 ✅)
 - [x] Rate limiting on `/api/xp/react` and `/api/xp/comment` — DB-based sliding window, returns 429
+
+---
+
+## Phase 9 — Lineup Prediction Enhancements ✅ DONE
+
+- [x] **9.1** Visual pitch UI — formation selector (4-4-2 / 4-3-3 / 4-5-1 / 3-5-2 / 5-3-2), green pitch with slot discs, click-to-assign from player pool, click-slot-to-deassign, formation change migrates existing picks
+- [x] **9.2** Lineup evaluation endpoint — `/api/xp/evaluate-starting-11` (cron, X-Internal-Secret protected); awards tiered XP (8/9/10/11 correct); stores `actual_lineups`; updates `starting_elevens.correct_count + actual_player_ids`
+- [x] **9.3** Lineup history in `/api/me` + profile Tahminler tab — mini dot row (green=hit, grey=miss) + correct_count badge; pending state while unevaluated
+- [x] **9.4** Lineup milestone badges (8 badges) — `lineup_predict_1/5/10/20/50/100` (≥8 correct) + `lineup_perfect_1/5` (11/11 correct)
+- [x] **9.5** Score prediction milestone badges (6 badges) — `predict_correct_5/20/50` + `predict_exact_5/10/25`; awarded in `evaluate-predictions.js` after each correct/exact result
 
 ---
 
@@ -98,7 +112,7 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 - [x] All Phase 1 + 2 shipped
 - [x] Comments visible and submittable on all articles
-- [ ] Emotion reactions wired with XP (Phase 3.8)
+- [x] Emotion reactions wired with XP (Phase 3.8)
 - [x] At least one Tribün feature live — all three live: score prediction, Starting 11, polls
 - [x] Profile shows XP feed + badges + prediction history
 - [ ] `XP_TOKEN_SECRET` set in production
@@ -108,4 +122,4 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ## All Tests Passing
 
-386 tests passing as of 2026-06-19. Last fixes: test format mismatch after ESPN/upcoming-match migration (predict + starting-11 test suites), mobile UX bugs (header fixed position, 16px font on form inputs).
+400 tests passing as of 2026-06-19. Last additions: lineup prediction enhancements (visual pitch, evaluate-starting-11, milestone badges), score prediction milestone badges, lineup_history in /api/me.

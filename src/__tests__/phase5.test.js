@@ -78,7 +78,7 @@ function makeEnv() {
 }
 async function json(res) { return res.json(); }
 
-// Standard me.js sbGet mock: profiles, badges, xp_sum, activity, predictions, level_thresholds
+// Standard me.js sbGet mock: profiles, badges, xp_sum, activity, predictions, lineup_history, level_thresholds
 function mockMeStandard(overrides = {}) {
   vi.mocked(sbGet)
     .mockResolvedValueOnce(overrides.profiles ?? [PROFILE])
@@ -86,6 +86,7 @@ function mockMeStandard(overrides = {}) {
     .mockResolvedValueOnce(overrides.xpRows ?? [{ xp_earned: 200 }])
     .mockResolvedValueOnce(overrides.activity ?? [])
     .mockResolvedValueOnce(overrides.predictions ?? [])
+    .mockResolvedValueOnce(overrides.lineupHistory ?? [])
     .mockResolvedValueOnce(overrides.levelThresholds ?? [{ xp_required: 150 }]);
   vi.mocked(sbRpc).mockResolvedValue(overrides.levelRpc ?? [{ level: 2, tier_name: 'Taraftar', tier_number: 2, xp_to_next: 50 }]);
   vi.mocked(getStreak).mockResolvedValue(overrides.streak ?? { current_streak: 3, longest_streak: 10, shield_active: false, last_checkin_date: '2026-06-17' });
@@ -163,7 +164,8 @@ describe('5.1 — Activity Feed', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ xp_earned: 50 }])
       .mockRejectedValueOnce(new Error('xp_events table missing'))
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])    // prediction_history
+      .mockResolvedValueOnce([])    // lineup_history
       .mockResolvedValueOnce([{ xp_required: 0 }]);
     vi.mocked(sbRpc).mockResolvedValue([{ level: 1, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 40 }]);
     vi.mocked(getStreak).mockResolvedValue({ current_streak: 0, longest_streak: 0, shield_active: false, last_checkin_date: null });
@@ -279,8 +281,9 @@ describe('5.3 — Prediction History', () => {
       .mockResolvedValueOnce([PROFILE])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ xp_earned: 50 }])
-      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])                                          // activity
       .mockRejectedValueOnce(new Error('score_predictions table missing'))
+      .mockResolvedValueOnce([])                                          // lineup_history
       .mockResolvedValueOnce([{ xp_required: 0 }]);
     vi.mocked(sbRpc).mockResolvedValue([{ level: 1, tier_name: 'Misafir Kartal', tier_number: 1, xp_to_next: 40 }]);
     vi.mocked(getStreak).mockResolvedValue({ current_streak: 0, longest_streak: 0, shield_active: false, last_checkin_date: null });

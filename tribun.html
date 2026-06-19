@@ -543,20 +543,42 @@
     .s11-label { font-family:'Barlow Condensed',sans-serif;font-size:.72rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-gold); }
     .s11-xp-badge { font-family:'Barlow Condensed',sans-serif;font-size:.68rem;font-weight:700;letter-spacing:.08em;color:var(--accent-gold);background:rgba(245,166,35,0.1);border:1px solid rgba(245,166,35,0.25);border-radius:3px;padding:.2rem .55rem; }
     .s11-body { padding:1.25rem; }
-    .s11-team-title { font-family:'Barlow Condensed',sans-serif;font-size:.75rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.75rem;margin-top:.5rem;display:flex;align-items:center;justify-content:space-between; }
-    .s11-selection-count { font-size:.65rem;letter-spacing:.08em;color:var(--accent-gold);font-weight:800; }
-    .s11-position-group { margin-bottom:1rem; }
-    .s11-position-label { font-family:'Barlow Condensed',sans-serif;font-size:.6rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem; }
-    .s11-player-grid { display:flex;flex-wrap:wrap;gap:.3rem; }
-    .s11-player-btn { background:#0d0d0d;border:1px solid var(--border2);border-radius:4px;padding:.35rem .6rem;font-family:'Barlow Condensed',sans-serif;font-size:.72rem;font-weight:600;letter-spacing:.03em;color:var(--muted-dark);cursor:pointer;transition:all .1s;white-space:nowrap;display:flex;align-items:center;gap:.3rem; }
-    .s11-player-btn:hover { border-color:var(--accent-gold);color:#fff; }
-    .s11-player-btn.selected { border-color:var(--accent-gold);background:rgba(245,166,35,0.12);color:var(--accent-gold); }
-    .s11-player-num { font-size:.6rem;color:var(--muted);font-family:'Oswald',sans-serif;font-weight:700; }
-    .s11-submit { width:100%;margin-top:1rem;background:var(--accent-gold);border:none;color:#0a0a0a;font-family:'Barlow Condensed',sans-serif;font-size:.88rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;padding:.85rem 1rem;border-radius:6px;cursor:pointer;transition:background .15s,opacity .15s; }
+    .s11-submit { width:100%;margin-top:0;background:var(--accent-gold);border:none;color:#0a0a0a;font-family:'Barlow Condensed',sans-serif;font-size:.88rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;padding:.85rem 1rem;border-radius:0;cursor:pointer;transition:background .15s,opacity .15s; }
     .s11-submit:hover:not(:disabled) { background:#d4901c; }
     .s11-submit:disabled { opacity:.35;cursor:not-allowed; }
-    .s11-error-msg { background:rgba(217,4,20,0.08);border:1px solid rgba(217,4,20,0.2);border-radius:5px;padding:.65rem 1rem;font-family:'Barlow Condensed',sans-serif;font-size:.75rem;letter-spacing:.04em;color:#ff8080;margin-top:.75rem;display:none; }
+    .s11-error-msg { background:rgba(217,4,20,0.08);border:1px solid rgba(217,4,20,0.2);border-radius:5px;padding:.65rem 1rem;font-family:'Barlow Condensed',sans-serif;font-size:.75rem;letter-spacing:.04em;color:#ff8080;margin:.75rem 1.25rem;display:none; }
     .s11-error-msg.visible { display:block; }
+
+    /* ── PITCH VISUALIZATION ── */
+    .s11-formation-bar { display:flex;gap:.35rem;padding:.75rem 1.25rem .5rem;overflow-x:auto;scrollbar-width:none; }
+    .s11-formation-bar::-webkit-scrollbar { display:none; }
+    .s11-formation-btn { background:#0d0d0d;border:1px solid #2a2a2a;border-radius:4px;padding:.28rem .65rem;font-family:'Barlow Condensed',sans-serif;font-size:.7rem;font-weight:700;letter-spacing:.08em;color:var(--muted);cursor:pointer;white-space:nowrap;transition:all .12s;flex-shrink:0; }
+    .s11-formation-btn.active { border-color:var(--accent-gold);color:var(--accent-gold);background:rgba(245,166,35,0.1); }
+    .s11-formation-count { font-size:.62rem;letter-spacing:.06em;color:var(--accent-gold);font-family:'Barlow Condensed',sans-serif;font-weight:800;padding:.5rem 1.25rem .1rem;display:flex;justify-content:space-between;align-items:center; }
+    .s11-pitch { position:relative;background:linear-gradient(180deg,#1b4d1b 0%,#1e571e 50%,#1b4d1b 100%);margin:0 1.25rem .5rem;border-radius:6px;border:2px solid #2d6a2d;overflow:hidden;height:270px; }
+    .s11-pitch-svg { position:absolute;inset:0;width:100%;height:100%;pointer-events:none; }
+    .s11-pitch-line { stroke:rgba(255,255,255,0.18);stroke-width:1;fill:none; }
+    .s11-pitch-circle { stroke:rgba(255,255,255,0.18);stroke-width:1;fill:none; }
+    .s11-slot { position:absolute;transform:translate(-50%,-50%);cursor:pointer;z-index:2; }
+    .s11-slot-disc { width:44px;height:44px;border-radius:50%;border:2px dashed rgba(255,255,255,0.28);background:rgba(0,0,0,0.3);display:flex;flex-direction:column;align-items:center;justify-content:center;transition:all .15s;position:relative; }
+    .s11-slot.filled .s11-slot-disc { border-style:solid;border-color:var(--accent-gold);background:rgba(245,166,35,0.2); }
+    .s11-slot.active .s11-slot-disc { border-style:solid;border-color:#fff;background:rgba(255,255,255,0.15);box-shadow:0 0 0 3px rgba(255,255,255,0.25); }
+    .s11-slot-plus { font-size:1.1rem;color:rgba(255,255,255,0.35);line-height:1; }
+    .s11-slot.filled .s11-slot-plus { display:none; }
+    .s11-slot-name { display:none;font-family:'Barlow Condensed',sans-serif;font-size:.58rem;font-weight:700;letter-spacing:.02em;color:#fff;text-align:center;line-height:1.15;max-width:42px;word-break:break-word; }
+    .s11-slot.filled .s11-slot-name { display:block; }
+    .s11-slot-pos-label { position:absolute;bottom:-15px;left:50%;transform:translateX(-50%);font-family:'Barlow Condensed',sans-serif;font-size:.5rem;letter-spacing:.06em;font-weight:800;color:rgba(255,255,255,0.5);white-space:nowrap;text-transform:uppercase; }
+    /* pool */
+    .s11-pool-wrap { padding:.25rem 1.25rem .75rem; }
+    .s11-pool-hint { font-family:'Barlow Condensed',sans-serif;font-size:.65rem;letter-spacing:.05em;color:var(--muted);margin-bottom:.5rem; }
+    .s11-pool-section { margin-bottom:.6rem; }
+    .s11-pool-pos-label { font-family:'Barlow Condensed',sans-serif;font-size:.58rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.3rem; }
+    .s11-pool-row { display:flex;flex-wrap:wrap;gap:.3rem; }
+    .s11-player-btn { background:#0d0d0d;border:1px solid var(--border2);border-radius:4px;padding:.3rem .55rem;font-family:'Barlow Condensed',sans-serif;font-size:.7rem;font-weight:600;letter-spacing:.03em;color:var(--muted-dark);cursor:pointer;transition:all .1s;white-space:nowrap;display:flex;align-items:center;gap:.25rem; }
+    .s11-player-btn:hover:not(:disabled) { border-color:var(--accent-gold);color:#fff; }
+    .s11-player-btn.selected { border-color:var(--accent-gold);background:rgba(245,166,35,0.12);color:var(--accent-gold);opacity:.6; }
+    .s11-player-btn:disabled { opacity:.3;cursor:not-allowed; }
+    .s11-player-num { font-size:.58rem;color:var(--muted);font-family:'Oswald',sans-serif;font-weight:700; }
 
     /* ── POLL CARD ── */
     .poll-card { background:var(--surface);border:1px solid var(--border2);border-radius:8px;overflow:hidden; }
@@ -791,15 +813,43 @@
         </div>
       </div>
       <div class="predict-state" id="s11StateForm">
-        <div class="s11-body">
-          <div class="s11-team-title">
-            <span id="s11TeamName">Kadro</span>
-            <span class="s11-selection-count" id="s11CountLabel">0 / 11 seçildi</span>
-          </div>
-          <div id="s11PlayerGroups"></div>
-          <button class="s11-submit" id="s11SubmitBtn" disabled>11 Oyuncu Seç (0/11)</button>
-          <div class="s11-error-msg" id="s11Error"></div>
+        <!-- Formation selector -->
+        <div class="s11-formation-bar" id="s11FormationBar"></div>
+        <div class="s11-formation-count">
+          <span id="s11CountLabel" style="font-family:'Barlow Condensed',sans-serif;font-size:.72rem;font-weight:700;letter-spacing:.06em;color:var(--muted)">0 / 11 seçildi</span>
+          <span id="s11TeamName" style="font-family:'Barlow Condensed',sans-serif;font-size:.65rem;letter-spacing:.06em;color:var(--muted)"></span>
         </div>
+        <!-- Visual pitch -->
+        <div class="s11-pitch" id="s11Pitch">
+          <svg class="s11-pitch-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <!-- center line -->
+            <line class="s11-pitch-line" x1="2" y1="50" x2="98" y2="50"/>
+            <!-- center circle -->
+            <circle class="s11-pitch-circle" cx="50" cy="50" r="14"/>
+            <!-- center spot -->
+            <circle class="s11-pitch-circle" cx="50" cy="50" r="1.2" style="fill:rgba(255,255,255,0.18)"/>
+            <!-- penalty box top -->
+            <rect class="s11-pitch-line" x="27" y="2" width="46" height="17"/>
+            <!-- goal area top -->
+            <rect class="s11-pitch-line" x="38" y="2" width="24" height="7"/>
+            <!-- penalty box bottom -->
+            <rect class="s11-pitch-line" x="27" y="81" width="46" height="17"/>
+            <!-- goal area bottom -->
+            <rect class="s11-pitch-line" x="38" y="91" width="24" height="7"/>
+            <!-- penalty spot top -->
+            <circle class="s11-pitch-circle" cx="50" cy="22" r="1.2" style="fill:rgba(255,255,255,0.18)"/>
+            <!-- penalty spot bottom -->
+            <circle class="s11-pitch-circle" cx="50" cy="78" r="1.2" style="fill:rgba(255,255,255,0.18)"/>
+          </svg>
+          <!-- Player slots injected by JS -->
+        </div>
+        <!-- Player pool -->
+        <div class="s11-pool-wrap">
+          <div class="s11-pool-hint" id="s11PoolHint">Oyuncuya tıkla → sahaya yerleştir. Yerleşik oyuncuya tıkla → kaldır.</div>
+          <div id="s11PlayerPool"></div>
+        </div>
+        <div class="s11-error-msg" id="s11Error"></div>
+        <button class="s11-submit" id="s11SubmitBtn" disabled>11 Oyuncu Seç (0/11)</button>
       </div>
       <div class="predict-state" id="s11StateAlready">
         <div class="s11-body">
@@ -1003,7 +1053,47 @@
   // ── Shared state ──────────────────────────────────────────────────────────
   var _match = null;
   var _accessToken = null;
-  var _selectedPlayerIds = [];
+  var _selectedPlayerIds = []; // kept for submission compatibility
+  var _slots = {};              // { 'GK-0': playerObj, 'DEF-2': playerObj, ... }
+  var _allPlayers = [];
+  var _currentFormation = '4-4-2';
+
+  var FORMATIONS = {
+    '4-4-2': {
+      GK:  [{ x:50 }],
+      DEF: [{ x:12 },{ x:37 },{ x:63 },{ x:88 }],
+      MID: [{ x:12 },{ x:37 },{ x:63 },{ x:88 }],
+      ATT: [{ x:33 },{ x:67 }],
+    },
+    '4-3-3': {
+      GK:  [{ x:50 }],
+      DEF: [{ x:12 },{ x:37 },{ x:63 },{ x:88 }],
+      MID: [{ x:22 },{ x:50 },{ x:78 }],
+      ATT: [{ x:18 },{ x:50 },{ x:82 }],
+    },
+    '4-5-1': {
+      GK:  [{ x:50 }],
+      DEF: [{ x:12 },{ x:37 },{ x:63 },{ x:88 }],
+      MID: [{ x:10 },{ x:27 },{ x:50 },{ x:73 },{ x:90 }],
+      ATT: [{ x:50 }],
+    },
+    '3-5-2': {
+      GK:  [{ x:50 }],
+      DEF: [{ x:22 },{ x:50 },{ x:78 }],
+      MID: [{ x:10 },{ x:27 },{ x:50 },{ x:73 },{ x:90 }],
+      ATT: [{ x:33 },{ x:67 }],
+    },
+    '5-3-2': {
+      GK:  [{ x:50 }],
+      DEF: [{ x:10 },{ x:27 },{ x:50 },{ x:73 },{ x:90 }],
+      MID: [{ x:22 },{ x:50 },{ x:78 }],
+      ATT: [{ x:33 },{ x:67 }],
+    },
+  };
+
+  var ROW_Y = { GK: 88, DEF: 68, MID: 42, ATT: 14 };
+  var POS_TO_ROW = { Goalkeeper:'GK', Defender:'DEF', Midfielder:'MID', Attacker:'ATT' };
+  var ROW_LABEL = { GK:'K', DEF:'DF', MID:'OS', ATT:'FW' };
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function getUserIdFromToken(token) {
@@ -1220,43 +1310,175 @@
     showS11State('s11StateForm');
   }
 
-  function renderS11Grid(players) {
-    var groups = { Goalkeeper: [], Defender: [], Midfielder: [], Attacker: [] };
-    var labels = { Goalkeeper: 'Kaleci', Defender: 'Defans', Midfielder: 'Orta Saha', Attacker: 'Forvet' };
-    players.forEach(function (p) { if (groups[p.position]) groups[p.position].push(p); });
+  // ── Formation selector ────────────────────────────────────────────────────
+  function renderFormationBar() {
+    var bar = document.getElementById('s11FormationBar');
+    if (!bar) return;
+    bar.innerHTML = Object.keys(FORMATIONS).map(function (f) {
+      return '<button class="s11-formation-btn' + (f === _currentFormation ? ' active' : '') +
+        '" data-formation="' + f + '">' + f + '</button>';
+    }).join('');
+    bar.querySelectorAll('.s11-formation-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var prev = _currentFormation;
+        _currentFormation = this.dataset.formation;
+        // When formation changes, try to preserve assigned players by slot key similarity
+        // Migrate by position row: keep assignments that still fit
+        var newF = FORMATIONS[_currentFormation];
+        var newSlots = {};
+        var overflow = [];
+        ['GK','DEF','MID','ATT'].forEach(function (row) {
+          var count = (newF[row] || []).length;
+          var assigned = Object.keys(_slots).filter(function (k) { return k.startsWith(row + '-'); }).sort();
+          assigned.forEach(function (k, i) {
+            if (i < count) newSlots[row + '-' + i] = _slots[k];
+            else overflow.push(_slots[k]);
+          });
+        });
+        // Re-assign overflow players to any remaining empty slots
+        Object.keys(FORMATIONS[_currentFormation]).forEach(function (row) {
+          FORMATIONS[_currentFormation][row].forEach(function (_, i) {
+            var key = row + '-' + i;
+            if (!newSlots[key] && overflow.length) newSlots[key] = overflow.shift();
+          });
+        });
+        _slots = newSlots;
+        renderFormationBar();
+        renderPitch();
+        renderPool();
+        updateS11Counter();
+      });
+    });
+  }
+
+  // ── Pitch slot rendering ─────────────────────────────────────────────────
+  function renderPitch() {
+    var pitch = document.getElementById('s11Pitch');
+    if (!pitch) return;
+    // Remove old slots
+    pitch.querySelectorAll('.s11-slot').forEach(function (el) { el.remove(); });
+
+    var formation = FORMATIONS[_currentFormation];
+    ['GK','DEF','MID','ATT'].forEach(function (row) {
+      (formation[row] || []).forEach(function (pos, i) {
+        var key = row + '-' + i;
+        var player = _slots[key] || null;
+        var slot = document.createElement('div');
+        slot.className = 's11-slot' + (player ? ' filled' : '');
+        slot.dataset.key = key;
+        slot.style.left = pos.x + '%';
+        slot.style.top  = ROW_Y[row] + '%';
+
+        var shortName = player ? (player.name || '').split(' ').slice(-1)[0] : '';
+        slot.innerHTML =
+          '<div class="s11-slot-disc">' +
+            '<span class="s11-slot-plus">+</span>' +
+            '<span class="s11-slot-name">' + shortName + '</span>' +
+          '</div>' +
+          '<span class="s11-slot-pos-label">' + ROW_LABEL[row] + '</span>';
+
+        slot.addEventListener('click', function () {
+          var k = this.dataset.key;
+          if (_slots[k]) {
+            // Deassign
+            delete _slots[k];
+            renderPitch();
+            renderPool();
+            updateS11Counter();
+          } else {
+            // Mark active — next pool click assigns here
+            pitch.querySelectorAll('.s11-slot.active').forEach(function (s) { s.classList.remove('active'); });
+            this.classList.add('active');
+          }
+        });
+
+        pitch.appendChild(slot);
+      });
+    });
+  }
+
+  // ── Pool rendering ────────────────────────────────────────────────────────
+  function renderPool() {
+    var pool = document.getElementById('s11PlayerPool');
+    if (!pool || !_allPlayers.length) return;
+
+    var assignedIds = new Set(Object.values(_slots).map(function (p) { return p.id; }));
+    var groups = { Goalkeeper:[], Defender:[], Midfielder:[], Attacker:[] };
+    var labels = { Goalkeeper:'Kaleci', Defender:'Defans', Midfielder:'Orta Saha', Attacker:'Forvet' };
+    _allPlayers.forEach(function (p) { if (groups[p.position]) groups[p.position].push(p); });
 
     var html = '';
-    ['Goalkeeper', 'Defender', 'Midfielder', 'Attacker'].forEach(function (pos) {
+    ['Goalkeeper','Defender','Midfielder','Attacker'].forEach(function (pos) {
       var list = groups[pos];
       if (!list.length) return;
-      html += '<div class="s11-position-group"><div class="s11-position-label">' + labels[pos] + '</div><div class="s11-player-grid">';
+      html += '<div class="s11-pool-section"><div class="s11-pool-pos-label">' + labels[pos] + '</div><div class="s11-pool-row">';
       list.forEach(function (p) {
-        html += '<button class="s11-player-btn" data-id="' + p.id + '">' +
+        var sel = assignedIds.has(p.id);
+        html += '<button class="s11-player-btn' + (sel ? ' selected' : '') + '" data-player-id="' + p.id + '"' +
+          (sel ? ' disabled' : '') + '>' +
           (p.number ? '<span class="s11-player-num">' + p.number + '</span>' : '') +
           p.name + '</button>';
       });
       html += '</div></div>';
     });
-    document.getElementById('s11PlayerGroups').innerHTML = html;
+    pool.innerHTML = html;
 
-    document.getElementById('s11PlayerGroups').querySelectorAll('.s11-player-btn').forEach(function (btn) {
+    pool.querySelectorAll('.s11-player-btn:not(:disabled)').forEach(function (btn) {
       btn.addEventListener('click', function () {
-        var id = Number(this.dataset.id);
-        var idx = _selectedPlayerIds.indexOf(id);
-        if (idx !== -1) { _selectedPlayerIds.splice(idx, 1); this.classList.remove('selected'); }
-        else if (_selectedPlayerIds.length < 11) { _selectedPlayerIds.push(id); this.classList.add('selected'); }
-        updateS11Counter();
+        var id = Number(this.dataset.playerId);
+        var player = _allPlayers.find(function (p) { return p.id === id; });
+        if (!player) return;
+        assignPlayerToSlot(player);
       });
     });
+  }
+
+  function assignPlayerToSlot(player) {
+    var pitch = document.getElementById('s11Pitch');
+    // Check if an active (waiting) slot exists
+    var activeSlot = pitch ? pitch.querySelector('.s11-slot.active') : null;
+    if (activeSlot) {
+      var key = activeSlot.dataset.key;
+      _slots[key] = player;
+      activeSlot.classList.remove('active');
+    } else {
+      // Auto-assign: first empty slot in the player's position row, then any row
+      var row = POS_TO_ROW[player.position] || 'MID';
+      var formation = FORMATIONS[_currentFormation];
+      var target = null;
+      var rows = [row, 'GK','DEF','MID','ATT'];
+      for (var ri = 0; ri < rows.length; ri++) {
+        var r = rows[ri];
+        var rSlots = formation[r] || [];
+        for (var i = 0; i < rSlots.length; i++) {
+          var k = r + '-' + i;
+          if (!_slots[k]) { target = k; break; }
+        }
+        if (target) break;
+      }
+      if (target) _slots[target] = player;
+    }
+    renderPitch();
+    renderPool();
+    updateS11Counter();
+  }
+
+  function renderS11Grid(players) {
+    _allPlayers = players;
+    _slots = {};
+    renderFormationBar();
+    renderPitch();
+    renderPool();
     updateS11Counter();
   }
 
   function updateS11Counter() {
-    var n = _selectedPlayerIds.length;
+    var n = Object.keys(_slots).length;
+    _selectedPlayerIds = Object.values(_slots).map(function (p) { return p.id; });
     document.getElementById('s11CountLabel').textContent = n + ' / 11 seçildi';
     var btn = document.getElementById('s11SubmitBtn');
     btn.disabled = n !== 11;
-    btn.textContent = n === 11 ? "11'i Gönder" : '11 Oyuncu Seç (' + n + '/11)';
+    btn.textContent = n === 11 ? "İlk 11'i Gönder" : '11 Oyuncu Seç (' + n + '/11)';
   }
 
   document.getElementById('s11SubmitBtn').addEventListener('click', async function () {
