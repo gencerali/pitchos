@@ -94,6 +94,7 @@ export async function onRequest({ request, env }) {
         id:       parseInt(p.id, 10) || p.id,
         name:     p.displayName ?? p.fullName ?? p.shortName ?? '',
         position,
+        abbr,
         photo:    p.headshot?.href ?? null,
         number:   p.jersey != null ? parseInt(p.jersey, 10) : null,
       };

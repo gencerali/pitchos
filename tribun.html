@@ -553,6 +553,11 @@
     .s11-pitch-circle:hover{opacity:.8}
     .s11-pitch-circle.gk{background:#e8621a}
     .s11-pitch-pname{font-family:'Barlow Condensed',sans-serif;font-size:.46rem;font-weight:700;letter-spacing:.03em;color:#fff;text-align:center;max-width:42px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+    .s11-pitch-ctrl{display:flex;gap:2px;margin-top:2px;justify-content:center}
+    .s11-pitch-ctrl-btn{background:rgba(0,0,0,.5);border:none;color:rgba(255,255,255,.85);border-radius:2px;font-size:.4rem;padding:1px 3px;cursor:pointer;line-height:1.3;min-width:14px}
+    .s11-pitch-ctrl-btn:hover{background:rgba(0,0,0,.8)}
+    .s11-ctrl-rm{color:#ff9090}
+    .s11-pitch-ctrl-spacer{min-width:14px;display:inline-block}
 
     /* ── POLL CARD ── */
     .poll-card { background:var(--surface);border:1px solid var(--border2);border-radius:8px;overflow:hidden; }
@@ -1023,6 +1028,14 @@
   var _accessToken = null;
   var _selectedPlayerIds = [];
   var _playersById = {};
+  var _playerZones = {};
+  var ZONE_ORDER = ['Goalkeeper', 'Defender', 'Midfielder', 'Attacker'];
+  var SUBPOS_HORDER = {
+    GK:0, G:0,
+    LWB:0, LB:1, CB:2, SW:3, RB:4, RWB:5,
+    LM:0, DM:1, CM:2, AM:3, RM:4,
+    LW:0, CF:1, ST:2, SS:3, RW:4,
+  };
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function getUserIdFromToken(token) {
@@ -1266,6 +1279,7 @@
     if (!squadData?.players?.length) { showS11State('s11StateNoMatch'); return; }
 
     _selectedPlayerIds = [];
+    _playerZones = {};
     renderS11Grid(squadData.players);
     showS11State('s11StateForm');
   }
@@ -1294,8 +1308,15 @@
       btn.addEventListener('click', function () {
         var id = Number(this.dataset.id);
         var idx = _selectedPlayerIds.indexOf(id);
-        if (idx !== -1) { _selectedPlayerIds.splice(idx, 1); this.classList.remove('selected'); }
-        else if (_selectedPlayerIds.length < 11) { _selectedPlayerIds.push(id); this.classList.add('selected'); }
+        if (idx !== -1) {
+          _selectedPlayerIds.splice(idx, 1);
+          delete _playerZones[id];
+          this.classList.remove('selected');
+        } else if (_selectedPlayerIds.length < 11) {
+          _selectedPlayerIds.push(id);
+          _playerZones[id] = _playersById[id]?.position ?? 'Midfielder';
+          this.classList.add('selected');
+        }
         updateS11Counter();
       });
     });
@@ -1303,36 +1324,76 @@
   }
 
   function renderPitch() {
-    var zones = {
+    var zoneEls = {
       Attacker:   document.getElementById('s11ZoneAtt'),
       Midfielder: document.getElementById('s11ZoneMid'),
       Defender:   document.getElementById('s11ZoneDef'),
       Goalkeeper: document.getElementById('s11ZoneGk'),
     };
-    Object.values(zones).forEach(function (z) { if (z) z.innerHTML = ''; });
+    Object.values(zoneEls).forEach(function (z) { if (z) z.innerHTML = ''; });
+
+    // Group players by their assigned zone
+    var zoneGroups = { Goalkeeper: [], Defender: [], Midfielder: [], Attacker: [] };
     _selectedPlayerIds.forEach(function (id) {
       var p = _playersById[id];
       if (!p) return;
-      var zone = zones[p.position] || zones['Midfielder'];
-      if (!zone) return;
-      var num = p.number != null ? p.number : p.name.charAt(0);
-      var shortName = p.name.split(' ').pop();
-      var el = document.createElement('div');
-      el.className = 's11-pitch-player';
-      el.title = p.name + ' — tıkla çıkar';
-      el.innerHTML =
-        '<div class="s11-pitch-circle' + (p.position === 'Goalkeeper' ? ' gk' : '') + '">' + num + '</div>' +
-        '<div class="s11-pitch-pname">' + shortName + '</div>';
-      el.addEventListener('click', function () {
-        var idx = _selectedPlayerIds.indexOf(id);
-        if (idx !== -1) {
-          _selectedPlayerIds.splice(idx, 1);
+      var zone = _playerZones[id] ?? p.position ?? 'Midfielder';
+      if (!zoneGroups[zone]) zone = 'Midfielder';
+      zoneGroups[zone].push(id);
+    });
+
+    // Sort each zone by sub-position horizontal order (left → right)
+    Object.keys(zoneGroups).forEach(function (zone) {
+      zoneGroups[zone].sort(function (a, b) {
+        var oa = SUBPOS_HORDER[_playersById[a]?.abbr ?? ''] ?? 2;
+        var ob = SUBPOS_HORDER[_playersById[b]?.abbr ?? ''] ?? 2;
+        return oa - ob;
+      });
+    });
+
+    // Render
+    Object.keys(zoneGroups).forEach(function (zone) {
+      var zEl = zoneEls[zone];
+      if (!zEl) return;
+      zoneGroups[zone].forEach(function (id) {
+        var p = _playersById[id];
+        if (!p) return;
+        var assignedZone = _playerZones[id] ?? p.position ?? 'Midfielder';
+        var zi = ZONE_ORDER.indexOf(assignedZone);
+        var num = p.number != null ? p.number : p.name.charAt(0);
+        var shortName = p.name.split(' ').pop();
+        var isGK = assignedZone === 'Goalkeeper';
+        var el = document.createElement('div');
+        el.className = 's11-pitch-player';
+        el.title = p.name;
+        var upBtn = zi < 3 ? '<button class="s11-pitch-ctrl-btn s11-ctrl-up" title="Öne al">▲</button>' : '<span class="s11-pitch-ctrl-spacer"></span>';
+        var dnBtn = zi > 0 ? '<button class="s11-pitch-ctrl-btn s11-ctrl-dn" title="Geri al">▼</button>' : '<span class="s11-pitch-ctrl-spacer"></span>';
+        el.innerHTML =
+          '<div class="s11-pitch-circle' + (isGK ? ' gk' : '') + '">' + num + '</div>' +
+          '<div class="s11-pitch-pname">' + shortName + '</div>' +
+          '<div class="s11-pitch-ctrl">' + upBtn + '<button class="s11-pitch-ctrl-btn s11-ctrl-rm" title="Çıkar">✕</button>' + dnBtn + '</div>';
+        el.querySelector('.s11-ctrl-rm').addEventListener('click', function (e) {
+          e.stopPropagation();
+          var idx = _selectedPlayerIds.indexOf(id);
+          if (idx !== -1) { _selectedPlayerIds.splice(idx, 1); delete _playerZones[id]; }
           var btn = document.querySelector('.s11-player-btn[data-id="' + id + '"]');
           if (btn) btn.classList.remove('selected');
           updateS11Counter();
-        }
+        });
+        var upEl = el.querySelector('.s11-ctrl-up');
+        if (upEl) upEl.addEventListener('click', function (e) {
+          e.stopPropagation();
+          _playerZones[id] = ZONE_ORDER[Math.min(3, ZONE_ORDER.indexOf(_playerZones[id] ?? p.position ?? 'Midfielder') + 1)];
+          renderPitch();
+        });
+        var dnEl = el.querySelector('.s11-ctrl-dn');
+        if (dnEl) dnEl.addEventListener('click', function (e) {
+          e.stopPropagation();
+          _playerZones[id] = ZONE_ORDER[Math.max(0, ZONE_ORDER.indexOf(_playerZones[id] ?? p.position ?? 'Midfielder') - 1)];
+          renderPitch();
+        });
+        zEl.appendChild(el);
       });
-      zone.appendChild(el);
     });
   }
 
