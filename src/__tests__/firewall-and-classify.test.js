@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeStoryType, parseFirewallResponse } from '../firewall.js';
+import { normalizeStoryType, normalizeDeltaType, parseFirewallResponse } from '../firewall.js';
 import { tierToTrustScore, classifyVideoType } from '../publisher.js';
 
 describe('normalizeStoryType — maps free-text → controlled set', () => {
@@ -18,6 +18,19 @@ describe('normalizeStoryType — maps free-text → controlled set', () => {
     expect(normalizeStoryType('weather report')).toBe('other');
     expect(normalizeStoryType('')).toBe('other');
     expect(normalizeStoryType(null)).toBe('other');
+  });
+});
+
+describe('normalizeDeltaType — maps free-text → controlled set', () => {
+  it('passes through valid delta types', () => {
+    ['milestone', 'statement', 'decision', 'contradiction', 'development', 'routine'].forEach(t => {
+      expect(normalizeDeltaType(t)).toBe(t);
+    });
+  });
+  it('falls back to routine for null / empty / unrecognised', () => {
+    expect(normalizeDeltaType(null)).toBe('routine');
+    expect(normalizeDeltaType('')).toBe('routine');
+    expect(normalizeDeltaType('xyzzy')).toBe('routine');
   });
 });
 

@@ -11,7 +11,7 @@
 //  - shadow-only — writes ONLY new tables (topics/phases) + shadow KV; never touches
 //    content_items, the live `articles:{site}` key, or the `pipeline:active` pointer.
 //  - budget-bounded — Sonnet synthesis capped per run; honours the shared cost cap;
-//    the rules pre-filter keeps pure confirmations from ever reaching an LLM.
+//    routine facts (delta_type=routine) are skipped before any LLM call.
 //
 // Shared CODE, isolated RUNTIME: same ./src/*.js modules as the legacy worker; own cron,
 // own CPU/subrequest budget, own failure domain (design §5).
@@ -116,13 +116,13 @@ async function processSiteMethodB(site, env) {
   // Reuse legacy fact extraction: read existing `facts` rows (design §6.1, no re-extraction).
   const ids = rows.map(r => r.id);
   const facts = await supabase(env, 'GET',
-    `/rest/v1/facts?content_item_id=in.(${ids.join(',')})&select=content_item_id,story_type,entities,numbers,dates`
+    `/rest/v1/facts?content_item_id=in.(${ids.join(',')})&select=content_item_id,story_type,entities,numbers,dates,delta_type,news_mode`
   ) || [];
   const factsByItem = new Map(facts.map(f => [f.content_item_id, f]));
 
   const tally = {
     candidates: rows.length, withFacts: 0, eventRoute: 0,
-    deltaChecks: 0, materialDelta: 0, confirmingSkip: 0, synthesized: 0, capBlocked: cap.blocked,
+    materialDelta: 0, confirmingSkip: 0, synthesized: 0, capBlocked: cap.blocked,
   };
   const newArticles = [];
   let synthCount = 0;
@@ -131,9 +131,10 @@ async function processSiteMethodB(site, env) {
     const f = factsByItem.get(item.id) || null;
     if (f) tally.withFacts++;
 
-    const mode = routeNewsMode(item, f);
+    const deltaType = f?.delta_type || null;
+    const mode      = f?.news_mode  || 'accretive';
 
-    // Correlate to a topic (needed for the prior claim-track that delta detection diffs against).
+    // Correlate to a topic (needed for the prior claim-track that claimTrackMoved diffs against).
     let topicInfo = null;
     if (f) {
       try { topicInfo = await correlateToTopic(item, f, site, env); }
@@ -143,23 +144,21 @@ async function processSiteMethodB(site, env) {
 
     let doSynth = false, trigger = 'update', newTrack = null;
 
-    if (mode === 'event') {
+    if (!deltaType || deltaType === 'routine') {
+      // Confirming repeat — no article, just bump confidence via claim-track update.
+      tally.confirmingSkip++;
+    } else if (mode === 'event' || ['milestone', 'statement', 'decision'].includes(deltaType)) {
+      // Standalone newsworthy event — fire immediately (no claim-track diff needed).
       tally.eventRoute++;
-      doSynth = true; trigger = 'event';
+      doSynth = true; trigger = deltaType;
     } else {
-      // Rules pre-filter FIRST — pure confirmations never reach the LLM (cost guardrail §6.3).
-      const pre = rulesPreFilterDelta(priorTrack, f, item);
-      if (pre.possibleDelta) {
-        if (cap.blocked || synthCount >= SHADOW_SYNTH_CAP) {
-          // would spend, but budget/cap reached this run — leave cursor to retry next run
+      // development or contradiction — check if claim-track actually moved (pure JS, zero cost).
+      if (!cap.blocked && synthCount < SHADOW_SYNTH_CAP) {
+        if (claimTrackMoved(priorTrack, f)) {
+          doSynth = true; trigger = deltaType; tally.materialDelta++;
         } else {
-          tally.deltaChecks++;
-          const delta = await detectDeltaLLM(priorTrack, f, item, env, stats);
-          if (delta?.material) { doSynth = true; trigger = delta.trigger || 'update'; newTrack = delta.new_track || null; tally.materialDelta++; }
-          else tally.confirmingSkip++;
+          tally.confirmingSkip++;
         }
-      } else {
-        tally.confirmingSkip++;
       }
     }
 
@@ -236,35 +235,22 @@ async function correlateToTopic(item, facts, site, env) {
   return { topic, trackKey, priorTrack };
 }
 
-// ─── STAGE 3: DELTA DETECTION (Haiku, behind the rules pre-filter) ────────────
-async function detectDeltaLLM(priorTrack, facts, item, env, stats) {
-  const prompt = `You compare a football news fact against a story's CURRENT known state and decide if it is a MATERIAL update.
 
-CURRENT TRACK STATE (may be null = first time):
-${JSON.stringify(priorTrack)}
-
-NEW FACT:
-title: ${item.title || ''}
-type: ${facts?.story_type || ''}
-entities: ${JSON.stringify(facts?.entities || {})}
-numbers: ${JSON.stringify(facts?.numbers || {})}
-dates: ${JSON.stringify(facts?.dates || {})}
-
-Return ONLY JSON:
-{"material": true|false, "trigger": "initial"|"update"|"contradiction", "new_track": {"status": "...", "numbers": {...}, "dates": {...}, "confidence": 0-100}}
-material=true ONLY if the fact changes status, a number/date, or contradicts the current state. A mere repeat = material:false.`;
-  try {
-    const res = await callClaude(env, MODEL_FETCH, prompt, false, 400);
-    addUsagePhase(stats, res.usage, MODEL_FETCH, 'methodb_delta');
-    const m = extractText(res.content).match(/\{[\s\S]*\}/);
-    return m ? JSON.parse(m[0]) : null;
-  } catch (e) { console.error('detectDeltaLLM:', e.message); return null; }
-}
+// Semantic label for the synthesis prompt lede instruction.
+const TRIGGER_LABELS = {
+  milestone:    'kesinleşme/onay — bilinmeyen bir şey artık netleşti',
+  statement:    'resmi açıklama veya kamuoyu tepkisi',
+  decision:     'resmi karar — yetkili makam açıkladı',
+  contradiction: 'tekzip veya çöküş — önceki haber geçersizleşti',
+  development:  'süregelen gelişme — hikâye ilerledi',
+  event:        'anlık haber',
+};
 
 // ─── STAGE 4: SYNTHESIZE FROM STORED FACTS (Sonnet) ──────────────────────────
 // Writes from compact structured facts, NOT by re-fetching source text (design §4/§6).
 async function synthesizePhase(topic, facts, item, env, stats, trigger) {
   const editorial = await getEditorialNotes(env, ['news', facts?.story_type || '']).catch(() => '');
+  const triggerLabel = TRIGGER_LABELS[trigger] || trigger;
   const prompt = `${editorial}Sen Kartalix'in kıdemli spor editörüsün. Aşağıdaki DOĞRULANMIŞ OLGULARDAN özgün bir Türkçe haber yaz.
 
 OLGULAR:
@@ -273,7 +259,7 @@ tip: ${facts?.story_type || ''}
 varlıklar: ${JSON.stringify(facts?.entities || {})}
 sayılar: ${JSON.stringify(facts?.numbers || {})}
 tarihler: ${JSON.stringify(facts?.dates || {})}
-gelişme tipi: ${trigger}
+gelişme tipi: ${triggerLabel}
 
 KURALLAR:
 - Çıktı tam olarak şu formatta:
@@ -281,7 +267,7 @@ BAŞLIK: [Türkçe manşet]
 
 [haber gövdesi]
 - 180–320 kelime, güçlü Kartalix sesi
-- Lede: en son GELİŞMEYİ ilk cümlede ver (delta = ${trigger})
+- Lede: "${triggerLabel}" çerçevesinde en son gelişmeyi ilk cümlede ver
 - Sadece olgulara dayan, uydurma; "habere göre" deme; emoji yok`;
   try {
     const res = await callClaude(env, MODEL_GENERATE, prompt, false, 1200);
@@ -330,52 +316,20 @@ function toShadowKVShape({ title, body, item, facts, topic, trigger }) {
   };
 }
 
-// ─── STAGE 1: EVENT / ACCRETIVE ROUTER ───────────────────────────────────────
-export function routeNewsMode(item, facts) {
-  const st = facts?.story_type || '';
-  if (st === 'match_result' || st === 'squad') return 'event';
-  const t = `${item.title || ''} ${item.summary || ''}`.toLowerCase();
-  if (/\bresmi\b|resmen|açıkland|imzaladı|duyurdu|kadroya kat|gol|kırmızı kart|kart gördü/.test(t)) return 'event';
-  return 'accretive';
-}
-
-// ─── RULES PRE-FILTER BEFORE THE DELTA LLM (design §6.3) ─────────────────────
-// Pure JS, no tokens. Only a `possibleDelta` is allowed to spend a Haiku diff;
-// pure `confirming` repeats never reach the model.
-const STATUS_WORDS = [
-  'ilgileniyor', 'görüşme', 'gorusme', 'teklif', 'anlaşma', 'anlasma', 'el sıkış', 'el sikis',
-  'sağlık kontrol', 'saglik kontrol', 'imza', 'imzaladı', 'imzaladi', 'resmi', 'resmen',
-  'kiralık', 'kiralik', 'bonservis', 'sakat', 'ameliyat', 'döndü', 'dondu', 'antrenman',
-];
-const CONTRADICTION_WORDS = [
-  'yalanladı', 'yalanladi', 'iptal', 'vazgeçti', 'vazgecti', 'bitti', 'çıkmaza', 'cikmaza',
-  'rest çekti', 'rest cekti', 'geri adım', 'geri adim', 'son buldu', 'reddetti', 'olmadı', 'olmadi',
-];
-
-export function rulesPreFilterDelta(priorTrack, facts, item) {
-  const reasons = [];
-  const text = `${item?.title || ''} ${item?.summary || ''}`.toLowerCase();
-
-  if (CONTRADICTION_WORDS.some(w => text.includes(w))) reasons.push('contradiction_marker');
-
-  const presentStatus = STATUS_WORDS.filter(w => text.includes(w));
-  if (presentStatus.length) {
-    const cur = (priorTrack?.status || '').toLowerCase();
-    if (!cur || !presentStatus.some(w => cur.includes(w))) reasons.push('status_change');
+// ─── CLAIM-TRACK MOVED CHECK (pure JS, zero cost) ────────────────────────────
+// Used for development/contradiction facts: true if any structured value in the
+// new fact differs from the prior claim-track state.
+export function claimTrackMoved(prior, facts) {
+  if (!prior) return true; // first contribution always moves
+  const pn = prior.numbers || {};
+  const pd = prior.dates   || {};
+  for (const [k, v] of Object.entries(facts?.numbers || {})) {
+    if (v == null || (Array.isArray(v) && !v.length)) continue;
+    if (JSON.stringify(pn[k]) !== JSON.stringify(v)) return true;
   }
-
-  const hasNewValue = (obj, track) => {
-    for (const [k, v] of Object.entries(obj || {})) {
-      if (v == null) continue;
-      if (Array.isArray(v) && v.length === 0) continue;
-      if (!track || track[k] == null || JSON.stringify(track[k]) !== JSON.stringify(v)) return true;
-    }
-    return false;
-  };
-  if (hasNewValue(facts?.numbers, priorTrack?.numbers)) reasons.push('new_number');
-  if (hasNewValue(facts?.dates, priorTrack?.dates)) reasons.push('new_date');
-
-  if (!priorTrack) reasons.push('initial');
-
-  return { possibleDelta: reasons.length > 0, reasons };
+  for (const [k, v] of Object.entries(facts?.dates || {})) {
+    if (v == null || (Array.isArray(v) && !v.length)) continue;
+    if (JSON.stringify(pd[k]) !== JSON.stringify(v)) return true;
+  }
+  return facts?.delta_type === 'contradiction';
 }

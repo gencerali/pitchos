@@ -1,56 +1,66 @@
 import { describe, it, expect } from 'vitest';
-import { rulesPreFilterDelta, routeNewsMode } from '../../worker-story-agent.js';
+import { claimTrackMoved } from '../../worker-story-agent.js';
+import { normalizeDeltaType } from '../firewall.js';
 
-// The rules pre-filter is the cost guardrail (design §6.3): only a `possibleDelta` is
-// allowed to spend a Haiku diff in Step 2; pure confirmations must stay free.
-describe('Method B — rulesPreFilterDelta (cost guardrail)', () => {
-  it('treats the first contribution (no prior track) as an initial delta', () => {
-    const r = rulesPreFilterDelta(null, { numbers: {} }, { title: 'X ile ilgileniyor' });
-    expect(r.possibleDelta).toBe(true);
-    expect(r.reasons).toContain('initial');
+describe('normalizeDeltaType — maps free-text → controlled set', () => {
+  it('passes through valid delta types unchanged', () => {
+    expect(normalizeDeltaType('milestone')).toBe('milestone');
+    expect(normalizeDeltaType('statement')).toBe('statement');
+    expect(normalizeDeltaType('decision')).toBe('decision');
+    expect(normalizeDeltaType('contradiction')).toBe('contradiction');
+    expect(normalizeDeltaType('development')).toBe('development');
+    expect(normalizeDeltaType('routine')).toBe('routine');
   });
 
-  it('skips a true confirmation — same status + same values → no LLM spend', () => {
-    const r = rulesPreFilterDelta(
-      { status: 'görüşme', numbers: { transfer_fee: 5 }, dates: {} },
-      { numbers: { transfer_fee: 5 }, dates: {} },
-      { title: 'Görüşmeler sürüyor', summary: 'aynı haber' },
-    );
-    expect(r.possibleDelta).toBe(false);
-    expect(r.reasons).toEqual([]);
+  it('maps unknown strings by keyword fallback', () => {
+    expect(normalizeDeltaType('signing_confirmed')).toBe('milestone');
+    expect(normalizeDeltaType('official_statement')).toBe('milestone'); // "official" → milestone
+    expect(normalizeDeltaType('player_quote')).toBe('statement');       // "quote" → statement
+    expect(normalizeDeltaType('penalty_sanction')).toBe('decision');    // "sanction" → decision
+    expect(normalizeDeltaType('transfer_cancelled')).toBe('contradiction'); // "cancel" → contradiction
+    expect(normalizeDeltaType('talks_progressing')).toBe('development'); // "progress" → development
   });
 
-  it('flags a status change (görüşme → imza)', () => {
-    const r = rulesPreFilterDelta({ status: 'görüşme' }, {}, { title: 'Resmi imza atıldı' });
-    expect(r.reasons).toContain('status_change');
-  });
-
-  it('flags a new number the track does not yet hold (fee 5 → 7)', () => {
-    const r = rulesPreFilterDelta(
-      { status: 'anlaşma', numbers: { transfer_fee: 5 } },
-      { numbers: { transfer_fee: 7 } },
-      { title: 'anlaşma' },
-    );
-    expect(r.reasons).toContain('new_number');
-  });
-
-  it('flags contradiction markers (iptal / yalanladı)', () => {
-    const r = rulesPreFilterDelta({ status: 'anlaşma' }, {}, { title: 'Transfer iptal, kulüp yalanladı' });
-    expect(r.reasons).toContain('contradiction_marker');
+  it('falls back to routine for empty / null / unrecognised input', () => {
+    expect(normalizeDeltaType(null)).toBe('routine');
+    expect(normalizeDeltaType('')).toBe('routine');
+    expect(normalizeDeltaType('random_noise')).toBe('routine');
   });
 });
 
-describe('Method B — routeNewsMode (EVENT/ACCRETIVE router)', () => {
-  it('routes match_result / squad facts to EVENT (fire now)', () => {
-    expect(routeNewsMode({ title: 'Maç sonucu' }, { story_type: 'match_result' })).toBe('event');
-    expect(routeNewsMode({ title: 'İlk 11 açıklandı' }, { story_type: 'squad' })).toBe('event');
+describe('claimTrackMoved — pure JS track diff (zero LLM cost)', () => {
+  it('returns true when there is no prior track (first contribution)', () => {
+    expect(claimTrackMoved(null, { numbers: {}, dates: {} })).toBe(true);
+    expect(claimTrackMoved(undefined, {})).toBe(true);
   });
 
-  it('routes official-announcement keywords to EVENT even without an event story_type', () => {
-    expect(routeNewsMode({ title: 'Beşiktaş resmen açıkladı' }, { story_type: 'transfer' })).toBe('event');
+  it('returns false when numbers and dates are identical to the prior track', () => {
+    const prior = { numbers: { transfer_fee: 5 }, dates: { announcement: '2026-07-01' } };
+    const facts = { numbers: { transfer_fee: 5 }, dates: { announcement: '2026-07-01' } };
+    expect(claimTrackMoved(prior, facts)).toBe(false);
   });
 
-  it('routes developing rumors to ACCRETIVE', () => {
-    expect(routeNewsMode({ title: 'transfer söylentisi', summary: 'iddiaya göre' }, { story_type: 'transfer' })).toBe('accretive');
+  it('returns true when a number changed (fee 5 → 7)', () => {
+    const prior = { numbers: { transfer_fee: 5 }, dates: {} };
+    const facts = { numbers: { transfer_fee: 7 }, dates: {} };
+    expect(claimTrackMoved(prior, facts)).toBe(true);
+  });
+
+  it('returns true when a date is newly set', () => {
+    const prior = { numbers: {}, dates: {} };
+    const facts = { numbers: {}, dates: { announcement: '2026-07-15' } };
+    expect(claimTrackMoved(prior, facts)).toBe(true);
+  });
+
+  it('ignores null / empty-array values in the new fact (not a real change)', () => {
+    const prior = { numbers: { transfer_fee: 5 }, dates: {} };
+    const facts = { numbers: { transfer_fee: null, other: [] }, dates: {} };
+    expect(claimTrackMoved(prior, facts)).toBe(false);
+  });
+
+  it('always returns true for contradiction delta_type regardless of values', () => {
+    const prior = { numbers: { transfer_fee: 5 }, dates: {} };
+    const facts = { delta_type: 'contradiction', numbers: { transfer_fee: 5 }, dates: {} };
+    expect(claimTrackMoved(prior, facts)).toBe(true);
   });
 });

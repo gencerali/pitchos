@@ -3,6 +3,21 @@ import { callClaude, extractText, MODEL_FETCH } from './utils.js';
 // ─── CONTROLLED STORY TYPE SET ───────────────────────────────
 const VALID_STORY_TYPES = new Set(['transfer', 'injury', 'disciplinary', 'contract', 'institutional', 'match_result', 'squad', 'other']);
 
+// ─── CONTROLLED DELTA TYPE SET ───────────────────────────────
+const VALID_DELTA_TYPES = new Set(['milestone', 'statement', 'decision', 'contradiction', 'development', 'routine']);
+
+export function normalizeDeltaType(raw) {
+  if (!raw) return 'routine';
+  if (VALID_DELTA_TYPES.has(raw)) return raw;
+  const t = raw.toLowerCase();
+  if (t.includes('confirm') || t.includes('official') || t.includes('arrival') || t.includes('seal') || t.includes('sign')) return 'milestone';
+  if (t.includes('statement') || t.includes('react') || t.includes('quote') || t.includes('comment')) return 'statement';
+  if (t.includes('ruling') || t.includes('decision') || t.includes('penalty') || t.includes('sanction') || t.includes('verdict')) return 'decision';
+  if (t.includes('deny') || t.includes('cancel') || t.includes('collapse') || t.includes('contra')) return 'contradiction';
+  if (t.includes('develop') || t.includes('progress') || t.includes('advance') || t.includes('ongoing')) return 'development';
+  return 'routine';
+}
+
 // Maps Claude free-text output → nearest controlled type.
 // Claude sometimes invents compound types ("transfer_interest", "player_contract_extension").
 // This catches them by keyword scan before they reach the DB.
@@ -20,45 +35,56 @@ export function normalizeStoryType(raw) {
   return 'other';
 }
 
-// ─── STORY TYPE CLASSIFIER ────────────────────────────────────
-// Single Haiku call — classifies news before fact extraction so
-// each story type gets the right schema.
+// ─── STORY TYPE + DELTA CLASSIFIER ───────────────────────────
+// Single Haiku call — classifies story type AND the semantic delta type so the
+// story worker can dispatch without a second LLM call (replaces detectDeltaLLM).
 export async function classifyStoryType(article, env) {
   const text = `${article.title}. ${article.summary || ''}`.slice(0, 400);
   const prompt = `Classify this Turkish football news article. Return ONLY valid JSON.
 
 Article: ${text}
 
-You MUST return one of exactly these story_type values — no others, no variations:
-- transfer: player moving between clubs, loan, signing, transfer interest
-- injury: player injury, medical news, recovery timeline
-- disciplinary: suspension, ban, fine, card accumulation
-- contract: contract renewal, extension, buyout, termination
-- match_result: a specific finished match, score, goal event
-- squad: lineup announcement, formation, call-up
-- institutional: club ownership, management change, board decision, financial restructuring
-- other: anything not covered above
+story_type — pick exactly one: transfer | injury | disciplinary | contract | match_result | squad | institutional | other
+  transfer: player moving clubs, loan, signing, transfer interest
+  injury: player injury, medical news, recovery timeline
+  disciplinary: suspension, ban, fine, card accumulation
+  contract: renewal, extension, buyout, termination
+  match_result: a specific finished match, score, goal event
+  squad: lineup announcement, formation, call-up
+  institutional: ownership, management change, board decision, financial restructuring
+  other: anything not covered above
 
-{"story_type": "<one of the 8 values above>", "story_category": "sporting" | "financial" | "institutional" | "other"}
+story_category — pick exactly one: "sporting" | "financial" | "institutional" | "other"
 
-sporting: transfer, injury, disciplinary, contract, match_result, squad
-financial: contract value as primary story, FFP, debt
-institutional: ownership, board, management
+delta_type — what kind of news event is this? Pick exactly one:
+  "milestone": something unknown is now confirmed (arrival date set, deal sealed, signing official, player arrived)
+  "statement": a named person made a public declaration, reaction, or quote (president spoke, coach reacted, player commented)
+  "decision": an authority issued a formal ruling (MHK, TFF, FIFA, court, board vote, official penalty announced)
+  "contradiction": directly denies or reverses a prior report (transfer denied, deal collapsed, cancelled, off)
+  "development": incremental update on an ongoing story (interest reported, offer made, talks started/ongoing, negotiations advanced)
+  "routine": another source repeating what is already widely known — no new concrete information
 
-Return only the JSON. Do not invent new story_type values.`;
+news_mode — pick exactly one:
+  "event": standalone newsworthy on its own (official announcement, authority ruling, public statement, match result)
+  "accretive": part of a developing story needing multiple sources before publishing
 
+{"story_type": "...", "story_category": "...", "delta_type": "...", "news_mode": "..."}`;
+
+  const fallback = { story_type: 'other', story_category: 'other', delta_type: 'routine', news_mode: 'accretive' };
   try {
-    const res  = await callClaude(env, MODEL_FETCH, prompt, false, 80);
+    const res  = await callClaude(env, MODEL_FETCH, prompt, false, 120);
     const raw  = extractText(res.content);
     const json = raw.match(/\{[\s\S]*\}/);
-    if (!json) return { story_type: 'other', story_category: 'other' };
+    if (!json) return fallback;
     const parsed = JSON.parse(json[0]);
     return {
       story_type:     normalizeStoryType(parsed.story_type),
       story_category: parsed.story_category || 'other',
+      delta_type:     normalizeDeltaType(parsed.delta_type),
+      news_mode:      parsed.news_mode === 'event' ? 'event' : 'accretive',
     };
   } catch {
-    return { story_type: 'other', story_category: 'other' };
+    return fallback;
   }
 }
 
@@ -247,7 +273,7 @@ Return only the JSON.`;
 export async function extractFactsForStory(article, env) {
   const sourceText = `${article.title}. ${article.summary || ''}`.slice(0, 800);
 
-  const { story_type, story_category } = await classifyStoryType(article, env);
+  const { story_type, story_category, delta_type, news_mode } = await classifyStoryType(article, env);
 
   let prompt;
   if      (story_type === 'transfer')            prompt = buildExtractionPrompt(sourceText);
@@ -272,6 +298,8 @@ export async function extractFactsForStory(article, env) {
     dates:    parsed.dates    || {},
     story_type,
     story_category,
+    delta_type,
+    news_mode,
   };
 
   const factsRows = await supabasePost(env, '/rest/v1/facts', {
@@ -281,6 +309,8 @@ export async function extractFactsForStory(article, env) {
     entities:                 facts.entities,
     numbers:                  facts.numbers,
     dates:                    facts.dates,
+    delta_type,
+    news_mode,
     extraction_model:         MODEL_FETCH,
     extraction_input_tokens:  res.usage?.input_tokens  ?? null,
     extraction_output_tokens: res.usage?.output_tokens ?? null,
