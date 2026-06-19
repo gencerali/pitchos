@@ -10,6 +10,16 @@ const RIVAL_KEYWORDS = [
   'cimbom', 'sarı-lacivert', 'sari-lacivert', 'sarı-kırmızı', 'sari-kirmizi', 'bordo-mavi',
 ];
 
+// Rival club figures (coaches) whose NAME alone must not make an article read as BJK news.
+// "Kartal" is also Beşiktaş's nickname, so Fenerbahçe head coach "İsmail Kartal" otherwise
+// trips the BJK keyword check and his transfer/squad stories get treated as Beşiktaş news
+// even when no rival CLUB is named (e.g. "İsmail Kartal'dan Tadic'e sürpriz telefon", 2026-06).
+// Matched against an ASCII-folded title; a real BJK angle (BJK_ANGLE_RE) still spares the
+// article (e.g. "Beşiktaş, İsmail Kartal'la görüştü"). Add current rival coaches here.
+const RIVAL_FIGURES = [
+  'ismail kartal',   // Fenerbahçe head coach — surname collides with Beşiktaş's "Kartal"
+];
+
 // Unambiguous Beşiktaş references for the rival-guard exception below. Bare singular "kartal"
 // is deliberately EXCLUDED here: it collides with common Turkish surnames (e.g. Fenerbahçe
 // coach "İsmail Kartal"), which let a rival-led story bypass this guard — published 2026-06-18
@@ -17,16 +27,19 @@ const RIVAL_KEYWORDS = [
 // (the eagles / the fans) are unambiguous and remain valid BJK signals.
 const BJK_ANGLE_RE = /beşiktaş|besiktas|\bbjk\b|siyah.?beyaz|kara kartal|kartallar/i;
 
-// True when an article TITLE is led by a rival club AND carries no BJK keyword in the title
-// — i.e. a rival-internal story (board election, rival-only transfer) with no Beşiktaş angle.
-// Deterministic backstop: the LLM relevance scorer alone has let these through
-// (e.g. a Fenerbahçe genel-kurul article published on the BJK site, 2026-06-06).
+// True when an article TITLE is led by a rival club/figure AND carries no BJK angle in the
+// title — i.e. a rival-internal story (board election, rival-only transfer, rival coach move)
+// with no Beşiktaş relevance. Deterministic backstop: the LLM relevance scorer alone has let
+// these through (e.g. a Fenerbahçe genel-kurul article published on the BJK site, 2026-06-06).
 export function isRivalSubject(title) {
   // Substring match (not token) so Turkish suffixes still match: "Fenerbahçe'de" → fenerbahçe.
   // A genuine Beşiktaş angle spares the article — but only on an UNAMBIGUOUS signal (BJK_ANGLE_RE),
   // never on the bare word "kartal", which is too easily a person's surname.
   const t = (title || '').toLowerCase();
-  const hasRival = RIVAL_KEYWORDS.some(k => t.includes(k));
+  // ASCII-folded copy so the dotted Turkish İ ("İsmail" → "i̇smail") still matches the
+  // plain-ASCII RIVAL_FIGURES entries (strip combining marks U+0300–U+036F).
+  const ascii = t.normalize('NFKD').replace(/[̀-ͯ]/g, '');
+  const hasRival = RIVAL_KEYWORDS.some(k => t.includes(k)) || RIVAL_FIGURES.some(k => ascii.includes(k));
   return hasRival && !BJK_ANGLE_RE.test(t);
 }
 

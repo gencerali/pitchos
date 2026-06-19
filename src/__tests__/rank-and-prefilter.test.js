@@ -80,6 +80,12 @@ describe('isRivalSubject — deterministic rival guard', () => {
     expect(isRivalSubject("Beşiktaş, Fenerbahçe'nin yıldızını istiyor")).toBe(false);
     expect(isRivalSubject('BJK, Galatasaraylı oyuncuyu transfer etti')).toBe(false);
   });
+  it('flags a rival COACH (İsmail Kartal) even when no rival club is named', () => {
+    // "Kartal" is also BJK's nickname, so the FB coach must be filtered explicitly. (2026-06)
+    expect(isRivalSubject("İsmail Kartal'dan Tadic'e sürpriz telefon! Geri mi dönüyor")).toBe(true);
+    // …but a genuine Beşiktaş angle still spares it.
+    expect(isRivalSubject('Beşiktaş, İsmail Kartal ile görüştü')).toBe(false);
+  });
 });
 
 describe('rankAndEvict — homepage composition', () => {
