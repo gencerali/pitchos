@@ -11,7 +11,8 @@
   const widget    = document.getElementById('userWidget');
   const avatarEl  = document.getElementById('userAvatar');
   const flameEl   = document.getElementById('kxStreakFlame');
-  let _kxMe       = null;
+  let _kxMe          = null;
+  let _currentUserSub = null;
   const flameNum  = document.getElementById('kxStreakCount');
   const loginBtn  = document.getElementById('kxLoginBtn');
 
@@ -142,6 +143,17 @@
   // ── 5. Render authenticated user state ───────────────────────
   async function loadAuthUser(accessToken) {
     try {
+      // Detect account switch — reload so page-level state resets for the new user
+      const newSub = (() => {
+        try { return JSON.parse(atob(accessToken.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).sub ?? null; }
+        catch { return null; }
+      })();
+      if (newSub && _currentUserSub && newSub !== _currentUserSub) {
+        location.reload();
+        return;
+      }
+      _currentUserSub = newSub;
+
       const me = await fetch('/api/me', {
         headers: { Authorization: `Bearer ${accessToken}` },
       }).then(r => r.ok ? r.json() : null);
