@@ -10,7 +10,7 @@
  *   5. Logs cost + results to Supabase
  */
 import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, costTrajectory, costAlarmConditions, rollupDailyCost, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle, saveSourceFact } from './src/utils.js';
-import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
+import { fetchRSSArticles, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
 import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
@@ -5355,24 +5355,13 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
     console.log('SOURCE CONFIGS: none in DB, using hardcoded defaults');
   }
 
-  // fetchBJKOfficial disabled — bjk.com.tr blocks all datacenter IPs (direct, pitchos-proxy, allorigins).
-  // Official BJK content will arrive via @Besiktas Twitter in Slice 4.
-  const [{ articles: rssArticles, bySource }, { articles: webArticles, usage: fetchUsage }, { articles: beINArticles, usage: beINUsage }, { articles: twitterArticles, usage: twitterUsage }] = await Promise.all([
-    fetchRSSArticles(site, dynamicRSSFeeds, lookbackMs),
-    fetchArticles(site, env),
-    fetchBeIN(site, env),
-    fetchTwitterSources(site, env),
-  ]);
-  stats.claudeCalls += 3;
-  addUsagePhase(stats, fetchUsage,   MODEL_FETCH, 'scout');
-  addUsagePhase(stats, beINUsage,    MODEL_FETCH, 'scout');
-  addUsagePhase(stats, twitterUsage, MODEL_FETCH, 'scout');
+  const { articles: rssArticles, bySource } = await fetchRSSArticles(site, dynamicRSSFeeds, lookbackMs);
 
   // ── PRE-FILTER (pure JS, zero Claude calls) ──────────────────
   const seenHashes = await getSeenHashes(env, site.short_code);
   const offTopicHashes = await getOffTopicHashes(env, site.short_code);
   const synthFailedHashes = await getSynthesisFailedHashes(env, site.short_code);
-  const allFetched = [...rssArticles, ...webArticles, ...beINArticles, ...twitterArticles]
+  const allFetched = [...rssArticles]
     .filter(a => {
       const urlHash = simpleHash(a.url || a.original_url || '');
       return !offTopicHashes.has(urlHash) && !synthFailedHashes.has(urlHash);
@@ -5426,7 +5415,7 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
     ` → ${funnelStats.after_hash} hash` +
     ` → ${funnelStats.after_title} title-dedup` +
     ` → ${funnelStats.after_url_dedup} url-dedup` +
-    ` (RSS:${rssArticles.length} web:${webArticles.length} beIN:${beINArticles.length} twitter:${twitterArticles.length})`
+    ` (RSS:${rssArticles.length})`
   );
 
   if (preFiltered.length === 0) {
