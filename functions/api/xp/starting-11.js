@@ -42,7 +42,7 @@ export async function onRequest({ request, env }) {
       await sbPatch(
         env,
         `starting_elevens?user_id=eq.${user.id}&site_id=eq.${site_id}&match_id=eq.${match_id}`,
-        { player_ids, updated_at: new Date().toISOString() }
+        { player_ids }
       );
       return json({ lineup_saved: true, updated: true, xp_earned: 0 });
     }
