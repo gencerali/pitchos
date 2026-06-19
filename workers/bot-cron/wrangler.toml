@@ -1,0 +1,15 @@
+name = "pitchos-bot-cron"
+main = "index.js"
+compatibility_date = "2024-01-01"
+workers_dev = false
+
+[triggers]
+crons = [
+  "0 4 * * *",    # morning   — 07:00 TRT (UTC+3)
+  "10 10 * * *",  # afternoon — 13:10 TRT
+  "0 15 * * *",   # evening   — 18:00 TRT
+  "0 19 * * *",   # night     — 22:00 TRT
+]
+
+# Deploy:  cd workers/bot-cron && wrangler deploy
+# Secret:  wrangler secret put XP_TOKEN_SECRET
