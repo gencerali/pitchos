@@ -1584,7 +1584,6 @@
 
   document.getElementById('s11EditBtn').addEventListener('click', async function () {
     if (!_match) return;
-    _s11EditMode = true;
     showS11State('s11StateLoading');
     var squadUrl = '/api/squad';
     if (_match?.squad_league) {
@@ -1595,16 +1594,41 @@
     try {
       var sq = await fetch(squadUrl).then(function (r) { return r.ok ? r.json() : null; });
       if (!sq?.players?.length) { showS11State('s11StateAlready'); return; }
-      renderS11Grid(sq.players);
-      _s11EditMode = true;
-      // Pre-fill previously selected players
+
+      // Auto-detect best matching formation from the saved picks
       if (_s11ExistingPlayerIds.length) {
         var idSet = new Set(_s11ExistingPlayerIds.map(Number));
-        var rowCounts = { GK: 0, DEF: 0, MID: 0, ATT: 0 };
+        var posCounts = { GK: 0, DEF: 0, MID: 0, ATT: 0 };
         sq.players.forEach(function (p) {
           if (!idSet.has(Number(p.id))) return;
-          var row = POS_TO_ROW[p.position] || 'MID';
-          _slots[row + '-' + rowCounts[row]++] = p;
+          posCounts[POS_TO_ROW[p.position] || 'MID']++;
+        });
+        var bestFm = _currentFormation, bestScore = Infinity;
+        Object.keys(FORMATIONS).forEach(function (f) {
+          var score = 0;
+          ['GK','DEF','MID','ATT'].forEach(function (row) {
+            score += Math.abs((FORMATIONS[f][row] || []).length - posCounts[row]);
+          });
+          if (score < bestScore) { bestScore = score; bestFm = f; }
+        });
+        _currentFormation = bestFm;
+      }
+
+      renderS11Grid(sq.players);
+      _s11EditMode = true;
+
+      // Pre-fill saved picks into slots (capped by formation slot counts)
+      if (_s11ExistingPlayerIds.length) {
+        var idSet2 = new Set(_s11ExistingPlayerIds.map(Number));
+        var rowQueues = { GK: [], DEF: [], MID: [], ATT: [] };
+        sq.players.forEach(function (p) {
+          if (!idSet2.has(Number(p.id))) return;
+          rowQueues[POS_TO_ROW[p.position] || 'MID'].push(p);
+        });
+        var fm = FORMATIONS[_currentFormation];
+        ['GK','DEF','MID','ATT'].forEach(function (row) {
+          var cap = (fm[row] || []).length;
+          rowQueues[row].slice(0, cap).forEach(function (p, i) { _slots[row + '-' + i] = p; });
         });
         renderPitch();
         renderPool();
