@@ -70,7 +70,7 @@
 
     document.body.appendChild(el);
     requestAnimationFrame(() => el.classList.add('kx-xp-particle--rise'));
-    setTimeout(() => el.remove(), 520);
+    setTimeout(() => el.remove(), 1500);
   };
 
   // ── 4. Level-up notification ─────────────────────────────────
@@ -166,7 +166,8 @@
         sessionStorage.setItem('kx_checkin', '1');
         fetch('/api/xp/checkin', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${accessToken}` },
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ local_date: new Date().toLocaleDateString('sv-SE') }),
         })
           .then(r => r.json())
           .then(data => {

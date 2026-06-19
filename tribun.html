@@ -515,16 +515,17 @@
     .kx-xp-particle {
       position: fixed; z-index: 400; pointer-events: none;
       font-family: 'Barlow Condensed', sans-serif;
-      font-size: 0.85rem; font-weight: 800; letter-spacing: 0.1em;
-      color: var(--accent-gold); text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+      font-size: 2rem; font-weight: 800; letter-spacing: 0.08em;
+      color: var(--accent-gold); text-shadow: 0 2px 8px rgba(0,0,0,0.8);
       opacity: 0; transition: opacity 0.1s;
     }
     .kx-xp-particle--rise {
-      animation: kxRise 0.5s ease-out forwards;
+      animation: kxRise 1.4s ease-out forwards;
     }
     @keyframes kxRise {
-      0%   { opacity: 1; transform: translateY(0); }
-      100% { opacity: 0; transform: translateY(-48px); }
+      0%   { opacity: 1; transform: translateY(0) scale(1); }
+      15%  { transform: translateY(-12px) scale(1.15); }
+      100% { opacity: 0; transform: translateY(-90px) scale(0.9); }
     }
 
     @media (max-width: 480px) {
