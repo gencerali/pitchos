@@ -397,6 +397,12 @@ export const SYNTHESIS_NVS_THRESHOLD = 30;
 export const SYNTHESIS_CAP_PER_RUN = 12;
 export const MAX_FACTS_EXTRACTS = 5;
 
+// Max source-text chars fed to the LLM per article. The same source is sent to ~4 calls
+// (covers-title gate, key-entities, facts extraction — all Haiku — plus the Sonnet synthesis),
+// so this is the single biggest token-cost lever. News is inverted-pyramid (substance up top),
+// so 6K chars captures the story while cutting input ~40% vs the old 10K. (Cost lever, 2026-06)
+export const MAX_SYNTH_SOURCE_CHARS = 6000;
+
 async function extractKeyEntities(title, sourceText, env, _usages = null) {
   const prompt = `Aşağıdaki spor haberinin en kritik bilgilerini çıkar. Sadece metinde geçen gerçek bilgileri yaz — tahmin etme.
 
@@ -531,7 +537,7 @@ export async function synthesizeArticle(article, env, site = null, opts = {}) {
           if (res.ok) {
             const data = await res.json();
             if (data.content && data.content.length > 400) {
-              sourceText = data.content.slice(0, 10000);
+              sourceText = data.content.slice(0, MAX_SYNTH_SOURCE_CHARS);
               break;
             }
           }
@@ -560,7 +566,7 @@ export async function synthesizeArticle(article, env, site = null, opts = {}) {
             .replace(/\s+/g, ' ')
             .trim();
           if (stripped.length > 400) {
-            sourceText = stripped.slice(0, 10000);
+            sourceText = stripped.slice(0, MAX_SYNTH_SOURCE_CHARS);
             console.log(`DIRECT FETCH OK [${article.nvs}]: "${article.title?.slice(0, 50)}" — ${stripped.length}ch`);
           }
         }
