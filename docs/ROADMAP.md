@@ -193,7 +193,8 @@ Full task-level plan in `docs/kartalix_sprint_plan.txt`. Working method: one tas
 | 2 | 3–4 | Worker Split Phases 1–4 — extract admin handlers + render functions from `worker-fetch-agent.js` (see "Worker Split" parallel workstream) | 🔲 |
 | 3 | 5–6 | Rewrite quality (A1, A2, B1–B3) + editorial voice + image system (Unsplash/Pexels + API-Football photos) + multi-source synthesis (A3) | 🔲 |
 | 4 | 7–8 | Frontend redesign via template customization + design system tokens + auth schema (D0) + launch hardening + **v1.0 ship** | 🔲 |
-| 5–10 | 9–20 | Post-launch: facts pipeline worker separation, gamification (streaks, predictions), analytics, multi-tenant prep | 🔲 |
+| 5–10 | 9–20 | Post-launch: facts pipeline worker separation, analytics, multi-tenant prep | 🔲 |
+| — | live | **Gamification** — shipped ahead of schedule. 386 tests. XP engine, streaks, leaderboard, tribün (predictions/Starting 11/polls), profile (feed/badges/history). Remaining: emotion reactions (3.8), Taraftar Nabzı widget (3.9), rate limiting, bot seeding, prod secrets. See `NEXT.md`. | ✅ |
 
 ---
 

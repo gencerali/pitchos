@@ -36,13 +36,13 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 - [x] **3.4** Reply threading — `parent_id UUID` on `article_comments`, 1-level indented display
 - [x] ~~**3.5** Guest commenting~~ — **cancelled**: require login to comment; guest CTA shown instead
 - [x] **3.6** Moderation Layer 1 — client-side Turkish swear word blocklist (~50 terms)
-- [ ] **3.7** Moderation Layer 2 — Claude Haiku toxicity check on `/comment` POST
-- [ ] **3.8** Emotion reactions — expand `article_reactions.reaction` to 5 values; update SPA UI
-- [ ] **3.9** Taraftar Nabzı — `/api/sentiment` aggregation + article sidebar widget
+- [ ] **3.7** Moderation Layer 2 — Claude Haiku toxicity check on `/api/xp/comment` POST. Needs `ANTHROPIC_API_KEY` in Cloudflare env.
+- [ ] **3.8** Emotion reactions — 5 emotions: atesli/mutlu/uzgun/kizgin/hayal_kirikligi. Backend (`/api/sentiment.js`) and XP hook (`/api/xp/react`) are ready; needs: (a) schema migration to add `emotion` column on `article_reactions`, (b) update react.js to write `emotion` field, (c) replace like button with 5-emotion picker UI in `index.html` article view + article page.
+- [ ] **3.9** Taraftar Nabzı widget — sentiment aggregation widget in article sidebar/bottom. `/api/sentiment.js` is fully built with 5-emotion breakdown + Turkish conclusion text. Needs: frontend widget in `index.html` article view that calls `GET /api/sentiment?slug={slug}` and renders a bar/summary.
 
 ---
 
-## Phase 4 — Tribün / Community Features
+## Phase 4 — Tribün / Community Features ✅ DONE
 
 - [x] **4.1** Score prediction UI + `/api/xp/predict` wiring — `tribun.html`, `/api/upcoming-match`, 52 tests
 - [x] **4.2** Prediction evaluation — `/api/xp/evaluate-predictions` (cron, `X-Internal-Secret` protected, fully tested in Phase 4.1)
@@ -52,26 +52,27 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 ---
 
-## Phase 5 — Profile & UX Polish
+## Phase 5 — Profile & UX Polish ✅ DONE
 
-- [ ] **5.1** Profile: XP activity feed (recent `xp_events`)
-- [x] **5.2** Profile: badge grid (earned + locked as goals)
-- [ ] **5.3** Profile: prediction history tab
-- [ ] **5.4** Level-up notification (modal/banner)
-- [ ] **5.5** Badge unlock notification
+- [x] **5.1** Profile: XP activity feed — rendered in `profil.html`, backed by `/api/me` (queries `xp_events`, last 20 rows, Turkish action labels + icons)
+- [x] **5.2** Profile: badge grid — earned + locked-as-goals display
+- [x] **5.3** Profile: prediction history tab — rendered in `profil.html`, backed by `/api/me` (queries `score_predictions`, shows predicted vs actual score, exact/outcome/wrong outcome indicator)
+- [x] **5.4** Level-up notification — `window.kxShowLevelUp` in `gamification.js`, wired in checkin/article-read/video-watch and all three tribün XP handlers
+- [x] **5.5** Badge unlock notification — `window.kxShowBadge` in `gamification.js`, wired same as 5.4
+- [ ] **5.6** *(minor gap)* Wire badge + level-up notifications in `index.html` for comment / react / share XP handlers — those 3 success handlers currently don't call `kxShowBadge` / `kxShowLevelUp`
 
 ---
 
-## Phase 6 — Schema Migrations ✅ DONE (ongoing)
+## Phase 6 — Schema Migrations
 
 - [x] `xp_actions`: `cap_fallback_xp integer default 0`
 - [x] `xp_actions`: insert `react_article` row
 - [x] `article_comments`: add `article_slug`, `user_id`, `site_id`
 - [x] `article_comments`: add `parent_id` (reply threading, Phase 3.4)
 - [x] `article_reactions`: add `article_slug`, `site_id`
-- [ ] `article_reactions`: add `emotion` (5-value reactions, Phase 3.8)
-- [ ] `profiles`: add `is_bot boolean default false`
 - [x] `polls`: add `starts_at TIMESTAMPTZ` (scheduled poll publishing)
+- [ ] `article_reactions`: add `emotion VARCHAR(20) DEFAULT 'like'` ← **needed for 3.8**
+- [ ] `profiles`: add `is_bot BOOLEAN DEFAULT false` ← needed for bot seeding
 
 ---
 
@@ -88,26 +89,23 @@ Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification 
 
 - [ ] Full XP QA pass — test each action, no double-earning
 - [ ] Set `XP_TOKEN_SECRET` in Cloudflare Pages env vars (not `dev-secret`)
-- [ ] Bot seeding — after Phase 3+4 stable; 1500 synthetic users + weekly cron engine
-- [ ] Rate limiting on `/react` and `/comment`
+- [ ] Bot seeding — 1500 synthetic users + weekly cron engine. Needs `profiles.is_bot` column (Phase 6).
+- [ ] Rate limiting on `/api/xp/react` and `/api/xp/comment`
 
 ---
 
-## Known Failing Tests
+## Gamification Live Criteria
 
-None. All 338 tests passing as of Phase 4 completion.
-
-The 5 pre-existing failures in `gamification-xp-engine.test.js` were fixed during Phase 4 work by updating `enqueueTail` and `setupForBadge` to enqueue the correct number of `user_badges` existence-check responses for every badge threshold crossed.
-
-
----
-
-## Gamification live criteria
-
-- [x] All Phase 2 shipped
-- [ ] Comments visible and submittable on all articles
-- [ ] Emotion reactions wired with XP
-- [x] At least one Tribün feature live (score prediction or polls) — all three live: score prediction, Starting 11, polls
-- [ ] Profile shows XP feed + badges + prediction history
+- [x] All Phase 1 + 2 shipped
+- [x] Comments visible and submittable on all articles
+- [ ] Emotion reactions wired with XP (Phase 3.8)
+- [x] At least one Tribün feature live — all three live: score prediction, Starting 11, polls
+- [x] Profile shows XP feed + badges + prediction history
 - [ ] `XP_TOKEN_SECRET` set in production
 - [ ] Bot seeding complete — 1500+ users on leaderboard
+
+---
+
+## All Tests Passing
+
+386 tests passing as of 2026-06-19. Last fixes: test format mismatch after ESPN/upcoming-match migration (predict + starting-11 test suites), mobile UX bugs (header fixed position, 16px font on form inputs).
