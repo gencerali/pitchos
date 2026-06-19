@@ -55,6 +55,7 @@ export async function onRequest({ request, env }) {
 
       await sbPatch(env, `score_predictions?id=eq.${pred.id}`, {
         xp_awarded: true, bonus_awarded: true, outcome_awarded: true,
+        actual_home_score: home_score, actual_away_score: away_score,
       });
       results.push({ user_id: pred.user_id, exact: true, correct_outcome: true, bonus_xp });
     } else if (isCorrect && !pred.outcome_awarded) {
@@ -63,10 +64,14 @@ export async function onRequest({ request, env }) {
 
       await sbPatch(env, `score_predictions?id=eq.${pred.id}`, {
         xp_awarded: true, outcome_awarded: true,
+        actual_home_score: home_score, actual_away_score: away_score,
       });
       results.push({ user_id: pred.user_id, exact: false, correct_outcome: true, outcome_xp });
     } else {
-      await sbPatch(env, `score_predictions?id=eq.${pred.id}`, { xp_awarded: true });
+      await sbPatch(env, `score_predictions?id=eq.${pred.id}`, {
+        xp_awarded: true,
+        actual_home_score: home_score, actual_away_score: away_score,
+      });
       results.push({ user_id: pred.user_id, exact: false, correct_outcome: false });
     }
   }

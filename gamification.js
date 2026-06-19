@@ -171,6 +171,21 @@
           .then(r => r.json())
           .then(data => {
             if (data.xp_earned > 0) window.kxSpawnXP(data.xp_earned, flameEl);
+            // Update flame counter immediately after checkin
+            if (!data.already_checked_in && data.current_streak > 0 && flameEl && flameNum) {
+              flameEl.style.display = 'flex';
+              flameNum.textContent = data.current_streak;
+              flameEl.classList.toggle('kx-flame--hot', data.current_streak >= 10);
+            }
+            if (_kxMe?.streak) {
+              _kxMe.streak.current  = data.current_streak  ?? _kxMe.streak.current;
+              _kxMe.streak.longest  = data.longest_streak  ?? _kxMe.streak.longest;
+              _kxMe.streak.shield_active = data.shield_awarded
+                ? true
+                : data.shield_consumed
+                  ? false
+                  : _kxMe.streak.shield_active;
+            }
             if (data.level > (_kxMe?.xp?.level ?? 0)) window.kxShowLevelUp(data.level, data.tier_name);
             (data.badge_unlocks ?? []).forEach(b => window.kxShowBadge(b));
           })

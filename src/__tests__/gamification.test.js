@@ -246,8 +246,10 @@ describe('/api/me', () => {
 
   it('returns prediction_history with correct fields', async () => {
     const FAKE_PRED = {
-      match_id: 'match-abc', home_score: 2, away_score: 1,
-      xp_awarded: 30, bonus_awarded: 100, outcome_awarded: 0,
+      match_id: 'match-abc', home_team: 'Beşiktaş', away_team: 'Galatasaray',
+      home_score: 2, away_score: 1,
+      xp_awarded: true, bonus_awarded: true, outcome_awarded: true,
+      actual_home_score: 2, actual_away_score: 1,
       created_at: '2026-06-15T20:00:00Z',
     };
     vi.mocked(sbGet)
@@ -265,9 +267,13 @@ describe('/api/me', () => {
     expect(body.prediction_history).toHaveLength(1);
     const p = body.prediction_history[0];
     expect(p.match_id).toBe('match-abc');
+    expect(p.home_team).toBe('Beşiktaş');
+    expect(p.away_team).toBe('Galatasaray');
     expect(p.home_score).toBe(2);
     expect(p.away_score).toBe(1);
-    expect(p.bonus_awarded).toBe(100);
+    expect(p.bonus_awarded).toBe(true);
+    expect(p.actual_home_score).toBe(2);
+    expect(p.actual_away_score).toBe(1);
   });
 
   it('prediction_history does not crash me endpoint when table missing', async () => {
