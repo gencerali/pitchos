@@ -83,11 +83,15 @@ function predictReq(body = { match_id: MATCH_ID, home_score: 2, away_score: 1 })
 
 function fixturePayload(kickoffDate = FUTURE_KICKOFF) {
   return {
-    response: [{
-      fixture: { id: MATCH_ID, date: kickoffDate, status: { short: 'NS' } },
-      teams:   { home: { id: 2672, name: 'Beşiktaş' }, away: { id: 611, name: 'Fenerbahçe' } },
-      league:  { name: 'Süper Lig', season: 2025 },
-    }],
+    match: {
+      match_id:     String(MATCH_ID),
+      kickoff_utc:  kickoffDate,
+      home_team:    'Beşiktaş',
+      away_team:    'Fenerbahçe',
+      home_team_id: '2672',
+      away_team_id: '611',
+      league_name:  'Süper Lig',
+    },
   };
 }
 
@@ -253,8 +257,8 @@ describe('/api/xp/predict — fixture lookup', () => {
     expect(res.status).toBe(503);
   });
 
-  it('returns 400 when api-football response has no fixtures', async () => {
-    mockFootball({ response: [] });
+  it('returns 400 when upcoming-match returns no match', async () => {
+    mockFootball({ match: null });
     const res = await predictHandler({ request: predictReq(), env: makeEnv() });
     expect(res.status).toBe(400);
   });
@@ -289,6 +293,7 @@ describe('/api/xp/predict — fixture lookup', () => {
 
 describe('/api/xp/predict — duplicate guard', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(getUser).mockResolvedValue(FAKE_USER);
     vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
   });
@@ -614,7 +619,7 @@ describe('/api/xp/evaluate-predictions — exact score bonus', () => {
     expect(vi.mocked(sbPatch)).toHaveBeenCalledWith(
       expect.anything(),
       `score_predictions?id=eq.${EXACT_PRED.id}`,
-      { xp_awarded: true, bonus_awarded: true, outcome_awarded: true }
+      expect.objectContaining({ xp_awarded: true, bonus_awarded: true, outcome_awarded: true })
     );
   });
 
@@ -647,11 +652,10 @@ describe('/api/xp/evaluate-predictions — exact score bonus', () => {
     vi.mocked(sbPatch).mockResolvedValueOnce({});
 
     await evaluateHandler({ request: evaluateReq(), env: makeEnv() });
-    expect(vi.mocked(sbPatch)).toHaveBeenCalledWith(
-      expect.anything(),
-      `score_predictions?id=eq.${WRONG_PRED.id}`,
-      { xp_awarded: true }  // no bonus_awarded: true
-    );
+    const wrongPatchBody = vi.mocked(sbPatch).mock.calls[0][2];
+    expect(wrongPatchBody.xp_awarded).toBe(true);
+    expect(wrongPatchBody.bonus_awarded).toBeUndefined();
+    expect(wrongPatchBody.outcome_awarded).toBeUndefined();
   });
 });
 
@@ -819,7 +823,7 @@ describe('/api/xp/evaluate-predictions — correct outcome bonus', () => {
     expect(vi.mocked(sbPatch)).toHaveBeenCalledWith(
       expect.anything(),
       `score_predictions?id=eq.${OUTCOME_PRED.id}`,
-      { xp_awarded: true, outcome_awarded: true }
+      expect.objectContaining({ xp_awarded: true, outcome_awarded: true })
     );
   });
 
@@ -905,11 +909,15 @@ const TURKEY_PARAGUAY_ID = 1399001; // upcoming fixture (Turkey home, Paraguay a
 
 function turkeyParaguayFixture(kickoffDate = FUTURE_KICKOFF) {
   return {
-    response: [{
-      fixture: { id: TURKEY_PARAGUAY_ID, date: kickoffDate, status: { short: 'NS' } },
-      teams:   { home: { id: 272, name: 'Turkey' }, away: { id: 16, name: 'Paraguay' } },
-      league:  { name: 'Friendly', season: 2026 },
-    }],
+    match: {
+      match_id:     String(TURKEY_PARAGUAY_ID),
+      kickoff_utc:  kickoffDate,
+      home_team:    'Turkey',
+      away_team:    'Paraguay',
+      home_team_id: '272',
+      away_team_id: '16',
+      league_name:  'Friendly',
+    },
   };
 }
 

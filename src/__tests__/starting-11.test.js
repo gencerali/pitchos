@@ -84,11 +84,15 @@ function s11Req(body = { match_id: MATCH_ID, player_ids: VALID_PLAYERS }) {
 
 function fixturePayload(kickoffDate = FUTURE_KICKOFF) {
   return {
-    response: [{
-      fixture: { id: MATCH_ID, date: kickoffDate, status: { short: 'NS' } },
-      teams:   { home: { id: 2672, name: 'Beşiktaş' }, away: { id: 611, name: 'Fenerbahçe' } },
-      league:  { name: 'Süper Lig', season: 2025 },
-    }],
+    match: {
+      match_id:     String(MATCH_ID),
+      kickoff_utc:  kickoffDate,
+      home_team:    'Beşiktaş',
+      away_team:    'Fenerbahçe',
+      home_team_id: '2672',
+      away_team_id: '611',
+      league_name:  'Süper Lig',
+    },
   };
 }
 
@@ -250,8 +254,8 @@ describe('/api/xp/starting-11 — fixture lookup', () => {
     expect(res.status).toBe(503);
   });
 
-  it('returns 400 when api-football response has no fixtures', async () => {
-    mockFootball({ response: [] });
+  it('returns 400 when upcoming-match returns no match', async () => {
+    mockFootball({ match: null });
     const res = await starting11Handler({ request: s11Req(), env: makeEnv() });
     expect(res.status).toBe(400);
   });
@@ -280,6 +284,7 @@ describe('/api/xp/starting-11 — fixture lookup', () => {
 
 describe('/api/xp/starting-11 — duplicate guard', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(getUser).mockResolvedValue(FAKE_USER);
     vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
   });
