@@ -10985,7 +10985,11 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
     'first_comment_like','comment_likes_10','comment_likes_50','fan_favorite','comment_likes_500',
     'popular_comment','viral_comment',
     'sharer_5','sharer_25','video_10','video_50','reactor_10','reactor_50',
-    'poll_10','poll_50','predictor_5','predictor_25','exact_score_first','exact_score_5',
+    'poll_10','poll_50',
+    'predict_correct_5','predict_correct_20','predict_correct_50',
+    'predict_exact_5','predict_exact_10','predict_exact_25',
+    'lineup_predict_1','lineup_predict_5','lineup_predict_10','lineup_predict_20','lineup_predict_50','lineup_predict_100',
+    'lineup_perfect_1','lineup_perfect_5',
   ];
 
   function sortByDifficulty(group, type) {
@@ -11050,7 +11054,7 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
     </tr>
     <tr id="pe-${esc(p.id)}" style="display:none;background:#0d1117">
       <td colspan="8" style="padding:.9rem 1rem;border-bottom:1px solid #1f2937">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
+        <div class="form-g2">
           <label style="display:flex;flex-direction:column;gap:.25rem;font-size:.68rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">
             Site
             <select id="pe-site-${esc(p.id)}" style="background:#1a1a1a;border:1px solid #374151;color:#e5e7eb;padding:5px 7px;font-size:.78rem;border-radius:3px">${editSiteOptions}</select>
@@ -11071,7 +11075,7 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
           </div>
           <div id="pe-opts-${esc(p.id)}">${editOptInputs}</div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">
+        <div class="form-g2">
           <label style="display:flex;flex-direction:column;gap:.2rem;font-size:.68rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">
             Başlangıç (opsiyonel)<input type="datetime-local" id="pe-starts-${esc(p.id)}" value="${toLocalDt(p.starts_at)}" style="background:#1a1a1a;border:1px solid #374151;color:#e5e7eb;padding:4px 7px;font-size:.75rem;border-radius:3px">
           </label>
@@ -11098,7 +11102,7 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
       </div>
     </div>
     <div id="pollForm" style="display:none;padding:1.25rem;border-bottom:1px solid #1f2937;background:#0d1117">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+      <div class="form-g2l">
         <label style="display:flex;flex-direction:column;gap:.3rem;font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">
           Site
           <select id="pf-site" style="background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:6px 8px;font-size:.82rem;border-radius:3px">${siteOptions}</select>
@@ -11122,7 +11126,7 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
           <div class="pf-opt-row" style="display:flex;gap:.5rem;margin-bottom:.4rem"><input type="text" class="pf-opt" placeholder="Seçenek 2" style="flex:1;background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:5px 8px;font-size:.82rem;border-radius:3px;font-family:inherit"><button onclick="removePollOpt(this)" style="background:none;border:1px solid #374151;color:#9ca3af;cursor:pointer;border-radius:3px;padding:2px 9px;font-size:.8rem">✕</button></div>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+      <div class="form-g2l">
         <label style="display:flex;flex-direction:column;gap:.25rem;font-size:.7rem;color:#9ca3af;text-transform:uppercase;letter-spacing:.07em">
           Başlangıç (opsiyonel)<input type="datetime-local" id="pf-starts" style="background:#1a1a1a;border:1px solid #333;color:#e5e7eb;padding:5px 8px;font-size:.78rem;border-radius:3px">
         </label>
@@ -11138,9 +11142,9 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
     </div>
     ${polls.length === 0
       ? '<div style="padding:2rem;text-align:center;color:#6b7280;font-size:.82rem">Henüz anket yok — yukarıdan yeni anket oluşturun.</div>'
-      : `<table><thead><tr>
+      : `<div class="tbl-wrap"><table><thead><tr>
           <th>Soru</th><th>Site</th><th style="text-align:center">Seçenek</th><th>Başlangıç</th><th>Bitiş</th><th style="text-align:center">Durum</th><th class="r">Oy</th><th></th>
-        </tr></thead><tbody>${pollTableRows}</tbody></table>`
+        </tr></thead><tbody>${pollTableRows}</tbody></table></div>`
     }
   </div>`;
 
@@ -11164,7 +11168,7 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
           <span id="${gid}-arr" style="margin-left:auto;color:#6b7280;font-size:.75rem">▼</span>
         </button>
         <div id="${gid}" style="display:none">
-          <table style="width:100%;border-collapse:collapse">
+          <div class="tbl-wrap"><table style="width:100%;border-collapse:collapse">
             <colgroup><col style="width:22%"><col style="width:18%"><col><col style="width:18%"><col style="width:4%"></colgroup>
             <thead><tr style="background:#0a0f17">
               <th style="padding:.4rem .75rem;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#4b5563;text-align:left">ID</th>
@@ -11174,7 +11178,7 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
               <th style="padding:.4rem .75rem;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#4b5563;text-align:center">🦅</th>
             </tr></thead>
             <tbody>${rows}</tbody>
-          </table>
+          </table></div>
         </div>
       </div>`;
   }).join('');
@@ -11194,6 +11198,11 @@ th.r{text-align:right}
 tr:hover{background:rgba(255,255,255,.02)}
 input[type=number],input[type=text]{outline:none}
 input[type=number]:focus,input[type=text]:focus{border-color:#555!important}
+.tbl-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem}
+.form-g2{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem}
+.form-g2l{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem}
+@media(max-width:640px){.stats-grid{grid-template-columns:1fr}.form-g2,.form-g2l{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -11201,7 +11210,7 @@ ${nav}
 <div style="max-width:1200px;margin:0 auto;padding:1.5rem 1rem">
 
   <!-- Stats -->
-  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem">
+  <div class="stats-grid">
     ${[
       ['Toplam XP', stats.totalXp.toLocaleString('tr-TR')],
       ['XP Olayı',  stats.totalEvents.toLocaleString('tr-TR')],
@@ -11219,12 +11228,12 @@ ${nav}
       <span style="font-weight:700;font-size:.9rem">XP Aksiyonları</span>
       <span style="font-size:.72rem;color:#6b7280">${actions.length} aksiyon</span>
     </div>
-    <table>
+    <div class="tbl-wrap"><table>
       <thead><tr>
         <th>ID</th><th>Açıklama</th><th class="r">XP</th><th class="r">Günlük Cap</th><th style="text-align:center">Seri Bonusu</th><th style="text-align:center">Durum</th><th></th>
       </tr></thead>
       <tbody>${actionRows}</tbody>
-    </table>
+    </table></div>
   </div>
 
   <!-- Badges -->
@@ -11268,12 +11277,12 @@ ${nav}
       <span style="font-weight:700;font-size:.9rem">Son XP Olayları</span>
       <span style="font-size:.72rem;color:#6b7280">Son 100</span>
     </div>
-    <table>
+    <div class="tbl-wrap"><table>
       <thead><tr>
         <th>Zaman</th><th>Kullanıcı</th><th>Aksiyon</th><th class="r">XP</th><th>Kaynak</th>
       </tr></thead>
       <tbody>${eventRows}</tbody>
-    </table>
+    </table></div>
   </div>
 
 </div>
