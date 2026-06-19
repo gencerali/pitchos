@@ -1313,8 +1313,14 @@
           delete _playerZones[id];
           this.classList.remove('selected');
         } else if (_selectedPlayerIds.length < 11) {
+          var p = _playersById[id];
+          // Enforce max 1 goalkeeper
+          if (p?.position === 'Goalkeeper') {
+            var hasGK = _selectedPlayerIds.some(function (sid) { return _playersById[sid]?.position === 'Goalkeeper'; });
+            if (hasGK) return;
+          }
           _selectedPlayerIds.push(id);
-          _playerZones[id] = _playersById[id]?.position ?? 'Midfielder';
+          _playerZones[id] = p?.position ?? 'Midfielder';
           this.classList.add('selected');
         }
         updateS11Counter();
@@ -1389,7 +1395,14 @@
         var dnEl = el.querySelector('.s11-ctrl-dn');
         if (dnEl) dnEl.addEventListener('click', function (e) {
           e.stopPropagation();
-          _playerZones[id] = ZONE_ORDER[Math.max(0, ZONE_ORDER.indexOf(_playerZones[id] ?? p.position ?? 'Midfielder') - 1)];
+          var curZi = ZONE_ORDER.indexOf(_playerZones[id] ?? p.position ?? 'Midfielder');
+          var targetZone = ZONE_ORDER[Math.max(0, curZi - 1)];
+          // Only 1 player can occupy GK zone
+          if (targetZone === 'Goalkeeper') {
+            var gkOccupied = _selectedPlayerIds.some(function (sid) { return sid !== id && (_playerZones[sid] ?? _playersById[sid]?.position) === 'Goalkeeper'; });
+            if (gkOccupied) return;
+          }
+          _playerZones[id] = targetZone;
           renderPitch();
         });
         zEl.appendChild(el);
