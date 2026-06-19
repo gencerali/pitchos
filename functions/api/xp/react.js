@@ -1,6 +1,6 @@
 import { getUser, json, err, corsHeaders } from '../_shared/auth.js';
 import { getSiteId } from '../_shared/site.js';
-import { awardXP } from '../_shared/xp.js';
+import { awardXP, isRateLimited } from '../_shared/xp.js';
 
 export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return corsHeaders();
@@ -12,6 +12,10 @@ export async function onRequest({ request, env }) {
 
   const body = await request.json().catch(() => null);
   if (!body?.article_slug) return err('Missing article_slug');
+
+  if (await isRateLimited(env, user.id, site_id, 'react_article', { maxRequests: 10, windowMs: 10_000 })) {
+    return err('Too many requests', 429);
+  }
 
   const result = await awardXP(env, user.id, site_id, 'react_article', body.article_slug, body.local_day_start ?? null);
   return json(result);

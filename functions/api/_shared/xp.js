@@ -111,6 +111,17 @@ export async function hasLifetimeEvent(env, user_id, site_id, action_id) {
   return rows.length > 0;
 }
 
+// ── Rate limit check ─────────────────────────────────────────
+
+export async function isRateLimited(env, user_id, site_id, action_id, { maxRequests = 5, windowMs = 10_000 } = {}) {
+  const since = new Date(Date.now() - windowMs).toISOString();
+  const rows = await sbGet(
+    env,
+    `xp_events?user_id=eq.${user_id}&site_id=eq.${site_id}&action_id=eq.${action_id}&created_at=gte.${encodeURIComponent(since)}&select=id&limit=${maxRequests + 1}`
+  );
+  return rows.length > maxRequests;
+}
+
 // ── Core award function ───────────────────────────────────────
 
 /**

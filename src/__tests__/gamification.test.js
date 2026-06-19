@@ -44,17 +44,19 @@ vi.mock('../../functions/api/_shared/xp.js', async (importOriginal) => {
     isShadowBanned:   vi.fn(),
     getDailyCount:    vi.fn(),
     hasLifetimeEvent: vi.fn(),
+    isRateLimited:    vi.fn(),
   };
 });
 
 import { getUser }   from '../../functions/api/_shared/auth.js';
 import { getSiteId } from '../../functions/api/_shared/site.js';
-import { sbGet, sbRpc, getStreak, awardXP } from '../../functions/api/_shared/xp.js';
+import { sbGet, sbRpc, getStreak, awardXP, isRateLimited } from '../../functions/api/_shared/xp.js';
 
 import { onRequest as meHandler }      from '../../functions/api/me.js';
 import { onRequest as checkinHandler } from '../../functions/api/xp/checkin.js';
 import { onRequest as reactHandler }   from '../../functions/api/xp/react.js';
 import { onRequest as shareHandler }   from '../../functions/api/xp/share.js';
+import { onRequest as commentHandler } from '../../functions/api/xp/comment.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -362,7 +364,7 @@ describe('/api/xp/checkin', () => {
   const TODAY = new Date().toISOString().slice(0, 10);
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.mocked(getUser).mockResolvedValue(FAKE_USER);
     vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
     vi.mocked(awardXP).mockResolvedValue({
@@ -437,9 +439,10 @@ describe('/api/xp/checkin', () => {
 
 describe('/api/xp/react', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.mocked(getUser).mockResolvedValue(FAKE_USER);
     vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
+    vi.mocked(isRateLimited).mockResolvedValue(false);
     vi.mocked(awardXP).mockResolvedValue({
       xp_earned: 1, total_xp: 51, level: 1,
       tier_name: 'Misafir Kartal', xp_to_next: 49, badge_unlocks: [],
@@ -485,6 +488,85 @@ describe('/api/xp/react', () => {
     expect(body.xp_earned).toBe(0);
     expect(body.capped).toBe(true);
   });
+
+  it('returns 429 when rate limited', async () => {
+    vi.mocked(isRateLimited).mockResolvedValueOnce(true);
+    const res = await reactHandler({ request: reactReq(), env: makeEnv() });
+    expect(res.status).toBe(429);
+    expect(vi.mocked(awardXP)).not.toHaveBeenCalled();
+  });
+});
+
+// ── /api/xp/comment ───────────────────────────────────────────────────────────
+
+describe('/api/xp/comment', () => {
+  const COMMENT_RESULT = { xp_earned: 10, total_xp: 60, level: 1, tier_name: 'Misafir Kartal', xp_to_next: 40, badge_unlocks: [] };
+  const BONUS_RESULT   = { xp_earned: 25, total_xp: 85, level: 1, tier_name: 'Misafir Kartal', xp_to_next: 15, badge_unlocks: [] };
+
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.mocked(getUser).mockResolvedValue(FAKE_USER);
+    vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
+    vi.mocked(isRateLimited).mockResolvedValue(false);
+    vi.mocked(awardXP)
+      .mockResolvedValueOnce(COMMENT_RESULT)
+      .mockResolvedValueOnce(BONUS_RESULT);
+  });
+
+  function commentReq(body = { article_slug: 'test-slug' }) {
+    return new Request('https://kartalix.com/api/xp/comment', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer fake-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('returns 401 without auth', async () => {
+    vi.mocked(getUser).mockResolvedValueOnce(null);
+    const res = await commentHandler({ request: commentReq(), env: makeEnv() });
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 400 when article_slug missing', async () => {
+    const res = await commentHandler({ request: commentReq({}), env: makeEnv() });
+    expect(res.status).toBe(400);
+  });
+
+  it('awards comment XP and first_comment bonus', async () => {
+    await commentHandler({ request: commentReq({ article_slug: 'besiktas-9-0' }), env: makeEnv() });
+    expect(vi.mocked(awardXP)).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(awardXP).mock.calls[0][3]).toBe('comment');
+    expect(vi.mocked(awardXP).mock.calls[0][4]).toBe('besiktas-9-0');
+    expect(vi.mocked(awardXP).mock.calls[1][3]).toBe('first_comment');
+  });
+
+  it('merges badge_unlocks from comment and first_comment', async () => {
+    const badgeA = { id: 'comment_5', label: 'Yorumcu' };
+    const badgeB = { id: 'first_comment', label: 'İlk Yorum' };
+    vi.mocked(awardXP).mockReset();
+    vi.mocked(awardXP)
+      .mockResolvedValueOnce({ ...COMMENT_RESULT, badge_unlocks: [badgeA] })
+      .mockResolvedValueOnce({ ...BONUS_RESULT, badge_unlocks: [badgeB] });
+    const res = await commentHandler({ request: commentReq(), env: makeEnv() });
+    const body = await jsonBody(res);
+    expect(body.badge_unlocks).toEqual([badgeA, badgeB]);
+  });
+
+  it('returns 429 when rate limited', async () => {
+    vi.mocked(isRateLimited).mockResolvedValueOnce(true);
+    const res = await commentHandler({ request: commentReq(), env: makeEnv() });
+    expect(res.status).toBe(429);
+    expect(vi.mocked(awardXP)).not.toHaveBeenCalled();
+  });
+
+  it('returns combined total_xp and level from bonus when both earned', async () => {
+    const res = await commentHandler({ request: commentReq(), env: makeEnv() });
+    const body = await jsonBody(res);
+    expect(body.xp_earned).toBe(COMMENT_RESULT.xp_earned);
+    expect(body.bonus_xp).toBe(BONUS_RESULT.xp_earned);
+    expect(body.total_xp).toBe(BONUS_RESULT.total_xp);
+    expect(body.level).toBe(BONUS_RESULT.level);
+  });
 });
 
 // ── /api/xp/share ─────────────────────────────────────────────────────────────
@@ -495,7 +577,7 @@ describe('/api/xp/share', () => {
   const CAPPED_RESULT = { xp_earned: 0, capped: true, reason: 'already_earned', total_xp: 100, level: 2, tier_name: 'Şahin', xp_to_next: 50, badge_unlocks: [] };
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     vi.mocked(getUser).mockResolvedValue(FAKE_USER);
     vi.mocked(getSiteId).mockResolvedValue(FAKE_SITE_ID);
     vi.mocked(awardXP)
