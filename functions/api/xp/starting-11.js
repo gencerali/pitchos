@@ -1,6 +1,6 @@
 import { getUser, json, err, corsHeaders } from '../_shared/auth.js';
 import { getSiteId } from '../_shared/site.js';
-import { awardXP, sbGet, sbPost } from '../_shared/xp.js';
+import { awardXP, sbGet, sbPost, sbPatch } from '../_shared/xp.js';
 
 export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return corsHeaders();
@@ -35,11 +35,20 @@ export async function onRequest({ request, env }) {
       env,
       `starting_elevens?user_id=eq.${user.id}&site_id=eq.${site_id}&match_id=eq.${match_id}&select=id&limit=1`
     );
-    if (existing.length) return err('Bu maç için zaten İlk 11 gönderdiniz', 409);
+
+    const lds = body?.local_day_start ?? null;
+
+    if (existing.length) {
+      await sbPatch(
+        env,
+        `starting_elevens?user_id=eq.${user.id}&site_id=eq.${site_id}&match_id=eq.${match_id}`,
+        { player_ids, updated_at: new Date().toISOString() }
+      );
+      return json({ lineup_saved: true, updated: true, xp_earned: 0 });
+    }
 
     await sbPost(env, 'starting_elevens', { user_id: user.id, site_id, match_id, player_ids });
 
-    const lds = body?.local_day_start ?? null;
     const result = await awardXP(env, user.id, site_id, 'submit_starting_11', String(match_id), lds);
     const bonus = await awardXP(env, user.id, site_id, 'first_starting_11', null, lds);
 

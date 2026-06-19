@@ -868,6 +868,9 @@
             <rect class="s11-pitch-line" x="38" y="91" width="24" height="7"/>
           </svg>
         </div>
+        <div style="padding:.25rem 1.25rem 1rem">
+          <button class="s11-submit" id="s11EditBtn" style="background:transparent;border:1px solid var(--accent-gold);color:var(--accent-gold);font-size:.78rem;padding:.6rem 1rem">Seçimi Düzenle</button>
+        </div>
       </div>
       <div class="predict-state" id="s11StateSuccess">
         <div class="s11-body">
@@ -1065,6 +1068,8 @@
   var _accessToken = null;
   var _selectedPlayerIds = []; // kept for submission compatibility
   var _slots = {};              // { 'GK-0': playerObj, 'DEF-2': playerObj, ... }
+  var _s11EditMode = false;
+  var _s11ExistingPlayerIds = [];
   var _allPlayers = [];
   var _currentFormation = '4-4-2';
 
@@ -1296,12 +1301,12 @@
         ).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; });
 
         if (existing.length) {
+          _s11ExistingPlayerIds = existing[0]?.player_ids || [];
           document.getElementById('s11AlreadySub').textContent =
             _match.home_team + ' – ' + _match.away_team + ' maçı için seçimini yaptın.';
           showS11State('s11StateAlready');
           // Show submitted picks on mini pitch
-          var submittedIds = existing[0]?.player_ids || [];
-          if (submittedIds.length) {
+          if (_s11ExistingPlayerIds.length) {
             var squadUrl2 = '/api/squad';
             if (_match?.squad_league) {
               squadUrl2 += '?league=' + encodeURIComponent(_match.squad_league);
@@ -1312,7 +1317,7 @@
               if (!sq?.players?.length) return;
               var pitchEl = document.getElementById('s11AlreadyPitch');
               if (!pitchEl) return;
-              var idSet = new Set(submittedIds.map(Number));
+              var idSet = new Set(_s11ExistingPlayerIds.map(Number));
               var picked = sq.players.filter(function (p) { return idSet.has(Number(p.id)); });
               var byRow = { GK:[], DEF:[], MID:[], ATT:[] };
               picked.forEach(function (p) { var r = POS_TO_ROW[p.position] || 'MID'; byRow[r].push(p); });
@@ -1514,6 +1519,7 @@
   function renderS11Grid(players) {
     _allPlayers = players;
     _slots = {};
+    _s11EditMode = false;
     renderFormationBar();
     renderPitch();
     renderPool();
@@ -1526,7 +1532,11 @@
     document.getElementById('s11CountLabel').textContent = n + ' / 11 seçildi';
     var btn = document.getElementById('s11SubmitBtn');
     btn.disabled = n !== 11;
-    btn.textContent = n === 11 ? "İlk 11'i Gönder" : '11 Oyuncu Seç (' + n + '/11)';
+    if (_s11EditMode) {
+      btn.textContent = n === 11 ? 'Seçimi Güncelle' : '11 Oyuncu Seç (' + n + '/11)';
+    } else {
+      btn.textContent = n === 11 ? "İlk 11'i Gönder" : '11 Oyuncu Seç (' + n + '/11)';
+    }
   }
 
   document.getElementById('s11SubmitBtn').addEventListener('click', async function () {
@@ -1548,14 +1558,19 @@
         errEl.classList.add('visible');
         btn.disabled = false; updateS11Counter(); return;
       }
-      document.getElementById('s11SuccessXp').textContent = '+' + (data.xp_earned ?? 0);
-      document.getElementById('s11SuccessDetail').textContent =
-        data.bonus_xp > 0 ? '+' + data.bonus_xp + ' XP ilk seçim bonusu!' : 'Harika seçim!';
+      if (data.updated) {
+        document.getElementById('s11SuccessXp').textContent = '✓';
+        document.getElementById('s11SuccessDetail').textContent = 'Seçimin güncellendi!';
+      } else {
+        document.getElementById('s11SuccessXp').textContent = '+' + (data.xp_earned ?? 0);
+        document.getElementById('s11SuccessDetail').textContent =
+          data.bonus_xp > 0 ? '+' + data.bonus_xp + ' XP ilk seçim bonusu!' : 'Harika seçim!';
+        spawnXP(data.xp_earned, btn);
+        if (window.kxSpawnXP && data.xp_earned > 0) window.kxSpawnXP(data.xp_earned, btn);
+        if (window.kxShowLevelUp && window._kxGetLevel && data.level > window._kxGetLevel()) window.kxShowLevelUp(data.level, data.tier_name);
+      }
       showS11State('s11StateSuccess');
-      spawnXP(data.xp_earned, btn);
       if (data.badge_unlocks?.length) data.badge_unlocks.forEach(function (b) { setTimeout(function () { showBadgeToast(b.label ?? b.id); }, 400); });
-      if (window.kxSpawnXP && data.xp_earned > 0) window.kxSpawnXP(data.xp_earned, btn);
-      if (window.kxShowLevelUp && window._kxGetLevel && data.level > window._kxGetLevel()) window.kxShowLevelUp(data.level, data.tier_name);
     } catch (e) {
       errEl.textContent = 'Bağlantı hatası. Lütfen tekrar dene.';
       errEl.classList.add('visible');
@@ -1565,6 +1580,38 @@
 
   document.getElementById('s11LoginBtn').addEventListener('click', function () {
     if (window.kxAuth) window.kxAuth.showLogin();
+  });
+
+  document.getElementById('s11EditBtn').addEventListener('click', async function () {
+    if (!_match) return;
+    _s11EditMode = true;
+    showS11State('s11StateLoading');
+    var squadUrl = '/api/squad';
+    if (_match?.squad_league) {
+      squadUrl += '?league=' + encodeURIComponent(_match.squad_league);
+      if (_match.squad_espn_id) squadUrl += '&team_id=' + encodeURIComponent(_match.squad_espn_id);
+      if (_match.squad_team_name) squadUrl += '&team_name=' + encodeURIComponent(_match.squad_team_name);
+    }
+    try {
+      var sq = await fetch(squadUrl).then(function (r) { return r.ok ? r.json() : null; });
+      if (!sq?.players?.length) { showS11State('s11StateAlready'); return; }
+      renderS11Grid(sq.players);
+      _s11EditMode = true;
+      // Pre-fill previously selected players
+      if (_s11ExistingPlayerIds.length) {
+        var idSet = new Set(_s11ExistingPlayerIds.map(Number));
+        var rowCounts = { GK: 0, DEF: 0, MID: 0, ATT: 0 };
+        sq.players.forEach(function (p) {
+          if (!idSet.has(Number(p.id))) return;
+          var row = POS_TO_ROW[p.position] || 'MID';
+          _slots[row + '-' + rowCounts[row]++] = p;
+        });
+        renderPitch();
+        renderPool();
+        updateS11Counter();
+      }
+      showS11State('s11StateForm');
+    } catch (e) { showS11State('s11StateAlready'); }
   });
 
   // ── Poll ──────────────────────────────────────────────────────────────────
