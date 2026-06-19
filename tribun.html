@@ -531,6 +531,11 @@
     .s11-player-btn { background:#0d0d0d;border:1px solid var(--border2);border-radius:4px;padding:.35rem .6rem;font-family:'Barlow Condensed',sans-serif;font-size:.72rem;font-weight:600;letter-spacing:.03em;color:var(--muted-dark);cursor:pointer;transition:all .1s;white-space:nowrap;display:flex;align-items:center;gap:.3rem; }
     .s11-player-btn:hover { border-color:var(--accent-gold);color:#fff; }
     .s11-player-btn.selected { border-color:var(--accent-gold);background:rgba(245,166,35,0.12);color:var(--accent-gold); }
+    .s11-player-btn.unavailable { opacity:.42;cursor:not-allowed;text-decoration:line-through; }
+    .s11-player-btn.unavailable:hover { border-color:var(--border2) !important;color:var(--muted-dark) !important; }
+    .s11-player-status-tag { font-size:.48rem;font-weight:700;letter-spacing:.04em;padding:1px 4px;border-radius:2px;margin-left:.2rem;vertical-align:middle; }
+    .s11-player-status-tag.injured { background:rgba(220,60,60,.18);color:#ff8080; }
+    .s11-player-status-tag.suspended { background:rgba(245,166,35,.18);color:var(--accent-gold); }
     .s11-player-num { font-size:.6rem;color:var(--muted);font-family:'Oswald',sans-serif;font-weight:700; }
     .s11-submit { width:100%;margin-top:1rem;background:var(--accent-gold);border:none;color:#0a0a0a;font-family:'Barlow Condensed',sans-serif;font-size:.88rem;font-weight:800;letter-spacing:.14em;text-transform:uppercase;padding:.85rem 1rem;border-radius:6px;cursor:pointer;transition:background .15s,opacity .15s; }
     .s11-submit:hover:not(:disabled) { background:#d4901c; }
@@ -553,6 +558,11 @@
     .s11-pitch-circle:hover{opacity:.8}
     .s11-pitch-circle.gk{background:#e8621a}
     .s11-pitch-pname{font-family:'Barlow Condensed',sans-serif;font-size:.46rem;font-weight:700;letter-spacing:.03em;color:#fff;text-align:center;max-width:42px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+    .s11-pitch-ctrl{display:flex;gap:2px;margin-top:2px;justify-content:center}
+    .s11-pitch-ctrl-btn{background:rgba(0,0,0,.5);border:none;color:rgba(255,255,255,.85);border-radius:2px;font-size:.4rem;padding:1px 3px;cursor:pointer;line-height:1.3;min-width:14px}
+    .s11-pitch-ctrl-btn:hover{background:rgba(0,0,0,.8)}
+    .s11-ctrl-rm{color:#ff9090}
+    .s11-pitch-ctrl-spacer{min-width:14px;display:inline-block}
 
     /* ── POLL CARD ── */
     .poll-card { background:var(--surface);border:1px solid var(--border2);border-radius:8px;overflow:hidden; }
@@ -810,9 +820,20 @@
       </div>
       <div class="predict-state" id="s11StateAlready">
         <div class="s11-body">
-          <div class="predict-already-banner">
+          <div class="predict-already-banner" style="margin-bottom:0.75rem">
             <div class="predict-already-title">İlk 11'ini Zaten Gönderdin!</div>
             <div class="predict-already-sub" id="s11AlreadySub">Bu maç için seçimini yaptın.</div>
+          </div>
+          <div class="s11-pitch-wrap" id="s11AlreadyPitchWrap" style="pointer-events:none">
+            <div class="s11-pitch-border"></div>
+            <div class="s11-pitch-halftime"></div>
+            <div class="s11-pitch-centercircle"></div>
+            <div class="s11-pitch">
+              <div class="s11-pitch-zone" id="s11AlreadyZoneAtt"></div>
+              <div class="s11-pitch-zone" id="s11AlreadyZoneMid"></div>
+              <div class="s11-pitch-zone" id="s11AlreadyZoneDef"></div>
+              <div class="s11-pitch-zone s11-zone-gk" id="s11AlreadyZoneGk"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -1012,6 +1033,14 @@
   var _accessToken = null;
   var _selectedPlayerIds = [];
   var _playersById = {};
+  var _playerZones = {};
+  var ZONE_ORDER = ['Goalkeeper', 'Defender', 'Midfielder', 'Attacker'];
+  var SUBPOS_HORDER = {
+    GK:0, G:0,
+    LWB:0, LB:1, CB:2, SW:3, RB:4, RWB:5,
+    LM:0, DM:1, CM:2, AM:3, RM:4,
+    LW:0, CF:1, ST:2, SS:3, RW:4,
+  };
 
   // ── Helpers ───────────────────────────────────────────────────────────────
   function getUserIdFromToken(token) {
@@ -1199,14 +1228,45 @@
         var existing = await fetch(
           config.supabase_url + '/rest/v1/starting_elevens' +
           '?user_id=eq.' + encodeURIComponent(userId) +
-          '&match_id=eq.' + _match.match_id + '&select=id&limit=1',
+          '&match_id=eq.' + _match.match_id + '&select=id,player_ids&limit=1',
           { headers: { apikey: config.supabase_anon_key, Authorization: 'Bearer ' + _accessToken } }
         ).then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; });
 
         if (existing.length) {
           document.getElementById('s11AlreadySub').textContent =
             _match.home_team + ' – ' + _match.away_team + ' maçı için seçimini yaptın.';
-          showS11State('s11StateAlready'); return;
+          showS11State('s11StateAlready');
+          // Load squad to render the submitted lineup on the read-only pitch
+          var sUrl = '/api/squad';
+          if (_match.squad_league) {
+            sUrl += '?league=' + encodeURIComponent(_match.squad_league);
+            if (_match.squad_espn_id)   sUrl += '&team_id='   + encodeURIComponent(_match.squad_espn_id);
+            if (_match.squad_team_name) sUrl += '&team_name=' + encodeURIComponent(_match.squad_team_name);
+          }
+          fetch(sUrl).then(function (r) { return r.ok ? r.json() : null; }).then(function (sq) {
+            if (!sq?.players?.length) return;
+            var byId = {};
+            sq.players.forEach(function (p) { byId[p.id] = p; });
+            var submitted = (existing[0].player_ids ?? []).map(Number);
+            var zones = {
+              Attacker:   document.getElementById('s11AlreadyZoneAtt'),
+              Midfielder: document.getElementById('s11AlreadyZoneMid'),
+              Defender:   document.getElementById('s11AlreadyZoneDef'),
+              Goalkeeper: document.getElementById('s11AlreadyZoneGk'),
+            };
+            submitted.forEach(function (id) {
+              var p = byId[id]; if (!p) return;
+              var zone = zones[p.position] || zones['Midfielder']; if (!zone) return;
+              var num = p.number != null ? p.number : p.name.charAt(0);
+              var div = document.createElement('div');
+              div.className = 's11-pitch-player';
+              div.title = p.name;
+              div.innerHTML = '<div class="s11-pitch-circle' + (p.position === 'Goalkeeper' ? ' gk' : '') + '">' + num + '</div>' +
+                '<div class="s11-pitch-pname">' + p.name.split(' ').pop() + '</div>';
+              zone.appendChild(div);
+            });
+          }).catch(function () {});
+          return;
         }
       }
     } catch (e) { /* fall through */ }
@@ -1224,6 +1284,7 @@
     if (!squadData?.players?.length) { showS11State('s11StateNoMatch'); return; }
 
     _selectedPlayerIds = [];
+    _playerZones = {};
     renderS11Grid(squadData.players);
     showS11State('s11StateForm');
   }
@@ -1240,9 +1301,16 @@
       if (!list.length) return;
       html += '<div class="s11-position-group"><div class="s11-position-label">' + labels[pos] + '</div><div class="s11-player-grid">';
       list.forEach(function (p) {
-        html += '<button class="s11-player-btn" data-id="' + p.id + '">' +
+        var unavCls = p.unavailable ? ' unavailable' : '';
+        var statusTag = p.status_type === 'suspended'
+          ? '<span class="s11-player-status-tag suspended">Cezalı</span>'
+          : p.status_type === 'injured'
+            ? '<span class="s11-player-status-tag injured">Yaralı</span>'
+            : '';
+        html += '<button class="s11-player-btn' + unavCls + '" data-id="' + p.id + '"' +
+          (p.unavailable ? ' disabled title="' + (p.status_type === 'suspended' ? 'Cezalı oyuncu' : 'Yaralı oyuncu') + '"' : '') + '>' +
           (p.number ? '<span class="s11-player-num">' + p.number + '</span>' : '') +
-          p.name + '</button>';
+          p.name + statusTag + '</button>';
       });
       html += '</div></div>';
     });
@@ -1252,8 +1320,21 @@
       btn.addEventListener('click', function () {
         var id = Number(this.dataset.id);
         var idx = _selectedPlayerIds.indexOf(id);
-        if (idx !== -1) { _selectedPlayerIds.splice(idx, 1); this.classList.remove('selected'); }
-        else if (_selectedPlayerIds.length < 11) { _selectedPlayerIds.push(id); this.classList.add('selected'); }
+        if (idx !== -1) {
+          _selectedPlayerIds.splice(idx, 1);
+          delete _playerZones[id];
+          this.classList.remove('selected');
+        } else if (_selectedPlayerIds.length < 11) {
+          var p = _playersById[id];
+          // Enforce max 1 goalkeeper
+          if (p?.position === 'Goalkeeper') {
+            var hasGK = _selectedPlayerIds.some(function (sid) { return _playersById[sid]?.position === 'Goalkeeper'; });
+            if (hasGK) return;
+          }
+          _selectedPlayerIds.push(id);
+          _playerZones[id] = p?.position ?? 'Midfielder';
+          this.classList.add('selected');
+        }
         updateS11Counter();
       });
     });
@@ -1261,36 +1342,83 @@
   }
 
   function renderPitch() {
-    var zones = {
+    var zoneEls = {
       Attacker:   document.getElementById('s11ZoneAtt'),
       Midfielder: document.getElementById('s11ZoneMid'),
       Defender:   document.getElementById('s11ZoneDef'),
       Goalkeeper: document.getElementById('s11ZoneGk'),
     };
-    Object.values(zones).forEach(function (z) { if (z) z.innerHTML = ''; });
+    Object.values(zoneEls).forEach(function (z) { if (z) z.innerHTML = ''; });
+
+    // Group players by their assigned zone
+    var zoneGroups = { Goalkeeper: [], Defender: [], Midfielder: [], Attacker: [] };
     _selectedPlayerIds.forEach(function (id) {
       var p = _playersById[id];
       if (!p) return;
-      var zone = zones[p.position] || zones['Midfielder'];
-      if (!zone) return;
-      var num = p.number != null ? p.number : p.name.charAt(0);
-      var shortName = p.name.split(' ').pop();
-      var el = document.createElement('div');
-      el.className = 's11-pitch-player';
-      el.title = p.name + ' — tıkla çıkar';
-      el.innerHTML =
-        '<div class="s11-pitch-circle' + (p.position === 'Goalkeeper' ? ' gk' : '') + '">' + num + '</div>' +
-        '<div class="s11-pitch-pname">' + shortName + '</div>';
-      el.addEventListener('click', function () {
-        var idx = _selectedPlayerIds.indexOf(id);
-        if (idx !== -1) {
-          _selectedPlayerIds.splice(idx, 1);
+      var zone = _playerZones[id] ?? p.position ?? 'Midfielder';
+      if (!zoneGroups[zone]) zone = 'Midfielder';
+      zoneGroups[zone].push(id);
+    });
+
+    // Sort each zone by sub-position horizontal order (left → right)
+    Object.keys(zoneGroups).forEach(function (zone) {
+      zoneGroups[zone].sort(function (a, b) {
+        var oa = SUBPOS_HORDER[_playersById[a]?.abbr ?? ''] ?? 2;
+        var ob = SUBPOS_HORDER[_playersById[b]?.abbr ?? ''] ?? 2;
+        return oa - ob;
+      });
+    });
+
+    // Render
+    Object.keys(zoneGroups).forEach(function (zone) {
+      var zEl = zoneEls[zone];
+      if (!zEl) return;
+      zoneGroups[zone].forEach(function (id) {
+        var p = _playersById[id];
+        if (!p) return;
+        var assignedZone = _playerZones[id] ?? p.position ?? 'Midfielder';
+        var zi = ZONE_ORDER.indexOf(assignedZone);
+        var num = p.number != null ? p.number : p.name.charAt(0);
+        var shortName = p.name.split(' ').pop();
+        var isGK = assignedZone === 'Goalkeeper';
+        var el = document.createElement('div');
+        el.className = 's11-pitch-player';
+        el.title = p.name;
+        var upBtn = zi < 3 ? '<button class="s11-pitch-ctrl-btn s11-ctrl-up" title="Öne al">▲</button>' : '<span class="s11-pitch-ctrl-spacer"></span>';
+        var dnBtn = zi > 0 ? '<button class="s11-pitch-ctrl-btn s11-ctrl-dn" title="Geri al">▼</button>' : '<span class="s11-pitch-ctrl-spacer"></span>';
+        el.innerHTML =
+          '<div class="s11-pitch-circle' + (isGK ? ' gk' : '') + '">' + num + '</div>' +
+          '<div class="s11-pitch-pname">' + shortName + '</div>' +
+          '<div class="s11-pitch-ctrl">' + upBtn + '<button class="s11-pitch-ctrl-btn s11-ctrl-rm" title="Çıkar">✕</button>' + dnBtn + '</div>';
+        el.querySelector('.s11-ctrl-rm').addEventListener('click', function (e) {
+          e.stopPropagation();
+          var idx = _selectedPlayerIds.indexOf(id);
+          if (idx !== -1) { _selectedPlayerIds.splice(idx, 1); delete _playerZones[id]; }
           var btn = document.querySelector('.s11-player-btn[data-id="' + id + '"]');
           if (btn) btn.classList.remove('selected');
           updateS11Counter();
-        }
+        });
+        var upEl = el.querySelector('.s11-ctrl-up');
+        if (upEl) upEl.addEventListener('click', function (e) {
+          e.stopPropagation();
+          _playerZones[id] = ZONE_ORDER[Math.min(3, ZONE_ORDER.indexOf(_playerZones[id] ?? p.position ?? 'Midfielder') + 1)];
+          renderPitch();
+        });
+        var dnEl = el.querySelector('.s11-ctrl-dn');
+        if (dnEl) dnEl.addEventListener('click', function (e) {
+          e.stopPropagation();
+          var curZi = ZONE_ORDER.indexOf(_playerZones[id] ?? p.position ?? 'Midfielder');
+          var targetZone = ZONE_ORDER[Math.max(0, curZi - 1)];
+          // Only 1 player can occupy GK zone
+          if (targetZone === 'Goalkeeper') {
+            var gkOccupied = _selectedPlayerIds.some(function (sid) { return sid !== id && (_playerZones[sid] ?? _playersById[sid]?.position) === 'Goalkeeper'; });
+            if (gkOccupied) return;
+          }
+          _playerZones[id] = targetZone;
+          renderPitch();
+        });
+        zEl.appendChild(el);
       });
-      zone.appendChild(el);
     });
   }
 

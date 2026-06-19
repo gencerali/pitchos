@@ -263,6 +263,10 @@ async function checkBadges(env, user_id, site_id, { level, streak, action_id, to
       { badge_id: 'reactor_10', min_count: 10 },
       { badge_id: 'reactor_50', min_count: 50 },
     ],
+    lineup_11_correct: [
+      { badge_id: 'lineup_perfect_1', min_count: 1 },
+      { badge_id: 'lineup_perfect_5', min_count: 5 },
+    ],
   };
   if (countMap[action_id]) {
     const rows = await sbGet(env,

@@ -76,35 +76,34 @@ export async function onRequest({ request, env }) {
   if (!teamId) teamId = await findBJKTeamId(league);
   if (!teamId) return err('Could not resolve team ID', 503);
 
-  async function fetchFlat(lg, tid) {
-    const r = await fetch(`${ESPN_BASE}/${lg}/teams/${tid}/roster`);
-    if (!r.ok) return [];
-    const d = await r.json();
-    const raw = d?.athletes ?? [];
-    return raw.length && Array.isArray(raw[0]?.items) ? raw.flatMap(g => g.items) : raw;
-  }
+  const apiRes = await fetch(`${ESPN_BASE}/${league}/teams/${teamId}/roster`);
+  if (!apiRes.ok) return err('Could not fetch squad', 503);
+  const data = await apiRes.json();
 
-  let flat = await fetchFlat(league, teamId).catch(() => []);
-
-  // If the requested team has no roster (common for national-team leagues on ESPN),
-  // fall back to Beşiktaş in tur.1 so the S11 card always has players to show.
-  if (!flat.length && league !== BJK_LEAGUE) {
-    const bjkId = await findBJKTeamId(BJK_LEAGUE).catch(() => null);
-    if (bjkId) flat = await fetchFlat(BJK_LEAGUE, bjkId).catch(() => []);
-  }
+  // ESPN roster: athletes is either a flat array or grouped by position with .items
+  const raw  = data?.athletes ?? [];
+  const flat = raw.length && Array.isArray(raw[0]?.items) ? raw.flatMap(g => g.items) : raw;
 
   if (!flat.length) return json({ team_id: teamId, players: [] });
 
   const players = flat
     .map(p => {
-      const abbr     = p.position?.abbreviation ?? '';
-      const position = POSITION_MAP[abbr] ?? p.position?.displayName ?? 'Unknown';
+      const abbr       = p.position?.abbreviation ?? '';
+      const position   = POSITION_MAP[abbr] ?? p.position?.displayName ?? 'Unknown';
+      const statusType = (p.status?.type ?? p.status?.name ?? '').toLowerCase();
+      const isInjured  = ['injured', 'day-to-day', 'out', 'doubtful'].includes(statusType)
+        || (Array.isArray(p.injuries) && p.injuries.length > 0)
+        || p.injured === true;
+      const isSuspended = statusType === 'suspended';
       return {
-        id:       parseInt(p.id, 10) || p.id,
-        name:     p.displayName ?? p.fullName ?? p.shortName ?? '',
+        id:          parseInt(p.id, 10) || p.id,
+        name:        p.displayName ?? p.fullName ?? p.shortName ?? '',
         position,
-        photo:    p.headshot?.href ?? null,
-        number:   p.jersey != null ? parseInt(p.jersey, 10) : null,
+        abbr,
+        photo:       p.headshot?.href ?? null,
+        number:      p.jersey != null ? parseInt(p.jersey, 10) : null,
+        unavailable: isInjured || isSuspended,
+        status_type: isSuspended ? 'suspended' : isInjured ? 'injured' : null,
       };
     })
     .sort((a, b) => {
