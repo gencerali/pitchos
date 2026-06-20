@@ -11355,6 +11355,15 @@ ${nav}
   ${(function() {
     if (!levelThresholds.length) return '<div style="background:#111;border:1px solid #1f2937;border-radius:6px;margin-bottom:1.5rem;padding:1rem;color:#6b7280;font-size:.82rem">Level threshold tablosu yüklenemedi (level_thresholds boş).</div>';
     const TIER_MAP = { 1:'Misafir Kartal',2:'Misafir Kartal',3:'Misafir Kartal',4:'Taraftar',5:'Taraftar',6:'Taraftar',7:'Kapalı Tribün',8:'Kapalı Tribün',9:'Kapalı Tribün',10:'Çarşı Ruhu',11:'Çarşı Ruhu',12:'Çarşı Ruhu',13:'Efsane',14:'Efsane',15:'Efsane' };
+    const _catMap = {};
+    for (const a of actions) {
+      const pool = a.pool_estimate ?? (a.daily_cap > 0 ? a.daily_cap * 30 : 1);
+      const mon = (a.daily_cap === -1 ? 1 : Math.min(pool, (a.daily_cap > 0 ? a.daily_cap * 30 : pool))) * a.xp_per_action;
+      _catMap[a.category] = (_catMap[a.category] || 0) + mon;
+    }
+    const _totalMonthly = Object.values(_catMap).reduce((s, v) => s + v, 0);
+    const xpPerMonth30 = Math.round(_totalMonthly * 0.30);
+    const xpPerMonth70 = Math.round(_totalMonthly * 0.70);
     const rows = levelThresholds.map(t => {
       const tier = TIER_MAP[t.level] || '—';
       const xpReq = t.xp_required || 0;
@@ -11388,8 +11397,8 @@ ${nav}
   </div>
   <script>
   (function(){
-    const XP_PER_MONTH_30 = ${Math.round(Object.values((function(){const m={};for(const a of ${JSON.stringify(actions)}){const pool=a.pool_estimate??(a.daily_cap>0?a.daily_cap*30:1);const mon=(a.daily_cap===-1?1:Math.min(pool,(a.daily_cap>0?a.daily_cap*30:pool)))*a.xp_per_action;m[a.category]=(m[a.category]||0)+mon;}return m;})()).reduce((s,v)=>s+v,0) * 0.30)};
-    const XP_PER_MONTH_70 = ${Math.round(Object.values((function(){const m={};for(const a of ${JSON.stringify(actions)}){const pool=a.pool_estimate??(a.daily_cap>0?a.daily_cap*30:1);const mon=(a.daily_cap===-1?1:Math.min(pool,(a.daily_cap>0?a.daily_cap*30:pool)))*a.xp_per_action;m[a.category]=(m[a.category]||0)+mon;}return m;})()).reduce((s,v)=>s+v,0) * 0.70)};
+    const XP_PER_MONTH_30 = ${xpPerMonth30};
+    const XP_PER_MONTH_70 = ${xpPerMonth70};
     function updateLtRow(level) {
       const xp = parseInt(document.getElementById('lt-xp-' + level)?.value || 0);
       const d30 = XP_PER_MONTH_30 > 0 ? Math.ceil(xp / (XP_PER_MONTH_30 / 30)) : '∞';
