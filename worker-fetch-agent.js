@@ -5378,6 +5378,46 @@ async function matchWatcher(env) {
           } else {
             console.error(`WATCHER ESPN T-PRED: evaluate-predictions returned ${evalRes.status} for match ${espnMatch.match_id}`);
           }
+
+          // ── Starting-11 auto-eval ──────────────────────────────────
+          // Extract the actual starters from ESPN boxscore and evaluate lineup predictions.
+          const s11DoneKey = `espn:s11-eval-done:${espnMatch.match_id}`;
+          const s11Done    = await env.PITCHOS_CACHE.get(s11DoneKey);
+          if (!s11Done) {
+            const players = espnSummary?.boxscore?.players ?? [];
+            // Identify the Turkey/BJK roster by team ID (stored as squad_espn_id or home_team_id/away_team_id)
+            const squadId = String(espnMatch.squad_espn_id ?? espnMatch.home_team_id ?? '');
+            const teamRoster = players.find(p => {
+              if (squadId && String(p.team?.id ?? '') === squadId) return true;
+              const n = (p.team?.displayName ?? p.team?.name ?? '').toLowerCase();
+              const a = (p.team?.abbreviation ?? '').toUpperCase();
+              return n.includes('türkiye') || n.includes('turkey') || a === 'TUR' ||
+                     n.includes('beşiktaş') || n.includes('besiktas') || a === 'BJK';
+            });
+            if (teamRoster) {
+              const starters = (teamRoster.athletes ?? [])
+                .filter(a => a.starter)
+                .map(a => parseInt(a.athlete?.id ?? '0') || 0)
+                .filter(id => id > 0);
+              if (starters.length === 11) {
+                const s11Res = await fetch('https://kartalix.com/api/xp/evaluate-starting-11', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': env.INTERNAL_SECRET || '' },
+                  body: JSON.stringify({ match_id: espnMatch.match_id, site_id: site.id, player_ids: starters }),
+                });
+                if (s11Res.ok) {
+                  console.log(`WATCHER ESPN S11: evaluated starting-11 for match ${espnMatch.match_id}`);
+                  await env.PITCHOS_CACHE.put(s11DoneKey, '1', { expirationTtl: 7 * 24 * 60 * 60 });
+                } else {
+                  console.error(`WATCHER ESPN S11: evaluate-starting-11 returned ${s11Res.status} for match ${espnMatch.match_id}`);
+                }
+              } else {
+                console.log(`WATCHER ESPN S11: found ${starters.length} starters for match ${espnMatch.match_id} (expected 11), skipping`);
+              }
+            } else {
+              console.log(`WATCHER ESPN S11: could not identify team roster in boxscore for match ${espnMatch.match_id}`);
+            }
+          }
         }
         break; // one match at a time
       }
