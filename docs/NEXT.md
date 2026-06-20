@@ -8,9 +8,131 @@ Update this at the END of every work session. Not the start — the end. Future-
 
 ## NEXT ACTION
 
-**NEXT** (Sprint 1 rescoped around **Method B** — see `docs/method-b-design.md`):
-1. **Deploy & observe** — `npx wrangler deploy -c wrangler-story.toml` + secrets, apply `0014_method_b.sql`, set KV `methodb:enabled=1`, then watch `/admin/pipeline` for a few days. Tune the rules pre-filter, delta prompt, and synthesis voice against real output. ← this task
-2. Step 3 — Haiku judge in `correlateToTopic` + `branch_of`/`sequel_of` edges (derbi→skandal, hoca krizi) + parallel claim-tracks (rakip-kulüp transfers). *(hold until shadow output observed.)*
+**NEXT** — **Redesign Phase 1** (foundation sprint, see full plan below):
+1. **1A — Thin save**: allow `rss_summary` articles to persist to DB as `rss_link` mode (title + summary + slug only). Gates all volume and SEO. `saveArticles` in `src/publisher.js`.
+2. **1B — Permalink from DB**: `serveArticlePage` must query Supabase `content_items` by slug instead of KV. Decayed articles 404 today.
+3. **1C — Top 20 + more**: `/cache` endpoint returns `{ top: [...20], more: [...180], total }`. Frontend renders top immediately, "Daha fazla" loads rest.
+
+---
+
+## REDESIGN PLAN — Speed · Volume · Story Arc
+
+Full rationale in last Claude session (2026-06-20). Ground truth: only synthesized articles reach DB today (rss_summary blocked), article permalinks may 404 after KV eviction, Method B is deployed but disabled.
+
+### Priority order
+
+| Phase | Scope | Effort | Do first because |
+|---|---|---|---|
+| **1A** Thin save | persist rss_summary as `rss_link` in DB | 1 day | gates all volume + SEO |
+| **1B** Permalink from DB | `serveArticlePage` reads Supabase | half day | fans share links that 404 today |
+| **1C** Top 20 + more | `/cache` splits top/more | half day | stated UX requirement |
+| **2A** rssOnly 5-min | rule-based NVS, no Claude, 5-min cron | 1 day | speed is core to news |
+| **4A** Enable Method B | `methodb:enabled = 1` KV flag | 1 hour | already built, just needs the flag |
+| **4C** Story pages | `/konu/{slug}` permanent pages | 2 days | SEO + reader retention |
+| **2B** Flash lane | T1/T2 event-mode → immediate Haiku flash | 1 day | breaking news differentiation |
+| **3C** Ingest endpoint | `/ingest` POST for Telegram/VPS | 1 day | unlocks external sources |
+| **5** Narrative status | rumor→talks→agreed→official on story card | 2 days | "what's happening now" UX |
+| **6** YT multi-fact | `extractFactsFromTranscript` returns array | 2 days | richer facts, needs Ph4 stable first |
+| **7** SEO | sitemap from DB, JSON-LD on article pages | 1 day | compound, not immediate |
+
+### Phase 1 — Homepage + Permalink Foundation
+
+**1A — Thin save (rss_link)**
+- `saveArticles` currently hard-blocks `publish_mode === 'rss_summary'` — this means only synthesized articles reach `content_items`. Zero long-tail SEO, low total volume.
+- Add `rss_link` publish mode: saves title + summary + slug + source_name + nvs_score + original_url. No full_body.
+- All articles passing NVS ≥ 30 get a DB row and permanent slug.
+- `rss_link` articles render as "başlık + özet + kaynak linki" on the article page.
+- KV hard limit: raise from 200 → 400. rss_link half-life: 4–6h (vs. 18–24h for rewrite).
+
+**1B — Permalink from DB**
+- `serveArticlePage` in `worker-fetch-agent.js` must `SELECT * FROM content_items WHERE slug = $1`.
+- KV TTL 12h means any article older than 12h with no re-rank may 404. DB is permanent.
+- If `publish_mode = 'rss_link'`: render summary card + "Kaynağa git" button.
+- If `publish_mode = 'rewrite'` or synthesis: render full article.
+- Decayed articles still served, just ranked lower on homepage.
+
+**1C — Homepage top 20 + more**
+- `/cache` endpoint currently returns full KV pool.
+- Change to `{ top: articles.slice(0,20), more: articles.slice(20), total: articles.length }`.
+- Frontend renders `top` on load. "Daha fazla" button appends `more` inline (no page reload).
+- Mobile: top 10 initially, "daha fazla" loads next 10 then rest.
+
+### Phase 2 — 5-Min RSS Speed Lane
+
+**2A — rssOnly mode**
+- Add `opts.rssOnly` flag in `runAllSites` → `processSite`.
+- When true: skip `scoreArticles` (no Haiku), use rule-based NVS estimate:
+  `base = {T1:80, T2:65, T3:50, T4:30}[trust_tier]`
+  `+ delta_boost: milestone+20, decision+15, contradiction+10, routine-10`
+  `+ age_penalty: >60min:-15, >120min:-25`
+- Skip `synthesizeArticle`. Save as rss_link.
+- Keep `extractFactsForStory` fire-and-forget (already in place).
+- `*/5` cron: `if isMatchLive → full pipeline; else → rssOnly, 10-min lookback`
+- `0 * * * *` hourly: always full pipeline (scoring + synthesis).
+
+**2B — Flash lane (T1/T2 event-mode)**
+- When `delta_type ∈ {milestone, decision}` AND `news_mode === event` AND `trust_tier ∈ {T1, T2}`:
+  - Bypass hourly synthesis queue
+  - Generate 100–150 word flash article via Haiku immediately
+  - `publish_mode = 'flash'`, half-life 2h, NVS 85
+- Covers "TFF cezayı açıkladı", "BJK imzaladı" use cases.
+
+### Phase 3 — Volume & External Sources
+
+**3A — NVS rule-based pre-score**
+Deterministic estimate for rssOnly runs. No Claude. Formula above.
+
+**3B — Synthesis cap**
+Raise `SYNTHESIS_CAP_PER_RUN` from 12 → 18. Overflow already queues to KV rewrite queue.
+
+**3C — Ingest endpoint `/ingest`**
+POST endpoint with shared secret. Accepts article object, routes straight to rule-based NVS → save → fact extract. Enables:
+- Telegram Bot API: monitor BJK channels, push to /ingest
+- Twitter VPS: Playwright scraper polling 6 accounts, push to /ingest
+- Manual admin entry: break news instantly
+
+### Phase 4 — Method B Live
+
+**4A — Enable observation**
+`wrangler kv key put --namespace-id=dedaea653ed542cca25e6cc2551dd1c3 methodb:enabled 1`
+Watch `/admin/pipeline` for a week: volume, €/day, article quality. KV `articles:BJK:methodb` builds up.
+
+**4B — Story pages `/konu/{slug}`**
+Permanent URL per story. Shows: working title, state badge, timeline of phases, source count, related articles. DB-read, never expires. Included in sitemap.
+
+**4C — Story cards on homepage**
+`stories WHERE state IN (developing, confirmed)` injected into KV pool as story-arc cards.
+Card shows: title, state badge, "4 kaynak", last updated. Decay: 48h half-life for confirmed, 24h for developing.
+
+**4D — Blue/green cutover**
+After a week of observation: `pipeline:active:BJK = methodb`. Instant, reversible.
+
+### Phase 5 — Narrative Status
+
+Add `narrative_status` to `classifyStoryType()` output:
+`rumor | talks | agreed | official | denied | concluded`
+
+Trust gate: `official` requires T1/T2 source. Press-only chain caps at `agreed`.
+Stored on `stories` table, shown on story cards and story pages.
+Story card becomes: "Rashica — GÖRÜŞMELER DEVAM EDİYOR" → "Rashica — ANLAŞILDI" → "Rashica — RESMİ".
+
+### Phase 6 — YouTube Multi-Fact
+
+`extractFactsFromTranscript(transcript, env)` returns `Fact[]` (array). Batch extraction prompt:
+```json
+[
+  {"players":["Rashica"],"clubs":["Beşiktaş"],"numbers":{"contract_years":2},"story_hint":"contract renewal"},
+  {"players":["Rashica"],"numbers":{"release_clause":5},"story_hint":"contract clause"}
+]
+```
+Each fact links to same `content_item_id`, gets its own `facts_id`. Story matcher processes independently. One press conference video can move 3 different stories forward.
+
+### Phase 7 — SEO
+
+- Sitemap queries `content_items WHERE status=published` (paginated). Includes story pages.
+- Article pages: `<title>`, `og:description`, `canonical`, JSON-LD `datePublished`.
+- Story pages in sitemap: Stories accumulate content over days — ideal for transfer saga coverage.
+- Raise KV pool limit to 400 but keep homepage at top 20. Long tail lives in DB, indexed by Google.
 
 ---
 

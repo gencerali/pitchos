@@ -11896,6 +11896,63 @@ ${nav}
   <div class="section-title">Planned &amp; In Flight</div>
   <div class="rlist">
 
+    <div class="rrow" onclick="toggle('rredesign')">
+      <span class="vtag next">Redesign</span>
+      <div><div class="rrow-title">Speed · Volume · Story Arc · SEO</div><div class="rrow-sub">Top-20 homepage · rss_link thin save · Permalink from DB · 5-min RSS lane · Method B live · Narrative status · Ingest endpoint</div></div>
+      <div class="rrow-date">Q3 2026</div>
+    </div>
+    <div id="rredesign" class="detail">
+      <h4>Goal</h4>
+      <p style="font-size:12px;color:#aaa;margin-bottom:12px">Fix the three ground-truth gaps — only synthesized articles reach DB today (zero long-tail SEO), article permalinks 404 after KV eviction, Method B deployed but disabled — and add the source speed + story arc experience that makes this feel like a real news channel.</p>
+      <h4>Priority Order</h4>
+      <table>
+        <tr><td>Ph 1A</td><td><span class="rtag feat">FEAT</span> Thin save — <code>rss_link</code> publish mode persists all NVS≥30 articles to DB (title+summary+slug, no full_body). Gates all volume &amp; SEO.</td></tr>
+        <tr><td>Ph 1B</td><td><span class="rtag fix">FIX</span> <code>serveArticlePage</code> reads from Supabase, not KV. Decayed slugs currently 404.</td></tr>
+        <tr><td>Ph 1C</td><td><span class="rtag feat">FEAT</span> Homepage splits into <code>top:20</code> + <code>more:rest</code>. "Daha fazla" button loads remaining articles inline.</td></tr>
+        <tr><td>Ph 2A</td><td><span class="rtag feat">FEAT</span> <code>rssOnly</code> mode in <code>processSite</code> — rule-based NVS estimate, no Claude, no synthesis. <code>*/5</code> cron always runs RSS-only (not just live matches). Hourly cron keeps full pipeline.</td></tr>
+        <tr><td>Ph 4A</td><td><span class="rtag feat">FEAT</span> Enable Method B (<code>methodb:enabled=1</code>). Observe shadow pool for a week then flip serving.</td></tr>
+        <tr><td>Ph 4C</td><td><span class="rtag feat">FEAT</span> Story pages — <code>/konu/{slug}</code> permanent URL per story. Timeline, state badge, source count. In sitemap.</td></tr>
+        <tr><td>Ph 2B</td><td><span class="rtag feat">FEAT</span> Flash lane — T1/T2 event-mode facts → immediate Haiku flash article (100–150 words, <code>publish_mode=flash</code>, 2h half-life).</td></tr>
+        <tr><td>Ph 3C</td><td><span class="rtag feat">FEAT</span> <code>/ingest</code> POST endpoint — external sources (Telegram bot, Twitter VPS) push articles directly.</td></tr>
+        <tr><td>Ph 5</td><td><span class="rtag feat">FEAT</span> Narrative status — <code>rumor→talks→agreed→official</code> on story cards. T1/T2 gate for <code>official</code>.</td></tr>
+        <tr><td>Ph 6</td><td><span class="rtag feat">FEAT</span> YouTube multi-fact — <code>extractFactsFromTranscript</code> returns array; one press conference moves 3 stories.</td></tr>
+        <tr><td>Ph 7</td><td><span class="rtag perf">SEO</span> Sitemap from DB (paginated). JSON-LD on article + story pages. KV pool → 400, homepage stays at top 20.</td></tr>
+      </table>
+      <h4>Phase 1 detail — Homepage &amp; Permalink Foundation</h4>
+      <ul>
+        <li><strong>rss_link mode</strong>: <code>saveArticles</code> currently hard-blocks <code>rss_summary</code>. New <code>rss_link</code> tier saves title+summary+slug to <code>content_items</code> (no full_body). KV half-life 4–6h, hard limit raised 200→400.</li>
+        <li><strong>Permalink permanence</strong>: <code>serveArticlePage</code> → <code>SELECT * FROM content_items WHERE slug=$1</code>. rss_link renders summary + "Kaynağa git" button. rewrite/synthesis renders full article. No more 404 on decayed slugs.</li>
+        <li><strong>Top 20 + more</strong>: <code>/cache</code> returns <code>&#123; top:[...20], more:[...180], total &#125;</code>. Frontend renders top on load, "Daha fazla" appends more inline. All article volume lives in DB; homepage is a window into the pool.</li>
+      </ul>
+      <h4>Phase 2 detail — 5-Min RSS Speed Lane</h4>
+      <ul>
+        <li><strong>rssOnly flag</strong>: <code>processSite(opts.rssOnly)</code> skips <code>scoreArticles</code> + <code>synthesizeArticle</code>. Rule-based NVS: <code>base[trust_tier] + delta_boost[delta_type] + age_penalty</code>. Zero Claude calls.</li>
+        <li><strong>Flash lane</strong>: <code>delta_type∈&#123;milestone,decision&#125; &amp;&amp; news_mode=event &amp;&amp; trust∈&#123;T1,T2&#125;</code> → 100–150 word Haiku flash immediately. Bypasses hourly synthesis queue.</li>
+        <li><strong>Cron split</strong>: <code>*/5</code> always rssOnly (not just live matches). <code>0 * * *</code> hourly = full NVS + synthesis.</li>
+      </ul>
+      <h4>Phase 4 detail — Method B Live</h4>
+      <ul>
+        <li>Enable: <code>wrangler kv key put --namespace-id=dedaea653ed542cca25e6cc2551dd1c3 methodb:enabled 1</code></li>
+        <li>Story pages: <code>/konu/&#123;slug&#125;</code> — title, state badge (rumor/developing/confirmed/debunked), timeline of contributions, source count badges, related articles. DB-read, permanent, in sitemap.</li>
+        <li>Story arc cards injected into KV pool: "Rashica — GÖRÜŞMELER · 4 kaynak · 2s önce". Decay: confirmed 48h half-life, developing 24h.</li>
+        <li>Cutover: after 1-week observation → <code>pipeline:active:BJK = methodb</code>. Instant, reversible via <code>/admin/config</code>.</li>
+      </ul>
+      <h4>Phase 5 detail — Narrative Status</h4>
+      <ul>
+        <li>Add <code>narrative_status</code> to <code>classifyStoryType()</code> Haiku call: <code>rumor | talks | agreed | official | denied | concluded</code></li>
+        <li>Trust gate: <code>official</code> requires T1/T2 source. Press-only chain caps at <code>agreed</code>.</li>
+        <li>Story card becomes: "Rashica — GÖRÜŞMELER DEVAM EDİYOR" → "ANLAŞILDI" → "RESMİ".</li>
+      </ul>
+      <div class="criteria">
+        <h5>Phase 1 done when</h5>
+        <ul>
+          <li>RSS articles appear in <code>content_items</code> with <code>publish_mode=rss_link</code> after next cron run</li>
+          <li><code>/haber/{any-old-slug}</code> returns 200 even after KV eviction</li>
+          <li>Homepage loads with top-20 visible; "Daha fazla" button reveals remaining</li>
+        </ul>
+      </div>
+    </div>
+
     <div class="rrow" onclick="toggle('r10')">
       <span class="vtag planned">v1.0</span>
       <div><div class="rrow-title">Public Launch <span class="freeze-badge">FROZEN RELEASE</span></div><div class="rrow-sub">Security hardened · Trust gated · Situational awareness · Telegram ops · Lawyer re-confirmed</div></div>
