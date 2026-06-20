@@ -108,13 +108,20 @@ export async function onRequest({ request, env }) {
   if (request.method === 'OPTIONS') return corsHeaders();
   if (request.method !== 'GET') return err('Method not allowed', 405);
 
-  // 1. Admin manual override — bypasses API and cache entirely
+  // 1. Admin manual override — bypasses API and cache entirely.
+  // Auto-expires 4h after kickoff so the system moves to the next match automatically.
   if (env.PITCHOS_CACHE) {
     const manual = await env.PITCHOS_CACHE.get('upcoming-match:manual');
     if (manual) {
-      return new Response(manual, {
-        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'X-Cache': 'MANUAL' },
-      });
+      const manualMatch = JSON.parse(manual)?.match;
+      const kickoff = manualMatch?.kickoff_utc ? new Date(manualMatch.kickoff_utc).getTime() : null;
+      const expired = kickoff && Date.now() > kickoff + 4 * 60 * 60 * 1000;
+      if (!expired) {
+        return new Response(manual, {
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache', 'X-Cache': 'MANUAL' },
+        });
+      }
+      // Stale — silently fall through to ESPN auto-detection
     }
   }
 
