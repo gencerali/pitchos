@@ -93,19 +93,21 @@
   };
 
   // ── Audio engine ──────────────────────────────────────────────
-  // iOS Safari: AudioContext must be created inside a user gesture.
-  // We create it on the FIRST touch (even if sound is currently off) so it
-  // is ready when the user flips the sound toggle.  Actual unlock (real oscillator
-  // to satisfy Safari) happens on the first touch after sound is enabled.
+  // iOS Safari requires AudioContext to be created inside a user gesture.
+  // Chrome requires resume() to be called from a user gesture.
+  // Strategy: create context on ANY first touch (even with sound off) so it's
+  // ready the moment the user toggles sound on.  Actual unlock (oscillator +
+  // resume) only runs once sound is enabled, also inside a gesture handler.
   let _pendingCoins   = 0;
   let _pendingLevelUp = false;
   let _audioUnlocked  = false;
 
-  function _touchHandler() {
-    // Always create context on first gesture so toggle-on works immediately
-    if (!_audioCtx) {
-      try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
-    }
+  function _initAudioCtx() {
+    if (_audioCtx) return;
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+  }
+
+  function _unlockAudio() {
     if (_audioUnlocked || !_soundEnabled || !_audioCtx) return;
     _audioUnlocked = true;
     try {
@@ -125,11 +127,11 @@
   }
 
   ['touchstart', 'touchend', 'click'].forEach(evt =>
-    document.addEventListener(evt, _touchHandler, { passive: true })
+    document.addEventListener(evt, () => { _initAudioCtx(); _unlockAudio(); }, { passive: true })
   );
 
-  // Each tone function resumes the context itself before scheduling notes.
-  // This fixes the race where context is still suspended when the sound is triggered.
+  // Tone functions resume the context themselves before scheduling notes,
+  // fixing the race where context is still suspended when sound is triggered.
 
   // Festive 3-note ascending sparkle — A5 → C#6 → E6 (major arpeggio)
   function _kxTonesCoin() {
@@ -777,14 +779,12 @@
   // Expose sound control globally for profil.html toggle
   window.kxGamification = {
     setSoundEnabled: (v) => { _soundEnabled = !!v; },
-    // Called from the sound toggle's change handler — AudioContext was already
-    // created by the preceding touchstart/click events, so resume() works here.
+    // Called from the sound toggle's change handler.  AudioContext was created by
+    // the preceding touchstart/click events; _unlockAudio runs the real unlock
+    // (oscillator + resume) so the flag is only set after a proper gesture path.
     warmUpAudio: () => {
-      if (!_audioCtx) return;
-      _audioUnlocked = true;
-      const play = () => _kxTonesCoin();
-      if (_audioCtx.state === 'suspended') _audioCtx.resume().then(play);
-      else play();
+      _unlockAudio();          // unlock if not already (noop if _audioUnlocked)
+      if (_soundEnabled) _kxPlayCoin(); // confirmation coin; tone fn handles suspended state
     },
   };
 
