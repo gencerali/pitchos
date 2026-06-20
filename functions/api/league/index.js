@@ -75,7 +75,7 @@ export async function onRequest({ request, env }) {
       `xp_events?user_id=in.(${idList})&site_id=eq.${site_id}&created_at=gte.${encodeURIComponent(weekStartISO)}&nullified=eq.false&select=user_id,xp_earned&limit=10000`
     ).catch(() => []),
     sbGet(env,
-      `profiles?id=in.(${idList})&site_id=eq.${site_id}&select=id,display_name,avatar_url&limit=60`
+      `profiles?id=in.(${idList})&site_id=eq.${site_id}&select=id,username,display_name,avatar_url&limit=60`
     ).catch(() => []),
   ]);
 
@@ -86,8 +86,9 @@ export async function onRequest({ request, env }) {
 
   const leaderboard = memberIds.map(uid => ({
     user_id:      uid,
-    display_name: profMap[uid]?.display_name ?? 'Taraftar',
-    avatar_url:   profMap[uid]?.avatar_url ?? null,
+    username:     profMap[uid]?.username     ?? null,
+    display_name: profMap[uid]?.display_name ?? null,
+    avatar_url:   profMap[uid]?.avatar_url   ?? null,
     weekly_xp:    xpMap[uid] ?? 0,
     is_me:        uid === user.id,
   }));

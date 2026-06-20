@@ -463,14 +463,15 @@
         if (m.rank <= promo)         zoneBar = 'ld-promo';
         else if (m.rank > size - rel) zoneBar = 'ld-rel';
         const medal = m.rank === 1 ? '🥇' : m.rank === 2 ? '🥈' : m.rank === 3 ? '🥉' : `#${m.rank}`;
-        const initials = (m.display_name || 'K').charAt(0).toUpperCase();
+        const name     = m.username || m.display_name || 'Taraftar';
+        const initials = name.charAt(0).toUpperCase();
         const avatar = m.avatar_url
           ? `<img src="${m.avatar_url}" class="ld-av-img" alt="" loading="lazy">`
           : `<div class="ld-av-init">${initials}</div>`;
         return `<div class="ld-row ${zoneBar}${m.is_me ? ' ld-me' : ''}">
           <div class="ld-medal">${medal}</div>
           <div class="ld-av">${avatar}</div>
-          <div class="ld-name">${escHtml(m.display_name || 'Taraftar')}</div>
+          <div class="ld-name">${escHtml(name)}</div>
           <div class="ld-xp">${m.weekly_xp.toLocaleString('tr-TR')} XP</div>
         </div>`;
       }).join('');

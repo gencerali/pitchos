@@ -812,9 +812,10 @@
           let zone = '';
           if (m.rank <= promoCount)              zone = 'kxq-lb-promo';
           else if (m.rank > size - relCount)     zone = 'kxq-lb-relegate';
+          const _name = m.username || m.display_name || 'Taraftar';
           return `<div class="kxq-lb-row ${zone}${m.is_me ? ' kxq-lb-me' : ''}">
             <span class="kxq-lb-rank">${m.rank}</span>
-            <span class="kxq-lb-name">${m.display_name}</span>
+            <span class="kxq-lb-name">${_name}</span>
             <span class="kxq-lb-xp">${m.weekly_xp} XP</span>
           </div>`;
         }).join('');
