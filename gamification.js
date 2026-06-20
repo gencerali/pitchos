@@ -92,11 +92,16 @@
     _kxPlayCoin();
   };
 
+  function _kxGetCtx() {
+    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_audioCtx.state === 'suspended') _audioCtx.resume();
+    return _audioCtx;
+  }
+
   function _kxPlayCoin() {
     if (!_soundEnabled) return;
     try {
-      if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const ctx = _audioCtx;
+      const ctx = _kxGetCtx();
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
@@ -114,8 +119,7 @@
   function _kxPlayLevelUp() {
     if (!_soundEnabled) return;
     try {
-      if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const ctx = _audioCtx;
+      const ctx = _kxGetCtx();
       [523, 659, 784, 1047].forEach((freq, i) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -709,7 +713,10 @@
   }
 
   // Expose sound control globally for profil.html toggle
-  window.kxGamification = { setSoundEnabled: (v) => { _soundEnabled = !!v; } };
+  window.kxGamification = {
+    setSoundEnabled: (v) => { _soundEnabled = !!v; },
+    warmUpAudio: () => { try { _kxGetCtx(); } catch {} },
+  };
 
   // ── 9. Patch guest conversion sheet CTA ──────────────────────
   // Override the "Üye Ol" CTA in the existing guest sheet

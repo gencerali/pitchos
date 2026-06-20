@@ -1026,6 +1026,10 @@
         if (window.kxGamification?.setSoundEnabled) {
           window.kxGamification.setSoundEnabled(soundChk.checked);
         }
+        // Warm up AudioContext during this user gesture so it's not suspended later
+        if (soundChk.checked && window.kxGamification?.warmUpAudio) {
+          window.kxGamification.warmUpAudio();
+        }
       });
     }
 
