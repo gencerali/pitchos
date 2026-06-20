@@ -4532,7 +4532,10 @@ Sadece JSON döndür:
     } else if (cron === '0 4 * * *') {
       ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env), archiveDailyCost(env), runSourceHealth(env)]));
     } else if (cron === '0 3 * * 1') {
-      ctx.waitUntil(redistillEditorialNotes(env));
+      ctx.waitUntil(Promise.all([
+        redistillEditorialNotes(env),
+        runLeagueSettle(env),
+      ]));
     } else if (cron === '0 2 * * 0') {
       ctx.waitUntil(runVoicePatternExtraction(env));
     } else {
@@ -4791,6 +4794,23 @@ async function seedVoiceRules(env) {
   await env.PITCHOS_CACHE.put('editorial:notes', JSON.stringify(all));
   console.log(`SEED-VOICE: added ${newNotes.length} voice rules`);
   return newNotes.length;
+}
+
+// ─── WEEKLY LEAGUE SETTLEMENT ────────────────────────────────
+// Runs every Monday 03:00 alongside editorial redistill.
+// Calls the Pages Function endpoint with the shared secret.
+async function runLeagueSettle(env) {
+  if (!env.SETTLE_SECRET) { console.log('LEAGUE-SETTLE: no SETTLE_SECRET, skipping'); return; }
+  try {
+    const res = await fetch('https://kartalix.com/api/league/settle', {
+      method: 'POST',
+      headers: { 'X-Settle-Secret': env.SETTLE_SECRET },
+    });
+    const body = await res.json().catch(() => ({}));
+    console.log('LEAGUE-SETTLE:', res.status, JSON.stringify(body));
+  } catch (e) {
+    console.error('LEAGUE-SETTLE error:', e.message);
+  }
 }
 
 // ─── WEEKLY EDITORIAL NOTES RE-DISTILL ───────────────────────

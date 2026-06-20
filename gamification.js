@@ -789,19 +789,43 @@
     if (!targets.length) return;
 
     const leagueHtml = league ? (() => {
-      const pct = league.next_league_min_xp
-        ? Math.min(100, Math.round((league.weekly_xp / league.next_league_min_xp) * 100))
-        : 100;
-      const progressBar = league.next_league_min_xp
-        ? `<div class="kxq-league-bar"><div class="kxq-league-bar-fill" style="width:${pct}%"></div></div>
-           <div class="kxq-league-sub">${league.weekly_xp} / ${league.next_league_min_xp} XP → ${league.next_league}</div>`
-        : `<div class="kxq-league-sub">Maksimum lig! ${league.weekly_xp} XP bu hafta</div>`;
+      const multLabel = league.tier_mult > 1.00 ? ` <span class="kxq-mult">×${league.tier_mult.toFixed(2)}</span>` : '';
+      let groupSection = '';
+      if (league.leaderboard && league.leaderboard.length) {
+        const lb = league.leaderboard;
+        const size = league.group_size;
+        const promoCount = league.promo_zone;
+        const relCount   = league.relegate_zone;
+        const rows = lb.map(m => {
+          let zone = '';
+          if (m.rank <= promoCount)              zone = 'kxq-lb-promo';
+          else if (m.rank > size - relCount)     zone = 'kxq-lb-relegate';
+          return `<div class="kxq-lb-row ${zone}${m.is_me ? ' kxq-lb-me' : ''}">
+            <span class="kxq-lb-rank">${m.rank}</span>
+            <span class="kxq-lb-name">${m.display_name}</span>
+            <span class="kxq-lb-xp">${m.weekly_xp} XP</span>
+          </div>`;
+        }).join('');
+        const myRank = league.rank;
+        const rankTxt = myRank
+          ? (myRank <= promoCount ? `<span class="kxq-rank-up">↑ ${myRank}. sıra — yükselme bölgesi</span>`
+              : myRank > size - relCount ? `<span class="kxq-rank-dn">↓ ${myRank}. sıra — düşme bölgesi</span>`
+              : `${myRank}. sıra / ${size}`)
+          : '';
+        groupSection = `<div class="kxq-lb">${rows}</div>
+          <div class="kxq-league-sub kxq-rank-line">${rankTxt}</div>`;
+      } else if (league.group_id === null) {
+        groupSection = `<div class="kxq-league-sub">Grup atanıyor — Pazartesi güncellenir</div>`;
+      }
       return `<div class="kxq-league">
-        <span class="kxq-league-icon">${league.league_icon}</span>
-        <div class="kxq-league-body">
-          <div class="kxq-league-name">${league.league} Lig <span class="kxq-week-label">Bu Hafta</span></div>
-          ${progressBar}
+        <div class="kxq-league-head">
+          <span class="kxq-league-icon">${league.tier_icon}</span>
+          <div class="kxq-league-body">
+            <div class="kxq-league-name">${league.tier_label} Lig${multLabel} <span class="kxq-week-label">Bu Hafta</span></div>
+            <div class="kxq-league-sub">${league.weekly_xp} XP bu hafta</div>
+          </div>
         </div>
+        ${groupSection}
       </div>`;
     })() : '';
 
@@ -831,14 +855,26 @@
       s.id = 'kxQuestStyle';
       s.textContent = `
         .kxq-card{background:#141414;border:1px solid #1e1e1e;border-radius:8px;overflow:hidden;margin-bottom:1rem}
-        .kxq-league{display:flex;align-items:center;gap:.75rem;padding:.85rem 1rem;border-bottom:1px solid #1e1e1e}
+        .kxq-league{padding:.85rem 1rem;border-bottom:1px solid #1e1e1e}
+        .kxq-league-head{display:flex;align-items:center;gap:.75rem}
         .kxq-league-icon{font-size:1.6rem;line-height:1;flex-shrink:0}
         .kxq-league-body{flex:1;min-width:0}
         .kxq-league-name{font-family:'Barlow Condensed',sans-serif;font-size:.95rem;font-weight:700;letter-spacing:.04em;color:#f0ede6}
         .kxq-week-label{font-size:.65rem;font-weight:400;color:#6b7280;margin-left:.4rem;text-transform:uppercase;letter-spacing:.06em}
-        .kxq-league-bar{height:4px;background:#2a2a2a;border-radius:2px;margin:.4rem 0 .25rem;overflow:hidden}
-        .kxq-league-bar-fill{height:100%;background:linear-gradient(90deg,#D90414,#F5A623);border-radius:2px;transition:width .4s}
-        .kxq-league-sub{font-size:.72rem;color:#6b7280}
+        .kxq-mult{font-size:.7rem;color:#f59e0b;font-weight:600;margin-left:.25rem}
+        .kxq-league-sub{font-size:.72rem;color:#6b7280;margin-top:.15rem}
+        .kxq-rank-line{margin-top:.4rem}
+        .kxq-rank-up{color:#22c55e;font-weight:600}
+        .kxq-rank-dn{color:#ef4444;font-weight:600}
+        .kxq-lb{margin:.6rem 0 .2rem;border-radius:4px;overflow:hidden;border:1px solid #222}
+        .kxq-lb-row{display:flex;align-items:center;gap:.4rem;padding:.3rem .5rem;font-size:.75rem;background:#181818}
+        .kxq-lb-row+.kxq-lb-row{border-top:1px solid #222}
+        .kxq-lb-promo{background:#0a1f10}
+        .kxq-lb-relegate{background:#1f0a0a}
+        .kxq-lb-me{font-weight:700;color:#f0ede6}
+        .kxq-lb-rank{width:1.4rem;text-align:right;color:#6b7280;flex-shrink:0}
+        .kxq-lb-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d1cec8}
+        .kxq-lb-xp{flex-shrink:0;color:#9ca3af;font-variant-numeric:tabular-nums}
         .kxq-header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem .5rem;font-family:'Barlow Condensed',sans-serif;font-size:.88rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af}
         .kxq-header--done{color:#22c55e}
         .kxq-done-badge{font-size:.72rem;font-weight:700;color:#22c55e;letter-spacing:.03em}
