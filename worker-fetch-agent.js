@@ -3373,7 +3373,7 @@ Sadece JSON döndür:
       const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage('/admin/gamification'), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 
-      const [actions, recentEvts, allEvts, badges, pollRows, pollVoteRows, sites, levelThresholds, shadowBanned] = await Promise.all([
+      const [actions, recentEvts, allEvts, badges, pollRows, pollVoteRows, sites, levelThresholds, shadowBanned, leagueGroups] = await Promise.all([
         supabase(env, 'GET', '/rest/v1/xp_actions?order=category.asc,id.asc&select=*') || [],
         supabase(env, 'GET', '/rest/v1/xp_events?order=created_at.desc&limit=100&select=id,user_id,action_id,xp_earned,multiplier,created_at,nullified,site_id') || [],
         supabase(env, 'GET', '/rest/v1/xp_events?nullified=eq.false&select=xp_earned,user_id') || [],
@@ -3383,6 +3383,7 @@ Sadece JSON döndür:
         getActiveSites(env),
         supabase(env, 'GET', '/rest/v1/level_thresholds?order=level.asc&select=*').catch(() => []),
         supabase(env, 'GET', '/rest/v1/profiles?shadow_banned=eq.true&select=id,username,display_name,site_id&limit=100').catch(() => []),
+        supabase(env, 'GET', '/rest/v1/league_groups?order=week_start.desc,tier.asc,group_number.asc&select=id,tier,week_start,group_number,settled,site_id&limit=500').catch(() => []),
       ]);
       const voteCountMap = {};
       for (const v of (pollVoteRows || [])) voteCountMap[v.poll_id] = (voteCountMap[v.poll_id] || 0) + 1;
@@ -3400,7 +3401,7 @@ Sadece JSON döndür:
         totalEvents: (allEvts || []).length,
       };
 
-      return new Response(renderGamificationAdminPage(actions || [], recentEvts || [], profileMap, stats, badges || [], polls, sites || [], levelThresholds || [], shadowBanned || []), {
+      return new Response(renderGamificationAdminPage(actions || [], recentEvts || [], profileMap, stats, badges || [], polls, sites || [], levelThresholds || [], shadowBanned || [], leagueGroups || []), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
     }
@@ -3492,6 +3493,18 @@ Sadece JSON döndür:
       if (!user_id) return Response.json({ error: 'missing user_id' }, { status: 400 });
       await supabase(env, 'PATCH', `/rest/v1/profiles?id=eq.${encodeURIComponent(user_id)}`, { shadow_banned: true }, { Prefer: 'return=minimal' });
       return Response.json({ ok: true });
+    }
+
+    if (url.pathname === '/admin/gamification/trigger-settle' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      if (!env.SETTLE_SECRET) return Response.json({ error: 'SETTLE_SECRET not set' }, { status: 500 });
+      const res = await fetch('https://kartalix.com/api/league/settle', {
+        method: 'POST',
+        headers: { 'X-Settle-Secret': env.SETTLE_SECRET },
+      });
+      const body = await res.json().catch(() => ({}));
+      return Response.json({ ok: res.ok, status: res.status, body });
     }
 
     if (url.pathname === '/admin/gamification/set-upcoming-match' && request.method === 'POST') {
@@ -10985,11 +10998,11 @@ load();
 </html>`;
 }
 
-function renderGamificationAdminPage(actions, events, profileMap, stats, badges = [], polls = [], sites = [], levelThresholds = [], shadowBanned = []) {
+function renderGamificationAdminPage(actions, events, profileMap, stats, badges = [], polls = [], sites = [], levelThresholds = [], shadowBanned = [], leagueGroups = []) {
   const nav = adminNav('gamification', '', []);
   const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-  const CATEGORY_LABELS = { retention:'Retention', community:'Community', tribun:'Tribün', system:'System' };
+  const CATEGORY_LABELS = { retention:'Retention', community:'Community', tribun:'Tribün', system:'System', league:'League' };
 
   const categoryGroups = {};
   for (const a of actions) {
@@ -11257,6 +11270,58 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
       </div>`;
   }).join('');
 
+  // ── League section ────────────────────────────────────────────
+  const TIER_META = {
+    bronz:  { label:'Bronz',  icon:'🥉', mult:'×1.00' },
+    'gümüş':{ label:'Gümüş', icon:'🥈', mult:'×1.05' },
+    'altın':{ label:'Altın',  icon:'🥇', mult:'×1.10' },
+    platin: { label:'Platin', icon:'🏆', mult:'×1.20' },
+    elmas:  { label:'Elmas',  icon:'💎', mult:'×1.30' },
+  };
+
+  const weeksByDate = {};
+  for (const g of leagueGroups) {
+    if (!weeksByDate[g.week_start]) weeksByDate[g.week_start] = {};
+    const t = g.tier;
+    if (!weeksByDate[g.week_start][t]) weeksByDate[g.week_start][t] = { groups: 0, settled: 0 };
+    weeksByDate[g.week_start][t].groups++;
+    if (g.settled) weeksByDate[g.week_start][t].settled++;
+  }
+  const weeks = Object.keys(weeksByDate).sort().reverse().slice(0, 4);
+
+  const leagueWeekRows = weeks.map(wk => {
+    const tierCells = ['bronz','gümüş','altın','platin','elmas'].map(tid => {
+      const d = weeksByDate[wk][tid];
+      if (!d) return `<td style="padding:.5rem .75rem;text-align:center;color:#3a3a3a">—</td>`;
+      const color = d.settled === d.groups ? '#4ade80' : d.settled > 0 ? '#fbbf24' : '#9ca3af';
+      return `<td style="padding:.5rem .75rem;text-align:center;font-size:.8rem;color:${color}"><b>${d.groups}</b> grup <span style="font-size:.68rem">(${d.settled}/${d.groups} settled)</span></td>`;
+    }).join('');
+    return `<tr style="border-bottom:1px solid #1a1a1a"><td style="padding:.5rem .75rem;font-size:.8rem;font-family:monospace;color:#9ca3af">${wk}</td>${tierCells}</tr>`;
+  }).join('') || '<tr><td colspan="6" style="padding:1.5rem;text-align:center;color:#6b7280;font-size:.82rem">Henüz grup yok</td></tr>';
+
+  const leagueSection = `
+  <div style="background:#111;border:1px solid #1f2937;border-radius:6px;margin-bottom:1.5rem;overflow:hidden">
+    <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-weight:700;font-size:.9rem">Lig Sistemi</span>
+      <div style="display:flex;gap:.75rem;align-items:center">
+        <span style="font-size:.72rem;color:#6b7280">${leagueGroups.length} toplam grup</span>
+        <button onclick="triggerSettle()" style="padding:4px 14px;background:#1e3a5f;border:1px solid #2563eb;color:#60a5fa;font-size:.75rem;font-weight:700;cursor:pointer;border-radius:3px">⚡ Manuel Settle</button>
+        <span id="settle-msg" style="font-size:.73rem;color:#4ade80"></span>
+      </div>
+    </div>
+    <div style="padding:.75rem 1rem;border-bottom:1px solid #1f2937;display:flex;gap:1.5rem">
+      ${['bronz','gümüş','altın','platin','elmas'].map(tid => {
+        const m = TIER_META[tid];
+        return `<span style="font-size:.78rem;color:#9ca3af">${m.icon} <b style="color:#e5e7eb">${m.label}</b> <span style="color:#fbbf24">${m.mult}</span></span>`;
+      }).join('')}
+      <span style="font-size:.72rem;color:#6b7280;margin-left:auto">↑ Yükselen: top 3 | ↓ Düşen: son 3 | Grup boyutu: 30</span>
+    </div>
+    <table><thead><tr>
+      <th>Hafta</th>
+      ${['bronz','gümüş','altın','platin','elmas'].map(tid => `<th style="text-align:center">${TIER_META[tid].icon} ${TIER_META[tid].label}</th>`).join('')}
+    </tr></thead><tbody>${leagueWeekRows}</tbody></table>
+  </div>`;
+
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -11313,6 +11378,8 @@ ${nav}
     </div>
     ${badgeSections}
   </div>
+
+  ${leagueSection}
 
   ${pollsSection}
 
@@ -11693,6 +11760,17 @@ async function unshadow(user_id) {
   });
   if (res.ok) { if (msg) { msg.style.color='#4ade80'; msg.textContent='Kaldırıldı!'; } setTimeout(() => location.reload(), 800); }
   else { if (msg) { msg.style.color='#f87171'; msg.textContent='Hata!'; } }
+}
+async function triggerSettle() {
+  const msg = document.getElementById('settle-msg');
+  if (msg) msg.textContent = '…çalışıyor';
+  const res = await fetch('/admin/gamification/trigger-settle', { method: 'POST' });
+  const d = await res.json().catch(() => ({}));
+  if (res.ok && d.ok) {
+    if (msg) { msg.style.color='#4ade80'; msg.textContent='Settle tamamlandı ✓ — sayfayı yenile'; }
+  } else {
+    if (msg) { msg.style.color='#f87171'; msg.textContent = d.body?.error || 'Hata! ' + (res.status); }
+  }
 }
 </script>
 </body>
