@@ -344,6 +344,13 @@
       window.__kxLoggedIn = true;
       document.dispatchEvent(new CustomEvent('kx:authReady', { detail: { me } }));
 
+      // Fetch quests + league in parallel, render banner wherever #kxQuestBanner exists
+      const hdrs = { Authorization: `Bearer ${accessToken}` };
+      Promise.all([
+        fetch('/api/quests', { headers: hdrs }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/league', { headers: hdrs }).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]).then(([quests, league]) => _kxRenderQuestBanner(quests, league));
+
     } catch {
       showGuestWidget();
     }
@@ -774,6 +781,82 @@
         reviveBtn.textContent = '🔥 Seriyi Geri Getir — 100 XP';
       }
     });
+  }
+
+  // ── B2: Daily Quest Banner + Weekly League ────────────────────
+  function _kxRenderQuestBanner(quests, league) {
+    const targets = document.querySelectorAll('.kxQuestBanner');
+    if (!targets.length) return;
+
+    const leagueHtml = league ? (() => {
+      const pct = league.next_league_min_xp
+        ? Math.min(100, Math.round((league.weekly_xp / league.next_league_min_xp) * 100))
+        : 100;
+      const progressBar = league.next_league_min_xp
+        ? `<div class="kxq-league-bar"><div class="kxq-league-bar-fill" style="width:${pct}%"></div></div>
+           <div class="kxq-league-sub">${league.weekly_xp} / ${league.next_league_min_xp} XP → ${league.next_league}</div>`
+        : `<div class="kxq-league-sub">Maksimum lig! ${league.weekly_xp} XP bu hafta</div>`;
+      return `<div class="kxq-league">
+        <span class="kxq-league-icon">${league.league_icon}</span>
+        <div class="kxq-league-body">
+          <div class="kxq-league-name">${league.league} Lig <span class="kxq-week-label">Bu Hafta</span></div>
+          ${progressBar}
+        </div>
+      </div>`;
+    })() : '';
+
+    const questsHtml = quests ? (() => {
+      const doneCount = quests.completed;
+      const rows = quests.quests.map(q => {
+        const pct = q.target > 1 ? Math.min(100, Math.round((q.progress / q.target) * 100)) : 0;
+        return `<div class="kxq-quest${q.done ? ' kxq-quest--done' : ''}">
+          <span class="kxq-quest-check">${q.done ? '✅' : '⬜'}</span>
+          <div class="kxq-quest-body">
+            <div class="kxq-quest-label">${q.label}</div>
+            ${q.target > 1 ? `<div class="kxq-quest-bar"><div class="kxq-quest-bar-fill" style="width:${pct}%"></div></div>` : ''}
+          </div>
+          <span class="kxq-quest-count">${q.progress}/${q.target}</span>
+        </div>`;
+      }).join('');
+      const header = quests.all_done
+        ? `<div class="kxq-header kxq-header--done">⚡ Günlük Görevler <span class="kxq-done-badge">Tümü Tamam 🎉</span></div>`
+        : `<div class="kxq-header">⚡ Günlük Görevler <span class="kxq-done-count">${doneCount}/3</span></div>`;
+      return `${header}<div class="kxq-quests">${rows}</div>`;
+    })() : '';
+
+    const html = `<div class="kxq-card">${leagueHtml}${questsHtml}</div>`;
+
+    if (!document.getElementById('kxQuestStyle')) {
+      const s = document.createElement('style');
+      s.id = 'kxQuestStyle';
+      s.textContent = `
+        .kxq-card{background:#141414;border:1px solid #1e1e1e;border-radius:8px;overflow:hidden;margin-bottom:1rem}
+        .kxq-league{display:flex;align-items:center;gap:.75rem;padding:.85rem 1rem;border-bottom:1px solid #1e1e1e}
+        .kxq-league-icon{font-size:1.6rem;line-height:1;flex-shrink:0}
+        .kxq-league-body{flex:1;min-width:0}
+        .kxq-league-name{font-family:'Barlow Condensed',sans-serif;font-size:.95rem;font-weight:700;letter-spacing:.04em;color:#f0ede6}
+        .kxq-week-label{font-size:.65rem;font-weight:400;color:#6b7280;margin-left:.4rem;text-transform:uppercase;letter-spacing:.06em}
+        .kxq-league-bar{height:4px;background:#2a2a2a;border-radius:2px;margin:.4rem 0 .25rem;overflow:hidden}
+        .kxq-league-bar-fill{height:100%;background:linear-gradient(90deg,#D90414,#F5A623);border-radius:2px;transition:width .4s}
+        .kxq-league-sub{font-size:.72rem;color:#6b7280}
+        .kxq-header{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem .5rem;font-family:'Barlow Condensed',sans-serif;font-size:.88rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9ca3af}
+        .kxq-header--done{color:#22c55e}
+        .kxq-done-badge{font-size:.72rem;font-weight:700;color:#22c55e;letter-spacing:.03em}
+        .kxq-done-count{font-size:.78rem;color:#6b7280;font-weight:400}
+        .kxq-quests{padding:0 .75rem .75rem}
+        .kxq-quest{display:flex;align-items:center;gap:.6rem;padding:.45rem .25rem;border-radius:4px}
+        .kxq-quest--done .kxq-quest-label{color:#6b7280;text-decoration:line-through}
+        .kxq-quest-check{font-size:1rem;flex-shrink:0;line-height:1}
+        .kxq-quest-body{flex:1;min-width:0}
+        .kxq-quest-label{font-size:.82rem;color:#f0ede6}
+        .kxq-quest-bar{height:3px;background:#2a2a2a;border-radius:2px;margin-top:.3rem;overflow:hidden}
+        .kxq-quest-bar-fill{height:100%;background:#D90414;border-radius:2px;transition:width .4s}
+        .kxq-quest-count{font-size:.72rem;color:#6b7280;flex-shrink:0;font-variant-numeric:tabular-nums}
+      `;
+      document.head.appendChild(s);
+    }
+
+    targets.forEach(el => { el.innerHTML = html; });
   }
 
   // Expose sound control globally for profil.html toggle

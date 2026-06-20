@@ -1,0 +1,19 @@
+{
+  "name": "Kartalix",
+  "short_name": "Kartalix",
+  "description": "Beşiktaş haberleri, skor tahminleri ve XP sistemi",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0A0A0A",
+  "theme_color": "#D90414",
+  "lang": "tr",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "48x48",
+      "type": "image/x-icon"
+    }
+  ],
+  "categories": ["sports", "news"]
+}
