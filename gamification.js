@@ -93,31 +93,36 @@
   };
 
   // ── Audio engine ──────────────────────────────────────────────
-  // Chrome blocks AudioContext until a user gesture has occurred on the page.
-  // We queue pending sounds and drain them on the first interaction.
-  let _pendingCoins = 0;
+  // iOS Safari (and Chrome) block AudioContext until a synchronous user gesture.
+  // Strategy: queue sounds, unlock + drain on first touch/click.
+  let _pendingCoins  = 0;
   let _pendingLevelUp = false;
+  let _audioUnlocked  = false;
 
-  function _drainAudio() {
-    if (!_audioCtx || !_soundEnabled) return;
-    _audioCtx.resume().then(() => {
-      for (let i = 0; i < _pendingCoins; i++) _kxTonesCoin();
-      if (_pendingLevelUp) _kxTonesLevelUp();
-      _pendingCoins = 0;
-      _pendingLevelUp = false;
-    }).catch(() => {});
+  function _unlockAudio() {
+    if (_audioUnlocked || !_soundEnabled) return;
+    try {
+      if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      // Play a silent 1-sample buffer — this is the iOS unlock trick.
+      // Must happen synchronously inside the touch/click handler.
+      const buf = _audioCtx.createBuffer(1, 1, 22050);
+      const src = _audioCtx.createBufferSource();
+      src.buffer = buf;
+      src.connect(_audioCtx.destination);
+      src.start(0);
+      _audioUnlocked = true;
+      // Drain any queued sounds
+      if (_pendingCoins > 0)  { _kxTonesCoin(); _pendingCoins = 0; }
+      if (_pendingLevelUp)    { _kxTonesLevelUp(); _pendingLevelUp = false; }
+    } catch {}
   }
 
-  ['click', 'touchstart', 'keydown'].forEach(evt =>
-    document.addEventListener(evt, _drainAudio, { passive: true })
+  ['touchstart', 'touchend', 'click'].forEach(evt =>
+    document.addEventListener(evt, _unlockAudio, { passive: true, once: false })
   );
 
-  function _kxGetCtx() {
-    if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    return _audioCtx;
-  }
-
   function _kxTonesCoin() {
+    if (!_audioCtx) return;
     try {
       const ctx = _audioCtx;
       const osc = ctx.createOscillator();
@@ -133,6 +138,7 @@
   }
 
   function _kxTonesLevelUp() {
+    if (!_audioCtx) return;
     try {
       const ctx = _audioCtx;
       [523, 659, 784, 1047].forEach((freq, i) => {
@@ -151,15 +157,13 @@
 
   function _kxPlayCoin() {
     if (!_soundEnabled) return;
-    _kxGetCtx();
-    if (_audioCtx.state === 'running') { _kxTonesCoin(); }
+    if (_audioUnlocked) { _kxTonesCoin(); }
     else { _pendingCoins++; }
   }
 
   function _kxPlayLevelUp() {
     if (!_soundEnabled) return;
-    _kxGetCtx();
-    if (_audioCtx.state === 'running') { _kxTonesLevelUp(); }
+    if (_audioUnlocked) { _kxTonesLevelUp(); }
     else { _pendingLevelUp = true; }
   }
 
@@ -742,7 +746,8 @@
   // Expose sound control globally for profil.html toggle
   window.kxGamification = {
     setSoundEnabled: (v) => { _soundEnabled = !!v; },
-    warmUpAudio: () => { _kxGetCtx(); _drainAudio(); _kxPlayCoin(); },
+    // Called synchronously from the toggle's change handler (a real user gesture)
+    warmUpAudio: () => { _unlockAudio(); _kxPlayCoin(); },
   };
 
   // ── 9. Patch guest conversion sheet CTA ──────────────────────
