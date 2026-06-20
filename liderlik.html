@@ -385,13 +385,11 @@
 
   <!-- Tabs -->
   <div class="liderlik-tabs" role="tablist">
-    <button class="liderlik-tab active" data-tab="alltime"  role="tab">Tüm Zamanlar</button>
-    <button class="liderlik-tab"        data-tab="monthly"  role="tab">Bu Ay</button>
+    <button class="liderlik-tab active" data-tab="league"   role="tab">🏆 Lig</button>
     <button class="liderlik-tab"        data-tab="weekly"   role="tab">Bu Hafta</button>
-    <button class="liderlik-tab"        data-tab="seasonal" role="tab">Sezon</button>
     <button class="liderlik-tab"        data-tab="streak"   role="tab">Seri</button>
     <button class="liderlik-tab"        data-tab="accuracy" role="tab">Tahmin</button>
-    <button class="liderlik-tab"        data-tab="league"   role="tab">🏆 Lig</button>
+    <button class="liderlik-tab"        data-tab="alltime"  role="tab">Tüm Zamanlar</button>
   </div>
 
   <!-- Body -->
@@ -421,14 +419,12 @@
 <script>
 (function () {
   const TABS = {
-    alltime:  { label: 'Tüm Zamanlar', valueKey: 'total_xp',    unit: 'XP',  hasSub: true  },
-    monthly:  { label: 'Bu Ay',         valueKey: 'monthly_xp',  unit: 'XP',  hasSub: false },
-    weekly:   { label: 'Bu Hafta',      valueKey: 'weekly_xp',   unit: 'XP',  hasSub: false },
-    seasonal: { label: 'Sezon',          valueKey: 'seasonal_xp', unit: 'XP',  hasSub: false },
-    streak:   { label: 'Seri',           valueKey: 'current_streak', unit: 'gün', hasSub: true },
+    alltime: { label: 'Tüm Zamanlar', valueKey: 'total_xp',       unit: 'XP',  hasSub: true  },
+    weekly:  { label: 'Bu Hafta',     valueKey: 'weekly_xp',       unit: 'XP',  hasSub: false },
+    streak:  { label: 'Seri',         valueKey: 'current_streak',  unit: 'gün', hasSub: true  },
   };
 
-  let activeTab  = 'alltime';
+  let activeTab  = 'league';
   let meUserId   = null;
   let cache      = {};
 
@@ -670,8 +666,8 @@
     }
   });
 
-  // ── Initial load (public, no auth needed) ──
-  loadTab('alltime');
+  // ── Initial load ──
+  loadTab('league');
 })();
 </script>
 
