@@ -349,7 +349,15 @@
       Promise.all([
         fetch('/api/quests', { headers: hdrs }).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch('/api/league', { headers: hdrs }).then(r => r.ok ? r.json() : null).catch(() => null),
-      ]).then(([quests, league]) => _kxRenderQuestBanner(quests, league));
+      ]).then(([quests, league]) => {
+        _kxRenderQuestBanner(quests, league);
+        if (quests?.all_done) {
+          fetch('/api/xp/quest-complete', { method: 'POST', headers: hdrs })
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d?.xp_earned > 0 && window.kxSpawnXP) window.kxSpawnXP(d.xp_earned); })
+            .catch(() => {});
+        }
+      });
 
     } catch {
       showGuestWidget();
