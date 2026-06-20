@@ -93,9 +93,9 @@
   };
 
   // ── Audio engine ──────────────────────────────────────────────
-  // iOS Safari (and Chrome) block AudioContext until a synchronous user gesture.
-  // Strategy: queue sounds, unlock + drain on first touch/click.
-  let _pendingCoins  = 0;
+  // iOS Safari requires audio to start synchronously inside a user gesture.
+  // We queue sounds and drain them on first touch/click.
+  let _pendingCoins   = 0;
   let _pendingLevelUp = false;
   let _audioUnlocked  = false;
 
@@ -103,55 +103,71 @@
     if (_audioUnlocked || !_soundEnabled) return;
     try {
       if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      // Play a silent 1-sample buffer — this is the iOS unlock trick.
-      // Must happen synchronously inside the touch/click handler.
-      const buf = _audioCtx.createBuffer(1, 1, 22050);
-      const src = _audioCtx.createBufferSource();
-      src.buffer = buf;
-      src.connect(_audioCtx.destination);
-      src.start(0);
+      // iOS Safari unlock: must start a real oscillator (not a silent buffer) in the gesture handler
+      const osc  = _audioCtx.createOscillator();
+      const gain = _audioCtx.createGain();
+      gain.gain.value = 0.001; // near-silent
+      osc.connect(gain); gain.connect(_audioCtx.destination);
+      osc.start(0); osc.stop(0.001);
       _audioUnlocked = true;
-      // Drain any queued sounds
       if (_pendingCoins > 0)  { _kxTonesCoin(); _pendingCoins = 0; }
       if (_pendingLevelUp)    { _kxTonesLevelUp(); _pendingLevelUp = false; }
     } catch {}
   }
 
   ['touchstart', 'touchend', 'click'].forEach(evt =>
-    document.addEventListener(evt, _unlockAudio, { passive: true, once: false })
+    document.addEventListener(evt, _unlockAudio, { passive: true })
   );
 
+  // Festive 3-note ascending sparkle — A5 → C#6 → E6 (major arpeggio)
   function _kxTonesCoin() {
     if (!_audioCtx) return;
     try {
       const ctx = _audioCtx;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.connect(gain); gain.connect(ctx.destination);
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(660, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.08);
-      gain.gain.setValueAtTime(0.22, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
-      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.22);
+      [[880, 0], [1109, 0.07], [1319, 0.14]].forEach(([freq, delay]) => {
+        const osc  = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.value = freq;
+        osc.connect(gain); gain.connect(ctx.destination);
+        const t = ctx.currentTime + delay;
+        gain.gain.setValueAtTime(0, t);
+        gain.gain.linearRampToValueAtTime(0.28, t + 0.012);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+        osc.start(t); osc.stop(t + 0.18);
+      });
     } catch {}
   }
 
+  // Festive fanfare — C-E-G staccato burst then sustained high C with shimmer
   function _kxTonesLevelUp() {
     if (!_audioCtx) return;
     try {
       const ctx = _audioCtx;
-      [523, 659, 784, 1047].forEach((freq, i) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.type = 'sine';
-        const t = ctx.currentTime + i * 0.13;
-        osc.frequency.setValueAtTime(freq, t);
-        gain.gain.setValueAtTime(0.18, t);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
-        osc.start(t); osc.stop(t + 0.28);
+      // [freq, startOffset, duration, volume]
+      [[523, 0, 0.12, 0.28], [659, 0.11, 0.12, 0.28], [784, 0.22, 0.12, 0.28],
+       [523, 0.35, 0.08, 0.2], [1047, 0.43, 0.6, 0.32]].forEach(([freq, s, dur, vol]) => {
+        ['triangle', 'sine'].forEach((type, layer) => {
+          const osc  = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = type; osc.frequency.value = freq;
+          osc.connect(gain); gain.connect(ctx.destination);
+          const t = ctx.currentTime + s;
+          gain.gain.setValueAtTime(0, t);
+          gain.gain.linearRampToValueAtTime(vol * (layer === 0 ? 1 : 0.45), t + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+          osc.start(t); osc.stop(t + dur);
+        });
       });
+      // High shimmer on the final note (C7)
+      const sh = ctx.createOscillator(); const shg = ctx.createGain();
+      sh.type = 'sine'; sh.frequency.value = 2094;
+      sh.connect(shg); shg.connect(ctx.destination);
+      const ts = ctx.currentTime + 0.43;
+      shg.gain.setValueAtTime(0, ts);
+      shg.gain.linearRampToValueAtTime(0.09, ts + 0.05);
+      shg.gain.exponentialRampToValueAtTime(0.001, ts + 0.55);
+      sh.start(ts); sh.stop(ts + 0.55);
     } catch {}
   }
 
