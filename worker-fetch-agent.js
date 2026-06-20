@@ -5421,6 +5421,86 @@ async function matchWatcher(env) {
         }
         break; // one match at a time
       }
+
+      // ── DB fallback: find any unevaluated score_predictions not in KV candidates ──
+      // Catches matches whose cache entry expired before we could evaluate them
+      // (the KV-based path above covers the happy path; this covers the recovery path).
+      try {
+        const sites = await getActiveSites(env);
+        const site  = sites?.[0];
+        if (site?.id) {
+          const unevaluated = await supabase(env,
+            'GET', `score_predictions?site_id=eq.${site.id}&xp_awarded=eq.false&select=match_id&limit=20`
+          ).catch(() => []);
+          const missingIds = [...new Set((unevaluated ?? []).map(r => String(r.match_id)))]
+            .filter(mid => !seen.has(mid));
+          const ESPN_LEAGUES = ['fifa.world', 'uefa.nations', 'uefa.euro_qualifying', 'intl.friendlies.m', 'tur.1', 'uefa.el', 'uefa.ucl'];
+          for (const mid of missingIds) {
+            const doneKey = `espn:eval-done:${mid}`;
+            const done = await env.PITCHOS_CACHE.get(doneKey);
+            if (done) continue;
+            let resolved = false;
+            for (const league of ESPN_LEAGUES) {
+              const summary = await fetch(
+                `https://site.api.espn.com/apis/site/v2/sports/soccer/${league}/summary?event=${mid}`
+              ).then(r => r.ok ? r.json() : null).catch(() => null);
+              const comp = summary?.header?.competitions?.[0];
+              const statusName = (comp?.status?.type?.name ?? '').toLowerCase();
+              const isFinal = statusName === 'status_final' || statusName === 'final' ||
+                              statusName === 'ft' || statusName === 'fulltime' ||
+                              statusName === 'completed' || statusName === 'finished';
+              if (!isFinal) continue;
+              const home = comp?.competitors?.find(c => c.homeAway === 'home') ?? comp?.competitors?.[0] ?? {};
+              const away = comp?.competitors?.find(c => c.homeAway === 'away') ?? comp?.competitors?.[1] ?? {};
+              const homeScore = parseInt(home.score ?? '0') || 0;
+              const awayScore = parseInt(away.score ?? '0') || 0;
+              const evalRes = await fetch('https://kartalix.com/api/xp/evaluate-predictions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': env.INTERNAL_SECRET || '' },
+                body: JSON.stringify({ match_id: mid, site_id: site.id, home_score: homeScore, away_score: awayScore }),
+              });
+              if (evalRes.ok) {
+                console.log(`WATCHER DB-FALLBACK T-PRED: evaluated match ${mid} via ${league} (${homeScore}-${awayScore})`);
+                await env.PITCHOS_CACHE.put(doneKey, '1', { expirationTtl: 7 * 24 * 60 * 60 });
+              } else {
+                console.error(`WATCHER DB-FALLBACK T-PRED: evaluate-predictions returned ${evalRes.status} for match ${mid}`);
+              }
+              // Starting-11 DB-fallback eval
+              const s11DoneKey = `espn:s11-eval-done:${mid}`;
+              const s11Done = await env.PITCHOS_CACHE.get(s11DoneKey);
+              if (!s11Done) {
+                const players = summary?.boxscore?.players ?? [];
+                const teamRoster = players.find(p => {
+                  const n = (p.team?.displayName ?? p.team?.name ?? '').toLowerCase();
+                  const a = (p.team?.abbreviation ?? '').toUpperCase();
+                  return n.includes('türkiye') || n.includes('turkey') || a === 'TUR' ||
+                         n.includes('beşiktaş') || n.includes('besiktas') || a === 'BJK';
+                });
+                if (teamRoster) {
+                  const starters = (teamRoster.athletes ?? [])
+                    .filter(a => a.starter)
+                    .map(a => parseInt(a.athlete?.id ?? '0') || 0)
+                    .filter(id => id > 0);
+                  if (starters.length === 11) {
+                    const s11Res = await fetch('https://kartalix.com/api/xp/evaluate-starting-11', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': env.INTERNAL_SECRET || '' },
+                      body: JSON.stringify({ match_id: mid, site_id: site.id, player_ids: starters }),
+                    });
+                    if (s11Res.ok) {
+                      console.log(`WATCHER DB-FALLBACK S11: evaluated starting-11 for match ${mid}`);
+                      await env.PITCHOS_CACHE.put(s11DoneKey, '1', { expirationTtl: 7 * 24 * 60 * 60 });
+                    }
+                  }
+                }
+              }
+              resolved = true;
+              break; // found the right league, stop searching
+            }
+            if (!resolved) console.log(`WATCHER DB-FALLBACK: match ${mid} not found as final in any ESPN league`);
+          }
+        }
+      } catch(e) { console.error('WATCHER DB-FALLBACK eval failed:', e.message); }
     } catch(e) { console.error('WATCHER ESPN eval failed:', e.message); }
 
     console.log(`WATCHER: outside window (${hoursToKickoff.toFixed(1)}h to kickoff), skip`);
