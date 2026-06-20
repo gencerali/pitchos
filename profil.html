@@ -658,6 +658,7 @@
 
 <!-- ── PROFILE PAGE ── -->
 <main class="profil-page">
+  <button id="profilBackBtn" onclick="history.back()" style="display:none;align-items:center;gap:.4rem;background:none;border:none;color:#9ca3af;font-family:'Barlow Condensed',sans-serif;font-size:.88rem;font-weight:600;letter-spacing:.04em;cursor:pointer;padding:.25rem 0;margin-bottom:.75rem;text-transform:uppercase">← Geri</button>
 
   <!-- Loading state -->
   <div class="profil-loading" id="profilLoading">
@@ -1360,6 +1361,8 @@
     document.getElementById('profilShieldVal')?.closest('.profil-stat') && (document.getElementById('profilShieldVal').closest('.profil-stat').style.display = 'none');
     // Quest banner is personal — hide on public profiles
     document.querySelectorAll('.kxQuestBanner').forEach(el => el.style.display = 'none');
+    const backBtn = document.getElementById('profilBackBtn');
+    if (backBtn) backBtn.style.display = 'flex';
     // Activity and predictions are not loaded for public profiles — hide the tabs
     document.querySelector('.profil-tab-btn[data-panel="profilTabActivity"]')?.remove();
     document.querySelector('.profil-tab-btn[data-panel="profilTabPreds"]')?.remove();
