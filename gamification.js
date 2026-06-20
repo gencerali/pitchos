@@ -92,48 +92,75 @@
     _kxPlayCoin();
   };
 
+  // ── Audio engine ──────────────────────────────────────────────
+  // Chrome blocks AudioContext until a user gesture has occurred on the page.
+  // We queue pending sounds and drain them on the first interaction.
+  let _pendingCoins = 0;
+  let _pendingLevelUp = false;
+
+  function _drainAudio() {
+    if (!_audioCtx || !_soundEnabled) return;
+    _audioCtx.resume().then(() => {
+      for (let i = 0; i < _pendingCoins; i++) _kxTonesCoin();
+      if (_pendingLevelUp) _kxTonesLevelUp();
+      _pendingCoins = 0;
+      _pendingLevelUp = false;
+    }).catch(() => {});
+  }
+
+  ['click', 'touchstart', 'keydown'].forEach(evt =>
+    document.addEventListener(evt, _drainAudio, { passive: true })
+  );
+
   function _kxGetCtx() {
     if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    if (_audioCtx.state === 'suspended') _audioCtx.resume();
     return _audioCtx;
   }
 
-  function _kxPlayCoin() {
-    if (!_soundEnabled) return;
+  function _kxTonesCoin() {
     try {
-      const ctx = _kxGetCtx();
+      const ctx = _audioCtx;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
-      osc.connect(gain);
-      gain.connect(ctx.destination);
+      osc.connect(gain); gain.connect(ctx.destination);
       osc.type = 'sine';
       osc.frequency.setValueAtTime(660, ctx.currentTime);
       osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.08);
       gain.gain.setValueAtTime(0.22, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.22);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.22);
     } catch {}
   }
 
-  function _kxPlayLevelUp() {
-    if (!_soundEnabled) return;
+  function _kxTonesLevelUp() {
     try {
-      const ctx = _kxGetCtx();
+      const ctx = _audioCtx;
       [523, 659, 784, 1047].forEach((freq, i) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
+        osc.connect(gain); gain.connect(ctx.destination);
         osc.type = 'sine';
         const t = ctx.currentTime + i * 0.13;
         osc.frequency.setValueAtTime(freq, t);
         gain.gain.setValueAtTime(0.18, t);
         gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
-        osc.start(t);
-        osc.stop(t + 0.28);
+        osc.start(t); osc.stop(t + 0.28);
       });
     } catch {}
+  }
+
+  function _kxPlayCoin() {
+    if (!_soundEnabled) return;
+    _kxGetCtx();
+    if (_audioCtx.state === 'running') { _kxTonesCoin(); }
+    else { _pendingCoins++; }
+  }
+
+  function _kxPlayLevelUp() {
+    if (!_soundEnabled) return;
+    _kxGetCtx();
+    if (_audioCtx.state === 'running') { _kxTonesLevelUp(); }
+    else { _pendingLevelUp = true; }
   }
 
   // ── 4. Level-up notification ─────────────────────────────────
@@ -715,7 +742,7 @@
   // Expose sound control globally for profil.html toggle
   window.kxGamification = {
     setSoundEnabled: (v) => { _soundEnabled = !!v; },
-    warmUpAudio: () => { try { _kxGetCtx(); } catch {} },
+    warmUpAudio: () => { _kxGetCtx(); _drainAudio(); _kxPlayCoin(); },
   };
 
   // ── 9. Patch guest conversion sheet CTA ──────────────────────
