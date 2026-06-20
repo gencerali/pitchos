@@ -93,88 +93,97 @@
   };
 
   // ── Audio engine ──────────────────────────────────────────────
-  // iOS Safari requires audio to start synchronously inside a user gesture.
-  // We queue sounds and drain them on first touch/click.
+  // iOS Safari: AudioContext must be created inside a user gesture.
+  // We create it on the FIRST touch (even if sound is currently off) so it
+  // is ready when the user flips the sound toggle.  Actual unlock (real oscillator
+  // to satisfy Safari) happens on the first touch after sound is enabled.
   let _pendingCoins   = 0;
   let _pendingLevelUp = false;
   let _audioUnlocked  = false;
 
-  function _unlockAudio() {
-    if (_audioUnlocked || !_soundEnabled) return;
-    _audioUnlocked = true; // set before oscillator so a throw can't block unlocking
+  function _touchHandler() {
+    // Always create context on first gesture so toggle-on works immediately
+    if (!_audioCtx) {
+      try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch {}
+    }
+    if (_audioUnlocked || !_soundEnabled || !_audioCtx) return;
+    _audioUnlocked = true;
     try {
-      if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      // iOS Safari: must start a real oscillator synchronously inside the gesture handler
       const osc = _audioCtx.createOscillator();
       const g   = _audioCtx.createGain();
       g.gain.value = 0.001;
       osc.connect(g); g.connect(_audioCtx.destination);
       osc.start();
-      osc.stop(_audioCtx.currentTime + 0.05); // relative time — never in the past
-      // Chrome starts AudioContext suspended; resume then drain the pending queue
-      const drain = () => {
-        if (_pendingCoins > 0) { _kxTonesCoin(); _pendingCoins = 0; }
-        if (_pendingLevelUp)   { _kxTonesLevelUp(); _pendingLevelUp = false; }
-      };
-      if (_audioCtx.state === 'suspended') _audioCtx.resume().then(drain);
-      else drain();
+      osc.stop(_audioCtx.currentTime + 0.05);
     } catch {}
+    const drain = () => {
+      if (_pendingCoins > 0) { _kxTonesCoin(); _pendingCoins = 0; }
+      if (_pendingLevelUp)   { _kxTonesLevelUp(); _pendingLevelUp = false; }
+    };
+    if (_audioCtx.state === 'suspended') _audioCtx.resume().then(drain);
+    else drain();
   }
 
   ['touchstart', 'touchend', 'click'].forEach(evt =>
-    document.addEventListener(evt, _unlockAudio, { passive: true })
+    document.addEventListener(evt, _touchHandler, { passive: true })
   );
+
+  // Each tone function resumes the context itself before scheduling notes.
+  // This fixes the race where context is still suspended when the sound is triggered.
 
   // Festive 3-note ascending sparkle — A5 → C#6 → E6 (major arpeggio)
   function _kxTonesCoin() {
     if (!_audioCtx) return;
-    try {
-      const ctx = _audioCtx;
-      [[880, 0], [1109, 0.07], [1319, 0.14]].forEach(([freq, delay]) => {
-        const osc  = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'triangle';
-        osc.frequency.value = freq;
-        osc.connect(gain); gain.connect(ctx.destination);
-        const t = ctx.currentTime + delay;
-        gain.gain.setValueAtTime(0, t);
-        gain.gain.linearRampToValueAtTime(0.28, t + 0.012);
-        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-        osc.start(t); osc.stop(t + 0.18);
-      });
-    } catch {}
+    const play = () => {
+      try {
+        const ctx = _audioCtx;
+        [[880, 0], [1109, 0.07], [1319, 0.14]].forEach(([freq, delay]) => {
+          const osc  = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle'; osc.frequency.value = freq;
+          osc.connect(gain); gain.connect(ctx.destination);
+          const t = ctx.currentTime + delay;
+          gain.gain.setValueAtTime(0, t);
+          gain.gain.linearRampToValueAtTime(0.28, t + 0.012);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+          osc.start(t); osc.stop(t + 0.18);
+        });
+      } catch {}
+    };
+    if (_audioCtx.state === 'suspended') _audioCtx.resume().then(play); else play();
   }
 
   // Festive fanfare — C-E-G staccato burst then sustained high C with shimmer
   function _kxTonesLevelUp() {
     if (!_audioCtx) return;
-    try {
-      const ctx = _audioCtx;
-      // [freq, startOffset, duration, volume]
-      [[523, 0, 0.12, 0.28], [659, 0.11, 0.12, 0.28], [784, 0.22, 0.12, 0.28],
-       [523, 0.35, 0.08, 0.2], [1047, 0.43, 0.6, 0.32]].forEach(([freq, s, dur, vol]) => {
-        ['triangle', 'sine'].forEach((type, layer) => {
-          const osc  = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = type; osc.frequency.value = freq;
-          osc.connect(gain); gain.connect(ctx.destination);
-          const t = ctx.currentTime + s;
-          gain.gain.setValueAtTime(0, t);
-          gain.gain.linearRampToValueAtTime(vol * (layer === 0 ? 1 : 0.45), t + 0.02);
-          gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-          osc.start(t); osc.stop(t + dur);
+    const play = () => {
+      try {
+        const ctx = _audioCtx;
+        [[523, 0, 0.12, 0.28], [659, 0.11, 0.12, 0.28], [784, 0.22, 0.12, 0.28],
+         [523, 0.35, 0.08, 0.2], [1047, 0.43, 0.6, 0.32]].forEach(([freq, s, dur, vol]) => {
+          ['triangle', 'sine'].forEach((type, layer) => {
+            const osc  = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = type; osc.frequency.value = freq;
+            osc.connect(gain); gain.connect(ctx.destination);
+            const t = ctx.currentTime + s;
+            gain.gain.setValueAtTime(0, t);
+            gain.gain.linearRampToValueAtTime(vol * (layer === 0 ? 1 : 0.45), t + 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+            osc.start(t); osc.stop(t + dur);
+          });
         });
-      });
-      // High shimmer on the final note (C7)
-      const sh = ctx.createOscillator(); const shg = ctx.createGain();
-      sh.type = 'sine'; sh.frequency.value = 2094;
-      sh.connect(shg); shg.connect(ctx.destination);
-      const ts = ctx.currentTime + 0.43;
-      shg.gain.setValueAtTime(0, ts);
-      shg.gain.linearRampToValueAtTime(0.09, ts + 0.05);
-      shg.gain.exponentialRampToValueAtTime(0.001, ts + 0.55);
-      sh.start(ts); sh.stop(ts + 0.55);
-    } catch {}
+        const sh = ctx.createOscillator(); const shg = ctx.createGain();
+        sh.type = 'sine'; sh.frequency.value = 2094;
+        sh.connect(shg); shg.connect(ctx.destination);
+        const ts = ctx.currentTime + 0.43;
+        shg.gain.setValueAtTime(0, ts);
+        shg.gain.linearRampToValueAtTime(0.09, ts + 0.05);
+        shg.gain.exponentialRampToValueAtTime(0.001, ts + 0.55);
+        sh.start(ts); sh.stop(ts + 0.55);
+      } catch {}
+    };
+    if (_audioCtx.state === 'suspended') _audioCtx.resume().then(play); else play();
   }
 
   function _kxPlayCoin() {
@@ -768,8 +777,15 @@
   // Expose sound control globally for profil.html toggle
   window.kxGamification = {
     setSoundEnabled: (v) => { _soundEnabled = !!v; },
-    // Called synchronously from the toggle's change handler (a real user gesture)
-    warmUpAudio: () => { _unlockAudio(); _kxPlayCoin(); },
+    // Called from the sound toggle's change handler — AudioContext was already
+    // created by the preceding touchstart/click events, so resume() works here.
+    warmUpAudio: () => {
+      if (!_audioCtx) return;
+      _audioUnlocked = true;
+      const play = () => _kxTonesCoin();
+      if (_audioCtx.state === 'suspended') _audioCtx.resume().then(play);
+      else play();
+    },
   };
 
   // ── 9. Patch guest conversion sheet CTA ──────────────────────
