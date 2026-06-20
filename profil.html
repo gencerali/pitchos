@@ -332,6 +332,37 @@
       font-family: 'Barlow Condensed', sans-serif;
       font-size: 0.55rem; color: var(--muted); letter-spacing: 0.02em;
     }
+    .profil-badge-progress {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.58rem; color: var(--muted); letter-spacing: 0.02em;
+      margin-top: 0.1rem;
+    }
+    .profil-badge-progress-bar {
+      width: 100%; height: 3px;
+      background: rgba(255,255,255,0.1); border-radius: 2px;
+      overflow: hidden; margin-top: 0.15rem;
+    }
+    .profil-badge-progress-fill {
+      height: 100%; background: #a78bfa; border-radius: 2px;
+      transition: width 0.4s ease;
+    }
+    .profil-acc-stats {
+      display: flex; gap: 0.4rem; margin-bottom: 0.75rem;
+    }
+    .profil-acc-item {
+      flex: 1; text-align: center; padding: 0.6rem 0.25rem;
+      background: var(--surface); border-radius: 8px;
+      border: 1px solid var(--border2);
+    }
+    .profil-acc-value {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 1.2rem; font-weight: 700; color: #F5A623;
+    }
+    .profil-acc-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.6rem; color: var(--muted); margin-top: 0.1rem;
+      letter-spacing: 0.04em; text-transform: uppercase;
+    }
 
     /* Account */
     .profil-account {
@@ -353,6 +384,19 @@
     .profil-account-arrow {
       font-size: 0.75rem; color: var(--muted);
     }
+    .profil-switch { position: relative; width: 2.2rem; height: 1.2rem; flex-shrink: 0; }
+    .profil-switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .profil-switch-track {
+      position: absolute; inset: 0; background: #333;
+      border-radius: 1rem; transition: background 0.2s;
+    }
+    .profil-switch-thumb {
+      position: absolute; height: 0.88rem; width: 0.88rem;
+      left: 0.16rem; bottom: 0.16rem; background: #fff;
+      border-radius: 50%; transition: transform 0.2s;
+    }
+    .profil-switch input:checked ~ .profil-switch-track { background: #F5A623; }
+    .profil-switch input:checked ~ .profil-switch-thumb { transform: translateX(1rem); }
 
     .profil-signout-btn {
       width: 100%; padding: 0.85rem;
@@ -689,6 +733,7 @@
         <button id="profilActivityMore" class="profil-more-btn" style="display:none">Daha Fazla</button>
       </div>
       <div id="profilTabPreds" class="profil-tab-panel" style="margin-top:0.75rem">
+        <div id="profilPredAccuracy"></div>
         <div id="profilPredHistory"></div>
       </div>
       <div id="profilTabLineup" class="profil-tab-panel" style="margin-top:0.75rem">
@@ -700,6 +745,14 @@
     <div>
       <div class="profil-section-title">Hesap</div>
       <div class="profil-account">
+        <div class="profil-account-row" id="rowSoundToggle" style="cursor:default">
+          <span class="profil-account-label">🔊 Ses Efektleri</span>
+          <label class="profil-switch" title="Ses efektlerini aç/kapat">
+            <input type="checkbox" id="soundToggleChk">
+            <span class="profil-switch-track"></span>
+            <span class="profil-switch-thumb"></span>
+          </label>
+        </div>
         <div class="profil-account-row" id="btnChangePass">
           <span class="profil-account-label">Şifre Değiştir</span>
           <span class="profil-account-arrow">›</span>
@@ -801,6 +854,30 @@
       { id: 'triple_crown', icon: '👑', name: 'Üçlü Taç',     desc: 'Aynı gün: giriş+yorum+tepki' },
     ]},
   ];
+
+  const BADGE_PROGRESS_MAP = {
+    first_read:   { action: 'read_article',    threshold: 1 },
+    articles_10:  { action: 'read_article',    threshold: 10 },
+    articles_25:  { action: 'read_article',    threshold: 25 },
+    articles_50:  { action: 'read_article',    threshold: 50 },
+    articles_100: { action: 'read_article',    threshold: 100 },
+    articles_250: { action: 'read_article',    threshold: 250 },
+    articles_500: { action: 'read_article',    threshold: 500 },
+    comment_5:    { action: 'comment',         threshold: 5 },
+    comment_25:   { action: 'comment',         threshold: 25 },
+    comment_50:   { action: 'comment',         threshold: 50 },
+    comment_100:  { action: 'comment',         threshold: 100 },
+    sharer_5:     { action: 'share_link',      threshold: 5 },
+    sharer_25:    { action: 'share_link',      threshold: 25 },
+    video_10:     { action: 'watch_video_30s', threshold: 10 },
+    video_50:     { action: 'watch_video_30s', threshold: 50 },
+    reactor_10:   { action: 'react_article',   threshold: 10 },
+    reactor_50:   { action: 'react_article',   threshold: 50 },
+    poll_10:      { action: 'poll_vote',       threshold: 10 },
+    poll_50:      { action: 'poll_vote',       threshold: 50 },
+    predictor_5:  { action: 'predict_score',   threshold: 5 },
+    predictor_25: { action: 'predict_score',   threshold: 25 },
+  };
 
   const ACTION_LABELS = {
     daily_checkin:         'Günlük Giriş',
@@ -924,6 +1001,34 @@
       if (el('profilShieldIcon')) el('profilShieldIcon').textContent = streak.shield_active ? '🛡️' : '💀';
     }
 
+    // Prediction accuracy summary
+    const predAccEl = el('profilPredAccuracy');
+    if (predAccEl && me.prediction_accuracy?.total) {
+      const acc = me.prediction_accuracy;
+      predAccEl.innerHTML = `<div class="profil-acc-stats">
+        <div class="profil-acc-item"><div class="profil-acc-value">${acc.total}</div><div class="profil-acc-label">Tahmin</div></div>
+        <div class="profil-acc-item"><div class="profil-acc-value">%${acc.exact_pct}</div><div class="profil-acc-label">Kesin Skor</div></div>
+        <div class="profil-acc-item"><div class="profil-acc-value">%${acc.outcome_pct}</div><div class="profil-acc-label">Doğru Sonuç</div></div>
+      </div>`;
+    }
+
+    // Sound toggle
+    const soundChk = el('soundToggleChk');
+    if (soundChk) {
+      soundChk.checked = !!me.profile.sound_enabled;
+      soundChk.addEventListener('change', async () => {
+        const token = window.kxToken;
+        await fetch('/api/profile', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ sound_enabled: soundChk.checked }),
+        }).catch(() => {});
+        if (window.kxGamification?.setSoundEnabled) {
+          window.kxGamification.setSoundEnabled(soundChk.checked);
+        }
+      });
+    }
+
     // Badges — grouped and sorted by difficulty
     const earnedIds = new Set((badges || []).map(b => b.badge_id));
     const earnedMap = {};
@@ -948,11 +1053,22 @@
           const div = document.createElement('div');
           div.className = 'profil-badge ' + (earned ? 'earned' : 'locked');
           div.title = def.desc || def.name;
+          let extraHtml = '';
+          if (earned) {
+            extraHtml = `<div class="profil-badge-date">${fmtDate(earnedMap[def.id])}</div>`;
+          } else if (me.badge_progress) {
+            const prog = BADGE_PROGRESS_MAP[def.id];
+            if (prog) {
+              const count = me.badge_progress[prog.action] ?? 0;
+              const pct = Math.min(100, Math.round((count / prog.threshold) * 100));
+              extraHtml = `<div class="profil-badge-progress">${count}/${prog.threshold}</div><div class="profil-badge-progress-bar"><div class="profil-badge-progress-fill" style="width:${pct}%"></div></div>`;
+            }
+          }
           div.innerHTML = `
             <div class="profil-badge-icon">${def.icon}</div>
             <div class="profil-badge-name">${def.name}</div>
             <div class="profil-badge-desc">${def.desc}</div>
-            ${earned ? `<div class="profil-badge-date">${fmtDate(earnedMap[def.id])}</div>` : ''}
+            ${extraHtml}
           `;
           rowEl.appendChild(div);
         });

@@ -10,7 +10,7 @@ export async function onRequest({ request, env }) {
   if (!user) return err('Unauthorized', 401);
   if (!site_id) return err('Site not found', 404);
 
-  const [profile, streak, badges, xpRows, recentActivity, predHistory, s11History] = await Promise.all([
+  const [profile, streak, badges, xpRows, recentActivity, predHistory, s11History, allPreds] = await Promise.all([
     sbGet(env, `profiles?id=eq.${user.id}&site_id=eq.${site_id}&select=*&limit=1`),
     getStreak(env, user.id, site_id),
     sbGet(env, `user_badges?user_id=eq.${user.id}&site_id=eq.${site_id}&select=badge_id,earned_at,badges(*)&order=earned_at.desc`),
@@ -18,6 +18,7 @@ export async function onRequest({ request, env }) {
     sbGet(env, `xp_events?user_id=eq.${user.id}&site_id=eq.${site_id}&nullified=eq.false&select=action_id,xp_earned,created_at,source_ref&order=created_at.desc&limit=20`).catch(() => []),
     sbGet(env, `score_predictions?user_id=eq.${user.id}&select=match_id,home_team,away_team,home_score,away_score,xp_awarded,bonus_awarded,outcome_awarded,actual_home_score,actual_away_score,created_at&order=created_at.desc&limit=20`).catch(() => []),
     sbGet(env, `starting_elevens?user_id=eq.${user.id}&select=match_id,player_ids,correct_count,actual_player_ids,xp_awarded,created_at&order=created_at.desc&limit=20`).catch(() => []),
+    sbGet(env, `score_predictions?user_id=eq.${user.id}&select=outcome_awarded,bonus_awarded&limit=1000`).catch(() => []),
   ]);
 
   // User has no profile on this site — deny
@@ -32,6 +33,28 @@ export async function onRequest({ request, env }) {
   const levelThreshold = await sbGet(env, `level_thresholds?level=eq.${level}&select=xp_required&limit=1`).catch(() => []);
   const xp_at_level = levelThreshold[0]?.xp_required ?? 0;
 
+  // Badge progress counts — query once, compute all milestone thresholds
+  const MILESTONE_ACTIONS = ['read_article', 'comment', 'share_link', 'watch_video_30s', 'react_article', 'poll_vote', 'predict_score', 'lineup_correct'];
+  const countResults = await Promise.all(
+    MILESTONE_ACTIONS.map(a =>
+      sbGet(env, `xp_events?user_id=eq.${user.id}&site_id=eq.${site_id}&action_id=eq.${a}&nullified=eq.false&select=id&limit=501`).catch(() => [])
+    )
+  );
+  const badge_progress = {};
+  MILESTONE_ACTIONS.forEach((a, i) => { badge_progress[a] = countResults[i].length; });
+
+  // Prediction accuracy
+  const totalPreds = allPreds.length;
+  const exactCount = allPreds.filter(p => p.bonus_awarded).length;
+  const outcomeCount = allPreds.filter(p => p.outcome_awarded).length;
+  const prediction_accuracy = {
+    total: totalPreds,
+    exact: exactCount,
+    outcome: outcomeCount,
+    exact_pct: totalPreds > 0 ? Math.round((exactCount / totalPreds) * 100) : 0,
+    outcome_pct: totalPreds > 0 ? Math.round((outcomeCount / totalPreds) * 100) : 0,
+  };
+
   return json({
     profile: profile[0],
     xp: { total: total_xp, level, tier_name, tier_number, xp_to_next, xp_at_level },
@@ -42,8 +65,10 @@ export async function onRequest({ request, env }) {
       last_checkin_date: streak.last_checkin_date,
     },
     badges,
+    badge_progress,
     recent_activity: recentActivity,
     prediction_history: predHistory,
     lineup_history: s11History,
+    prediction_accuracy,
   });
 }

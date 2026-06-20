@@ -13,6 +13,8 @@
   const flameEl   = document.getElementById('kxStreakFlame');
   let _kxMe          = null;
   let _currentUserSub = null;
+  let _soundEnabled  = false;
+  let _audioCtx      = null;
   const flameNum  = document.getElementById('kxStreakCount');
   const loginBtn  = document.getElementById('kxLoginBtn');
 
@@ -87,7 +89,48 @@
     document.body.appendChild(el);
     requestAnimationFrame(() => el.classList.add('kx-xp-particle--rise'));
     setTimeout(() => el.remove(), 1500);
+    _kxPlayCoin();
   };
+
+  function _kxPlayCoin() {
+    if (!_soundEnabled) return;
+    try {
+      if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = _audioCtx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(660, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.08);
+      gain.gain.setValueAtTime(0.22, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.22);
+    } catch {}
+  }
+
+  function _kxPlayLevelUp() {
+    if (!_soundEnabled) return;
+    try {
+      if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = _audioCtx;
+      [523, 659, 784, 1047].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = 'sine';
+        const t = ctx.currentTime + i * 0.13;
+        osc.frequency.setValueAtTime(freq, t);
+        gain.gain.setValueAtTime(0.18, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
+        osc.start(t);
+        osc.stop(t + 0.28);
+      });
+    } catch {}
+  }
 
   // ── 4. Level-up notification ─────────────────────────────────
   window._kxGetLevel = () => _kxMe?.xp?.level ?? 0;
@@ -111,6 +154,7 @@
       <button id="kxLvlClose" style="margin-top:.2rem;padding:.7rem 0;width:100%;background:#D90414;border:none;border-radius:4px;color:#fff;font-family:'Oswald',sans-serif;font-size:.95rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer">Harika!</button>
     </div>`;
     document.body.appendChild(modal);
+    _kxPlayLevelUp();
     const close = () => modal.remove();
     modal.querySelector('#kxLvlClose').addEventListener('click', close);
     modal.addEventListener('click', e => { if (e.target === modal) close(); });
@@ -161,6 +205,7 @@
       if (!me) return showGuestWidget();
 
       _kxMe = me;
+      _soundEnabled = !!me.profile?.sound_enabled;
       const { profile, xp, streak } = me;
       const initial = (profile.display_name || profile.username || 'K').charAt(0).toUpperCase();
 
@@ -216,6 +261,9 @@
             }
             if (data.level > (_kxMe?.xp?.level ?? 0)) window.kxShowLevelUp(data.level, data.tier_name);
             (data.badge_unlocks ?? []).forEach(b => window.kxShowBadge(b));
+            if (data.streak_broken && data.prev_streak >= 2) {
+              setTimeout(() => showStreakRevivalModal(data.prev_streak, accessToken), 1200);
+            }
           })
           .catch(() => {});
       }
@@ -593,6 +641,75 @@
     el.querySelector('#kxWelcomeClose').addEventListener('click', () => el.remove());
     el.addEventListener('click', e => { if (e.target === el) el.remove(); });
   }
+
+  function showStreakRevivalModal(prevStreak, accessToken) {
+    if (document.getElementById('kxRevivalModal')) return;
+    if (!document.getElementById('kxLevelUpStyle')) {
+      const s = document.createElement('style');
+      s.id = 'kxLevelUpStyle';
+      s.textContent = '@keyframes kxLvlIn{from{opacity:0;transform:scale(.88)}to{opacity:1;transform:scale(1)}}';
+      document.head.appendChild(s);
+    }
+    const modal = document.createElement('div');
+    modal.id = 'kxRevivalModal';
+    modal.style.cssText = `position:fixed;inset:0;z-index:800;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.85);backdrop-filter:blur(6px)`;
+    modal.innerHTML = `<div style="text-align:center;padding:2rem 1.5rem;max-width:300px;width:90%;background:#111;border:1px solid #2a2a2a;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:.85rem;animation:kxLvlIn .28s ease">
+      <div style="font-size:2.5rem">💔</div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:.65rem;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#ef4444">SERİN KOPTU!</div>
+      <div style="font-family:'Oswald',sans-serif;font-size:1.6rem;font-weight:700;color:#fff">${prevStreak} Günlük Seri</div>
+      <div style="font-family:'Barlow Condensed',sans-serif;font-size:.85rem;color:#9ca3af;line-height:1.45;max-width:230px">Kaybettiğin seriyi 100 XP karşılığında geri alabilirsin.</div>
+      <button id="kxReviveBtn" style="width:100%;padding:.8rem;background:#D90414;border:none;border-radius:4px;color:#fff;font-family:'Oswald',sans-serif;font-size:.9rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer">🔥 Seriyi Geri Getir — 100 XP</button>
+      <div id="kxReviveMsg" style="font-family:'Barlow Condensed',sans-serif;font-size:.75rem;color:#9ca3af;min-height:1rem"></div>
+      <button id="kxReviveSkip" style="background:none;border:none;color:#6b7280;font-family:'Barlow Condensed',sans-serif;font-size:.78rem;cursor:pointer;padding:.25rem">Hayır, geçiver</button>
+    </div>`;
+    document.body.appendChild(modal);
+
+    const close = () => modal.remove();
+    const msgEl = modal.querySelector('#kxReviveMsg');
+    const reviveBtn = modal.querySelector('#kxReviveBtn');
+
+    modal.querySelector('#kxReviveSkip').addEventListener('click', close);
+    modal.addEventListener('click', e => { if (e.target === modal) close(); });
+    setTimeout(close, 30000);
+
+    reviveBtn.addEventListener('click', async () => {
+      reviveBtn.disabled = true;
+      reviveBtn.textContent = 'İşleniyor…';
+      try {
+        const res = await fetch('/api/xp/streak-revival', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prev_streak: prevStreak }),
+        }).then(r => r.json());
+
+        if (res.ok) {
+          reviveBtn.style.background = '#22c55e';
+          reviveBtn.textContent = `✓ Seri ${res.restored_streak} güne döndü!`;
+          if (_kxMe?.streak) _kxMe.streak.current = res.restored_streak;
+          if (flameEl && flameNum) {
+            flameNum.textContent = res.restored_streak;
+            flameEl.style.display = 'flex';
+          }
+          setTimeout(close, 2500);
+        } else if (res.reason === 'insufficient_xp') {
+          msgEl.textContent = `Yeterli XP yok. (${res.total_xp ?? 0} XP mevcut)`;
+          reviveBtn.disabled = false;
+          reviveBtn.textContent = '🔥 Seriyi Geri Getir — 100 XP';
+        } else if (res.reason === 'cooldown') {
+          msgEl.textContent = 'Canlanma hakkı 7 günde bir kullanılabilir.';
+          reviveBtn.disabled = false;
+          reviveBtn.textContent = '🔥 Seriyi Geri Getir — 100 XP';
+        }
+      } catch {
+        msgEl.textContent = 'Bir hata oluştu. Lütfen tekrar dene.';
+        reviveBtn.disabled = false;
+        reviveBtn.textContent = '🔥 Seriyi Geri Getir — 100 XP';
+      }
+    });
+  }
+
+  // Expose sound control globally for profil.html toggle
+  window.kxGamification = { setSoundEnabled: (v) => { _soundEnabled = !!v; } };
 
   // ── 9. Patch guest conversion sheet CTA ──────────────────────
   // Override the "Üye Ol" CTA in the existing guest sheet

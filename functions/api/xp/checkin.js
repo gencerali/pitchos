@@ -42,9 +42,11 @@ export async function onRequest({ request, env }) {
   const yesterday = new Date(new Date(todayLocal + 'T00:00:00Z').getTime() - 86400000).toISOString().slice(0, 10);
   let new_streak;
   let shield_consumed = false;
+  let streak_broken = false;
+  const prev_streak = streak.current_streak ?? 0;
 
   if (streak.last_checkin_date === yesterday) {
-    new_streak = (streak.current_streak ?? 0) + 1;
+    new_streak = prev_streak + 1;
   } else if (!streak.last_checkin_date) {
     new_streak = 1;
   } else {
@@ -52,10 +54,11 @@ export async function onRequest({ request, env }) {
       (Date.now() - new Date(streak.last_checkin_date).getTime()) / 86400000
     );
     if (daysBehind === 2 && streak.shield_active) {
-      new_streak = (streak.current_streak ?? 0) + 1;
+      new_streak = prev_streak + 1;
       shield_consumed = true;
     } else {
       new_streak = 1;
+      streak_broken = prev_streak >= 2;
     }
   }
 
@@ -123,6 +126,8 @@ export async function onRequest({ request, env }) {
     longest_streak: new_longest,
     shield_consumed,
     shield_awarded,
+    streak_broken,
+    prev_streak: streak_broken ? prev_streak : undefined,
     multiplier: streakMultiplier(new_streak),
     xp_earned: result.xp_earned,
     streak_bonus_xp: streak_bonus?.xp_earned ?? 0,

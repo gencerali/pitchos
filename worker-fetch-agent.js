@@ -3373,7 +3373,7 @@ Sadece JSON döndür:
       const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage('/admin/gamification'), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 
-      const [actions, recentEvts, allEvts, badges, pollRows, pollVoteRows, sites] = await Promise.all([
+      const [actions, recentEvts, allEvts, badges, pollRows, pollVoteRows, sites, levelThresholds, shadowBanned] = await Promise.all([
         supabase(env, 'GET', '/rest/v1/xp_actions?order=category.asc,id.asc&select=*') || [],
         supabase(env, 'GET', '/rest/v1/xp_events?order=created_at.desc&limit=100&select=id,user_id,action_id,xp_earned,multiplier,created_at,nullified,site_id') || [],
         supabase(env, 'GET', '/rest/v1/xp_events?nullified=eq.false&select=xp_earned,user_id') || [],
@@ -3381,6 +3381,8 @@ Sadece JSON döndür:
         supabase(env, 'GET', '/rest/v1/polls?order=created_at.desc&select=*'),
         supabase(env, 'GET', '/rest/v1/poll_votes?select=poll_id'),
         getActiveSites(env),
+        supabase(env, 'GET', '/rest/v1/level_thresholds?order=level.asc&select=*').catch(() => []),
+        supabase(env, 'GET', '/rest/v1/profiles?shadow_banned=eq.true&select=id,username,display_name,site_id&limit=100').catch(() => []),
       ]);
       const voteCountMap = {};
       for (const v of (pollVoteRows || [])) voteCountMap[v.poll_id] = (voteCountMap[v.poll_id] || 0) + 1;
@@ -3398,7 +3400,7 @@ Sadece JSON döndür:
         totalEvents: (allEvts || []).length,
       };
 
-      return new Response(renderGamificationAdminPage(actions || [], recentEvts || [], profileMap, stats, badges || [], polls, sites || []), {
+      return new Response(renderGamificationAdminPage(actions || [], recentEvts || [], profileMap, stats, badges || [], polls, sites || [], levelThresholds || [], shadowBanned || []), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
     }
@@ -3460,6 +3462,35 @@ Sadece JSON döndür:
       if (!id) return Response.json({ error: 'missing id' }, { status: 400 });
       await supabase(env, 'DELETE', `/rest/v1/poll_votes?poll_id=eq.${encodeURIComponent(id)}`);
       await supabase(env, 'DELETE', `/rest/v1/polls?id=eq.${encodeURIComponent(id)}`);
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === '/admin/gamification/save-threshold' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const body = await request.json().catch(() => null);
+      if (!body?.level || body.xp_required == null) return Response.json({ error: 'missing fields' }, { status: 400 });
+      await supabase(env, 'PATCH', `/rest/v1/level_thresholds?level=eq.${parseInt(body.level)}`, {
+        xp_required: Math.max(0, parseInt(body.xp_required) || 0),
+      }, { Prefer: 'return=minimal' });
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === '/admin/gamification/unshadow' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const { user_id } = await request.json().catch(() => ({}));
+      if (!user_id) return Response.json({ error: 'missing user_id' }, { status: 400 });
+      await supabase(env, 'PATCH', `/rest/v1/profiles?id=eq.${encodeURIComponent(user_id)}`, { shadow_banned: false }, { Prefer: 'return=minimal' });
+      return Response.json({ ok: true });
+    }
+
+    if (url.pathname === '/admin/gamification/shadow' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const { user_id } = await request.json().catch(() => ({}));
+      if (!user_id) return Response.json({ error: 'missing user_id' }, { status: 400 });
+      await supabase(env, 'PATCH', `/rest/v1/profiles?id=eq.${encodeURIComponent(user_id)}`, { shadow_banned: true }, { Prefer: 'return=minimal' });
       return Response.json({ ok: true });
     }
 
@@ -10907,7 +10938,7 @@ load();
 </html>`;
 }
 
-function renderGamificationAdminPage(actions, events, profileMap, stats, badges = [], polls = [], sites = []) {
+function renderGamificationAdminPage(actions, events, profileMap, stats, badges = [], polls = [], sites = [], levelThresholds = [], shadowBanned = []) {
   const nav = adminNav('gamification', '', []);
   const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
@@ -11262,6 +11293,153 @@ ${nav}
     </div>
   </div>
 
+  <!-- Economy Simulator -->
+  ${(function() {
+    const CATEGORY_XP = {};
+    for (const a of actions) {
+      const cat = a.category || 'other';
+      if (!CATEGORY_XP[cat]) CATEGORY_XP[cat] = { actions: [], maxMonthly: 0 };
+      const pool = a.pool_estimate ?? (a.daily_cap > 0 ? a.daily_cap * 30 : 1);
+      const monthly = (a.daily_cap === -1 ? 1 : Math.min(pool, (a.daily_cap > 0 ? a.daily_cap * 30 : pool))) * a.xp_per_action;
+      CATEGORY_XP[cat].actions.push({ id: a.id, label: a.label, monthly });
+      CATEGORY_XP[cat].maxMonthly += monthly;
+    }
+    const grandTotal = Object.values(CATEGORY_XP).reduce((s, c) => s + c.maxMonthly, 0);
+    const catRows = Object.entries(CATEGORY_XP).map(([cat, data]) =>
+      `<tr><td style="padding:.45rem .75rem;font-size:.78rem;color:#9ca3af;text-transform:capitalize">${cat}</td>
+       <td style="padding:.45rem .75rem;text-align:right;font-family:monospace;font-size:.82rem;color:#fbbf24;font-weight:700">${data.maxMonthly.toLocaleString('tr-TR')}</td>
+       <td style="padding:.45rem .75rem;text-align:right;font-size:.78rem;color:#6b7280" id="cat-est-${cat}">—</td></tr>`
+    ).join('');
+    return `
+  <div style="background:#111;border:1px solid #1f2937;border-radius:6px;margin-bottom:1.5rem;overflow:hidden">
+    <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-weight:700;font-size:.9rem">Ekonomi Simülatörü</span>
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.72rem;color:#9ca3af">
+        Etkileşim oranı: <span id="engPct">30</span>%
+        <input type="range" id="engSlider" min="10" max="100" value="30" style="width:100px;accent-color:#E30A17">
+      </label>
+    </div>
+    <div style="padding:.75rem 1rem">
+      <table>
+        <thead><tr><th>Kategori</th><th class="r">Maks XP/Ay</th><th class="r">Tahmini XP/Ay</th></tr></thead>
+        <tbody>${catRows}</tbody>
+        <tfoot><tr style="border-top:1px solid #374151">
+          <td style="padding:.55rem .75rem;font-size:.82rem;font-weight:700;color:#e5e7eb">Toplam</td>
+          <td style="padding:.55rem .75rem;text-align:right;font-family:monospace;font-size:.88rem;color:#fbbf24;font-weight:700">${grandTotal.toLocaleString('tr-TR')}</td>
+          <td style="padding:.55rem .75rem;text-align:right;font-family:monospace;font-size:.88rem;color:#34d399;font-weight:700" id="grand-est">—</td>
+        </tr></tfoot>
+      </table>
+      <p style="font-size:.72rem;color:#6b7280;margin-top:.5rem">Tahmini aylık XP = maksimum × etkileşim oranı. Level 3'e 30% etkileşimde ≤7 günde ulaşılmalı.</p>
+    </div>
+  </div>
+  <script>
+  (function(){
+    const CATS = ${JSON.stringify(Object.entries(CATEGORY_XP).map(([cat, d]) => ({ cat, max: d.maxMonthly })))};
+    const grand = ${grandTotal};
+    function update(pct) {
+      document.getElementById('engPct').textContent = pct;
+      CATS.forEach(({cat, max}) => {
+        const el = document.getElementById('cat-est-' + cat);
+        if (el) el.textContent = Math.round(max * pct / 100).toLocaleString('tr-TR');
+      });
+      const ge = document.getElementById('grand-est');
+      if (ge) ge.textContent = Math.round(grand * pct / 100).toLocaleString('tr-TR');
+    }
+    const sl = document.getElementById('engSlider');
+    if (sl) { sl.addEventListener('input', e => update(parseInt(e.target.value))); update(30); }
+  })();
+  </script>`;
+  })()}
+
+  <!-- Level Threshold Editor -->
+  ${(function() {
+    if (!levelThresholds.length) return '<div style="background:#111;border:1px solid #1f2937;border-radius:6px;margin-bottom:1.5rem;padding:1rem;color:#6b7280;font-size:.82rem">Level threshold tablosu yüklenemedi (level_thresholds boş).</div>';
+    const TIER_MAP = { 1:'Misafir Kartal',2:'Misafir Kartal',3:'Misafir Kartal',4:'Taraftar',5:'Taraftar',6:'Taraftar',7:'Kapalı Tribün',8:'Kapalı Tribün',9:'Kapalı Tribün',10:'Çarşı Ruhu',11:'Çarşı Ruhu',12:'Çarşı Ruhu',13:'Efsane',14:'Efsane',15:'Efsane' };
+    const rows = levelThresholds.map(t => {
+      const tier = TIER_MAP[t.level] || '—';
+      const xpReq = t.xp_required || 0;
+      return `<tr id="lt-row-${t.level}" style="border-bottom:1px solid #1a1a1a">
+        <td style="padding:.45rem .75rem;font-size:.82rem;color:#e5e7eb;font-weight:700">${t.level}</td>
+        <td style="padding:.45rem .75rem;font-size:.75rem;color:#9ca3af">${tier}</td>
+        <td style="padding:.45rem .75rem;text-align:right">
+          <input type="number" id="lt-xp-${t.level}" value="${xpReq}" min="0" onchange="updateLtRow(${t.level})"
+            style="width:100px;background:#1a1a1a;border:1px solid #333;color:#fbbf24;padding:3px 7px;font-size:.85rem;border-radius:3px;text-align:right;font-family:monospace">
+        </td>
+        <td style="padding:.45rem .75rem;text-align:right;font-size:.78rem;color:#6b7280;font-family:monospace" id="lt-d30-${t.level}">—</td>
+        <td style="padding:.45rem .75rem;text-align:right;font-size:.78rem;color:#6b7280;font-family:monospace" id="lt-d70-${t.level}">—</td>
+        <td style="padding:.45rem .75rem;text-align:right">
+          <button onclick="saveThreshold(${t.level})" style="font-size:.7rem;padding:2px 10px;background:#E30A17;border:none;color:#fff;cursor:pointer;border-radius:3px">Kaydet</button>
+          <span id="lt-msg-${t.level}" style="font-size:.72rem;color:#4ade80;margin-left:.4rem"></span>
+        </td>
+      </tr>`;
+    }).join('');
+    return `
+  <div style="background:#111;border:1px solid #1f2937;border-radius:6px;margin-bottom:1.5rem;overflow:hidden">
+    <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937">
+      <span style="font-weight:700;font-size:.9rem">Seviye Eşikleri</span>
+      <span style="font-size:.72rem;color:#6b7280;margin-left:.75rem">Değişiklik tüm kullanıcıların seviyesini anında etkiler.</span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Seviye</th><th>Kulüp</th><th class="r">XP Gerekli</th><th class="r">Gün @30%</th><th class="r">Gün @70%</th><th></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>
+  <script>
+  (function(){
+    const XP_PER_MONTH_30 = ${Math.round(Object.values((function(){const m={};for(const a of ${JSON.stringify(actions)}){const pool=a.pool_estimate??(a.daily_cap>0?a.daily_cap*30:1);const mon=(a.daily_cap===-1?1:Math.min(pool,(a.daily_cap>0?a.daily_cap*30:pool)))*a.xp_per_action;m[a.category]=(m[a.category]||0)+mon;}return m;})()).reduce((s,v)=>s+v,0) * 0.30)};
+    const XP_PER_MONTH_70 = ${Math.round(Object.values((function(){const m={};for(const a of ${JSON.stringify(actions)}){const pool=a.pool_estimate??(a.daily_cap>0?a.daily_cap*30:1);const mon=(a.daily_cap===-1?1:Math.min(pool,(a.daily_cap>0?a.daily_cap*30:pool)))*a.xp_per_action;m[a.category]=(m[a.category]||0)+mon;}return m;})()).reduce((s,v)=>s+v,0) * 0.70)};
+    function updateLtRow(level) {
+      const xp = parseInt(document.getElementById('lt-xp-' + level)?.value || 0);
+      const d30 = XP_PER_MONTH_30 > 0 ? Math.ceil(xp / (XP_PER_MONTH_30 / 30)) : '∞';
+      const d70 = XP_PER_MONTH_70 > 0 ? Math.ceil(xp / (XP_PER_MONTH_70 / 30)) : '∞';
+      document.getElementById('lt-d30-' + level).textContent = d30 === '∞' ? '∞' : d30 + ' gün';
+      document.getElementById('lt-d70-' + level).textContent = d70 === '∞' ? '∞' : d70 + ' gün';
+    }
+    window.updateLtRow = updateLtRow;
+    ${levelThresholds.map(t => `updateLtRow(${t.level});`).join('')}
+  })();
+  async function saveThreshold(level) {
+    const msg = document.getElementById('lt-msg-' + level);
+    msg.textContent = '…';
+    const xp_required = parseInt(document.getElementById('lt-xp-' + level).value);
+    const res = await fetch('/admin/gamification/save-threshold', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ level, xp_required }),
+    });
+    if (res.ok) { msg.style.color='#4ade80'; msg.textContent='Kaydedildi'; updateLtRow(level); }
+    else { msg.style.color='#f87171'; msg.textContent='Hata'; }
+    setTimeout(() => { msg.textContent=''; }, 2500);
+  }
+  </script>`;
+  })()}
+
+  <!-- Shadow Ban List -->
+  <div style="background:#111;border:1px solid #1f2937;border-radius:6px;margin-bottom:1.5rem;overflow:hidden">
+    <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-weight:700;font-size:.9rem">Gölge Ban Listesi</span>
+      <span style="font-size:.72rem;color:#6b7280">${shadowBanned.length} kullanıcı</span>
+    </div>
+    ${shadowBanned.length === 0
+      ? '<div style="padding:1.5rem;text-align:center;color:#6b7280;font-size:.82rem">Gölge banlı kullanıcı yok.</div>'
+      : `<table>
+          <thead><tr><th>Kullanıcı Adı</th><th>Site</th><th>ID</th><th></th></tr></thead>
+          <tbody>${shadowBanned.map(u => `
+            <tr style="border-bottom:1px solid #1a1a1a">
+              <td style="padding:.45rem .75rem;font-size:.82rem;color:#e5e7eb">${esc(u.display_name || u.username || '—')}</td>
+              <td style="padding:.45rem .75rem;font-size:.75rem;color:#9ca3af">${esc(u.site_id?.slice(0,8) || '—')}</td>
+              <td style="padding:.45rem .75rem;font-size:.68rem;color:#6b7280;font-family:monospace">${esc(u.id?.slice(0,16) || '—')}…</td>
+              <td style="padding:.45rem .75rem;text-align:right">
+                <button onclick="unshadow('${esc(u.id)}')" style="font-size:.7rem;padding:2px 10px;background:#1e3a5f;border:1px solid #1d4ed8;color:#93c5fd;cursor:pointer;border-radius:3px">Ban Kaldır</button>
+                <span id="sb-msg-${esc(u.id)}" style="font-size:.72rem;color:#4ade80;margin-left:.4rem"></span>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`
+    }
+  </div>
+
   <!-- Recent Events -->
   <div style="background:#111;border:1px solid #1f2937;border-radius:6px;overflow:hidden">
     <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
@@ -11448,6 +11626,17 @@ async function clearUpcomingMatch() {
   });
   if (res.ok) { msg.style.color='#4ade80'; msg.textContent='Override kaldırıldı.'; }
   else        { msg.style.color='#f87171'; msg.textContent='Hata!'; }
+}
+async function unshadow(user_id) {
+  const msg = document.getElementById('sb-msg-' + user_id);
+  if (msg) msg.textContent = '…';
+  const res = await fetch('/admin/gamification/unshadow', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id }),
+  });
+  if (res.ok) { if (msg) { msg.style.color='#4ade80'; msg.textContent='Kaldırıldı!'; } setTimeout(() => location.reload(), 800); }
+  else { if (msg) { msg.style.color='#f87171'; msg.textContent='Hata!'; } }
 }
 </script>
 </body>
