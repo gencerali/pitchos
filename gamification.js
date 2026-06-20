@@ -813,11 +813,11 @@
           if (m.rank <= promoCount)              zone = 'kxq-lb-promo';
           else if (m.rank > size - relCount)     zone = 'kxq-lb-relegate';
           const _name = m.username || m.display_name || 'Taraftar';
-          return `<div class="kxq-lb-row ${zone}${m.is_me ? ' kxq-lb-me' : ''}">
+          return `<a href="/profil?uid=${encodeURIComponent(m.user_id)}" class="kxq-lb-row ${zone}${m.is_me ? ' kxq-lb-me' : ''}" style="text-decoration:none;color:inherit;display:flex;align-items:center">
             <span class="kxq-lb-rank">${m.rank}</span>
             <span class="kxq-lb-name">${_name}</span>
             <span class="kxq-lb-xp">${m.weekly_xp} XP</span>
-          </div>`;
+          </a>`;
         }).join('');
         const myRank = league.rank;
         const rankTxt = myRank

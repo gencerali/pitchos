@@ -1360,6 +1360,9 @@
     document.getElementById('profilShieldVal')?.closest('.profil-stat') && (document.getElementById('profilShieldVal').closest('.profil-stat').style.display = 'none');
     // Quest banner is personal — hide on public profiles
     document.querySelectorAll('.kxQuestBanner').forEach(el => el.style.display = 'none');
+    // Activity and predictions are not loaded for public profiles — hide the tabs
+    document.querySelector('.profil-tab-btn[data-panel="profilTabActivity"]')?.remove();
+    document.querySelector('.profil-tab-btn[data-panel="profilTabPreds"]')?.remove();
 
     fetch(`/api/public-user?uid=${encodeURIComponent(_viewUid)}`)
       .then(r => r.json())

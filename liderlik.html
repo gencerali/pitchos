@@ -468,12 +468,12 @@
         const avatar = m.avatar_url
           ? `<img src="${m.avatar_url}" class="ld-av-img" alt="" loading="lazy">`
           : `<div class="ld-av-init">${initials}</div>`;
-        return `<div class="ld-row ${zoneBar}${m.is_me ? ' ld-me' : ''}">
+        return `<a href="/profil?uid=${encodeURIComponent(m.user_id)}" class="ld-row ${zoneBar}${m.is_me ? ' ld-me' : ''}" style="text-decoration:none;color:inherit">
           <div class="ld-medal">${medal}</div>
           <div class="ld-av">${avatar}</div>
           <div class="ld-name">${escHtml(name)}</div>
           <div class="ld-xp">${m.weekly_xp.toLocaleString('tr-TR')} XP</div>
-        </div>`;
+        </a>`;
       }).join('');
 
       const myRank = d.rank;
