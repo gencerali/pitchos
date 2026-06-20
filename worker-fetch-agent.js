@@ -4543,7 +4543,7 @@ Sadece JSON döndür:
       }
       ctx.waitUntil(Promise.all(work));
     } else if (cron === '0 4 * * *') {
-      ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env), archiveDailyCost(env), runSourceHealth(env)]));
+      ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env), archiveDailyCost(env), runSourceHealth(env), runBotSimulation(env)]));
     } else if (cron === '0 3 * * 1') {
       ctx.waitUntil(Promise.all([
         redistillEditorialNotes(env),
@@ -4823,6 +4823,62 @@ async function runLeagueSettle(env) {
     console.log('LEAGUE-SETTLE:', res.status, JSON.stringify(body));
   } catch (e) {
     console.error('LEAGUE-SETTLE error:', e.message);
+  }
+}
+
+// ─── DAILY BOT SIMULATION ────────────────────────────────────
+// Runs every day at 04:00 UTC. Generates realistic XP events for bot profiles
+// so they compete meaningfully in weekly league groups.
+async function runBotSimulation(env) {
+  try {
+    const TEST_SITE = 'd46b74c1-3816-42ed-8b39-c75e2581463d';
+    const sites = await supabase(env, 'GET', '/rest/v1/sites?select=id&limit=10').catch(() => []);
+    const site = (sites || []).find(s => s.id !== TEST_SITE);
+    if (!site) { console.log('BOT-SIM: no production site found'); return; }
+    const site_id = site.id;
+
+    const todayISO = new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z';
+
+    const [bots, alreadyRows] = await Promise.all([
+      supabase(env, 'GET', `/rest/v1/profiles?site_id=eq.${site_id}&is_bot=eq.true&select=id,bot_tier,current_league&limit=5000`).catch(() => []),
+      supabase(env, 'GET', `/rest/v1/xp_events?site_id=eq.${site_id}&action_id=eq.daily_checkin&created_at=gte.${encodeURIComponent(todayISO)}&nullified=eq.false&select=user_id&limit=5000`).catch(() => []),
+    ]);
+
+    if (!bots?.length) { console.log('BOT-SIM: no bots found'); return; }
+    const checkedIn = new Set((alreadyRows || []).map(r => r.user_id));
+
+    const RATES = {
+      dormant: { checkin: 0.06, read: 0.04, poll: 0 },
+      casual:  { checkin: 0.30, read: 0.18, poll: 0.08 },
+      regular: { checkin: 0.65, read: 0.42, poll: 0.22 },
+      power:   { checkin: 0.92, read: 0.72, poll: 0.52 },
+    };
+    const XP_BASE = { daily_checkin: 25, read_article: 10, poll_vote: 15 };
+    const MULT    = { bronz: 1.00, 'gümüş': 1.05, 'altın': 1.10, platin: 1.20, elmas: 1.30 };
+
+    const events = [];
+    for (const bot of bots) {
+      if (checkedIn.has(bot.id)) continue;
+      const r    = RATES[bot.bot_tier] ?? RATES.dormant;
+      const mult = MULT[bot.current_league] ?? 1.00;
+      const push = (action_id) => {
+        const base = XP_BASE[action_id];
+        events.push({ user_id: bot.id, site_id, action_id, xp_earned: Math.floor(base * mult), base_xp: base, multiplier: mult, nullified: false });
+      };
+      if (Math.random() < r.checkin) push('daily_checkin');
+      if (Math.random() < r.read)    push('read_article');
+      if (r.poll > 0 && Math.random() < r.poll) push('poll_vote');
+    }
+
+    if (!events.length) { console.log('BOT-SIM: no new events today'); return; }
+
+    const CHUNK = 500;
+    for (let i = 0; i < events.length; i += CHUNK) {
+      await supabase(env, 'POST', '/rest/v1/xp_events', events.slice(i, i + CHUNK), { Prefer: 'return=minimal' });
+    }
+    console.log(`BOT-SIM: inserted ${events.length} XP events for ${bots.length} bots`);
+  } catch (e) {
+    console.error('BOT-SIM error:', e.message);
   }
 }
 

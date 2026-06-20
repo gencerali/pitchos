@@ -797,7 +797,11 @@
     if (!targets.length) return;
 
     const leagueHtml = league ? (() => {
-      const multLabel = league.tier_mult > 1.00 ? ` <span class="kxq-mult">×${league.tier_mult.toFixed(2)}</span>` : '';
+      const _ICONS  = { bronz:'🥉', 'gümüş':'🥈', 'altın':'🥇', platin:'🏆', elmas:'💎' };
+      const _LABELS = { bronz:'Bronz', 'gümüş':'Gümüş', altın:'Altın', platin:'Platin', elmas:'Elmas' };
+      const tierIcon  = league.tier_icon  ?? _ICONS[league.tier]  ?? '🏅';
+      const tierLabel = league.tier_label ?? _LABELS[league.tier] ?? league.tier ?? 'Lig';
+      const multLabel = (league.tier_mult ?? 1) > 1.00 ? ` <span class="kxq-mult">×${(league.tier_mult).toFixed(2)}</span>` : '';
       let groupSection = '';
       if (league.leaderboard && league.leaderboard.length) {
         const lb = league.leaderboard;
@@ -827,9 +831,9 @@
       }
       return `<div class="kxq-league">
         <div class="kxq-league-head">
-          <span class="kxq-league-icon">${league.tier_icon}</span>
+          <span class="kxq-league-icon">${tierIcon}</span>
           <div class="kxq-league-body">
-            <div class="kxq-league-name">${league.tier_label} Lig${multLabel} <span class="kxq-week-label">Bu Hafta</span></div>
+            <div class="kxq-league-name">${tierLabel} Lig${multLabel} <span class="kxq-week-label">Bu Hafta</span></div>
             <div class="kxq-league-sub">${league.weekly_xp} XP bu hafta</div>
           </div>
         </div>
