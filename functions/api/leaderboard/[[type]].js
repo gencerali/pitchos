@@ -18,7 +18,8 @@ export async function onRequest({ request, env, params }) {
   if (request.method === 'OPTIONS') return corsHeaders();
   if (request.method !== 'GET') return err('Method not allowed', 405);
 
-  const type = params.type;
+  // [[type]] is a catch-all so params.type may be an array — extract the string
+  const type = Array.isArray(params.type) ? params.type[0] : params.type;
   const site_id = await getSiteId(request, env);
   if (!site_id) return err('Site not found', 404);
 
