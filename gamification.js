@@ -101,17 +101,23 @@
 
   function _unlockAudio() {
     if (_audioUnlocked || !_soundEnabled) return;
+    _audioUnlocked = true; // set before oscillator so a throw can't block unlocking
     try {
       if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      // iOS Safari unlock: must start a real oscillator (not a silent buffer) in the gesture handler
-      const osc  = _audioCtx.createOscillator();
-      const gain = _audioCtx.createGain();
-      gain.gain.value = 0.001; // near-silent
-      osc.connect(gain); gain.connect(_audioCtx.destination);
-      osc.start(0); osc.stop(0.001);
-      _audioUnlocked = true;
-      if (_pendingCoins > 0)  { _kxTonesCoin(); _pendingCoins = 0; }
-      if (_pendingLevelUp)    { _kxTonesLevelUp(); _pendingLevelUp = false; }
+      // iOS Safari: must start a real oscillator synchronously inside the gesture handler
+      const osc = _audioCtx.createOscillator();
+      const g   = _audioCtx.createGain();
+      g.gain.value = 0.001;
+      osc.connect(g); g.connect(_audioCtx.destination);
+      osc.start();
+      osc.stop(_audioCtx.currentTime + 0.05); // relative time — never in the past
+      // Chrome starts AudioContext suspended; resume then drain the pending queue
+      const drain = () => {
+        if (_pendingCoins > 0) { _kxTonesCoin(); _pendingCoins = 0; }
+        if (_pendingLevelUp)   { _kxTonesLevelUp(); _pendingLevelUp = false; }
+      };
+      if (_audioCtx.state === 'suspended') _audioCtx.resume().then(drain);
+      else drain();
     } catch {}
   }
 
