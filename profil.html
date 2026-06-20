@@ -1358,6 +1358,8 @@
     document.getElementById('profilSignoutBtn')?.parentElement && (document.getElementById('profilSignoutBtn').style.display = 'none');
     // Shield stat not meaningful for public view
     document.getElementById('profilShieldVal')?.closest('.profil-stat') && (document.getElementById('profilShieldVal').closest('.profil-stat').style.display = 'none');
+    // Quest banner is personal — hide on public profiles
+    document.querySelectorAll('.kxQuestBanner').forEach(el => el.style.display = 'none');
 
     fetch(`/api/public-user?uid=${encodeURIComponent(_viewUid)}`)
       .then(r => r.json())

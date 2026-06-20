@@ -70,14 +70,27 @@ export function streakMultiplier(streak_days) {
   return 1.00;
 }
 
-// ── Shadow ban check ──────────────────────────────────────────
+const LEAGUE_MULTIPLIERS = {
+  'bronz': 1.00, 'gümüş': 1.05, 'altın': 1.10, 'platin': 1.20, 'elmas': 1.30,
+};
 
-export async function isShadowBanned(env, user_id, site_id) {
+export function leagueMultiplier(league) {
+  return LEAGUE_MULTIPLIERS[league] ?? 1.00;
+}
+
+// ── Profile meta (shadow_banned + current_league in one call) ─
+
+export async function getProfileMeta(env, user_id, site_id) {
   const rows = await sbGet(
     env,
-    `profiles?id=eq.${user_id}&site_id=eq.${site_id}&select=shadow_banned&limit=1`
+    `profiles?id=eq.${user_id}&site_id=eq.${site_id}&select=shadow_banned,current_league&limit=1`
   );
-  return rows[0]?.shadow_banned === true;
+  return rows[0] ?? { shadow_banned: false, current_league: 'bronz' };
+}
+
+export async function isShadowBanned(env, user_id, site_id) {
+  const meta = await getProfileMeta(env, user_id, site_id);
+  return meta.shadow_banned === true;
 }
 
 // ── Daily cap helpers ─────────────────────────────────────────
@@ -140,8 +153,9 @@ export async function awardXP(env, user_id, site_id, action_id, source_ref = nul
   if (!actions.length) return { xp_earned: 0, capped: false, reason: 'unknown_action' };
   const action = actions[0];
 
-  // 2. Shadow ban check — scoped to site
-  const banned = await isShadowBanned(env, user_id, site_id);
+  // 2. Shadow ban check + league tier — scoped to site (single query)
+  const profileMeta = await getProfileMeta(env, user_id, site_id);
+  const banned = profileMeta.shadow_banned === true;
 
   // 3. Cap checks
   let fallback_only = false;
@@ -163,9 +177,11 @@ export async function awardXP(env, user_id, site_id, action_id, source_ref = nul
     }
   }
 
-  // 4. Multiplier from site-scoped streak
+  // 4. Multiplier from site-scoped streak + league tier
   const streak = await getStreak(env, user_id, site_id);
-  const multiplier = action.streak_bonus_eligible ? streakMultiplier(streak.current_streak) : 1.00;
+  const streakMult  = action.streak_bonus_eligible ? streakMultiplier(streak.current_streak) : 1.00;
+  const lgMult      = action.streak_bonus_eligible ? leagueMultiplier(profileMeta.current_league) : 1.00;
+  const multiplier  = Math.round(streakMult * lgMult * 100) / 100;
   const xp_earned = banned ? 0 : (fallback_only ? action.cap_fallback_xp : Math.floor(action.xp_per_action * multiplier));
 
   // 5. Insert XP event with site_id

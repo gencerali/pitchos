@@ -3373,7 +3373,7 @@ Sadece JSON döndür:
       const authed = await checkAdminAuth(request, env);
       if (!authed) return new Response(renderPinPage('/admin/gamification'), { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
 
-      const [actions, recentEvts, allEvts, badges, pollRows, pollVoteRows, sites, levelThresholds, shadowBanned] = await Promise.all([
+      const [actions, recentEvts, allEvts, badges, pollRows, pollVoteRows, sites, levelThresholds, shadowBanned, leagueGroups] = await Promise.all([
         supabase(env, 'GET', '/rest/v1/xp_actions?order=category.asc,id.asc&select=*') || [],
         supabase(env, 'GET', '/rest/v1/xp_events?order=created_at.desc&limit=100&select=id,user_id,action_id,xp_earned,multiplier,created_at,nullified,site_id') || [],
         supabase(env, 'GET', '/rest/v1/xp_events?nullified=eq.false&select=xp_earned,user_id') || [],
@@ -3383,6 +3383,7 @@ Sadece JSON döndür:
         getActiveSites(env),
         supabase(env, 'GET', '/rest/v1/level_thresholds?order=level.asc&select=*').catch(() => []),
         supabase(env, 'GET', '/rest/v1/profiles?shadow_banned=eq.true&select=id,username,display_name,site_id&limit=100').catch(() => []),
+        supabase(env, 'GET', '/rest/v1/league_groups?order=week_start.desc,tier.asc,group_number.asc&select=id,tier,week_start,group_number,settled,site_id&limit=500').catch(() => []),
       ]);
       const voteCountMap = {};
       for (const v of (pollVoteRows || [])) voteCountMap[v.poll_id] = (voteCountMap[v.poll_id] || 0) + 1;
@@ -3400,7 +3401,7 @@ Sadece JSON döndür:
         totalEvents: (allEvts || []).length,
       };
 
-      return new Response(renderGamificationAdminPage(actions || [], recentEvts || [], profileMap, stats, badges || [], polls, sites || [], levelThresholds || [], shadowBanned || []), {
+      return new Response(renderGamificationAdminPage(actions || [], recentEvts || [], profileMap, stats, badges || [], polls, sites || [], levelThresholds || [], shadowBanned || [], leagueGroups || []), {
         headers: { 'Content-Type': 'text/html;charset=UTF-8' },
       });
     }
@@ -3492,6 +3493,18 @@ Sadece JSON döndür:
       if (!user_id) return Response.json({ error: 'missing user_id' }, { status: 400 });
       await supabase(env, 'PATCH', `/rest/v1/profiles?id=eq.${encodeURIComponent(user_id)}`, { shadow_banned: true }, { Prefer: 'return=minimal' });
       return Response.json({ ok: true });
+    }
+
+    if (url.pathname === '/admin/gamification/trigger-settle' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      if (!env.SETTLE_SECRET) return Response.json({ error: 'SETTLE_SECRET not set' }, { status: 500 });
+      const res = await fetch('https://kartalix.com/api/league/settle', {
+        method: 'POST',
+        headers: { 'X-Settle-Secret': env.SETTLE_SECRET },
+      });
+      const body = await res.json().catch(() => ({}));
+      return Response.json({ ok: res.ok, status: res.status, body });
     }
 
     if (url.pathname === '/admin/gamification/set-upcoming-match' && request.method === 'POST') {
@@ -4532,7 +4545,10 @@ Sadece JSON döndür:
     } else if (cron === '0 4 * * *') {
       ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env), archiveDailyCost(env), runSourceHealth(env)]));
     } else if (cron === '0 3 * * 1') {
-      ctx.waitUntil(redistillEditorialNotes(env));
+      ctx.waitUntil(Promise.all([
+        redistillEditorialNotes(env),
+        runLeagueSettle(env),
+      ]));
     } else if (cron === '0 2 * * 0') {
       ctx.waitUntil(runVoicePatternExtraction(env));
     } else {
@@ -4791,6 +4807,23 @@ async function seedVoiceRules(env) {
   await env.PITCHOS_CACHE.put('editorial:notes', JSON.stringify(all));
   console.log(`SEED-VOICE: added ${newNotes.length} voice rules`);
   return newNotes.length;
+}
+
+// ─── WEEKLY LEAGUE SETTLEMENT ────────────────────────────────
+// Runs every Monday 03:00 alongside editorial redistill.
+// Calls the Pages Function endpoint with the shared secret.
+async function runLeagueSettle(env) {
+  if (!env.SETTLE_SECRET) { console.log('LEAGUE-SETTLE: no SETTLE_SECRET, skipping'); return; }
+  try {
+    const res = await fetch('https://kartalix.com/api/league/settle', {
+      method: 'POST',
+      headers: { 'X-Settle-Secret': env.SETTLE_SECRET },
+    });
+    const body = await res.json().catch(() => ({}));
+    console.log('LEAGUE-SETTLE:', res.status, JSON.stringify(body));
+  } catch (e) {
+    console.error('LEAGUE-SETTLE error:', e.message);
+  }
 }
 
 // ─── WEEKLY EDITORIAL NOTES RE-DISTILL ───────────────────────
@@ -8221,11 +8254,37 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, 
   const bodyHtml  = articleBodyToHtml(bodyText, { publishMode: a.publish_mode });
 
   const ytEmbedId = a.publish_mode === 'youtube_embed' && srcUrl
-    ? (srcUrl.match(/(?:youtu\.be\/|[?&]v=)([a-zA-Z0-9_-]{11})/)?.[1] || null)
+    ? (srcUrl.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/live\/)([a-zA-Z0-9_-]{11})/)?.[1] || null)
     : null;
-  const videoHtml = ytEmbedId && !bodyHtml.includes('<iframe')
-    ? videoEmbedHtml(ytEmbedId, a.title || '') // shared with the SPA (src/shared.js)
+  const _hasVideoInBody = bodyHtml.includes('<iframe');
+  const videoHtml = ytEmbedId && !_hasVideoInBody
+    ? `<div class="yt-embed"><div id="ytPlayerDiv"></div></div>`
     : '';
+  const videoScript = ytEmbedId && !_hasVideoInBody ? `<script>
+(function(){
+  var VIDEO_ID=${JSON.stringify(ytEmbedId)};
+  var secs=0,ticker=null,claimed=false;
+  function tick(){secs++;if(!claimed&&secs>=30){claimed=true;clearInterval(ticker);ticker=null;claimXP();}}
+  function claimXP(){
+    if(!window.kxToken)return;
+    fetch('/api/xp/video-token?video_id='+encodeURIComponent(VIDEO_ID),{headers:{Authorization:'Bearer '+window.kxToken}})
+      .then(function(r){return r.ok?r.json():Promise.reject();})
+      .then(function(t){return fetch('/api/xp/video-watch',{method:'POST',headers:{Authorization:'Bearer '+window.kxToken,'Content-Type':'application/json'},body:JSON.stringify({video_id:VIDEO_ID,token:t.token})});})
+      .then(function(r){return r.ok?r.json():Promise.reject();})
+      .then(function(d){if(d.xp_earned>0&&window.kxSpawnXP)window.kxSpawnXP(d.xp_earned);})
+      .catch(function(){});
+  }
+  window.onYouTubeIframeAPIReady=function(){
+    new YT.Player('ytPlayerDiv',{videoId:VIDEO_ID,playerVars:{rel:0,modestbranding:1},events:{
+      onStateChange:function(e){
+        if(e.data===1){if(!ticker)ticker=setInterval(tick,1000);}
+        else{if(ticker){clearInterval(ticker);ticker=null;}}
+      }
+    }});
+  };
+  var s=document.createElement('script');s.src='https://www.youtube.com/iframe_api';document.head.appendChild(s);
+})();
+</script>` : '';
 
   const relatedHtml = related.length ? `<div class="related-vids">
   <div class="related-vids-label">İlgili Videolar</div>
@@ -8307,7 +8366,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#16140f;margin-botto
 .source-attr{font-size:0.75rem;color:#666;margin-top:2rem;padding-top:1rem;border-top:1px solid #222}
 .article-meta .source-attr{display:block;width:100%;margin-top:0.4rem;padding-top:0;border-top:none}
 .yt-embed{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:6px;margin-bottom:1.5rem;background:#000}
-.yt-embed iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
+.yt-embed iframe,.yt-embed #ytPlayerDiv{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 .related-vids{margin:2rem 0 1.5rem}
 .related-vids-label{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#555;margin-bottom:.85rem;border-left:3px solid #E30A17;padding-left:.65rem}
 .related-vids-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem}
@@ -8570,6 +8629,7 @@ async function submitFb(){
 loadReactions();
 </script>
 ${gamificationMeta({ xp_type: 'article', slug, publish_mode: a.publish_mode || '' })}
+${videoScript}
 ${siteFooter()}
 ${siteCookieBanner()}
 </body>
@@ -10938,11 +10998,11 @@ load();
 </html>`;
 }
 
-function renderGamificationAdminPage(actions, events, profileMap, stats, badges = [], polls = [], sites = [], levelThresholds = [], shadowBanned = []) {
+function renderGamificationAdminPage(actions, events, profileMap, stats, badges = [], polls = [], sites = [], levelThresholds = [], shadowBanned = [], leagueGroups = []) {
   const nav = adminNav('gamification', '', []);
   const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-  const CATEGORY_LABELS = { retention:'Retention', community:'Community', tribun:'Tribün', system:'System' };
+  const CATEGORY_LABELS = { retention:'Retention', community:'Community', tribun:'Tribün', system:'System', league:'League' };
 
   const categoryGroups = {};
   for (const a of actions) {
@@ -11210,6 +11270,58 @@ function renderGamificationAdminPage(actions, events, profileMap, stats, badges 
       </div>`;
   }).join('');
 
+  // ── League section ────────────────────────────────────────────
+  const TIER_META = {
+    bronz:  { label:'Bronz',  icon:'🥉', mult:'×1.00' },
+    'gümüş':{ label:'Gümüş', icon:'🥈', mult:'×1.05' },
+    'altın':{ label:'Altın',  icon:'🥇', mult:'×1.10' },
+    platin: { label:'Platin', icon:'🏆', mult:'×1.20' },
+    elmas:  { label:'Elmas',  icon:'💎', mult:'×1.30' },
+  };
+
+  const weeksByDate = {};
+  for (const g of leagueGroups) {
+    if (!weeksByDate[g.week_start]) weeksByDate[g.week_start] = {};
+    const t = g.tier;
+    if (!weeksByDate[g.week_start][t]) weeksByDate[g.week_start][t] = { groups: 0, settled: 0 };
+    weeksByDate[g.week_start][t].groups++;
+    if (g.settled) weeksByDate[g.week_start][t].settled++;
+  }
+  const weeks = Object.keys(weeksByDate).sort().reverse().slice(0, 4);
+
+  const leagueWeekRows = weeks.map(wk => {
+    const tierCells = ['bronz','gümüş','altın','platin','elmas'].map(tid => {
+      const d = weeksByDate[wk][tid];
+      if (!d) return `<td style="padding:.5rem .75rem;text-align:center;color:#3a3a3a">—</td>`;
+      const color = d.settled === d.groups ? '#4ade80' : d.settled > 0 ? '#fbbf24' : '#9ca3af';
+      return `<td style="padding:.5rem .75rem;text-align:center;font-size:.8rem;color:${color}"><b>${d.groups}</b> grup <span style="font-size:.68rem">(${d.settled}/${d.groups} settled)</span></td>`;
+    }).join('');
+    return `<tr style="border-bottom:1px solid #1a1a1a"><td style="padding:.5rem .75rem;font-size:.8rem;font-family:monospace;color:#9ca3af">${wk}</td>${tierCells}</tr>`;
+  }).join('') || '<tr><td colspan="6" style="padding:1.5rem;text-align:center;color:#6b7280;font-size:.82rem">Henüz grup yok</td></tr>';
+
+  const leagueSection = `
+  <div style="background:#111;border:1px solid #1f2937;border-radius:6px;margin-bottom:1.5rem;overflow:hidden">
+    <div style="padding:.85rem 1rem;border-bottom:1px solid #1f2937;display:flex;align-items:center;justify-content:space-between">
+      <span style="font-weight:700;font-size:.9rem">Lig Sistemi</span>
+      <div style="display:flex;gap:.75rem;align-items:center">
+        <span style="font-size:.72rem;color:#6b7280">${leagueGroups.length} toplam grup</span>
+        <button onclick="triggerSettle()" style="padding:4px 14px;background:#1e3a5f;border:1px solid #2563eb;color:#60a5fa;font-size:.75rem;font-weight:700;cursor:pointer;border-radius:3px">⚡ Manuel Settle</button>
+        <span id="settle-msg" style="font-size:.73rem;color:#4ade80"></span>
+      </div>
+    </div>
+    <div style="padding:.75rem 1rem;border-bottom:1px solid #1f2937;display:flex;gap:1.5rem">
+      ${['bronz','gümüş','altın','platin','elmas'].map(tid => {
+        const m = TIER_META[tid];
+        return `<span style="font-size:.78rem;color:#9ca3af">${m.icon} <b style="color:#e5e7eb">${m.label}</b> <span style="color:#fbbf24">${m.mult}</span></span>`;
+      }).join('')}
+      <span style="font-size:.72rem;color:#6b7280;margin-left:auto">↑ Yükselen: top 3 | ↓ Düşen: son 3 | Grup boyutu: 30</span>
+    </div>
+    <table><thead><tr>
+      <th>Hafta</th>
+      ${['bronz','gümüş','altın','platin','elmas'].map(tid => `<th style="text-align:center">${TIER_META[tid].icon} ${TIER_META[tid].label}</th>`).join('')}
+    </tr></thead><tbody>${leagueWeekRows}</tbody></table>
+  </div>`;
+
   return `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -11266,6 +11378,8 @@ ${nav}
     </div>
     ${badgeSections}
   </div>
+
+  ${leagueSection}
 
   ${pollsSection}
 
@@ -11646,6 +11760,17 @@ async function unshadow(user_id) {
   });
   if (res.ok) { if (msg) { msg.style.color='#4ade80'; msg.textContent='Kaldırıldı!'; } setTimeout(() => location.reload(), 800); }
   else { if (msg) { msg.style.color='#f87171'; msg.textContent='Hata!'; } }
+}
+async function triggerSettle() {
+  const msg = document.getElementById('settle-msg');
+  if (msg) msg.textContent = '…çalışıyor';
+  const res = await fetch('/admin/gamification/trigger-settle', { method: 'POST' });
+  const d = await res.json().catch(() => ({}));
+  if (res.ok && d.ok) {
+    if (msg) { msg.style.color='#4ade80'; msg.textContent='Settle tamamlandı ✓ — sayfayı yenile'; }
+  } else {
+    if (msg) { msg.style.color='#f87171'; msg.textContent = d.body?.error || 'Hata! ' + (res.status); }
+  }
 }
 </script>
 </body>

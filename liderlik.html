@@ -284,6 +284,28 @@
       .mainnav.js .nav-li.open>.nav-mega{max-height:600px}
     }
 
+    /* ── LEAGUE PANEL ── */
+    .ld-header{display:flex;align-items:center;gap:.85rem;padding:1rem 0 .85rem;border-bottom:1px solid #1f2937;margin-bottom:.85rem}
+    .ld-tier-icon{font-size:2.2rem;line-height:1;flex-shrink:0}
+    .ld-tier-name{font-family:'Barlow Condensed',sans-serif;font-size:1.2rem;font-weight:700;letter-spacing:.04em;color:#f0ede6}
+    .ld-tier-sub{font-size:.78rem;color:#6b7280;margin-top:.15rem}
+    .ld-legend{display:flex;gap:1rem;font-size:.72rem;margin-bottom:.6rem}
+    .ld-leg--promo{color:#4ade80}.ld-leg--rel{color:#f87171}
+    .ld-list{display:flex;flex-direction:column;gap:2px;margin-bottom:.75rem}
+    .ld-row{display:flex;align-items:center;gap:.6rem;padding:.5rem .6rem;border-radius:5px;background:#141414;font-size:.82rem;border:1px solid transparent}
+    .ld-promo{border-color:#14532d;background:#0a1f10}
+    .ld-rel{border-color:#7f1d1d;background:#1f0a0a}
+    .ld-me{font-weight:700;border-color:#374151!important;background:#1a1f2e!important}
+    .ld-medal{width:2rem;text-align:center;flex-shrink:0;font-size:.82rem;color:#9ca3af}
+    .ld-av{width:28px;height:28px;flex-shrink:0;border-radius:50%;overflow:hidden;background:#1f2937;display:flex;align-items:center;justify-content:center}
+    .ld-av-img{width:100%;height:100%;object-fit:cover}
+    .ld-av-init{font-size:.72rem;font-weight:700;color:#9ca3af}
+    .ld-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e5e7eb}
+    .ld-xp{flex-shrink:0;color:#9ca3af;font-size:.78rem;font-variant-numeric:tabular-nums}
+    .ld-myzone{font-size:.8rem;text-align:center;padding:.6rem;background:#111;border-radius:5px;margin-top:.25rem}
+    .ld-zone-up{color:#4ade80;font-weight:700}.ld-zone-dn{color:#f87171;font-weight:700}.ld-zone-ok{color:#9ca3af}
+    .ld-nogroup{padding:2rem 1rem;text-align:center;color:#6b7280;font-size:.85rem}
+
     /* ── BOTTOM DOCK ── */
     .bottom-dock{display:none;position:fixed;bottom:0;left:0;right:0;z-index:220;background:#0d0d0d;border-top:1px solid #1A1A1A;padding-bottom:env(safe-area-inset-bottom,0px)}
     @media(max-width:900px){.bottom-dock{display:flex;align-items:stretch}body{padding-bottom:60px}}
@@ -369,6 +391,7 @@
     <button class="liderlik-tab"        data-tab="seasonal" role="tab">Sezon</button>
     <button class="liderlik-tab"        data-tab="streak"   role="tab">Seri</button>
     <button class="liderlik-tab"        data-tab="accuracy" role="tab">Tahmin</button>
+    <button class="liderlik-tab"        data-tab="league"   role="tab">🏆 Lig</button>
   </div>
 
   <!-- Body -->
@@ -387,6 +410,9 @@
       <div class="liderlik-myrank-label">Senin Sıran</div>
       <div id="liderlikMyrow"></div>
     </div>
+
+    <!-- League group panel (only shown for league tab) -->
+    <div id="liderlikLeague" style="display:none"></div>
   </div>
 
 </main>
@@ -413,12 +439,77 @@
   const elList    = document.getElementById('liderlikList');
   const elMyrank  = document.getElementById('liderlikMyrank');
   const elMyrow   = document.getElementById('liderlikMyrow');
+  const elLeague  = document.getElementById('liderlikLeague');
 
   function showOnly(which) {
     elLoading.style.display = which === 'loading' ? 'flex' : 'none';
     elError.style.display   = which === 'error'   ? 'block' : 'none';
     elEmpty.style.display   = which === 'empty'   ? 'block' : 'none';
     elList.classList.toggle('visible', which === 'list');
+    elLeague.style.display  = which === 'league'  ? 'block' : 'none';
+    if (which !== 'league') elMyrank.style.display = 'none';
+  }
+
+  function renderLeague(d) {
+    if (!d) { showOnly('error'); return; }
+    const TIER_ICONS = { bronz:'🥉', 'gümüş':'🥈', 'altın':'🥇', platin:'🏆', elmas:'💎' };
+    const icon = TIER_ICONS[d.tier] || '🏅';
+    const multStr = d.tier_mult > 1 ? ` <span style="color:#f59e0b;font-size:.8rem">×${d.tier_mult.toFixed(2)}</span>` : '';
+
+    let groupHtml = '';
+    if (d.leaderboard && d.leaderboard.length) {
+      const lb = d.leaderboard;
+      const promo = d.promo_zone;
+      const rel   = d.relegate_zone;
+      const size  = d.group_size;
+      const rows  = lb.map(m => {
+        let zoneBar = '';
+        if (m.rank <= promo)         zoneBar = 'ld-promo';
+        else if (m.rank > size - rel) zoneBar = 'ld-rel';
+        const medal = m.rank === 1 ? '🥇' : m.rank === 2 ? '🥈' : m.rank === 3 ? '🥉' : `#${m.rank}`;
+        const initials = (m.display_name || 'K').charAt(0).toUpperCase();
+        const avatar = m.avatar_url
+          ? `<img src="${m.avatar_url}" class="ld-av-img" alt="" loading="lazy">`
+          : `<div class="ld-av-init">${initials}</div>`;
+        return `<div class="ld-row ${zoneBar}${m.is_me ? ' ld-me' : ''}">
+          <div class="ld-medal">${medal}</div>
+          <div class="ld-av">${avatar}</div>
+          <div class="ld-name">${escHtml(m.display_name || 'Taraftar')}</div>
+          <div class="ld-xp">${m.weekly_xp.toLocaleString('tr-TR')} XP</div>
+        </div>`;
+      }).join('');
+
+      const myRank = d.rank;
+      let myZoneLabel = '';
+      if (myRank) {
+        if (myRank <= promo)        myZoneLabel = `<span class="ld-zone-up">↑ ${myRank}. sıra — yükselme bölgesi (ilk ${promo})</span>`;
+        else if (myRank > size - rel) myZoneLabel = `<span class="ld-zone-dn">↓ ${myRank}. sıra — düşme bölgesi (son ${rel})</span>`;
+        else                         myZoneLabel = `<span class="ld-zone-ok">${myRank}. sıra / ${size} kişi</span>`;
+      }
+
+      groupHtml = `
+        <div class="ld-legend">
+          <span class="ld-leg ld-leg--promo">🟢 Yükselen (ilk ${promo})</span>
+          <span class="ld-leg ld-leg--rel">🔴 Düşen (son ${rel})</span>
+        </div>
+        <div class="ld-list">${rows}</div>
+        ${myRank ? `<div class="ld-myzone">${myZoneLabel}</div>` : ''}`;
+    } else if (d.group_id === null) {
+      groupHtml = `<div class="ld-nogroup">Grubun henüz atanmadı — Pazartesi güncellenir.</div>`;
+    }
+
+    elLeague.innerHTML = `
+      <div class="ld-header">
+        <span class="ld-tier-icon">${icon}</span>
+        <div>
+          <div class="ld-tier-name">${d.tier_label} Lig${multStr}</div>
+          <div class="ld-tier-sub">${d.weekly_xp.toLocaleString('tr-TR')} XP bu hafta
+            ${d.group_number ? ` · Grup ${d.group_number}` : ''}</div>
+        </div>
+      </div>
+      ${groupHtml}
+    `;
+    showOnly('league');
   }
 
   function avatarHtml(row) {
@@ -531,7 +622,7 @@
     const cacheKey = tab + (meUserId || '');
 
     if (cache[cacheKey]) {
-      render(cache[cacheKey]);
+      tab === 'league' ? renderLeague(cache[cacheKey]) : render(cache[cacheKey]);
       return;
     }
 
@@ -539,12 +630,22 @@
     elMyrank.style.display = 'none';
 
     try {
-      const qs  = meUserId ? `?user_id=${encodeURIComponent(meUserId)}` : '';
-      const res = await fetch(`/api/leaderboard/${tab}${qs}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(res.status);
-      const data = await res.json();
-      cache[cacheKey] = data;
-      render(data);
+      if (tab === 'league') {
+        const tok = window.kxToken;
+        if (!tok) { elLeague.innerHTML = '<div class="ld-nogroup">Lig bilgilerini görmek için giriş yapman gerekiyor.</div>'; showOnly('league'); return; }
+        const res = await fetch('/api/league', { headers: { Authorization: 'Bearer ' + tok }, cache: 'no-store' });
+        if (!res.ok) throw new Error(res.status);
+        const data = await res.json();
+        cache[cacheKey] = data;
+        renderLeague(data);
+      } else {
+        const qs  = meUserId ? `?user_id=${encodeURIComponent(meUserId)}` : '';
+        const res = await fetch(`/api/leaderboard/${tab}${qs}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error(res.status);
+        const data = await res.json();
+        cache[cacheKey] = data;
+        render(data);
+      }
     } catch {
       showOnly('error');
     }
@@ -565,7 +666,7 @@
     if (me && !meUserId) {
       meUserId = me.profile.id;
       cache = {};              // invalidate — need user_id in query
-      loadTab(activeTab);
+      loadTab(activeTab);     // reload current tab (also fetches league if active)
     }
   });
 
