@@ -8221,11 +8221,37 @@ function renderArticleHTML(a, apiKey = '', fixtureId = null, opponentId = null, 
   const bodyHtml  = articleBodyToHtml(bodyText, { publishMode: a.publish_mode });
 
   const ytEmbedId = a.publish_mode === 'youtube_embed' && srcUrl
-    ? (srcUrl.match(/(?:youtu\.be\/|[?&]v=)([a-zA-Z0-9_-]{11})/)?.[1] || null)
+    ? (srcUrl.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/live\/)([a-zA-Z0-9_-]{11})/)?.[1] || null)
     : null;
-  const videoHtml = ytEmbedId && !bodyHtml.includes('<iframe')
-    ? videoEmbedHtml(ytEmbedId, a.title || '') // shared with the SPA (src/shared.js)
+  const _hasVideoInBody = bodyHtml.includes('<iframe');
+  const videoHtml = ytEmbedId && !_hasVideoInBody
+    ? `<div class="yt-embed"><div id="ytPlayerDiv"></div></div>`
     : '';
+  const videoScript = ytEmbedId && !_hasVideoInBody ? `<script>
+(function(){
+  var VIDEO_ID=${JSON.stringify(ytEmbedId)};
+  var secs=0,ticker=null,claimed=false;
+  function tick(){secs++;if(!claimed&&secs>=30){claimed=true;clearInterval(ticker);ticker=null;claimXP();}}
+  function claimXP(){
+    if(!window.kxToken)return;
+    fetch('/api/xp/video-token?video_id='+encodeURIComponent(VIDEO_ID),{headers:{Authorization:'Bearer '+window.kxToken}})
+      .then(function(r){return r.ok?r.json():Promise.reject();})
+      .then(function(t){return fetch('/api/xp/video-watch',{method:'POST',headers:{Authorization:'Bearer '+window.kxToken,'Content-Type':'application/json'},body:JSON.stringify({video_id:VIDEO_ID,token:t.token})});})
+      .then(function(r){return r.ok?r.json():Promise.reject();})
+      .then(function(d){if(d.xp_earned>0&&window.kxSpawnXP)window.kxSpawnXP(d.xp_earned);})
+      .catch(function(){});
+  }
+  window.onYouTubeIframeAPIReady=function(){
+    new YT.Player('ytPlayerDiv',{videoId:VIDEO_ID,playerVars:{rel:0,modestbranding:1},events:{
+      onStateChange:function(e){
+        if(e.data===1){if(!ticker)ticker=setInterval(tick,1000);}
+        else{if(ticker){clearInterval(ticker);ticker=null;}}
+      }
+    }});
+  };
+  var s=document.createElement('script');s.src='https://www.youtube.com/iframe_api';document.head.appendChild(s);
+})();
+</script>` : '';
 
   const relatedHtml = related.length ? `<div class="related-vids">
   <div class="related-vids-label">İlgili Videolar</div>
@@ -8307,7 +8333,7 @@ h1{font-size:1.65rem;font-weight:800;line-height:1.25;color:#16140f;margin-botto
 .source-attr{font-size:0.75rem;color:#666;margin-top:2rem;padding-top:1rem;border-top:1px solid #222}
 .article-meta .source-attr{display:block;width:100%;margin-top:0.4rem;padding-top:0;border-top:none}
 .yt-embed{position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:6px;margin-bottom:1.5rem;background:#000}
-.yt-embed iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
+.yt-embed iframe,.yt-embed #ytPlayerDiv{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
 .related-vids{margin:2rem 0 1.5rem}
 .related-vids-label{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#555;margin-bottom:.85rem;border-left:3px solid #E30A17;padding-left:.65rem}
 .related-vids-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.75rem}
@@ -8570,6 +8596,7 @@ async function submitFb(){
 loadReactions();
 </script>
 ${gamificationMeta({ xp_type: 'article', slug, publish_mode: a.publish_mode || '' })}
+${videoScript}
 ${siteFooter()}
 ${siteCookieBanner()}
 </body>

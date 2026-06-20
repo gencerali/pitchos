@@ -34,7 +34,7 @@ const DAY_QUESTS = [
   [
     { id: 'checkin', action: 'daily_checkin',   target: 1, label: 'Günlük giriş yap' },
     { id: 'predict', action: 'predict_score',   target: 1, label: 'Skor tahmin et'    },
-    { id: 'poll',    action: 'poll_vote',       target: 1, label: 'Ankete katıl'      },
+    { id: 'comment', action: 'comment',         target: 1, label: 'Yorum yap'         },
   ],
   // 5 Friday
   [
@@ -46,7 +46,7 @@ const DAY_QUESTS = [
   [
     { id: 'checkin', action: 'daily_checkin',   target: 1, label: 'Günlük giriş yap' },
     { id: 'video',   action: 'watch_video_30s', target: 1, label: 'Video izle'        },
-    { id: 'poll',    action: 'poll_vote',       target: 1, label: 'Ankete katıl'      },
+    { id: 'share',   action: 'share_link',      target: 1, label: 'Haber paylaş'      },
   ],
 ];
 
