@@ -5,6 +5,8 @@ import { getUser, json, err, corsHeaders } from './_shared/auth.js';
 import { getSiteId } from './_shared/site.js';
 import { sbGet } from './_shared/xp.js';
 
+const POLL_QUEST = { id: 'poll', action: 'poll_vote', target: 1, label: 'Ankete katıl' };
+
 const DAY_QUESTS = [
   // 0 Sunday
   [
@@ -62,10 +64,23 @@ export async function onRequest({ request, env }) {
 
   const now = new Date();
   const dayOfWeek = now.getUTCDay();
-  const quests = DAY_QUESTS[dayOfWeek];
 
   // UTC midnight — same boundary used by daily cap logic
   const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+
+  // Check for an active poll the user hasn't voted on yet; if found, slot 2 becomes the poll quest
+  const activePollRows = await sbGet(env,
+    `polls?active=eq.true&site_id=eq.${site_id}&select=id&limit=1`
+  ).catch(() => []);
+
+  let quests = [...DAY_QUESTS[dayOfWeek]];
+  if (activePollRows.length) {
+    const pollId = activePollRows[0].id;
+    const voted = await sbGet(env,
+      `poll_votes?poll_id=eq.${pollId}&user_id=eq.${user.id}&site_id=eq.${site_id}&select=id&limit=1`
+    ).catch(() => []);
+    if (!voted.length) quests = [quests[0], quests[1], POLL_QUEST];
+  }
 
   // Deduplicate actions, fetch all in parallel
   const actions = [...new Set(quests.map(q => q.action))];
