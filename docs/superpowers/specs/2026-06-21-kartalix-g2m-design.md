@@ -21,30 +21,59 @@ A Beşiktaş fan platform with three USPs delivered in priority order:
 
 ## 2. G2M Scope
 
+### Scope Revision (2026-06-21)
+
+Original plan assumed M2 (dedup) and M3 (freshness) could be fixed by tuning the existing pipeline. **This is wrong.** The current architecture has structural problems that tuning cannot solve:
+
+- NVS scored on title/blurb *before* content is fetched — scores the packaging, not the story
+- One source → one article → duplication is baked in, not a config issue
+- No source abstraction — adding YouTube or Twitter requires invasive changes
+- Single-reference rewrites are the output by design — not an edge case
+
+**Decision:** Method B core is a G2M must-have. Not a quality upgrade — the content foundation. The pipeline track builds the minimal Method B needed to produce distilled, multi-source, original articles from RSS + YouTube. Twitter is post-G2M.
+
+### Attribution Rules (locked)
+
+| Source Type | Attribution Rule |
+|-------------|-----------------|
+| RSS / press feeds | None — synthesize as Kartalix original |
+| Official club / TFF / league | State as fact or attribute to institution |
+| Named journalist exclusive (e.g., Günayer) | Named attribution — "Günayer'e göre" |
+| Named journalist + multiple signals combined | Synthesize without naming — facts are reused |
+| YouTube — primary source breaking news | Embed video + 1-2 paragraph key headlines |
+| YouTube — general content | Extract facts → store in `facts` table → reusable in future articles |
+| Tweet confirmation (post-G2M) | Named attribution — "X transferi doğruladı" |
+| Facts extracted from any source | Reusable in future articles without re-citing origin |
+
 ### Must-Have (nothing ships until these pass)
 
 | # | Item | Track | Estimated Effort |
 |---|------|-------|-----------------|
-| M1 | Image strategy resolved + visual system built | Design | Week 1 decision, 1-2 weeks implementation |
-| M2 | Dedup fix — one story, one article on homepage | Pipeline | 2-3 weeks |
-| M3 | Freshness retuning — homepage feels alive | Pipeline | 1-2 weeks |
-| M4 | Article voice — passionate fan journalist prompts | Pipeline | 1 week |
-| M5 | Trust badge on every article card (NVS visual) | Both | 1 week |
-| M6 | Homepage redesign — article-first, mobile-first | Design | 4-5 weeks |
-| M7 | Article page redesign — readable, credible | Design | 2-3 weeks |
-| M8 | Source attribution visible on every article | Pipeline | 0.5 weeks |
-| M9 | Security basics (admin gate, is_bot fix, comment log) | Pipeline | 1 week |
+| M1 | Image strategy resolved + visual system built | Design | Week 1 decision, 1-2 weeks build |
+| M2 | Method B core: source abstraction + fact extraction (RSS + YT) | Pipeline | 3-4 weeks |
+| M3 | Story clustering: one story → one article, no duplicates | Pipeline | 2-3 weeks |
+| M4 | Synthesis without attribution (RSS) + attribution rules (Official/YT) | Pipeline | 1-2 weeks |
+| M5 | YouTube templates: embed+summary AND fact extraction | Pipeline | 1-2 weeks |
+| M6 | NVS computed post-extraction (on facts, not title) | Pipeline | 1 week |
+| M7 | Article voice — passionate fan journalist prompts | Pipeline | 0.5 weeks |
+| M8 | Trust badge on every article card (NVS visual) | Both | 1 week |
+| M9 | Homepage redesign — article-first, mobile-first | Design | 4-5 weeks |
+| M10 | Article page redesign — readable, credible | Design | 2-3 weeks |
+| M11 | Security basics (admin gate, is_bot fix, comment log) | Pipeline | 1 week |
 
-**Total estimate at 8-12 hrs/week: 14-18 weeks via parallel tracks**
+**Total estimate at 8-12 hrs/week: 18-22 weeks via parallel tracks**
 
 ### Postponable (after G2M replan)
 
-- Full Method B 5-stage pipeline (pipeline fixes get to G2M; Method B is v1.1 quality upgrade)
+- Twitter source type (post-G2M addition to source abstraction layer — 1-2 weeks when ready)
+- Full Method B topic graph (branch_of, sequel_of, parallel claim-tracks)
+- Fan-out (1 phase → N articles by entity)
+- /admin/pipeline comparison view (legacy vs Method B side by side)
 - B3.1 Shareable prediction card
 - Analytics / Analiz page with paid data API
 - Email digest (Resend)
 - Push notifications + service worker
-- Worker refactor (864KB file — not blocking)
+- Worker refactor (864KB file — natural timing is post-cutover when legacy shrinks)
 - Multi-tenancy beyond 4 quick fixes
 - AI poll generator
 - Bot decay logic
@@ -233,36 +262,176 @@ Specul.:   #94A3B8 (muted)
 
 ---
 
-## 5. Track 2 — Pipeline Spec
+## 5. Track 2 — Pipeline Spec (Minimal Method B)
 
-### 5.1 Dedup Fix — One Story, One Article
+### Architecture Overview
 
-**Problem:** Transfer story covered by 5 sources → 5 articles on homepage.
-**Root cause:** `story-matcher.js` clusters exist but throttled (`MAX_FACTS_EXTRACTS = 5`/run, `synth:{id}:{date}` daily dedup key).
-**Fix:**
+The pipeline track builds the minimal Method B needed for G2M. This is not the full 5-stage Method B from `docs/method-b-design.md` — it is the trunk that makes distilled, non-duplicated, source-agnostic articles possible. Full topic graph, claim tracks, and fan-out are post-G2M.
 
-1. **Loosen `MAX_FACTS_EXTRACTS`** from 5 → 15 per run (story worker has its own CPU budget)
-2. **Strengthen title similarity threshold** in pre-filter dedup — current threshold may be too loose, letting near-identical titles through
-3. **Story gate on homepage:** if `topic_id` is set on multiple articles, homepage shows only the highest-NVS article per topic per 6-hour window
-4. **"Story updated" indicator:** when a story has multiple contributions, show "3 kaynaktan derlendi" on the card rather than hiding the others
+```
+SOURCE LAYER          FACT LAYER              STORY LAYER         ARTICLE LAYER
+─────────────         ──────────              ───────────         ─────────────
+RSS feeds    ──┐                              ┌─ cluster by       ┌─ synthesize
+YT transcripts ┤→ extract_facts() ──→ facts ─┤  entity/topic  ──┤  (no source ref
+YT embed+sum ──┘                              └─ dedup         └─  for RSS)
+                                                                   voice: fan journalist
+                                                                   NVS: post-extraction
+```
 
-**Success test:** A transfer announced by the club, covered by NTV Spor, Habertürk, and Fanatik → exactly ONE article appears on homepage combining all three. Not three separate articles.
+**Key principle:** Facts are the unit of truth. Articles are disposable. A fact extracted from a Günayer video today can seed an article next week without re-citing Günayer.
 
-### 5.2 Freshness Retuning
+### 5.1 Source Abstraction Layer (M2 foundation)
 
-**Problem:** Homepage feels stale. Articles from 3 hours ago rank above breaking items.
-**Root cause:** Half-life decay curve not aggressive enough for fast-moving sports news.
+**Goal:** RSS and YouTube become interchangeable inputs. Adding Twitter later is a new adapter, not a rewrite.
 
-**Changes:**
+```javascript
+// Common interface — all sources output this shape
+{
+  source_id: string,
+  source_type: 'rss' | 'youtube_transcript' | 'youtube_embed',
+  trust_tier: 'official' | 'broadcast' | 'press' | 'journalist' | 'aggregator',
+  attribution_rule: 'none' | 'institution' | 'named_journalist' | 'embed_summary',
+  raw_content: string,    // article text OR YT transcript
+  metadata: { url, title, published_at, author }
+}
+```
 
-1. **Decrease half-life for all content types** — current values in `src/publisher.js` (config-driven after NVS harmonization). Reduce by ~30% across the board.
-2. **Freshness bonus for < 2-hour articles** — add +10 to effective NVS for articles published in last 2 hours. Disappears after 2 hours. Creates visible "new" clustering at top of feed.
-3. **"Son Dakika" strip** — homepage shows a horizontal strip of the last 3 articles published in < 1 hour with NVS ≥ 60. Updates on every page load.
-4. **Admin visibility** — `/admin/pipeline` should show "articles published in last 2 hours: N". If N = 0 for more than 2 hours between 08:00-22:00, something is broken.
+**RSS adapter:** Already exists in `src/fetcher.js` — wrap in common interface, add `attribution_rule: 'none'` for all RSS sources.
 
-**Success test:** A match ends at 21:00. By 21:15, the result article is visible at the top of the homepage with "Son Dakika" treatment.
+**YouTube adapter (new):**
+- **Transcript mode:** Use YouTube transcript API (or Whisper if unavailable) → extract facts → `attribution_rule: 'none'` for general content, `'named_journalist'` if journalist is the primary source breaking unique news
+- **Embed+summary mode:** Triggered when: single primary source (Günayer etc.) + NVS ≥ 80 + no RSS coverage of same story → embed video in article + 2-paragraph summary
+- **Detection:** `youtube_embed` type flagged in `source_configs` per channel; trust tier set per channel
 
-### 5.3 Article Voice — Passionate Fan Journalist
+**YouTube channel config (in `sites` table or `source_configs`):**
+```json
+{
+  "channel_id": "UCxxxxx",
+  "channel_name": "Fırat Günayer",
+  "trust_tier": "journalist",
+  "attribution_rule": "named_journalist",
+  "embed_threshold_nvs": 75
+}
+```
+
+### 5.2 Story Clustering (M3 — one story, one article)
+
+**Goal:** 5 RSS sources cover the same transfer → ONE synthesized article, not five rewrites.
+
+**Approach:** Entity fingerprint matching (simpler than full topic graph for v1)
+
+```javascript
+// Entity fingerprint = normalized set of: player names + club names + story type
+// Two facts with fingerprint overlap > 0.6 → same story
+fingerprint('Rashica', 'Beşiktaş', 'transfer') matches
+fingerprint('Rashica', 'BJK', 'transfer söylentisi')
+```
+
+**Clustering rules:**
+1. Collect all facts from current run window (last 2 hours)
+2. Group by entity fingerprint similarity
+3. Per cluster: if 2+ facts → synthesize ONE article from all facts combined
+4. If 1 fact: check against existing `topics` table for ongoing story → add as contribution OR publish as brief if NVS ≥ 70
+5. Dedup key: `synth:{topic_id}:{date}:{hour}` — max one synthesis per story per hour
+
+**"Son Dakika" freshness (replaces decay retuning):**
+- When synthesis fires on a cluster updated in last 30 min → flag article as `breaking: true`
+- Breaking articles surface at top of homepage feed regardless of NVS rank
+- Breaking flag expires after 90 min
+- This replaces half-life tuning — freshness is now a semantic signal, not a time decay hack
+
+**Success test:** Beşiktaş announces a transfer. Club's official post + NTV Spor + Habertürk + Fanatik cover it within 1 hour → homepage shows ONE article combining all four, with "Son Dakika" treatment. No duplicates.
+
+### 5.3 Attribution-Aware Synthesis (M4)
+
+**Synthesis prompt routing based on `attribution_rule`:**
+
+```
+attribution_rule = 'none' (RSS):
+→ Write as Kartalix original. No "NTV Spor'a göre." Facts presented directly.
+→ Voice: passionate fan journalist
+
+attribution_rule = 'institution' (official):
+→ "Kulübün resmi açıklamasına göre..." or state as fact.
+→ Can name the institution (BJK, TFF, UEFA)
+
+attribution_rule = 'named_journalist':
+→ "[Journalist]'e göre..." for the key claim.
+→ Supporting facts from other sources woven in without attribution.
+
+attribution_rule = 'embed_summary':
+→ Video embed block at top.
+→ 2-paragraph summary: "Bu videoda öne çıkan başlıklar:"
+→ Bullet list of 3-5 key claims. No synthesis beyond what was said.
+```
+
+**Fact reuse:** All facts extracted from any source are stored in `facts` table with `source_id` lineage. A future article can query facts by entity/topic and synthesize from them. The synthesis never re-cites the original source unless `attribution_rule` requires it.
+
+### 5.4 YouTube Templates (M5)
+
+**Template A — Embed + Summary** (for journalist exclusives / club channels)
+```
+[VIDEO EMBED — full width]
+[Thumbnail fallback if embed fails]
+
+**Bu videoda öne çıkan başlıklar:**
+• [Key claim 1]
+• [Key claim 2]
+• [Key claim 3]
+
+[1-paragraph context from existing facts table — no source citation]
+
+[Trust badge: Kartalix Skoru + journalist name if named_journalist]
+```
+
+**Template B — Fact Extraction** (for general YT content)
+- Run transcript through fact extraction
+- Store facts in `facts` table with `source_id: youtube:{channel}:{video_id}`
+- No article published immediately — facts become fuel for story cluster synthesis
+- IF facts contribute to an existing high-NVS story → trigger re-synthesis of that story
+
+**YT transcript acquisition (in order of cost/reliability):**
+1. YouTube's own transcript API (free, available for captioned videos)
+2. `yt-dlp` subtitle extraction (free, requires Worker with subprocess or external service)
+3. Whisper transcription (Claude-adjacent cost; use only for high-value sources)
+
+### 5.5 NVS Post-Extraction (M6)
+
+**Current problem:** NVS scored on RSS title + blurb before fetching content. Scores the packaging, not the story.
+
+**Fix:** NVS scoring moves to after fact extraction.
+
+```
+BEFORE: fetch title → NVS score → decide to fetch full content
+AFTER:  fetch all content → extract facts → NVS score facts → route to publish/discard
+```
+
+**Impact:**
+- Transfer rumor with dramatic title but thin content → correctly low NVS
+- Match injury buried in bland headline → correctly high NVS
+- YT video with important facts → NVS reflects actual news value
+- Cost: more full-content fetches before scoring → mitigate with pre-filter rule: only fetch full content for `bjkMatch()` passing articles (same gate as now, just NVS moves later)
+
+### 5.6 Article Voice — Passionate Fan Journalist (M7)
+
+Add to synthesis system prompt in all `synthesizeArticle()` and `generateOriginalNews()` calls:
+
+```
+Sen Kartalix için yazan bir spor gazetecisisin. Beşiktaş taraftarısın —
+taraflı değil, ama kalbinde siyah-beyaz var.
+
+KURALLAR:
+1. Gerçekler birinci. Doğrulanmamış bilgiyi asla kesin gibi sunma.
+2. Ses tonu: bilgili bir arkadaş gibi yaz. Ne soğuk muhabir, ne çılgın fanatik.
+3. Uzunluk: 180-280 kelime. Dolgu cümle yok.
+4. İlk paragraf: tek başına yeterli olmalı (ne oldu, kim, nerede, ne zaman).
+5. Kaynak belirtme: RSS haberler için hiçbir zaman kaynak adı verme.
+   Resmi açıklamalar için kurumu belirtebilirsin.
+6. Rumor dili: "iddia ediliyor", "öne sürülüyor" — kesinlikle "kesinleşti" değil.
+7. Kartal ruhu: önemli bir an olduğunu hissettir, ama dramatize etme.
+```
+
+### 5.7 Security Must-Haves (M11)
 
 **Problem:** Articles feel generic AI. No Beşiktaş heart.
 **Fix:** Rewrite synthesis system prompt in `src/publisher.js` (synthesizeArticle and generateOriginalNews).
@@ -284,7 +453,7 @@ ama kalbinde siyah-beyaz var. Haberlerini şu kurallara göre yaz:
 
 **Success test:** Take any current Kartalix article and the rewritten version. Show both to a Beşiktaş fan. The new one should feel like a knowledgeable fan wrote it. The old one should feel like a bot.
 
-### 5.4 Source Attribution
+### 5.8 Source Attribution (visible to reader)
 
 **Problem:** Readers can't see where information comes from. Hurts trust.
 **Fix:**
@@ -293,7 +462,7 @@ ama kalbinde siyah-beyaz var. Haberlerini şu kurallara göre yaz:
 2. **Article card on homepage:** Show "N kaynaktan" if multi-source, "Kaynak: [Name]" if single
 3. **Implementation:** `source_names[]` already in article KV shape — surface it in rendering
 
-### 5.5 Security Must-Haves
+### 5.9 Security Must-Haves (M11)
 
 All required before any traffic increase.
 
@@ -309,15 +478,31 @@ All required before any traffic increase.
 
 ## 6. Integration Points (final weeks)
 
-The two tracks meet at two seams:
+The two tracks meet at three seams. All are read-only from the design side — no circular dependency.
 
 **Seam 1 — Trust badge:**
-Pipeline outputs `nvs` on every article in KV shape → design reads `nvs` and renders the four-tier badge. No API change needed; `nvs` already in KV.
+Pipeline outputs `nvs` (post-extraction score) + `breaking: bool` on every article in KV shape → design reads both and renders the four-tier badge + Son Dakika pulse.
 
-**Seam 2 — Source attribution:**
-Pipeline outputs `source_names[]` on articles → design renders "Kaynaklar" block. Verify `source_names` is populated in KV article shape; add it if not.
+**Seam 2 — Attribution block:**
+Pipeline outputs `attribution_rule` + `attribution_name` (journalist name if named_journalist) on each article → design renders: nothing for `none`, institution name for `institution`, journalist name for `named_journalist`, video embed for `embed_summary`.
 
-Both seams are read-only from the design side. No circular dependency.
+**Seam 3 — YouTube embed template:**
+Pipeline flags `article_type: 'youtube_embed_summary'` + `video_url` + `key_headlines[]` → design renders embed + bullet summary template instead of standard article layout.
+
+**KV article shape additions needed:**
+```javascript
+{
+  // existing fields...
+  nvs: number,               // now post-extraction (was pre-extraction)
+  breaking: boolean,         // new — triggers Son Dakika treatment
+  attribution_rule: string,  // new — 'none'|'institution'|'named_journalist'|'embed_summary'
+  attribution_name: string,  // new — institution or journalist name if applicable
+  article_type: string,      // new — 'standard'|'youtube_embed_summary'
+  video_url: string,         // new — for embed_summary type
+  key_headlines: string[],   // new — for embed_summary type
+  source_count: number,      // new — "N kaynaktan" display
+}
+```
 
 ---
 
@@ -349,12 +534,16 @@ These are NOT forgotten — they are deliberately deferred. At G2M, replan with:
 
 The following must all be true simultaneously:
 
-- [ ] Homepage refreshes with new top content at least every 2 hours between 08:00-23:00
-- [ ] No story appears more than once in the visible feed (dedup working)
-- [ ] Every article card has a visible trust badge
+- [ ] Homepage refreshes with at least 3 new articles between 08:00-23:00 during any 2-hour window
+- [ ] No story appears more than once in the visible feed (clustering working)
+- [ ] Zero single-source rewrites in feed — every article synthesizes ≥ 2 sources OR is official/YT embed
+- [ ] NVS scored on extracted facts, not title — high-NVS articles have real substance
+- [ ] Breaking news surfaces with Son Dakika treatment within 30 min of cluster trigger
+- [ ] Every article card has a visible trust badge (Kartalix Skoru)
+- [ ] No RSS source ever named in article body — Kartalix voice throughout
+- [ ] YouTube embed+summary template working for at least one test video
 - [ ] Article voice passes the "knowledgeable friend" test on 10 consecutive articles
-- [ ] Source attribution visible on every article page
-- [ ] Homepage and article page redesign complete and mobile-tested on real device
+- [ ] Homepage and article page redesign complete and mobile-tested on real device (375px)
 - [ ] Admin panel protected by Cloudflare Access
 - [ ] Ali would send the URL to a Beşiktaş fan friend without embarrassment
 
