@@ -21,9 +21,21 @@ Items deferred from the gamification build session (2026-06-14):
 
 ## NEXT ACTION
 
-**NEXT** (Sprint 1 rescoped around **Method B** — see `docs/method-b-design.md`):
-1. **Deploy & observe** — `npx wrangler deploy -c wrangler-story.toml` + secrets, apply `0014_method_b.sql`, set KV `methodb:enabled=1`, then watch `/admin/pipeline` for a few days. Tune the rules pre-filter, delta prompt, and synthesis voice against real output. ← this task
-2. Step 3 — Haiku judge in `correlateToTopic` + `branch_of`/`sequel_of` edges (derbi→skandal, hoca krizi) + parallel claim-tracks (rakip-kulüp transfers). *(hold until shadow output observed.)*
+**G2M Week 1 — Method B orientation + shadow worker deployment** (see full plan in `docs/superpowers/specs/2026-06-21-kartalix-g2m-design.md` §9):
+
+1. **Pre-reading (Sunday, ~3h):** `docs/method-b-design.md` (all 10 sections), `docs/method-b-model.svg`, then this file, then scan `docs/migrations/0014_method_b.sql`.
+2. **Read `worker-story-agent.js` (~2h):** Find `correlateToTopic`, `rulesPreFilterDelta`, `detectDeltaLLM`, `synthesizePhase`. Note gaps vs `docs/method-b-design.md §9 build order.
+3. **Apply migration + deploy** (~1h): `0014_method_b.sql` in Supabase → `npx wrangler deploy -c wrangler-story.toml` → `methodb:enabled=1`.
+4. **Observe `/admin/pipeline` for 2-3 days.** Watch: topics filling, phases creating, methodb cost/day, errors.
+5. **Write `docs/superpowers/specs/method-b-implementation-plan.md`** (~3h): Precise task list for Weeks 2-12 based on what you see. Must answer these open questions from the audit (AUDIT.md §7.3):
+   - Does the delta detector (`rulesPreFilterDelta` + `detectDeltaLLM`) handle **contradicting facts** (Source A: €15M fee, Source B: €25M fee)? Or only additive facts? If not: conflict-detection step is needed before synthesis.
+   - When a T1 source arrives *after* initial synthesis and triggers a new phase, does `synthesizePhase()` **supersede** the previous synthesis or **append** to it? Update path must exist, not just append.
+   - Map Sprint I (Trust Architecture, SLICES.md) against Method B trust tiers — can Sprint I's `trust_tier` + `source_family` fields satisfy Method B's EVENT router needs?
+6. **CI setup (~2h any day):** Survey `/admin/golden-fixtures`, create `.github/workflows/golden-fixtures.yml`, create `scripts/test-tier2.sh`.
+
+**Done when:** Shadow worker live + `/admin/pipeline` showing methodb activity + `method-b-implementation-plan.md` exists.
+
+Step 3 (Haiku judge in `correlateToTopic` + `branch_of`/`sequel_of` edges + parallel claim-tracks) — hold until shadow output observed and implementation plan written.
 
 ---
 
@@ -77,6 +89,7 @@ Worker + SPA duplicate render logic (two artifacts, two deploys → "fix twice")
 - IT2 official-embed resolver (next image tier — genuine in-body source imagery).
 - Method B Step 3 (after observation).
 - Tech debt: Turkish-aware dedup (`normalizeTitle` / `KEY_TOKEN_RE`) — see ROADMAP "Known Issues / Tech Debt", v1.1.
+- **`worker-fetch-agent.js` refactor (864KB)** — do NOT refactor now. Natural exit: after Method B cutover, legacy fetch path becomes dead code; delete it and the file shrinks to ~200-300KB on its own. Until then: new features go in `src/*.js` modules (never add to the monolith); the `src/shared.js` DRY work is the only incremental extraction worth doing (see §7 above).
 
 ---
 
