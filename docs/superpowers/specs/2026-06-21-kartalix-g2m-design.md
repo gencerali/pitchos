@@ -169,6 +169,88 @@ The original spec assumed Method B was greenfield. It is not. A significant port
 
 ---
 
+## 2.6 Testing Strategy — Automation First
+
+**The problem:** Most Kartalix features involve LLM calls, RSS feeds, cron timing, and Supabase writes. Traditional unit tests don't work well — you can't mock a Haiku synthesis call and still know if your prompt is right. Manual testing requires waiting for cron runs, having live transfer news, and reading articles. This is the biggest time sink in the dev cycle.
+
+**Solution: The Fixture Pattern — already in use, needs to be mandatory**
+
+The codebase has two mechanisms that already cover 80% of testing needs:
+- `/admin/golden-fixtures` — returns `all_pass: bool` + per-fixture results. Already covers story matching, state transitions, confidence scoring.
+- `/force-*` endpoints — trigger specific pipeline stages on demand without waiting for cron.
+
+Every new feature from Week 2 onward **must** add one golden fixture assertion to `/admin/golden-fixtures`. By Week 12, it will have ~20 automated checks running on every deploy.
+
+### Three Test Tiers
+
+**Tier 1 — Instant (< 30 seconds, run after every deploy, zero manual effort)**
+
+```bash
+# CI checks — all must return 200 + expected body
+GET /health                          → { status: "ok" }
+GET /admin/golden-fixtures           → { all_pass: true }
+GET /cache?site=BJK                  → JSON array with ≥ 1 article
+```
+
+**Tier 2 — Integration (< 5 minutes, run after every pipeline change)**
+
+```bash
+# Trigger pipeline stages, verify DB output
+POST /force-h5?fire=1               → new content_items row with publish_mode='synthesis' in last 60s
+POST /force-synthesis?site=BJK      → new KV article with publish_mode='synthesis_generated'
+GET  /admin/golden-fixtures          → all_pass: true (includes any new fixtures from this week)
+```
+
+**Tier 3 — Manual (once per feature, before marking done)**
+
+Run these yourself in under 10 minutes:
+- Read 3 synthesized articles → fan-journalist voice check (not robotic, Beşiktaş heart)
+- Open homepage on mobile (375px) → trust badge visible on every card
+- Check article page → attribution block correct for each attribution_rule type
+
+### GitHub Actions CI
+
+Add `.github/workflows/golden-fixtures.yml`:
+
+```yaml
+name: Golden Fixtures
+on: [push]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health check
+        run: curl -sf https://app.kartalix.com/health
+      - name: Golden fixtures
+        run: |
+          RESULT=$(curl -sf https://app.kartalix.com/admin/golden-fixtures)
+          echo $RESULT | jq '.all_pass' | grep -q 'true'
+```
+
+This runs on every push and fails the build if any golden fixture breaks. Zero maintenance once set up.
+
+### Golden Fixture Pattern — One per Feature
+
+Each week's done-when criteria includes writing a golden fixture:
+
+```javascript
+// In worker-fetch-agent.js /admin/golden-fixtures handler — add one check per feature:
+const checks = {
+  // existing checks (story_matching, state_transitions, confidence_scoring)...
+  attribution_fields_in_kv:   checkAttributionInKV(env),   // Week 2
+  breaking_flag_pins_article: checkBreakingRankBoost(env), // Week 2
+  nvs_post_extraction:        checkNvsOnFacts(env),        // Week 4
+  key_headlines_populated:    checkKeyHeadlines(env),      // Week 5
+  source_count_in_kv:        checkSourceCount(env),        // Week 5
+};
+```
+
+Each check function hits Supabase or KV, confirms the expected state, returns `{ pass: bool, detail: string }`.
+
+**Time savings:** Manual testing per feature: ~2-3h. With golden fixtures + Tier 2 scripts: ~20 min per feature. The `writing-plans` weekly discipline is: write the fixture first, implement the feature, watch CI go green.
+
+---
+
 ## 3. Build Approach — Parallel Tracks
 
 Two independent tracks running simultaneously. No cross-dependencies until final integration week.
@@ -622,174 +704,286 @@ These are NOT forgotten — they are deliberately deferred. At G2M, replan with:
 
 **Rhythm:** Mon-Wed = Design track. Thu-Sat = Pipeline track. Sunday = review + plan next week.
 **Capacity:** 8-12 hrs/week solo. Each week below is scoped to ~10 hrs of real work.
-**Start gate:** Weeks 1-2 are pipeline-only (quick wins to activate existing infrastructure).
+**Testing rule:** Every pipeline feature ships with one new golden fixture assertion. CI runs `/admin/golden-fixtures` on every push.
 
 ---
 
-### Week 1 — Pipeline Quick-Wins (no new features, just activation)
+### Week 1 — Method B Analysis Sprint
 
-**Goal:** Activate the infrastructure that's already built but unwired.
+**Goal:** This week produces no shipping code. It produces the precise implementation plan for Weeks 2-12. Do not skip this. Building without analysis is the biggest time waster in this project.
 
-**Tasks (Pipeline, Thu-Sat, ~8h):**
-1. **Source configs wiring** (~2h): In `worker-fetch-agent.js`, `processSite()` — call `fetchSourceConfigs(site.id, env)` at top; if result non-empty, call `configsToRSSFeeds()` + `configsToYTChannels()` and use those instead of hardcoded arrays. Test with `/force-fetch?site=BJK`.
+**Why analysis first:** `docs/method-b-design.md` describes the full vision: FACT → ROUTER → TOPIC → CLAIM-TRACK → PHASE → ARTICLE. The current codebase (story-matcher, firewall, source_configs) implements some of this. Sprint I (Trust Architecture, not started) overlaps with Method B's trust tier model. Without mapping this precisely, Weeks 2-8 will build in the wrong order or rebuild what exists.
+
+**Analysis tasks (~8h):**
+
+1. **Read `docs/method-b-design.md` fully** (~2h) — all 10 sections. The key question for each layer: already built? partial? not started?
+   - FACT layer → `facts` table (done — Slice 1)
+   - TOPIC layer → `stories` table (done but over-coupled — §2.1 in method-b-design says stories does "three jobs at once")
+   - CLAIM-TRACK layer → missing (was "single story-level confidence" — Method B says this is the root cause of "many stories, few articles")
+   - PHASE layer → missing (was `synth:{id}:{date}` daily dedup — Method B says this is the throttle causing low article output)
+   - EVENT router → partial (SKIP_STORY_TYPES + templates, but events don't become seeds)
+   - ACCRETIVE router → `synthesizeStory()` (done but limited — MAX_FACTS_EXTRACTS = 5/run, 1 synthesis/day/story)
+   - Topic graph (DAG, branch_of, sequel_of) → not started, explicitly deferred in method-b-design
+
+2. **Map `worker-story-agent.js`** (~1h) — this is the disabled shadow worker. What does it implement of Method B? Is any of it reusable, or is it an older design that story-matcher.js superseded?
+
+3. **Map Sprint I (Trust Architecture) against Method B** (~1h) — Sprint I adds `trust_tier` + `source_family` to source_configs. Method B has a trust tier model. Are these the same? Can Sprint I be done as part of Method B wiring rather than separately?
+
+4. **Identify the "cheap trunk path"** (~2h) — Method B §2.3 says: "Build the cheap trunk path first; engage branch/track machinery only for the minority." Define what the trunk path means for Kartalix:
+   - Which of CLAIM-TRACK and PHASE need to be built to unblock the daily article count problem?
+   - What is the minimal delta that gets from current state to "one synthesized article per active story per day" (not one per week)?
+   - Answer: the PHASE layer. Currently `synth:{id}:{date}` allows one synthesis/story/day. Method B's PHASE layer fires on a *delta* — a newsworthy change, not a time window. This means: new confidence signal, new claim, new official confirmation → new article. Could go from 2-3 synthesis articles/day to 10-15.
+
+5. **Identify the NVS refactor constraint** (~1h) — Map exactly where NVS scoring runs in `processor.js` (line number). Confirm it runs on title+blurb. Identify which downstream steps read the score and what would break if NVS were 0 until post-extraction. This determines whether NVS refactor is a clean swap or needs a pre-filter fallback.
+
+6. **Output: write `docs/superpowers/specs/method-b-implementation-plan.md`** (~2h) — a precise task list for Weeks 2-12 based on findings. This file becomes the actual plan. The roadmap below is provisional until this file exists.
+
+**Testing setup tasks (~2h):**
+1. Survey `/admin/golden-fixtures` — list all existing checks and their current pass rate
+2. Create `.github/workflows/golden-fixtures.yml` (CI fixture check on every push — see §2.6)
+3. Create `scripts/test-tier2.sh` — bash script running `/force-h5`, `/force-synthesis`, checking Supabase for new rows. Run manually before every deploy.
+
+**Done when:**
+- `docs/superpowers/specs/method-b-implementation-plan.md` exists with a week-by-week task list
+- GitHub Actions CI is green on first run
+- `scripts/test-tier2.sh` exits 0 against production
+
+---
+
+### Week 2 — Source Configs Activation + Quick Fixes
+
+**Goal:** Activate infrastructure already built but unwired. Zero new features — just wiring.
+
+**Tasks (Pipeline, ~8h):**
+
+1. **Source configs wiring** (~2h): In `worker-fetch-agent.js` `processSite()`, call `fetchSourceConfigs(site.id, env)` at top. If result non-empty, use `configsToRSSFeeds()` + `configsToYTChannels()` instead of hardcoded arrays. Fall back to hardcoded if DB returns empty (already built into `fetchSourceConfigs`).
+   - Verify: `/admin/sources/ui` shows all sources; POST `/admin/sources/seed` to populate if table is empty
+   - Test: `/force-fetch?site=BJK` → logs show "loaded N sources from DB"
+
 2. **Auth redirect fixes** (~1h): `gamification.js:557` + `profil.html:1247` → `window.location.origin + '/reset-password'`. CORS in `worker-fetch-agent.js:68` → dynamic from `getActiveSites()`.
-3. **Fan journalist voice directive** (~2h): Add Turkish directive block (§5.6) to `synthesizeStory()` prompt and `generateOriginalNews()` prompt in `src/publisher.js`. Deploy and check one synthesized article.
-4. **Source type normalization** (~1h): Update `classifyStoryType()` prompt enforcement (SLICES.md Sprint D2 backlog item — 35+ free-form types leaking from Claude). One-off SQL UPDATE to normalize existing rows.
-5. **Story type normalization SQL** (~1h): `UPDATE stories SET story_type = 'transfer' WHERE story_type ILIKE '%transfer%'` etc. for all 6 controlled types.
 
-**Done when:** Source configs load from DB; synthesis articles have fan-journalist voice; no free-form story types in DB.
+3. **Fan journalist voice directive** (~2h): Add Turkish directive block (§5.6) to `synthesizeStory()` prompt in `src/story-matcher.js` and `generateOriginalNews()` in `src/publisher.js`. Read 3 synthesized articles to confirm voice changed.
+
+4. **Story type normalization** (~1h): Fix `classifyStoryType()` to enforce 8 controlled types strictly. Run SQL to normalize existing rows (`UPDATE stories SET story_type = 'transfer' WHERE story_type ILIKE '%transfer%'` etc.).
+
+5. **Attribution rule on content_items** (~2h): Add `attribution_rule TEXT` + `attribution_name TEXT` columns to `content_items` (Supabase migration). In `synthesizeStory()`, write `attribution_rule: 'none'`. In `generateVideoEmbed()`, write `attribution_rule: 'embed_summary'` + channel name as `attribution_name`. Add to KV shape.
+
+**Golden fixture added:**
+```javascript
+source_configs_active: async (env) => {
+  const configs = await fetchSourceConfigs(SITE_ID, env);
+  return { pass: configs.length > 0, detail: `${configs.length} sources from DB` };
+}
+```
+
+**Done when:** Source configs load from DB. Synthesis articles have fan-journalist voice (read 3, confirm). Golden fixture green.
 
 ---
 
-### Week 2 — Attribution + Breaking
+### Week 3 — Breaking Flag + KV Shape + PHASE Layer Design
 
-**Goal:** Attribution fields flow from source → article → KV. Breaking articles surface first.
+**Goal:** Breaking articles surface first. All KV seam fields populated. PHASE layer designed (from Week 1 findings).
 
 **Tasks (Pipeline, ~10h):**
-1. **Attribution rule on content_items** (~4h): Add `attribution_rule TEXT` + `attribution_name TEXT` columns to `content_items` (Supabase migration). In `synthesizeStory()`, read `attribution_rule` from story's contributing source_configs rows — write to saved row. In `generateVideoEmbed()`, write `attribution_rule: 'embed_summary'` + channel name as `attribution_name`.
-2. **KV article shape additions** (~2h): Add `attribution_rule`, `attribution_name`, `article_type`, `source_count` to the article object written to KV in `cacheToKV()`. Source count = count of `story_contributions` rows used in synthesis.
-3. **Breaking flag** (~4h): In `synthesizeStory()`, check if last contribution was < 30 min ago → set `breaking: true` on `content_items`. Add `breaking` field to KV article shape. In `rankAndEvict()` in `src/publisher.js`, boost `rank_score` to `9999` if `breaking` AND article < 90 min old.
 
-**Done when:** A synthesized article in KV has `attribution_rule: 'none'`, `source_count: 3`, and a recent cluster sets `breaking: true`.
+1. **Breaking flag** (~3h): In `synthesizeStory()`, check `last_contribution_at` against now — if < 30 min, set `breaking: true` on saved `content_items` row. Add `breaking` + `source_count` + `video_url` to KV article shape in `cacheToKV()`. In `rankAndEvict()`, boost `rank_score` to `9999 × decay` if `breaking` AND age < 90 min.
+
+2. **`source_count` in KV** (~1h): `synthesizeStory()` already has `validSources.length` — write to `content_items.source_count` (add column if not exists). Surface in KV.
+
+3. **PHASE layer design** (~4h): Based on Week 1 findings, design the minimal PHASE implementation.
+   - Current throttle: `synth:{id}:{date}` = 1 synthesis/story/day. This is why active stories generate so few articles.
+   - Method B PHASE fires on a *delta* (new confidence tier, new claim, new source family). Design the delta detector: what events trigger a new phase? (a) story confidence crosses 60 (emerging→confirmed), (b) new `source_family` joins (press + official now = confirmed), (c) first contribution of the day from a T1 source.
+   - Change dedup key from `synth:{id}:{date}` to `synth:{id}:{phase_id}` — where `phase_id` is computed from the triggering event type.
+   - Goal: a transfer story confirmed by the club should generate 3 articles (initial rumor synthesis, confirmation synthesis, post-confirmation context synthesis) not 1.
+
+4. **YT `key_headlines[]`** (~2h): In `generateVideoEmbed()`, add Haiku call to extract 3-5 key claims from transcript/summary. Write to `content_items.key_headlines` (JSONB column). Add to KV shape.
+
+**Golden fixtures added:**
+```javascript
+breaking_flag_pins_article: async (env) => { /* check a recent synthesis has breaking:true in KV */ },
+source_count_populated:     async (env) => { /* check source_count ≥ 1 on recent synthesis article */ },
+key_headlines_populated:    async (env) => { /* check a YT article has key_headlines.length ≥ 2 */ },
+```
+
+**Done when:** Golden fixtures green. KV shape has all 7 seam fields. PHASE design doc written as comments in story-matcher.js.
 
 ---
 
-### Week 3 — NVS Post-Extraction (Part 1)
+### Week 4 — PHASE Layer Implementation
 
-**Goal:** Understand and design the NVS refactor. Start the refactor.
-
-**Why one week for analysis before cutting:** NVS scoring is tightly coupled to the main pipeline loop in `processor.js`. Moving it post-extraction changes the flow: currently `score → fetch → rewrite`. New flow: `pre-filter → fetch → extract → score → rewrite`. The pre-filter (BJK keyword match) stays; only NVS scoring moves.
+**Goal:** Story synthesis fires on confidence delta, not once/day. Article output should increase measurably (target: 2× current synthesis volume).
 
 **Tasks (Pipeline, ~10h):**
-1. **Audit current pipeline order** (~2h): Read `processor.js` completely. Map the exact flow: where `scoreArticles()` is called, what inputs it takes (title + blurb only), and what subsequent steps depend on the score (rewrite threshold, discard threshold). Write findings as inline comments.
-2. **Design new flow** (~2h): `processSite()` loop new order: (a) pre-filter by BJK keyword (unchanged), (b) fetch full content via Readability, (c) run `extractFactsForStory()`, (d) run `scoreArticles()` on extracted facts + title, (e) threshold gate → rewrite/discard. Design the input shape change for `scoreArticles()`.
-3. **Implement pre-extraction fetch gate** (~4h): Before `extractFactsForStory()`, fetch full content for all pre-filter-passing articles. Respect existing proxy/rate limits. This is the prerequisite — NVS can't score content that hasn't been fetched.
-4. **Unit test** (~2h): Write a test: inject an article with a clickbait title but thin content → confirm new NVS scores it lower than a plain-title article with rich fact content.
 
-**Done when:** Full content is fetched before scoring for all BJK-matching articles. NVS scoring is not yet moved (that's Week 4).
+1. **Phase ID computation** (~3h): In `matchOrCreateStory()`, after `applyContribution()`, compute `phase_id` from triggering event. Replace `synth:{id}:{date}` with `synth:{id}:{phase_id}`. Phase IDs:
+   - `initial` — first contribution (confidence 30)
+   - `developing` — confidence crosses 40 with ≥2 contributions
+   - `confirmed:{source_family}` — first T1/T2 source confirms (replaces quality gate)
+   - `active:{date}` — once confirmed, one per day (to prevent flood)
 
----
+2. **Synthesis trigger expansion** (~3h): Currently `synthesizeStory()` fires only at ≥3 total contributions. With PHASE layer, fire on any new phase event, even at 2 contributions if one is T1. Update the gate in `matchOrCreateStory()`:
+   ```javascript
+   if (newPhaseId && newPhaseId !== currentPhaseId) {
+     synthesizeStory(updated, siteId, env, siteCode).catch(...)
+   }
+   ```
 
-### Week 4 — NVS Post-Extraction (Part 2)
+3. **Volume measurement** (~2h): Add to `/admin/golden-fixtures` a check: count synthesis articles created in last 7 days. Before deploy: record baseline. After: confirm count increased by ≥ 30%.
 
-**Goal:** NVS scoring moved to post-extraction. Verify with golden fixture.
+4. **Safeguard: synthesis rate cap** (~2h): Prevent a single high-activity story from flooding the feed. Cap: max 3 synthesis articles per story per 24h. KV key `synth:cap:{id}:{date}` with counter.
 
-**Tasks (Pipeline, ~8h):**
-1. **Move `scoreArticles()` call** (~3h): In `processor.js`, move the NVS scoring call to after `extractFactsForStory()`. Update input shape: pass extracted `facts.entities` + title instead of just title+blurb. Update `scoreArticles()` to use entity richness (player count, club count, number count) as NVS signal.
-2. **YouTube NVS fix** (~2h): YouTube videos currently bypass NVS via `nvs_hint`. After the refactor, score on transcript facts instead of video title. Update `videoToArticle()` to remove `nvs_hint` bypass for videos where transcripts are available.
-3. **Golden fixture** (~3h): Add test: 5 articles with dramatic titles but thin facts → confirm none exceed NVS 50. 5 articles with plain titles but rich facts (player + fee + club + date all extracted) → confirm NVS ≥ 65.
+**Golden fixture added:**
+```javascript
+phase_layer_firing: async (env) => {
+  // count content_items with publish_mode='synthesis' in last 7 days
+  // pass if count ≥ baseline × 1.3
+}
+```
 
-**Done when:** `scoreArticles()` receives extracted facts. Clickbait titles no longer inflate NVS.
-
----
-
-### Week 5 — YouTube `key_headlines[]` + Trust Badge Backend
-
-**Goal:** YT embed+summary template complete. Trust badge data fully available in KV.
-
-**Tasks (Pipeline, ~8h):**
-1. **`key_headlines[]` extraction** (~4h): In `generateVideoEmbed()`, after generating the 1-sentence intro, add a second Haiku call: extract 3-5 key claims from the transcript or summary. Write `key_headlines: string[]` to `content_items` as JSONB column (add column via Supabase migration). Add to KV article shape.
-2. **`video_url` in KV** (~1h): Add `video_url: string` to KV article shape for `article_type: 'youtube_embed_summary'` articles. Already stored in DB, just needs surfacing in KV write.
-3. **`source_count` display** (~1h): `synthesizeStory()` already knows `validSources.length` — write it to `content_items.source_count` and add to KV shape.
-4. **Trust badge fields confirmed** (~2h): Verify `nvs` + `breaking` + `article_type` + `source_count` are all in KV for a real article. Write integration test.
-
-**Done when:** KV article shape contains all 7 seam fields from §6. Design track can start reading them.
+**Done when:** Synthesis volume up ≥30%. No story floods feed. Golden fixture green.
 
 ---
 
-### Week 6 — Design Start: Visual System + Trust Badge
+### Week 5 — NVS Post-Extraction (Part 1 — Design + Fetch Gate)
 
-**Goal:** Image strategy decided. Color system and category blocks implemented. Trust badge rendering live.
+**Goal:** Full content fetched before NVS scoring. Design the score-on-facts approach.
 
-**Tasks (Design, Mon-Wed, ~8h):**
-1. **Image strategy decision** (D-IMAGE): Confirm predefined visual system. No per-article images needed.
-2. **Color system CSS** (~3h): Define CSS variables from §4.6 color palette. Add to `index.html` `<style>` block. Category color blocks: `<div class="kx-category-block kx-cat-transfer">` etc. — colored 80px div replacing hero image.
-3. **Trust badge component** (~3h): CSS + HTML for four-tier badge. `<span class="kx-trust kx-trust-confirmed">Doğrulandı</span>` etc. Four classes with colors from §4.3. Add tooltip text.
-4. **Son Dakika pulse** (~2h): CSS animation for `●` red pulse on `breaking: true` articles < 90 min old. Read `breaking` field from KV.
+**Why two weeks:** NVS is deeply wired into `processor.js`. The change order is: (1) fetch full content upfront, (2) extract facts, (3) score on facts. Steps 1 and 2 are this week. Step 3 is Week 6. This split avoids a big-bang deploy.
 
-**Done when:** One article card on homepage shows the category color block + trust badge. Trust badge changes tier correctly based on `nvs` in KV.
+**Tasks (Pipeline, ~10h):**
+
+1. **Audit `processor.js` pipeline order** (~2h): Find every call to `scoreArticles()`. Map inputs and what downstream steps read the score. Document as inline comments. Confirm: score runs on `title + summary`, not full content.
+
+2. **Pre-extraction fetch gate** (~5h): After BJK keyword filter (unchanged) and before NVS scoring, fetch full content via Readability proxy for all qualifying articles. Cap at 10 fetches/run (cost guard). Store full content in-memory only (not in DB). Log cost: `FETCH_GATE: N articles, M ms`.
+
+3. **Design score-on-facts** (~2h): Update `scoreArticles()` signature to accept `facts` object (entities, numbers, dates). Entity richness scoring: `entityScore = players.length × 15 + clubs.length × 5 + numbers.transfer_fee ? 10 : 0`. Draft the new prompt that combines title context + entity richness.
+
+4. **Unit test (write first)** (~1h): Write golden fixture that will pass only after Week 6: two articles with identical NVS titles but one has 3 entities and a fee, the other has 0. Confirm they score differently after the change.
+
+**Done when:** Full content fetched before scoring (log confirms). NVS still runs on old inputs (not yet changed — that's Week 6). Unit test written, currently failing (expected).
+
+---
+
+### Week 6 — NVS Post-Extraction (Part 2) + Design Start
+
+**Pipeline goal:** NVS scoring moved to post-extraction. Unit test from Week 5 now passes.
+
+**Design goal:** Visual system CSS live. Trust badge rendering on homepage.
+
+**Pipeline tasks (~5h, Thu-Sat):**
+
+1. **Move `scoreArticles()` call** (~3h): In `processor.js`, move call to after `extractFactsForStory()`. Pass extracted `facts` as additional input. Update the scoring Haiku prompt to include entity richness. Update `videoToArticle()` to remove `nvs_hint` bypass.
+
+2. **Golden fixture — NVS post-extraction** (~2h): Run the unit test from Week 5. Two articles: clickbait title, 0 entities → confirm NVS < 50. Plain title, 3 entities + fee + date → confirm NVS ≥ 65.
+
+**Design tasks (~5h, Mon-Wed):**
+
+3. **Image strategy confirm** (D-IMAGE): Confirm predefined visual system.
+
+4. **Color system CSS** (~3h): CSS variables from §4.6. Category color blocks. Add to `index.html`.
+
+5. **Trust badge component** (~2h): Four-tier badge CSS + HTML. Tooltip text. Son Dakika pulse animation.
+
+**Golden fixture added:**
+```javascript
+nvs_post_extraction: async (env) => {
+  // query last 20 synthesis articles — check avg nvs of multi-entity articles > single-entity
+}
+```
+
+**Done when:** Unit test from Week 5 passes. Trust badge renders on homepage with correct tier from KV `nvs` field.
 
 ---
 
 ### Weeks 7-9 — Homepage Redesign (Design)
 
-Three weeks of focused Track 1 work.
+Three weeks of Track 1 work. Pipeline track: minor fixes and golden fixture maintenance only.
 
 **Week 7 — Layout skeleton (~10h):**
 - Header + nav (Logo, Haberler, Tribün, Analiz, Profil)
-- Mobile nav (bottom tab bar)
-- Breaking strip (Son Dakika, 1-row pills of recent high-NVS articles)
-- Hero article card (full-width, category block, trust badge, headline, summary, time + source count)
+- Mobile nav (bottom tab bar at 375px)
+- Son Dakika breaking strip (pills of `breaking: true` articles < 90 min old)
+- Hero article card: category color block, trust badge, headline, 3-line summary, "N kaynaktan · X dakika önce"
 
-**Week 8 — Article grid (~10h):**
-- 2-column card grid (Articles 4-10)
-- Each card: category color block left edge, trust badge, headline, 2-line summary, time ago, comment count
-- Quest banner (compact strip, existing gamification.js output, just restyled)
-- League widget (compact, existing api-sports widget, restyled container)
+**Week 8 — Article card grid (~10h):**
+- 2-column grid (Articles 4-10), each card: color block left edge, trust badge, headline, 2-line summary, time ago
+- Quest banner: compact strip, existing gamification.js output, restyled container
+- League widget: compact, existing api-sports widget, restyled
 
-**Week 9 — Mobile pass + polish (~10h):**
-- Single-column layout at 375px
-- All cards: touch-friendly tap targets (min 44px height)
-- Breaking strip: scrollable horizontal pills on mobile
-- Real device test (iPhone / Android)
-- Performance: no blocking JS, lazy-load card images if any
+**Week 9 — Mobile + polish + frontend test (~10h):**
+- Single-column at 375px, touch-friendly tap targets
+- Breaking strip: horizontal scroll pills
+- `gstack` headless browser test: navigate homepage, confirm trust badge present on ≥5 cards, confirm article cards are clickable
+- Real device test (iPhone or Android)
 
-**Done when:** Homepage looks like §4.2 layout. Mobile test passes on real device.
+**Done when:** Homepage matches §4.2 layout. `gstack` test passes. Mobile tested on real device.
 
 ---
 
 ### Weeks 10-11 — Article Page Redesign (Design)
 
 **Week 10 — Article page structure (~10h):**
-- Category color block header (120px, category icon overlaid)
-- Headline (large bold), deck line
-- Byline: "Kartalix Editörü · [time]"
-- Trust badge (expanded: Kartalix Skoru tier + "N kaynaktan derlendi" tooltip)
-- Attribution block: source names + trust tiers in Turkish (for non-`none` articles)
-- Article body: max-width 680px, serif or clean sans, 1.6 line-height
-- YouTube embed template: embed at top, "Bu videoda öne çıkan başlıklar:" + bullet list from `key_headlines[]`
+- Category color block header (120px), category icon overlaid
+- Headline (large bold), deck line, byline ("Kartalix Editörü · 14:32")
+- Trust badge expanded: "Kartalix Skoru: Güvenilir ●" + tooltip "N kaynaktan derlendi"
+- Attribution block (non-`none` articles): source names + trust tiers in Turkish
+- Article body: max-width 680px, 1.6 line-height
+- YouTube embed template: embed at top + "Bu videoda öne çıkan başlıklar:" + `key_headlines[]` bullet list
 
 **Week 11 — Polish + extras (~8h):**
 - Reactions bar (existing, restyled)
 - Comments section (existing, restyled)
-- Related articles (3 cards, same category, from KV — client-side filter)
-- Social share buttons (native Web Share API on mobile, fallback Twitter/WhatsApp links)
+- Related articles: 3 cards same category, client-side filter from KV
+- Web Share API on mobile (fallback: WhatsApp + copy link)
 - Mobile pass at 375px
-- Breadcrumb: Haberler > [Category]
+- `gstack` test: open article, confirm trust badge, attribution block, body text all render
 
-**Done when:** Article page matches §4.4 layout. Both standard and YouTube embed templates work. Mobile tested.
+**Done when:** Article page matches §4.4. Standard + YouTube embed templates both work. `gstack` passes.
 
 ---
 
-### Week 12 — Security + Integration + Final
+### Week 12 — Security + Integration + G2M Sweep
 
-**Goal:** Everything wired end-to-end. Security hardened. G2M criteria checklist.
+**Goal:** Everything wired end-to-end. Security hardened. All 11 success criteria green.
 
 **Tasks (~10h):**
-1. **Security** (~4h): Cloudflare Access rule on `/admin/*` (dashboard, no code). `is_bot` RLS policy (Supabase dashboard). Comment moderation log table + log writes in moderation handler. Verify no Supabase service key in error responses.
-2. **Integration seam test** (~3h): Publish a test synthesis article. Verify: `breaking` flag renders Son Dakika treatment. `source_count: 3` renders "3 kaynaktan". `attribution_rule: 'named_journalist'` renders journalist name in attribution block. YouTube embed article renders embed + bullets.
-3. **G2M criteria sweep** (~3h): Run through all 12 success criteria from §10. For each failing criterion, file it as a bug and fix it before calling G2M.
 
-**Done when:** All 12 success criteria pass. Ali sends the URL to a Beşiktaş fan friend without embarrassment.
+1. **Security** (~4h):
+   - Cloudflare Access on `/admin/*` (dashboard only, no code change)
+   - Supabase RLS: `is_bot` column writable by service role only — add policy in Supabase dashboard
+   - Comment moderation log: add `moderation_log` table, write verdict + hash on every AI moderation call
+   - Verify: no Supabase service key appears in Worker error responses
+
+2. **Integration seam smoke test** (~3h): Push a test article with each attribution_rule type through the pipeline. Verify rendering for each:
+   - `attribution_rule: 'none'` → no attribution block shown
+   - `attribution_rule: 'institution'` → "Kulübün resmi açıklamasına göre" in attribution block
+   - `attribution_rule: 'named_journalist'` → journalist name shown
+   - `attribution_rule: 'embed_summary'` → YouTube embed + bullet list renders
+
+3. **G2M criteria sweep** (~3h): Run all 11 criteria from §11. File bug for each that fails. Fix before calling G2M.
+
+4. **Final golden fixtures run** (~0h): CI should already be green. Confirm all ~15 fixtures pass.
+
+**Done when:** All 11 success criteria pass. CI is green. Ali sends URL to a Beşiktaş fan friend.
 
 ---
 
 ### Timeline Summary
 
-| Week | Focus | Track | Key Deliverable |
-|------|-------|-------|----------------|
-| 1 | Quick wins | Pipeline | Source configs wired, voice directive live |
-| 2 | Attribution + breaking | Pipeline | KV shape complete, breaking articles rank first |
-| 3 | NVS refactor design | Pipeline | Full content fetched before scoring |
-| 4 | NVS scoring moved | Pipeline | Post-extraction NVS live, golden fixture |
-| 5 | YT template + badge data | Pipeline | All seam fields in KV |
-| 6 | Visual system + trust badge | Design | Badge renders, color system live |
-| 7 | Homepage skeleton | Design | Hero + nav + breaking strip |
-| 8 | Homepage card grid | Design | Full homepage layout |
-| 9 | Homepage mobile | Design | Real-device pass |
-| 10 | Article page | Design | Article layout + YT template |
-| 11 | Article polish | Design | Related articles, reactions, mobile |
-| 12 | Security + integration | Both | All criteria pass, G2M declared |
+| Week | Focus | Track | Key Deliverable | Automated Test |
+|------|-------|-------|----------------|---------------|
+| 1 | Method B analysis | Analysis | `method-b-implementation-plan.md` + CI setup | CI setup, Tier 2 script |
+| 2 | Source configs + quick fixes | Pipeline | Sources from DB, voice directive live | `source_configs_active` fixture |
+| 3 | Breaking flag + KV shape + Phase design | Pipeline | All KV seam fields, PHASE layer designed | 3 new fixtures |
+| 4 | PHASE layer implementation | Pipeline | Synthesis volume +30% | `phase_layer_firing` fixture |
+| 5 | NVS refactor design + fetch gate | Pipeline | Full content fetched before scoring | Unit test written (failing) |
+| 6 | NVS scoring moved + design start | Both | Post-extraction NVS, trust badge CSS live | `nvs_post_extraction` fixture |
+| 7 | Homepage skeleton | Design | Hero + nav + breaking strip | `gstack` homepage smoke |
+| 8 | Homepage card grid | Design | Full homepage layout | `gstack` card count check |
+| 9 | Homepage mobile | Design | Real-device pass | `gstack` + real device |
+| 10 | Article page | Design | Article layout + YT template | `gstack` article page |
+| 11 | Article polish | Design | Related articles, reactions, mobile | `gstack` full article |
+| 12 | Security + integration + sweep | Both | All 11 criteria pass, G2M | All ~15 fixtures green |
 
 **12 weeks at 8-12 hrs/week = 3 months realistic calendar (starts 2026-06-21)**
 **Target G2M date: 2026-09-21**
