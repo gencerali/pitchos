@@ -47,21 +47,21 @@ Original plan assumed M2 (dedup) and M3 (freshness) could be fixed by tuning the
 
 ### Must-Have (nothing ships until these pass)
 
-| # | Item | Track | Estimated Effort |
-|---|------|-------|-----------------|
-| M1 | Image strategy resolved + visual system built | Design | Week 1 decision, 1-2 weeks build |
-| M2 | Method B core: source abstraction + fact extraction (RSS + YT) | Pipeline | 3-4 weeks |
-| M3 | Story clustering: one story → one article, no duplicates | Pipeline | 2-3 weeks |
-| M4 | Synthesis without attribution (RSS) + attribution rules (Official/YT) | Pipeline | 1-2 weeks |
-| M5 | YouTube templates: embed+summary AND fact extraction | Pipeline | 1-2 weeks |
-| M6 | NVS computed post-extraction (on facts, not title) | Pipeline | 1 week |
-| M7 | Article voice — passionate fan journalist prompts | Pipeline | 0.5 weeks |
-| M8 | Trust badge on every article card (NVS visual) | Both | 1 week |
-| M9 | Homepage redesign — article-first, mobile-first | Design | 4-5 weeks |
-| M10 | Article page redesign — readable, credible | Design | 2-3 weeks |
-| M11 | Security basics (admin gate, is_bot fix, comment log) | Pipeline | 1 week |
+| # | Item | Track | Build Status | Remaining Effort |
+|---|------|-------|-------------|-----------------|
+| M1 | Image strategy resolved + visual system built | Design | Not started | Week 1 decision, 1-2 weeks build |
+| M2 | Source abstraction + fact extraction (RSS + YT) | Pipeline | ✅ DONE | 2h activation only |
+| M3 | Story clustering: one story → one article | Pipeline | ✅ DONE | 0h remaining |
+| M4 | Synthesis attribution rules (fields + prompt routing) | Pipeline | Partial | 6h |
+| M5 | YouTube embed+summary: `key_headlines[]` in KV | Pipeline | Partial | 4h |
+| M6 | NVS computed post-extraction (on facts, not title) | Pipeline | Not started | 1 week |
+| M7 | Article voice — fan journalist prompt directive | Pipeline | Partial | 2h |
+| M8 | Trust badge on every article card (NVS visual) | Design | Not started | 1-2 days |
+| M9 | Homepage redesign — article-first, mobile-first | Design | Not started | 4-5 weeks |
+| M10 | Article page redesign — readable, credible | Design | Not started | 2-3 weeks |
+| M11 | Security basics (admin gate, is_bot fix, auth redirect) | Pipeline | Not started | 2-3 days |
 
-**Total estimate at 8-12 hrs/week: 18-22 weeks via parallel tracks**
+**Revised total at 8-12 hrs/week: 11-13 weeks** (down from 18-22 because Method B core is already built)
 
 ### Postponable (after G2M replan)
 
@@ -78,6 +78,94 @@ Original plan assumed M2 (dedup) and M3 (freshness) could be fixed by tuning the
 - AI poll generator
 - Bot decay logic
 - League tier configurations in DB
+
+---
+
+## 2.5 Implementation State — What's Already Built
+
+The original spec assumed Method B was greenfield. It is not. A significant portion of the pipeline was built in Slices 1–3 (2026-05) and is running in production. This section maps each must-have to the existing codebase so we don't rebuild what exists.
+
+### ✅ Fully Complete — Zero Build Work Needed
+
+**M2: Source abstraction + fact extraction**
+- `source_configs` table exists (`docs/migrations/0001_source_configs.sql` run 2026-05-05)
+- `fetchSourceConfigs(siteId, env)` in `src/fetcher.js:92` — reads DB, falls back to hardcoded
+- `configsToRSSFeeds(configs)` in `src/fetcher.js:104` — maps to RSS_FEEDS shape
+- `configsToYTChannels(configs)` in `src/fetcher.js:119` — maps to YOUTUBE_CHANNELS shape
+- Admin UI at `/admin/sources/ui` — inline edit, activate/deactivate any source
+- Remaining: wire `fetchSourceConfigs()` into `processSite()` in worker (~2h, known location)
+
+**M3: Story clustering (one story → one article)**
+- `stories`, `story_contributions`, `story_state_transitions` tables live in Supabase
+- `matchOrCreateStory()` in `src/story-matcher.js:574` — entity fingerprint → Claude judge → create/match
+- `synthesizeStory()` in `src/story-matcher.js:363` — multi-source synthesis (Sprint D2, 2026-05-13)
+  - Gates: ≥3 contributions, BJK keyword, ≥2 sources with real text, content-covers-title check
+  - Dedup: one synthesis per story per day via KV `synth:{id}:{date}`
+- State machine: emerging → developing → confirmed → active → archived/debunked
+- Source independence gate: press-only stories cap at `developing` (Sprint F1)
+- Production state: 130 stories ingested, 42 active, full state transitions logged
+- **This is the spec's entity-fingerprint approach — already running**
+
+**Fact extraction (M2 prerequisite)**
+- `extractFacts()` in `src/firewall.js:131` — transfer fact schema
+- `extractFactsForStory()` in `src/firewall.js:247` — classify then extract (5 schemas: transfer, injury, disciplinary, contract, generic)
+- `classifyStoryType()` in `src/firewall.js:26` — Haiku call, 8 controlled types
+- `facts` + `fact_lineage` tables with destruction audit trail (Slice 1, 2026-05-09)
+
+**YouTube unified pipeline (M5 base)**
+- Sprint C (2026-05-02): `generateVideoEmbed()` in `publisher.js`, 5 channels, `qualifyYouTubeVideo()`
+- Sprint F2 (2026-05-05): `videoToArticle()` normalizes video → article shape; unified into story system
+- YouTube videos flow through `extractFactsForStory()` + `matchOrCreateStory()` — same pipeline as RSS
+- Rabona Digital (Fırat Günayer): Supadata transcript → synthesis already working
+
+**Voice patterns (M7 base)**
+- Voice Agent Phase 2 (2026-05-13): `runVoicePatternExtraction()`, 13 Turkish voice rules seeded
+- `editorial:voice_patterns` KV: 30-pattern cap, weighted by NVS, rotated per generation
+- `getEditorialNotes()` injects 3 random style examples into all generation prompts
+- Grounding context: `buildGroundingContext()` injects verified API-Football data into every synthesis
+
+### ⚠️ Partial — Real Delta Work Needed
+
+**Source configs activation (M2 completion)**
+- Code is done; the main `processSite()` in `worker-fetch-agent.js` still reads from hardcoded `RSS_FEEDS` constant
+- Fix: at start of `processSite()`, call `fetchSourceConfigs(site.id, env)`; if result non-empty, use `configsToRSSFeeds()` + `configsToYTChannels()` instead of hardcoded arrays
+- Estimated: 2 hours. Known location, straightforward wiring.
+
+**Attribution fields in KV article shape (M4)**
+- `source_configs` has `treatment` column (`embed`, `synthesize`, `embed_and_synthesize`) and `trust_tier`
+- These need to flow from source → synthesis → KV article shape as `attribution_rule` + `attribution_name`
+- `synthesizeStory()` and `generateVideoEmbed()` need to write these fields on the saved `content_items` row
+- Estimated: 4 hours after source_configs activated
+
+**Fan journalist voice directive (M7 completion)**
+- Voice patterns exist but the synthesis prompt in `synthesizeStory()` and `generateOriginalNews()` lacks the explicit fan-journalist directive from §5.6
+- Fix: add the Turkish directive block to the `prompt` string in both functions
+- Estimated: 2 hours
+
+**YouTube `key_headlines[]` in KV (M5 completion)**
+- `generateVideoEmbed()` creates embed+summary but doesn't populate `key_headlines: string[]`
+- The embed+summary template in §5.4 requires a bullet list of extracted claims
+- Fix: add Haiku call in `generateVideoEmbed()` to extract 3-5 key claims → write to `content_items.key_headlines` JSONB
+- Estimated: 4 hours
+
+**`breaking` flag (M3 extension)**
+- When `synthesizeStory()` fires on a cluster updated in last 30 min → set `breaking: true` + expiry
+- `rankAndEvict()` in publisher.js needs to read `breaking` flag and pin to top
+- Estimated: 4 hours
+
+### 🔴 Not Started — Full Build Needed
+
+**M6: NVS post-extraction** — The single largest pipeline task remaining. NVS is currently scored in `processor.js` on title+blurb before content fetch. Moving it to post-extraction means: (1) fetch all content upfront, (2) run fact extraction, (3) score NVS on extracted facts instead of title. This changes the pipeline order. Estimated 1 week.
+
+**M8: Trust badge frontend** — NVS is already in KV. Just needs CSS + JS to render the four-tier badge on article cards. Estimated 1-2 days.
+
+**M9: Homepage redesign** — Full Track 1 work. 4-5 weeks.
+
+**M10: Article page redesign** — 2-3 weeks.
+
+**M11: Security basics** — Cloudflare Access on `/admin/*`, `is_bot` RLS, comment moderation log, auth redirect fixes. 2-3 days.
+
+**`source_count` in KV** — Add `source_count: number` field when writing article from `synthesizeStory()`. 2 hours.
 
 ---
 
@@ -530,7 +618,185 @@ These are NOT forgotten — they are deliberately deferred. At G2M, replan with:
 
 ---
 
-## 9. Success Criteria for G2M Declaration
+## 9. Weekly Development Roadmap
+
+**Rhythm:** Mon-Wed = Design track. Thu-Sat = Pipeline track. Sunday = review + plan next week.
+**Capacity:** 8-12 hrs/week solo. Each week below is scoped to ~10 hrs of real work.
+**Start gate:** Weeks 1-2 are pipeline-only (quick wins to activate existing infrastructure).
+
+---
+
+### Week 1 — Pipeline Quick-Wins (no new features, just activation)
+
+**Goal:** Activate the infrastructure that's already built but unwired.
+
+**Tasks (Pipeline, Thu-Sat, ~8h):**
+1. **Source configs wiring** (~2h): In `worker-fetch-agent.js`, `processSite()` — call `fetchSourceConfigs(site.id, env)` at top; if result non-empty, call `configsToRSSFeeds()` + `configsToYTChannels()` and use those instead of hardcoded arrays. Test with `/force-fetch?site=BJK`.
+2. **Auth redirect fixes** (~1h): `gamification.js:557` + `profil.html:1247` → `window.location.origin + '/reset-password'`. CORS in `worker-fetch-agent.js:68` → dynamic from `getActiveSites()`.
+3. **Fan journalist voice directive** (~2h): Add Turkish directive block (§5.6) to `synthesizeStory()` prompt and `generateOriginalNews()` prompt in `src/publisher.js`. Deploy and check one synthesized article.
+4. **Source type normalization** (~1h): Update `classifyStoryType()` prompt enforcement (SLICES.md Sprint D2 backlog item — 35+ free-form types leaking from Claude). One-off SQL UPDATE to normalize existing rows.
+5. **Story type normalization SQL** (~1h): `UPDATE stories SET story_type = 'transfer' WHERE story_type ILIKE '%transfer%'` etc. for all 6 controlled types.
+
+**Done when:** Source configs load from DB; synthesis articles have fan-journalist voice; no free-form story types in DB.
+
+---
+
+### Week 2 — Attribution + Breaking
+
+**Goal:** Attribution fields flow from source → article → KV. Breaking articles surface first.
+
+**Tasks (Pipeline, ~10h):**
+1. **Attribution rule on content_items** (~4h): Add `attribution_rule TEXT` + `attribution_name TEXT` columns to `content_items` (Supabase migration). In `synthesizeStory()`, read `attribution_rule` from story's contributing source_configs rows — write to saved row. In `generateVideoEmbed()`, write `attribution_rule: 'embed_summary'` + channel name as `attribution_name`.
+2. **KV article shape additions** (~2h): Add `attribution_rule`, `attribution_name`, `article_type`, `source_count` to the article object written to KV in `cacheToKV()`. Source count = count of `story_contributions` rows used in synthesis.
+3. **Breaking flag** (~4h): In `synthesizeStory()`, check if last contribution was < 30 min ago → set `breaking: true` on `content_items`. Add `breaking` field to KV article shape. In `rankAndEvict()` in `src/publisher.js`, boost `rank_score` to `9999` if `breaking` AND article < 90 min old.
+
+**Done when:** A synthesized article in KV has `attribution_rule: 'none'`, `source_count: 3`, and a recent cluster sets `breaking: true`.
+
+---
+
+### Week 3 — NVS Post-Extraction (Part 1)
+
+**Goal:** Understand and design the NVS refactor. Start the refactor.
+
+**Why one week for analysis before cutting:** NVS scoring is tightly coupled to the main pipeline loop in `processor.js`. Moving it post-extraction changes the flow: currently `score → fetch → rewrite`. New flow: `pre-filter → fetch → extract → score → rewrite`. The pre-filter (BJK keyword match) stays; only NVS scoring moves.
+
+**Tasks (Pipeline, ~10h):**
+1. **Audit current pipeline order** (~2h): Read `processor.js` completely. Map the exact flow: where `scoreArticles()` is called, what inputs it takes (title + blurb only), and what subsequent steps depend on the score (rewrite threshold, discard threshold). Write findings as inline comments.
+2. **Design new flow** (~2h): `processSite()` loop new order: (a) pre-filter by BJK keyword (unchanged), (b) fetch full content via Readability, (c) run `extractFactsForStory()`, (d) run `scoreArticles()` on extracted facts + title, (e) threshold gate → rewrite/discard. Design the input shape change for `scoreArticles()`.
+3. **Implement pre-extraction fetch gate** (~4h): Before `extractFactsForStory()`, fetch full content for all pre-filter-passing articles. Respect existing proxy/rate limits. This is the prerequisite — NVS can't score content that hasn't been fetched.
+4. **Unit test** (~2h): Write a test: inject an article with a clickbait title but thin content → confirm new NVS scores it lower than a plain-title article with rich fact content.
+
+**Done when:** Full content is fetched before scoring for all BJK-matching articles. NVS scoring is not yet moved (that's Week 4).
+
+---
+
+### Week 4 — NVS Post-Extraction (Part 2)
+
+**Goal:** NVS scoring moved to post-extraction. Verify with golden fixture.
+
+**Tasks (Pipeline, ~8h):**
+1. **Move `scoreArticles()` call** (~3h): In `processor.js`, move the NVS scoring call to after `extractFactsForStory()`. Update input shape: pass extracted `facts.entities` + title instead of just title+blurb. Update `scoreArticles()` to use entity richness (player count, club count, number count) as NVS signal.
+2. **YouTube NVS fix** (~2h): YouTube videos currently bypass NVS via `nvs_hint`. After the refactor, score on transcript facts instead of video title. Update `videoToArticle()` to remove `nvs_hint` bypass for videos where transcripts are available.
+3. **Golden fixture** (~3h): Add test: 5 articles with dramatic titles but thin facts → confirm none exceed NVS 50. 5 articles with plain titles but rich facts (player + fee + club + date all extracted) → confirm NVS ≥ 65.
+
+**Done when:** `scoreArticles()` receives extracted facts. Clickbait titles no longer inflate NVS.
+
+---
+
+### Week 5 — YouTube `key_headlines[]` + Trust Badge Backend
+
+**Goal:** YT embed+summary template complete. Trust badge data fully available in KV.
+
+**Tasks (Pipeline, ~8h):**
+1. **`key_headlines[]` extraction** (~4h): In `generateVideoEmbed()`, after generating the 1-sentence intro, add a second Haiku call: extract 3-5 key claims from the transcript or summary. Write `key_headlines: string[]` to `content_items` as JSONB column (add column via Supabase migration). Add to KV article shape.
+2. **`video_url` in KV** (~1h): Add `video_url: string` to KV article shape for `article_type: 'youtube_embed_summary'` articles. Already stored in DB, just needs surfacing in KV write.
+3. **`source_count` display** (~1h): `synthesizeStory()` already knows `validSources.length` — write it to `content_items.source_count` and add to KV shape.
+4. **Trust badge fields confirmed** (~2h): Verify `nvs` + `breaking` + `article_type` + `source_count` are all in KV for a real article. Write integration test.
+
+**Done when:** KV article shape contains all 7 seam fields from §6. Design track can start reading them.
+
+---
+
+### Week 6 — Design Start: Visual System + Trust Badge
+
+**Goal:** Image strategy decided. Color system and category blocks implemented. Trust badge rendering live.
+
+**Tasks (Design, Mon-Wed, ~8h):**
+1. **Image strategy decision** (D-IMAGE): Confirm predefined visual system. No per-article images needed.
+2. **Color system CSS** (~3h): Define CSS variables from §4.6 color palette. Add to `index.html` `<style>` block. Category color blocks: `<div class="kx-category-block kx-cat-transfer">` etc. — colored 80px div replacing hero image.
+3. **Trust badge component** (~3h): CSS + HTML for four-tier badge. `<span class="kx-trust kx-trust-confirmed">Doğrulandı</span>` etc. Four classes with colors from §4.3. Add tooltip text.
+4. **Son Dakika pulse** (~2h): CSS animation for `●` red pulse on `breaking: true` articles < 90 min old. Read `breaking` field from KV.
+
+**Done when:** One article card on homepage shows the category color block + trust badge. Trust badge changes tier correctly based on `nvs` in KV.
+
+---
+
+### Weeks 7-9 — Homepage Redesign (Design)
+
+Three weeks of focused Track 1 work.
+
+**Week 7 — Layout skeleton (~10h):**
+- Header + nav (Logo, Haberler, Tribün, Analiz, Profil)
+- Mobile nav (bottom tab bar)
+- Breaking strip (Son Dakika, 1-row pills of recent high-NVS articles)
+- Hero article card (full-width, category block, trust badge, headline, summary, time + source count)
+
+**Week 8 — Article grid (~10h):**
+- 2-column card grid (Articles 4-10)
+- Each card: category color block left edge, trust badge, headline, 2-line summary, time ago, comment count
+- Quest banner (compact strip, existing gamification.js output, just restyled)
+- League widget (compact, existing api-sports widget, restyled container)
+
+**Week 9 — Mobile pass + polish (~10h):**
+- Single-column layout at 375px
+- All cards: touch-friendly tap targets (min 44px height)
+- Breaking strip: scrollable horizontal pills on mobile
+- Real device test (iPhone / Android)
+- Performance: no blocking JS, lazy-load card images if any
+
+**Done when:** Homepage looks like §4.2 layout. Mobile test passes on real device.
+
+---
+
+### Weeks 10-11 — Article Page Redesign (Design)
+
+**Week 10 — Article page structure (~10h):**
+- Category color block header (120px, category icon overlaid)
+- Headline (large bold), deck line
+- Byline: "Kartalix Editörü · [time]"
+- Trust badge (expanded: Kartalix Skoru tier + "N kaynaktan derlendi" tooltip)
+- Attribution block: source names + trust tiers in Turkish (for non-`none` articles)
+- Article body: max-width 680px, serif or clean sans, 1.6 line-height
+- YouTube embed template: embed at top, "Bu videoda öne çıkan başlıklar:" + bullet list from `key_headlines[]`
+
+**Week 11 — Polish + extras (~8h):**
+- Reactions bar (existing, restyled)
+- Comments section (existing, restyled)
+- Related articles (3 cards, same category, from KV — client-side filter)
+- Social share buttons (native Web Share API on mobile, fallback Twitter/WhatsApp links)
+- Mobile pass at 375px
+- Breadcrumb: Haberler > [Category]
+
+**Done when:** Article page matches §4.4 layout. Both standard and YouTube embed templates work. Mobile tested.
+
+---
+
+### Week 12 — Security + Integration + Final
+
+**Goal:** Everything wired end-to-end. Security hardened. G2M criteria checklist.
+
+**Tasks (~10h):**
+1. **Security** (~4h): Cloudflare Access rule on `/admin/*` (dashboard, no code). `is_bot` RLS policy (Supabase dashboard). Comment moderation log table + log writes in moderation handler. Verify no Supabase service key in error responses.
+2. **Integration seam test** (~3h): Publish a test synthesis article. Verify: `breaking` flag renders Son Dakika treatment. `source_count: 3` renders "3 kaynaktan". `attribution_rule: 'named_journalist'` renders journalist name in attribution block. YouTube embed article renders embed + bullets.
+3. **G2M criteria sweep** (~3h): Run through all 12 success criteria from §10. For each failing criterion, file it as a bug and fix it before calling G2M.
+
+**Done when:** All 12 success criteria pass. Ali sends the URL to a Beşiktaş fan friend without embarrassment.
+
+---
+
+### Timeline Summary
+
+| Week | Focus | Track | Key Deliverable |
+|------|-------|-------|----------------|
+| 1 | Quick wins | Pipeline | Source configs wired, voice directive live |
+| 2 | Attribution + breaking | Pipeline | KV shape complete, breaking articles rank first |
+| 3 | NVS refactor design | Pipeline | Full content fetched before scoring |
+| 4 | NVS scoring moved | Pipeline | Post-extraction NVS live, golden fixture |
+| 5 | YT template + badge data | Pipeline | All seam fields in KV |
+| 6 | Visual system + trust badge | Design | Badge renders, color system live |
+| 7 | Homepage skeleton | Design | Hero + nav + breaking strip |
+| 8 | Homepage card grid | Design | Full homepage layout |
+| 9 | Homepage mobile | Design | Real-device pass |
+| 10 | Article page | Design | Article layout + YT template |
+| 11 | Article polish | Design | Related articles, reactions, mobile |
+| 12 | Security + integration | Both | All criteria pass, G2M declared |
+
+**12 weeks at 8-12 hrs/week = 3 months realistic calendar (starts 2026-06-21)**
+**Target G2M date: 2026-09-21**
+
+---
+
+## 11. Success Criteria for G2M Declaration
 
 The following must all be true simultaneously:
 
