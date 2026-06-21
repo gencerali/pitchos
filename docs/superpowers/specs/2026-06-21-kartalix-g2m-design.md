@@ -85,6 +85,19 @@ Original plan assumed M2 (dedup) and M3 (freshness) could be fixed by tuning the
 
 The original spec assumed Method B was greenfield. It is not. A significant portion of the pipeline was built in Slices 1–3 (2026-05) and is running in production. This section maps each must-have to the existing codebase so we don't rebuild what exists.
 
+### Primary Reference Files
+
+Before starting any implementation work, read these in order:
+
+| File | What it contains |
+|------|-----------------|
+| `docs/method-b-design.md` | Full Method B design: model layers, schema DDL, cost analysis, cutover plan, build order — Ali's own design thinking |
+| `docs/method-b-model.svg` | Visual model: meta-flow + 3 Turkish branch topologies + national-newspaper mapping |
+| `docs/migrations/0014_method_b.sql` | Schema already written: `topics`, `topic_edges`, `phases` tables + `content_items` linkage columns |
+| `worker-story-agent.js` | Shadow worker: Step 2 core already built — `correlateToTopic`, `rulesPreFilterDelta`, `detectDeltaLLM`, `synthesizePhase`, `/admin/pipeline` compare page, blue/green cutover seam |
+| `docs/NEXT.md` | The active action list — next action is deploy the shadow worker, not build it |
+| `docs/SLICES.md` | Full sprint tracker showing what's done in the main pipeline |
+
 ### ✅ Fully Complete — Zero Build Work Needed
 
 **M2: Source abstraction + fact extraction**
@@ -123,6 +136,15 @@ The original spec assumed Method B was greenfield. It is not. A significant port
 - `editorial:voice_patterns` KV: 30-pattern cap, weighted by NVS, rotated per generation
 - `getEditorialNotes()` injects 3 random style examples into all generation prompts
 - Grounding context: `buildGroundingContext()` injects verified API-Football data into every synthesis
+
+**Method B shadow worker (further advanced than spec assumed)**
+- `worker-story-agent.js` + `wrangler-story.toml`: separate Cloudflare Worker already scaffolded
+- **Step 2 core is DONE** (per `NEXT.md` 2026-06-06): correlate → `rulesPreFilterDelta` (cheap JS heuristic before LLM) → `detectDeltaLLM` (Haiku delta judge) → `synthesizePhase` (Sonnet from facts, not source text)
+- Cost management: `SHADOW_SYNTH_CAP` per-run cap, `methodb-only` cost counter, shared with global `MONTHLY_CLAUDE_CAP`
+- `/admin/pipeline` compare page: legacy vs methodb side-by-side, last-run tally, methodb cost
+- Blue/green cutover seam: `getServedArticles` reads `pipeline:active` KV pointer; `/admin/config` toggle → `/admin/pipeline/flip` endpoint; instant, reversible, safe-by-default
+- Schema: `0014_method_b.sql` — `topics`, `topic_edges`, `phases` tables + `content_items.topic_id/phase_id/pipeline` columns (additive, legacy tables untouched)
+- **Next action (from NEXT.md):** apply `0014_method_b.sql` → `wrangler deploy -c wrangler-story.toml` → `methodb:enabled = 1` → observe `/admin/pipeline` for a few days → tune `rulesPreFilterDelta` + `detectDeltaLLM` + `synthesizePhase` voice
 
 ### ⚠️ Partial — Real Delta Work Needed
 
@@ -708,45 +730,59 @@ These are NOT forgotten — they are deliberately deferred. At G2M, replan with:
 
 ---
 
-### Week 1 — Method B Analysis Sprint
+### Week 1 — Method B Orientation + Shadow Worker Deployment
 
-**Goal:** This week produces no shipping code. It produces the precise implementation plan for Weeks 2-12. Do not skip this. Building without analysis is the biggest time waster in this project.
+**Goal:** Read the existing design, verify the shadow worker's current state, arm it in observe-only mode, and produce a revised Week 2-12 plan based on what you see in `/admin/pipeline`.
 
-**Why analysis first:** `docs/method-b-design.md` describes the full vision: FACT → ROUTER → TOPIC → CLAIM-TRACK → PHASE → ARTICLE. The current codebase (story-matcher, firewall, source_configs) implements some of this. Sprint I (Trust Architecture, not started) overlaps with Method B's trust tier model. Without mapping this precisely, Weeks 2-8 will build in the wrong order or rebuild what exists.
+**Why not pure analysis:** The shadow worker (`worker-story-agent.js`) has Step 2 core already built per `NEXT.md`. The schema migration is written. The `/admin/pipeline` compare page exists. The design is documented in `docs/method-b-design.md` with a visual in `docs/method-b-model.svg`. The fastest path to an accurate plan is to deploy, observe real output for 2-3 days, and plan from evidence.
 
-**Analysis tasks (~8h):**
+**Pre-reading (Sunday before Week 1 starts, ~3h):**
+1. Read `docs/method-b-design.md` completely — all 10 sections. Pay special attention to §2 (model layers), §6 (cost), §7 (cutover), §9 (build order).
+2. View `docs/method-b-model.svg` — the visual meta-flow and 3 Turkish branch topologies.
+3. Read `docs/NEXT.md` — the current action list. The "NEXT ACTION" section is the entry point.
+4. Scan `docs/migrations/0014_method_b.sql` — confirm schema for `topics`, `topic_edges`, `phases`.
 
-1. **Read `docs/method-b-design.md` fully** (~2h) — all 10 sections. The key question for each layer: already built? partial? not started?
-   - FACT layer → `facts` table (done — Slice 1)
-   - TOPIC layer → `stories` table (done but over-coupled — §2.1 in method-b-design says stories does "three jobs at once")
-   - CLAIM-TRACK layer → missing (was "single story-level confidence" — Method B says this is the root cause of "many stories, few articles")
-   - PHASE layer → missing (was `synth:{id}:{date}` daily dedup — Method B says this is the throttle causing low article output)
-   - EVENT router → partial (SKIP_STORY_TYPES + templates, but events don't become seeds)
-   - ACCRETIVE router → `synthesizeStory()` (done but limited — MAX_FACTS_EXTRACTS = 5/run, 1 synthesis/day/story)
-   - Topic graph (DAG, branch_of, sequel_of) → not started, explicitly deferred in method-b-design
+**Week 1 tasks (~8h, Thu-Sat):**
 
-2. **Map `worker-story-agent.js`** (~1h) — this is the disabled shadow worker. What does it implement of Method B? Is any of it reusable, or is it an older design that story-matcher.js superseded?
+1. **Read `worker-story-agent.js`** (~2h): understand what Step 2 core contains. Key functions to find: `correlateToTopic`, `rulesPreFilterDelta`, `detectDeltaLLM`, `synthesizePhase`, the shadow KV write path, `SHADOW_SYNTH_CAP`. Note any gaps vs `docs/method-b-design.md` §9 build order.
 
-3. **Map Sprint I (Trust Architecture) against Method B** (~1h) — Sprint I adds `trust_tier` + `source_family` to source_configs. Method B has a trust tier model. Are these the same? Can Sprint I be done as part of Method B wiring rather than separately?
+2. **Apply migration + deploy shadow worker** (~1h):
+   - Apply `0014_method_b.sql` in Supabase SQL editor (additive — no legacy impact)
+   - `npx wrangler deploy -c wrangler-story.toml`
+   - Add secrets if first deploy: `SUPABASE_SERVICE_KEY`, `ANTHROPIC_API_KEY`
 
-4. **Identify the "cheap trunk path"** (~2h) — Method B §2.3 says: "Build the cheap trunk path first; engage branch/track machinery only for the minority." Define what the trunk path means for Kartalix:
-   - Which of CLAIM-TRACK and PHASE need to be built to unblock the daily article count problem?
-   - What is the minimal delta that gets from current state to "one synthesized article per active story per day" (not one per week)?
-   - Answer: the PHASE layer. Currently `synth:{id}:{date}` allows one synthesis/story/day. Method B's PHASE layer fires on a *delta* — a newsworthy change, not a time window. This means: new confidence signal, new claim, new official confirmation → new article. Could go from 2-3 synthesis articles/day to 10-15.
+3. **Arm and verify** (~1h):
+   - `wrangler kv key put --namespace-id=<id> methodb:enabled 1`
+   - Verify `/admin/config` shows "Pipeline (serving)" toggle
+   - Verify `/admin/pipeline` compare page loads with legacy + methodb columns
 
-5. **Identify the NVS refactor constraint** (~1h) — Map exactly where NVS scoring runs in `processor.js` (line number). Confirm it runs on title+blurb. Identify which downstream steps read the score and what would break if NVS were 0 until post-extraction. This determines whether NVS refactor is a clean swap or needs a pre-filter fallback.
+4. **Observe for 2-3 days** — do not skip this. Watch `/admin/pipeline`:
+   - Is `topics` table filling? How many per day?
+   - Are phases being created? What triggers them?
+   - Are synthesis articles appearing in the methodb shadow pool?
+   - What is the `€/day` for methodb vs legacy?
+   - Are there errors? What kind?
 
-6. **Output: write `docs/superpowers/specs/method-b-implementation-plan.md`** (~2h) — a precise task list for Weeks 2-12 based on findings. This file becomes the actual plan. The roadmap below is provisional until this file exists.
+5. **Map Sprint I (Trust Architecture) against Method B trust tiers** (~1h): Sprint I (SLICES.md) plans `trust_tier` + `source_family` on `source_configs`. Method B uses trust tier in the EVENT router and delta gate. Confirm: can Sprint I's trust fields satisfy Method B's needs, or does Method B need its own trust model? Decision goes into the plan.
 
-**Testing setup tasks (~2h):**
-1. Survey `/admin/golden-fixtures` — list all existing checks and their current pass rate
-2. Create `.github/workflows/golden-fixtures.yml` (CI fixture check on every push — see §2.6)
-3. Create `scripts/test-tier2.sh` — bash script running `/force-h5`, `/force-synthesis`, checking Supabase for new rows. Run manually before every deploy.
+6. **Write `docs/superpowers/specs/method-b-implementation-plan.md`** (~3h): Based on observation + reading, produce a precise task list for Weeks 2-12. Key questions to answer:
+   - Is the shadow worker producing output? If yes: what needs tuning? If no: what's blocking?
+   - What does `rulesPreFilterDelta` catch vs miss in real RSS + YouTube input?
+   - How does `detectDeltaLLM` perform on real facts? False positive rate?
+   - What is the actual article volume (methodb articles/day) vs target (10-15)?
+   - Does the NVS refactor need to happen before or after Method B cutover?
+   - Are `source_configs` needed before Method B works correctly? (Yes — source trust tier flows into the EVENT router)
+
+**Testing setup tasks (~2h, any day):**
+1. Survey `/admin/golden-fixtures` endpoint — list current checks and pass rate
+2. Create `.github/workflows/golden-fixtures.yml` (§2.6 CI template)
+3. Create `scripts/test-tier2.sh` — curl `/force-h5`, `/force-synthesis`, check Supabase for new rows
 
 **Done when:**
-- `docs/superpowers/specs/method-b-implementation-plan.md` exists with a week-by-week task list
-- GitHub Actions CI is green on first run
-- `scripts/test-tier2.sh` exits 0 against production
+- Shadow worker deployed and armed (`methodb:enabled = 1`)
+- `/admin/pipeline` shows methodb activity (even if imperfect)
+- `docs/superpowers/specs/method-b-implementation-plan.md` exists with revised Week 2-12 plan
+- GitHub Actions CI is green
 
 ---
 
@@ -972,7 +1008,7 @@ Three weeks of Track 1 work. Pipeline track: minor fixes and golden fixture main
 
 | Week | Focus | Track | Key Deliverable | Automated Test |
 |------|-------|-------|----------------|---------------|
-| 1 | Method B analysis | Analysis | `method-b-implementation-plan.md` + CI setup | CI setup, Tier 2 script |
+| 1 | Method B orientation + deploy | Analysis + Deploy | Shadow worker live, `method-b-implementation-plan.md`, CI setup | CI setup, Tier 2 script |
 | 2 | Source configs + quick fixes | Pipeline | Sources from DB, voice directive live | `source_configs_active` fixture |
 | 3 | Breaking flag + KV shape + Phase design | Pipeline | All KV seam fields, PHASE layer designed | 3 new fixtures |
 | 4 | PHASE layer implementation | Pipeline | Synthesis volume +30% | `phase_layer_firing` fixture |
