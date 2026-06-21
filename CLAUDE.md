@@ -10,6 +10,47 @@
 
 ---
 
+# Skill Quick Reference
+
+## Planning & Methodology (superpowers)
+| Skill | When to use |
+|-------|-------------|
+| `/brainstorming` | Before building any new feature — refines requirements first |
+| `/writing-plans` | Turn a spec into a step-by-step implementation plan |
+| `/executing-plans` | Run an existing plan with review checkpoints |
+| `/subagent-driven-development` | Execute independent tasks in parallel within a session |
+| `/dispatching-parallel-agents` | Spin up multiple agents for truly parallel work |
+| `/using-git-worktrees` | Isolate feature work before starting implementation |
+| `/finishing-a-development-branch` | Structured options for merge / PR / cleanup when done |
+
+## Quality & Debug (superpowers + gstack)
+| Skill | When to use |
+|-------|-------------|
+| `/systematic-debugging` | Any bug or unexpected behavior — before guessing fixes |
+| `/test-driven-development` | Red-green-refactor cycle for any feature or fix |
+| `/verification-before-completion` | Run checks before claiming work is done |
+| `/requesting-code-review` | Before merging — verify work meets requirements |
+| `/receiving-code-review` | Process review feedback rigorously, not blindly |
+| `/gstack` | Headless browser QA — test UI flows in real browser |
+
+## Design & UI
+| Skill | When to use |
+|-------|-------------|
+| `/ui-ux-pro-max` | Any UI work — design system, color, layout, components |
+| `/ckm-design` | Logo, brand identity, social images, icon design |
+| `/ckm-ui-styling` | shadcn/ui + Tailwind component styling |
+| `/ckm-design-system` | Design tokens (primitive → semantic → component) |
+| `/ckm-banner-design` | Social media / ad banners |
+| `/ckm-brand` | Brand voice, tone, messaging consistency |
+| `/ckm-slides` | HTML presentations with Chart.js |
+
+## Planning Persistence (planning-with-files)
+| Skill | When to use |
+|-------|-------------|
+| `/planning-with-files` | Multi-session projects — survives context resets via task_plan.md + findings.md + progress.md |
+
+---
+
 # Gamification Roadmap — Status
 
 ## Done
