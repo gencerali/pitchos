@@ -126,8 +126,12 @@ async function processSiteMethodB(site, env) {
   };
   const newArticles = [];
   let synthCount = 0;
+  // Track the first row index that was skipped due to the per-run synth cap mid-batch.
+  // Cursor only advances up to (not including) this index so those items are retried next run.
+  let capHitIdx = -1;
 
-  for (const item of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const item = rows[i];
     const f = factsByItem.get(item.id) || null;
     if (f) tally.withFacts++;
 
@@ -151,7 +155,8 @@ async function processSiteMethodB(site, env) {
       const pre = rulesPreFilterDelta(priorTrack, f, item);
       if (pre.possibleDelta) {
         if (cap.blocked || synthCount >= SHADOW_SYNTH_CAP) {
-          // would spend, but budget/cap reached this run — leave cursor to retry next run
+          // Per-run synth cap hit mid-batch — mark first skipped index so cursor won't advance past it.
+          if (capHitIdx === -1) capHitIdx = i;
         } else {
           tally.deltaChecks++;
           const delta = await detectDeltaLLM(priorTrack, f, item, env, stats);
@@ -181,9 +186,11 @@ async function processSiteMethodB(site, env) {
   pool = pool.slice(0, SHADOW_POOL_MAX);
   await env.PITCHOS_CACHE.put(shadowKey(code), JSON.stringify({ ready: pool.length > 0, articles: pool, updated_at: new Date().toISOString() }));
 
-  // Advance cursor.
-  const newCursor = rows[rows.length - 1].created_at;
-  await env.PITCHOS_CACHE.put(cursorKey(code), newCursor);
+  // Advance cursor only up to the last fully-evaluated row. If the per-run synth cap was hit
+  // mid-batch, stop before that index so those items are retried next hour rather than dropped.
+  const lastSafeIdx = capHitIdx !== -1 ? capHitIdx - 1 : rows.length - 1;
+  const newCursor = lastSafeIdx >= 0 ? rows[lastSafeIdx].created_at : cursorIso;
+  if (newCursor !== cursorIso) await env.PITCHOS_CACHE.put(cursorKey(code), newCursor);
 
   // Cost: count against the SHARED cap (same Anthropic bill) + a methodb-only counter for the compare page.
   const costUsd = Object.values(stats.phases).reduce((s, p) => s + (p.cost || 0), 0);
@@ -251,8 +258,9 @@ numbers: ${JSON.stringify(facts?.numbers || {})}
 dates: ${JSON.stringify(facts?.dates || {})}
 
 Return ONLY JSON:
-{"material": true|false, "trigger": "initial"|"update"|"contradiction", "new_track": {"status": "...", "numbers": {...}, "dates": {...}, "confidence": 0-100}}
-material=true ONLY if the fact changes status, a number/date, or contradicts the current state. A mere repeat = material:false.`;
+{"material": true|false, "trigger": "initial"|"update"|"contradiction", "new_track": {"status": "...", "numbers": {...}, "dates": {...}, "confidence": 0-100, "conflict": false}}
+material=true ONLY if the fact changes status, a number/date, or contradicts the current state. A mere repeat = material:false.
+Set new_track.conflict=true ONLY when a number or status in the new fact directly contradicts (not just updates) the prior track — e.g. prior says €15M fee, new says €25M fee, or prior says "agreed" but new says "collapsed".`;
   try {
     const res = await callClaude(env, MODEL_FETCH, prompt, false, 400);
     addUsagePhase(stats, res.usage, MODEL_FETCH, 'methodb_delta');

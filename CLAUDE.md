@@ -32,6 +32,9 @@
 | `/requesting-code-review` | Before merging — verify work meets requirements |
 | `/receiving-code-review` | Process review feedback rigorously, not blindly |
 | `/gstack` | Headless browser QA — test UI flows in real browser |
+| `/code-review` | Deep code review with security + correctness focus |
+| `/verify` | Verify assumptions about live system state before shipping |
+| `/claude-api` | Claude API usage, tool use, prompt caching, model selection |
 
 ## Design & UI
 | Skill | When to use |

@@ -26,9 +26,9 @@ Items deferred from the gamification build session (2026-06-14):
 1. **Pre-reading (Sunday, ~3h):** `docs/method-b-design.md` (all 10 sections), `docs/method-b-model.svg`, then this file, then scan `docs/migrations/0014_method_b.sql`.
 2. **Read `worker-story-agent.js` (~2h):** Find `correlateToTopic`, `rulesPreFilterDelta`, `detectDeltaLLM`, `synthesizePhase`. Note gaps vs `docs/method-b-design.md §9 build order.
 3. **Apply migration + deploy** (~1h): `0014_method_b.sql` in Supabase → `npx wrangler deploy -c wrangler-story.toml` → `methodb:enabled=1`.
-4. **Observe `/admin/pipeline` for 2-3 days.** Watch: topics filling, phases creating, methodb cost/day, errors.
+4. **Observe `/admin/pipeline` for 5 days.** Three signals to watch: (a) `confirmingSkip` rate in `/status` — should be >60% if the pre-filter is working; (b) methodb `€/day` vs. legacy; (c) `materialDelta / deltaChecks` ratio — if >50%, Haiku is too permissive and synthesis quality will suffer. Also watch for `conflict: true` in `phases.delta` rows — that's the contradiction flag added in this session.
 5. **Write `docs/superpowers/specs/method-b-implementation-plan.md`** (~3h): Precise task list for Weeks 2-12 based on what you see. Must answer these open questions from the audit (AUDIT.md §7.3):
-   - Does the delta detector (`rulesPreFilterDelta` + `detectDeltaLLM`) handle **contradicting facts** (Source A: €15M fee, Source B: €25M fee)? Or only additive facts? If not: conflict-detection step is needed before synthesis.
+   - `detectDeltaLLM` now returns `new_track.conflict=true` for contradicting facts (Source A: €15M fee, Source B: €25M fee) — visible in `phases.delta`. Verify this fires correctly during observation week. Full editorial queue (holding conflicted stories for review) is post-G2M.
    - When a T1 source arrives *after* initial synthesis and triggers a new phase, does `synthesizePhase()` **supersede** the previous synthesis or **append** to it? Update path must exist, not just append.
    - Map Sprint I (Trust Architecture, SLICES.md) against Method B trust tiers — can Sprint I's `trust_tier` + `source_family` fields satisfy Method B's EVENT router needs?
 6. **CI setup (~2h any day):** Survey `/admin/golden-fixtures`, create `.github/workflows/golden-fixtures.yml`, create `scripts/test-tier2.sh`.
