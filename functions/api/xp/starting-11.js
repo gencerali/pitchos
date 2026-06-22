@@ -37,7 +37,11 @@ export async function onRequest({ request, env }) {
     );
     if (existing.length) return err('Bu maç için zaten İlk 11 gönderdiniz', 409);
 
-    await sbPost(env, 'starting_elevens', { user_id: user.id, site_id, match_id, player_ids });
+    await sbPost(env, 'starting_elevens', {
+      user_id: user.id, site_id, match_id, player_ids,
+      home_team: upcoming.home_team ?? null,
+      away_team: upcoming.away_team ?? null,
+    });
 
     const lds = body?.local_day_start ?? null;
     const result = await awardXP(env, user.id, site_id, 'submit_starting_11', String(match_id), lds);

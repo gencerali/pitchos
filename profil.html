@@ -512,6 +512,13 @@
       font-size: 0.6rem; color: var(--muted); margin-left: auto;
     }
 
+    .profil-pred-section-label {
+      font-family: 'Barlow Condensed', sans-serif;
+      font-size: 0.62rem; font-weight: 700; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+
     /* ── Lineup history ── */
     .profil-lineup-card {
       background: var(--surface); border: 1px solid var(--border2);
@@ -742,7 +749,9 @@
       </div>
       <div id="profilTabPreds" class="profil-tab-panel" style="margin-top:0.75rem">
         <div id="profilPredAccuracy"></div>
+        <div class="profil-pred-section-label" id="profilPredSectionLabel">Skor Tahminleri</div>
         <div id="profilPredHistory"></div>
+        <div class="profil-pred-section-label" id="profilLineupSectionLabel" style="margin-top:1rem">İlk 11 Tahminleri</div>
         <div id="profilLineupHistory"></div>
       </div>
     </div>
@@ -1142,6 +1151,7 @@
     if (predBox) {
       const preds = me.prediction_history ?? [];
       if (!preds.length) {
+        el('profilPredSectionLabel')?.remove();
         predBox.innerHTML = '<div class="profil-empty-state">Henüz tahmin yapmadın.<br><a href="/tribun">Tribüne git ve ilk tahmini yap →</a></div>';
       } else {
         predBox.innerHTML = preds.map(p => {
@@ -1191,6 +1201,7 @@
     if (lineupBox) {
       const lineups = me.lineup_history ?? [];
       if (!lineups.length) {
+        el('profilLineupSectionLabel')?.remove();
         lineupBox.innerHTML = '<div class="profil-empty-state">Henüz kadro tahmini yapmadın.<br><a href="/tribun">Tribüne git ve ilk 11\'ini seç →</a></div>';
       } else {
         lineupBox.innerHTML = lineups.map(l => {
@@ -1213,9 +1224,11 @@
             scoreText  = `${l.correct_count}/11`;
             labelText  = `${l.correct_count} doğru oyuncu`;
           }
+          const lineupTeams = l.home_team && l.away_team ? `${l.home_team} – ${l.away_team}` : null;
           return `<div class="profil-lineup-card">
             <div class="profil-lineup-score ${scoreClass}">${scoreText}</div>
             <div class="profil-lineup-info">
+              ${lineupTeams ? `<div class="profil-pred-teams">${lineupTeams}</div>` : ''}
               <div class="profil-lineup-label">${labelText}</div>
               <div class="profil-lineup-sub">${fmtDate(l.created_at)}</div>
             </div>

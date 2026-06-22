@@ -17,6 +17,8 @@ export async function onRequest({ request, env }) {
   const prev_streak = parseInt(body.prev_streak || 0);
   if (!prev_streak || prev_streak < 2) return err('Invalid prev_streak', 400);
 
+  try {
+
   // Check XP balance
   const xpRows = await sbGet(env, `xp_events?user_id=eq.${user.id}&site_id=eq.${site_id}&nullified=eq.false&select=xp_earned`);
   const total_xp = xpRows.reduce((s, r) => s + r.xp_earned, 0);
@@ -71,4 +73,8 @@ export async function onRequest({ request, env }) {
   const new_total_xp = newXpRows.reduce((s, r) => s + r.xp_earned, 0);
 
   return json({ ok: true, restored_streak, new_total_xp, cost: REVIVAL_COST });
+
+  } catch (e) {
+    return err(e?.message ?? 'Internal error', 500);
+  }
 }
