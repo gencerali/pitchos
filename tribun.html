@@ -599,6 +599,15 @@
     .community-stat-label { font-family:'Barlow Condensed',sans-serif;font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:.25rem; }
     .community-popular-score { font-family:'Oswald',sans-serif;font-size:2rem;font-weight:700;color:var(--accent-gold);letter-spacing:.04em;line-height:1; }
     .community-popular-sub { font-family:'Barlow Condensed',sans-serif;font-size:.6rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:.15rem; }
+    .community-dist { margin-top:1.25rem; }
+    .community-dist-label { font-family:'Barlow Condensed',sans-serif;font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.6rem; }
+    .community-dist-row { display:flex;align-items:center;gap:.6rem;padding:.2rem 0; }
+    .community-dist-score { font-family:'Oswald',sans-serif;font-size:.85rem;font-weight:600;width:2.8rem;text-align:right;flex-shrink:0;color:var(--text-on-dark); }
+    .community-dist-score--top { color:var(--accent-gold); }
+    .community-dist-bar-wrap { flex:1;height:5px;background:var(--border2);border-radius:3px;overflow:hidden; }
+    .community-dist-bar-fill { height:100%;background:var(--accent);border-radius:3px;transition:width .5s cubic-bezier(.4,0,.2,1); }
+    .community-dist-bar-fill--top { background:var(--accent-gold); }
+    .community-dist-pct { font-family:'Barlow Condensed',sans-serif;font-size:.7rem;font-weight:600;color:var(--muted);width:2.2rem;text-align:right;flex-shrink:0;font-variant-numeric:tabular-nums; }
   </style>
 </head>
 <body>
@@ -897,6 +906,10 @@
         <div class="community-popular-score" id="communityPopularScore">– : –</div>
         <div class="community-popular-sub">En Popüler Skor</div>
       </div>
+    </div>
+    <div class="community-dist" id="communityDist" style="display:none">
+      <div class="community-dist-label">Skor Dağılımı</div>
+      <div id="communityDistRows"></div>
     </div>
   </div>
 
@@ -1588,6 +1601,29 @@
     document.getElementById('communityTotal').textContent = data.total;
     document.getElementById('communityPopularScore').textContent =
       data.popular_score ? data.popular_score.replace('-', ' : ') : '–';
+
+    if (data.distribution && data.distribution.length > 1) {
+      var dist = data.distribution.slice(0, 8);
+      var maxCount = dist[0].count;
+      var html = dist.map(function (d, i) {
+        var pct = Math.round((d.count / data.total) * 100);
+        var fillPct = Math.round((d.count / maxCount) * 100);
+        var isTop = i === 0;
+        return '<div class="community-dist-row">' +
+          '<div class="community-dist-score' + (isTop ? ' community-dist-score--top' : '') + '">' + d.home_score + ':' + d.away_score + '</div>' +
+          '<div class="community-dist-bar-wrap"><div class="community-dist-bar-fill' + (isTop ? ' community-dist-bar-fill--top' : '') + '" style="width:0%" data-fill="' + fillPct + '"></div></div>' +
+          '<div class="community-dist-pct">%' + pct + '</div>' +
+          '</div>';
+      }).join('');
+      document.getElementById('communityDistRows').innerHTML = html;
+      document.getElementById('communityDist').style.display = '';
+      requestAnimationFrame(function () {
+        document.querySelectorAll('.community-dist-bar-fill').forEach(function (el) {
+          el.style.width = el.dataset.fill + '%';
+        });
+      });
+    }
+
     document.getElementById('communitySection').style.display = '';
   }
 
