@@ -1,7 +1,7 @@
 // GET /api/league — user's group-based league info with live rankings
 import { getUser, json, err, corsHeaders } from '../_shared/auth.js';
 import { getSiteId } from '../_shared/site.js';
-import { sbGet } from '../_shared/xp.js';
+import { sbGet, sbPost } from '../_shared/xp.js';
 
 export const TIERS = [
   { id: 'elmas',  label: 'Elmas',  icon: '💎', mult: 1.30, monday_bonus: 100 },
@@ -14,6 +14,42 @@ export const TIER_MAP = Object.fromEntries(TIERS.map(t => [t.id, t]));
 
 const PROMO_COUNT    = 3;
 const RELEGATE_COUNT = 3;
+const GROUP_SIZE     = 30;
+
+// Assign a user who missed the Monday cron to an existing group or create one.
+async function lateJoinGroup(env, site_id, user_id, tier, weekStart) {
+  const groups = await sbGet(env,
+    `league_groups?site_id=eq.${site_id}&week_start=eq.${weekStart}&tier=eq.${encodeURIComponent(tier)}&settled=eq.false&select=id,group_number&order=group_number.desc&limit=5`
+  ).catch(() => []);
+
+  let targetGroupId = null;
+
+  for (const g of groups) {
+    const members = await sbGet(env,
+      `league_group_members?group_id=eq.${g.id}&select=id&limit=${GROUP_SIZE + 1}`
+    ).catch(() => []);
+    if (members.length < GROUP_SIZE) {
+      targetGroupId = g.id;
+      break;
+    }
+  }
+
+  if (!targetGroupId) {
+    const nextNum = groups.length > 0 ? groups[0].group_number + 1 : 1;
+    const newGroup = await sbPost(env, 'league_groups', {
+      site_id, tier, week_start: weekStart, group_number: nextNum, settled: false,
+    }).catch(() => null);
+    targetGroupId = newGroup?.[0]?.id ?? null;
+  }
+
+  if (!targetGroupId) return null;
+
+  await sbPost(env, 'league_group_members', {
+    group_id: targetGroupId, user_id, site_id, week_start: weekStart, weekly_xp: 0,
+  }).catch(() => {});
+
+  return targetGroupId;
+}
 
 function mondayOf(date = new Date()) {
   const d = new Date(date);
@@ -54,11 +90,15 @@ export async function onRequest({ request, env }) {
     promo_zone: PROMO_COUNT, relegate_zone: RELEGATE_COUNT,
   };
 
+  let group_id;
   if (!memberRows.length) {
-    return json({ ...baseResponse, group_id: null, group_number: null, rank: null, group_size: null, leaderboard: null });
+    group_id = await lateJoinGroup(env, site_id, user.id, currentLeague, weekStart);
+    if (!group_id) {
+      return json({ ...baseResponse, group_id: null, group_number: null, rank: null, group_size: null, leaderboard: null });
+    }
+  } else {
+    group_id = memberRows[0].group_id;
   }
-
-  const group_id = memberRows[0].group_id;
 
   const [groupRows, allMembers] = await Promise.all([
     sbGet(env, `league_groups?id=eq.${group_id}&select=group_number,tier,settled&limit=1`).catch(() => []),
