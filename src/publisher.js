@@ -1102,6 +1102,29 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
       return idBySlug[slug] ? { ...a, id: idBySlug[slug] } : a;
     });
 
+    // Back-fill content_item_id on ALL facts rows for this article.
+    // Multi-claim extraction creates one facts row per claim (_all_fact_ids),
+    // all needing the same content_item_id once we have DB ids.
+    const factsPatchPromises = [];
+    for (const a of publishable) {
+      const allIds = [a._facts?._id, ...(a._facts?._all_fact_ids || [])].filter(Boolean);
+      if (!allIds.length) continue;
+      const slug = a.slug || generateSlug(a.title, a.published_at || a.fetched_at);
+      const dbId = idBySlug[slug];
+      if (dbId) {
+        for (const factId of allIds) {
+          factsPatchPromises.push(
+            supabase(env, 'PATCH', `/rest/v1/facts?id=eq.${factId}`, { content_item_id: dbId })
+              .catch(e => console.error('facts backfill failed:', e.message))
+          );
+        }
+      }
+    }
+    if (factsPatchPromises.length > 0) {
+      Promise.all(factsPatchPromises).catch(() => {});
+      console.log(`FACTS BACKFILL: ${factsPatchPromises.length} fact rows linked to content_item_ids`);
+    }
+
     console.log(`SUPABASE INSERT OK: ${publishable.length} articles, ${savedRows.length} returned with IDs`);
 
     // Store source facts for all publishable RSS articles — use publishable (not savedWithIds)
