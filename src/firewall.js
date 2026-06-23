@@ -67,6 +67,30 @@ Return only the JSON. Do not invent new story_type values.`;
 // They should NOT feed into the long-running story system.
 export const SKIP_STORY_TYPES = new Set(['match_result', 'squad']);
 
+// ─── ENTITY FINGERPRINT ──────────────────────────────────────
+// Stable cross-article key: "story_type:normalized_name"
+// Turkish suffix stripping: removes common inflectional endings so
+// "Amrabat'ı", "Amrabat'tan", "Amrabatı" all → "amrabat".
+const TR_SUFFIXES = /('?(?:nın|nin|nun|nün|ın|in|un|ün|nda|nde|dan|den|tan|ten|ya|ye|da|de|yı|yi|yu|yü|ı|i|u|ü|yı|nı|nle|le|la|yla|yda|yde|yta|yte|lı|li|lu|lü|lar|ler|lardan|lerden|lara|lere|larda|lerde|larla|lerle|ları|leri))+$/i;
+
+function normalizeEntityName(name) {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '') // strip diacritics for ASCII form
+    .replace(TR_SUFFIXES, '')
+    .replace(/[^a-z0-9]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+}
+
+function buildEntityFingerprint(storyType, primaryEntityName) {
+  if (!primaryEntityName) return null;
+  const normalized = normalizeEntityName(primaryEntityName);
+  if (!normalized || normalized.length < 3) return null;
+  return `${storyType}:${normalized}`;
+}
+
 // ─── COMBINED EXTRACT + SCORE (Phase 1) ──────────────────────
 // Single Haiku call on the full article body — replaces the old
 // classifyStoryType + extractFactsForStory two-call pattern.
@@ -76,18 +100,26 @@ export async function extractAndScore(bodyText, article, env) {
     ? `${article.title}.\n${bodyText}`.slice(0, 2500)
     : `${article.title}. ${article.summary || ''}`.slice(0, 800);
 
-  const prompt = `Analyze this Turkish football article for Beşiktaş fan site Kartalix. Return ONLY valid JSON. Extract only what is explicitly stated.
+  const prompt = `Analyze this Turkish football article for Beşiktaş fan site Kartalix. Return ONLY valid JSON. Extract only what is EXPLICITLY stated in the text — never infer or add facts not present.
 
 story_type (pick exactly one): transfer | injury | disciplinary | contract | match_result | squad | institutional | other
 story_category: sporting | financial | institutional | other
-nvs_score: integer 0-100 (Beşiktaş relevance x newsworthiness; 100=breaking BJK news, 0=no BJK angle)
-key_quotes: array of up to 3 verbatim short quotes or key phrases from the article that add voice (empty array if none)
+nvs_score: integer 0-100 (Beşiktaş relevance × newsworthiness; 100=breaking BJK news, 0=no BJK angle)
+claim_confidence: "confirmed" (official source/signing confirmed) | "high" (senior journalist, named source) | "medium" (credible rumor) | "low" (unverified speculation) | "rumor" (pure gossip, no named source)
+key_quotes: up to 3 verbatim short quotes or key phrases from the article (empty array if none)
+source_sentences: up to 3 verbatim sentences from the article that best ground the main claim — pick the most informative, max 200 chars each. Each has a "role": "lead_claim" | "supporting_detail" | "direct_quote" | "denial" | "contradiction". Empty array if article is too short.
+primary_entity: the single main subject (player or person). null if no clear individual subject.
+negotiation_status (transfer stories only, null otherwise): "rumor" | "interest" | "talks_opened" | "fee_agreed" | "personal_terms" | "medical" | "signed" | "official" | "collapsed" | "denied"
 
 {
   "story_type": "...",
   "story_category": "...",
   "nvs_score": 0,
+  "claim_confidence": "medium",
   "key_quotes": [],
+  "source_sentences": [{"text": "...", "role": "lead_claim"}],
+  "primary_entity": {"name": "...", "type": "player"},
+  "negotiation_status": null,
   "entities": { "players": [], "clubs": [], "competitions": [] },
   "numbers": { "transfer_fee": null, "contract_years": null, "ban_games": null, "recovery_weeks": null, "fine_amount": null, "other": [] },
   "dates": { "primary_date": null, "other": [] }
@@ -99,17 +131,46 @@ ${source}
 Return only the JSON.`;
 
   try {
-    const res    = await callClaude(env, MODEL_FETCH, prompt, false, 500);
+    const res    = await callClaude(env, MODEL_FETCH, prompt, false, 700);
     const raw    = extractText(res.content);
     const m      = raw.match(/\{[\s\S]*\}/);
     if (!m) return _fallbackExtractAndScore();
 
     const p = JSON.parse(m[0]);
+    const storyType = normalizeStoryType(p.story_type);
+
+    const sourceSentences = Array.isArray(p.source_sentences)
+      ? p.source_sentences
+          .filter(s => s && typeof s.text === 'string' && s.text.trim())
+          .map(s => ({ text: s.text.trim().slice(0, 200), role: s.role || 'lead_claim' }))
+          .slice(0, 3)
+      : [];
+
+    const primaryEntity = p.primary_entity?.name ? {
+      name:       p.primary_entity.name,
+      type:       p.primary_entity.type || 'player',
+      normalized: normalizeEntityName(p.primary_entity.name),
+    } : null;
+
+    const entityFingerprint = buildEntityFingerprint(storyType, primaryEntity?.name);
+
+    const VALID_NEG_STATUS = new Set(['rumor','interest','talks_opened','fee_agreed','personal_terms','medical','signed','official','collapsed','denied']);
+    const negotiationStatus = (storyType === 'transfer' && VALID_NEG_STATUS.has(p.negotiation_status))
+      ? p.negotiation_status : null;
+
+    const VALID_CONFIDENCE = new Set(['confirmed','high','medium','low','rumor']);
+    const claimConfidence = VALID_CONFIDENCE.has(p.claim_confidence) ? p.claim_confidence : 'medium';
+
     const facts = {
-      story_type:     normalizeStoryType(p.story_type),
-      story_category: p.story_category || 'other',
-      nvs_score:      typeof p.nvs_score === 'number' ? Math.max(0, Math.min(100, Math.round(p.nvs_score))) : null,
-      key_quotes:     Array.isArray(p.key_quotes) ? p.key_quotes.filter(q => typeof q === 'string' && q.trim()) : [],
+      story_type:          storyType,
+      story_category:      p.story_category || 'other',
+      nvs_score:           typeof p.nvs_score === 'number' ? Math.max(0, Math.min(100, Math.round(p.nvs_score))) : null,
+      claim_confidence:    claimConfidence,
+      key_quotes:          Array.isArray(p.key_quotes) ? p.key_quotes.filter(q => typeof q === 'string' && q.trim()) : [],
+      source_sentences:    sourceSentences,
+      primary_entity:      primaryEntity,
+      negotiation_status:  negotiationStatus,
+      entity_fingerprint:  entityFingerprint,
       entities: {
         players:      Array.isArray(p.entities?.players)      ? p.entities.players      : [],
         clubs:        Array.isArray(p.entities?.clubs)        ? p.entities.clubs        : [],
@@ -136,6 +197,13 @@ Return only the JSON.`;
       entities:                 facts.entities,
       numbers:                  facts.numbers,
       dates:                    facts.dates,
+      source_sentences:         facts.source_sentences.length ? facts.source_sentences : null,
+      claim_confidence:         facts.claim_confidence,
+      primary_entity:           facts.primary_entity,
+      negotiation_status:       facts.negotiation_status,
+      entity_fingerprint:       facts.entity_fingerprint,
+      extraction_tier:          'llm_full',
+      source_published_at:      article.published_at ?? null,
       extraction_model:         MODEL_FETCH,
       extraction_input_tokens:  res.usage?.input_tokens  ?? null,
       extraction_output_tokens: res.usage?.output_tokens ?? null,
@@ -162,6 +230,8 @@ Return only the JSON.`;
 function _fallbackExtractAndScore() {
   return {
     story_type: 'other', story_category: 'other', nvs_score: null, key_quotes: [],
+    claim_confidence: 'medium', source_sentences: [], primary_entity: null,
+    negotiation_status: null, entity_fingerprint: null,
     _id: null, _usage: null,
     entities: { players: [], clubs: [], competitions: [] },
     numbers:  { transfer_fee: null, contract_years: null, ban_games: null, recovery_weeks: null, fine_amount: null, other: [] },
