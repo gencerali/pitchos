@@ -62,6 +62,7 @@ describe('extractAndScore — schema normalization', () => {
     expect(result.numbers.transfer_fee).toBe('5M EUR');
     expect(result.numbers.contract_years).toBe(2);
     expect(result.dates.primary_date).toBe('2025-07-01');
+    expect(Array.isArray(result.key_quotes)).toBe(true);
     expect(result._id).toBe('fact-uuid-001');
   });
 
@@ -100,6 +101,20 @@ describe('extractAndScore — schema normalization', () => {
     expect(result.nvs_score).toBeNull();
     expect(result._id).toBeNull();
     expect(result.entities.players).toEqual([]);
+    expect(result.key_quotes).toEqual([]);
+  });
+
+  it('extracts key_quotes from response', async () => {
+    setupFetch({
+      story_type: 'transfer', story_category: 'sporting', nvs_score: 80,
+      key_quotes: ['Takim icin en iyi secim', 'Sozlesme imzalandi'],
+      entities: { players: ['Test Player'], clubs: ['Besiktas'], competitions: [] },
+      numbers: { transfer_fee: null, contract_years: 1, ban_games: null, recovery_weeks: null, fine_amount: null, other: [] },
+      dates: { primary_date: null, other: [] },
+    });
+    const result = await extractAndScore('body text', ARTICLE, ENV);
+    expect(result.key_quotes).toHaveLength(2);
+    expect(result.key_quotes[0]).toBe('Takim icin en iyi secim');
   });
 
   it('falls back to title+summary when bodyText is empty', async () => {
