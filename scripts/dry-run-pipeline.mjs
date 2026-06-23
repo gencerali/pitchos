@@ -45,10 +45,19 @@ async function sbGet(path) {
   return text ? JSON.parse(text) : [];
 }
 
+// trust_score (integer) → trust_tier string for preFilter Stage 1.7 T4 gate
+function trustTier(score) {
+  if (score <= 30) return 'T4';
+  if (score <= 55) return 'T3';
+  if (score <= 75) return 'T2';
+  return 'T1';
+}
+
 // ─── Fetch content_items ──────────────────────────────────────
+// Actual DB columns: raw_body (not full_text), trust_score int (not trust_tier)
 const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
 const rows = await sbGet(
-  `/rest/v1/content_items?published_at=gte.${since}&select=id,site_id,title,summary,full_text,url,original_url,source_name,trust_tier,published_at&order=published_at.desc&limit=${LIMIT}`
+  `/rest/v1/content_items?published_at=gte.${since}&select=id,site_id,title,summary,raw_body,original_url,source_name,trust_score,published_at&order=published_at.desc&limit=${LIMIT}`
 );
 
 if (!rows.length) {
@@ -59,8 +68,10 @@ if (!rows.length) {
 // Map DB rows to the shape preFilter expects
 const articles = rows.map(r => ({
   ...r,
-  trust:       r.trust_tier,
-  full_text:   r.full_text || '',
+  url:        r.original_url || '',
+  full_text:  r.raw_body || '',
+  trust_tier: trustTier(r.trust_score),
+  trust:      trustTier(r.trust_score),
 }));
 
 // ─── Run JS pre-filter (no LLM) ──────────────────────────────
