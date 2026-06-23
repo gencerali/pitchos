@@ -69,9 +69,11 @@ export const SKIP_STORY_TYPES = new Set(['match_result', 'squad']);
 
 // ─── ENTITY FINGERPRINT ──────────────────────────────────────
 // Stable cross-article key: "story_type:normalized_name"
-// Turkish suffix stripping: removes common inflectional endings so
-// "Amrabat'ı", "Amrabat'tan", "Amrabatı" all → "amrabat".
-const TR_SUFFIXES = /('?(?:nın|nin|nun|nün|ın|in|un|ün|nda|nde|dan|den|tan|ten|ya|ye|da|de|yı|yi|yu|yü|ı|i|u|ü|yı|nı|nle|le|la|yla|yda|yde|yta|yte|lı|li|lu|lü|lar|ler|lardan|lerden|lara|lere|larda|lerde|larla|lerle|ları|leri))+$/i;
+// Turkish suffix stripping: apostrophe is REQUIRED to start the suffix group.
+// Proper nouns always use an apostrophe before case suffixes in Turkish
+// ("Amrabat'ı", "Ndidi'ye", "Sörloth'a") so requiring it prevents stripping
+// trailing letters that are part of a foreign name (e.g. "Ndidi" → "ndid" ✗).
+const TR_SUFFIXES = /'(?:nın|nin|nun|nün|ın|in|un|ün|nda|nde|dan|den|tan|ten|ya|ye|da|de|yı|yi|yu|yü|a|e|ı|i|u|ü|nı|nle|le|la|yla|yda|yde|yta|yte|lı|li|lu|lü|lar|ler|lardan|lerden|lara|lere|larda|lerde|larla|lerle|ları|leri)+$/i;
 
 function normalizeEntityName(name) {
   if (!name) return '';
