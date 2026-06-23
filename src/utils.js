@@ -109,10 +109,16 @@ export const BJK_KEYWORDS = [
 // Used by bjkMatch to prevent single-word keywords from matching inside longer agglutinated words
 // (e.g. 'orman' must not match 'sormanıza'; 'onana' must not match as substring of 'Onuachu').
 function tokenSet(normalised) {
-  return new Set(normalised.split(/[\s‘’''',\.;:!?()\[\]{}\/"«»]+/).filter(Boolean));
+  return new Set(normalised.split(/[\s',\.;:!?()\[\]{}\/"]+/).filter(Boolean));
 }
 
+// Core club identity strings checked via substring (not token) match so Turkish agglutination
+// is handled correctly: Beşiktaşlı, Beşiktaşa, BJK'li all contain one of these.
+// These 8-letter+ strings are specific enough that false-positive substring matches are negligible.
+const BJK_CORE_SUBSTRINGS = ['beşiktaş', 'besiktas', 'bjk'];
+
 // Checks whether text mentions any BJK keyword.
+// Core identity (Beşiktaş/BJK): substring match — catches agglutinated Turkish forms.
 // Single-word keywords: exact token match (whole word only, prevents agglutination false-positives).
 // Multi-word / hyphenated keywords (e.g. 'siyah-beyaz', 'fikret orman'): substring match on full text
 //   because the phrase is specific enough to not appear inside an unrelated longer phrase.
@@ -120,6 +126,7 @@ function tokenSet(normalised) {
 export function bjkMatch(text, keywords = BJK_KEYWORDS) {
   const lo = text.toLowerCase();
   const tr = text.toLocaleLowerCase('tr');
+  if (BJK_CORE_SUBSTRINGS.some(c => lo.includes(c) || tr.includes(c))) return true;
   const wsLo = tokenSet(lo);
   const wsTr = tokenSet(tr);
   return keywords.some(kw => {
@@ -135,6 +142,9 @@ export function bjkMatch(text, keywords = BJK_KEYWORDS) {
 export function bjkMatchDetail(text, keywords = BJK_KEYWORDS) {
   const lo = text.toLowerCase();
   const tr = text.toLocaleLowerCase('tr');
+  for (const c of BJK_CORE_SUBSTRINGS) {
+    if (lo.includes(c) || tr.includes(c)) return c;
+  }
   const wsLo = tokenSet(lo);
   const wsTr = tokenSet(tr);
   for (const kw of keywords) {

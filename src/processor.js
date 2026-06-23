@@ -141,8 +141,27 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
     return true;
   });
 
+  // Stage 1.7: T4 source trust gate — aggregators must name BJK in the title.
+  // T4 sources are low-trust aggregators that republish widely; their summaries
+  // frequently mention BJK tangentially (league context, rival comparisons).
+  // Requiring a BJK keyword in the TITLE cuts noise before LLM scoring spend.
+  const afterT4Gate = afterRival.filter(a => {
+    if ((a.trust_tier || a.trust) === 'T4' && !bjkMatch(a.title || '')) {
+      rejected.push({
+        url: a.url || a.original_url, title: a.title,
+        source_name: a.source_name || a.source, published_at: a.published_at,
+        _stage: 't4_title_gate',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+        drop_detail: 'T4 source: no BJK keyword in title',
+      });
+      return false;
+    }
+    return true;
+  });
+
   // Stage 2: BJK keyword + minimum summary length
-  const afterKeyword = afterRival.filter(a => {
+  const afterKeyword = afterT4Gate.filter(a => {
     const haystack = `${a.title} ${a.summary || ''} ${a.full_text || ''}`.slice(0, 600);
     if (!bjkMatch(haystack)) {
       rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'off_topic',
@@ -213,6 +232,7 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
     articles: afterTitle,
     counts: {
       after_date:    afterDate.length,
+      after_t4_gate: afterT4Gate.length,
       after_keyword: afterKeyword.length,
       after_hash:    afterHash.length,
       after_title:   afterTitle.length,
