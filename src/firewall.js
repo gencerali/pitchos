@@ -67,6 +67,104 @@ Return only the JSON. Do not invent new story_type values.`;
 // They should NOT feed into the long-running story system.
 export const SKIP_STORY_TYPES = new Set(['match_result', 'squad']);
 
+// ─── COMBINED EXTRACT + SCORE (Phase 1) ──────────────────────
+// Single Haiku call on the full article body — replaces the old
+// classifyStoryType + extractFactsForStory two-call pattern.
+// Persists to facts + fact_lineage and returns the extracted data.
+export async function extractAndScore(bodyText, article, env) {
+  const source = (bodyText || '').trim()
+    ? `${article.title}.\n${bodyText}`.slice(0, 2500)
+    : `${article.title}. ${article.summary || ''}`.slice(0, 800);
+
+  const prompt = `Analyze this Turkish football article for Beşiktaş fan site Kartalix. Return ONLY valid JSON. Extract only what is explicitly stated.
+
+story_type (pick exactly one): transfer | injury | disciplinary | contract | match_result | squad | institutional | other
+story_category: sporting | financial | institutional | other
+nvs_score: integer 0-100 (Beşiktaş relevance x newsworthiness; 100=breaking BJK news, 0=no BJK angle)
+
+{
+  "story_type": "...",
+  "story_category": "...",
+  "nvs_score": 0,
+  "entities": { "players": [], "clubs": [], "competitions": [] },
+  "numbers": { "transfer_fee": null, "contract_years": null, "ban_games": null, "recovery_weeks": null, "fine_amount": null, "other": [] },
+  "dates": { "primary_date": null, "other": [] }
+}
+
+Article:
+${source}
+
+Return only the JSON.`;
+
+  try {
+    const res    = await callClaude(env, MODEL_FETCH, prompt, false, 500);
+    const raw    = extractText(res.content);
+    const m      = raw.match(/\{[\s\S]*\}/);
+    if (!m) return _fallbackExtractAndScore();
+
+    const p = JSON.parse(m[0]);
+    const facts = {
+      story_type:     normalizeStoryType(p.story_type),
+      story_category: p.story_category || 'other',
+      nvs_score:      typeof p.nvs_score === 'number' ? Math.max(0, Math.min(100, Math.round(p.nvs_score))) : null,
+      entities: {
+        players:      Array.isArray(p.entities?.players)      ? p.entities.players      : [],
+        clubs:        Array.isArray(p.entities?.clubs)        ? p.entities.clubs        : [],
+        competitions: Array.isArray(p.entities?.competitions) ? p.entities.competitions : [],
+      },
+      numbers: {
+        transfer_fee:   p.numbers?.transfer_fee   ?? null,
+        contract_years: p.numbers?.contract_years ?? null,
+        ban_games:      p.numbers?.ban_games      ?? null,
+        recovery_weeks: p.numbers?.recovery_weeks ?? null,
+        fine_amount:    p.numbers?.fine_amount    ?? null,
+        other:          Array.isArray(p.numbers?.other) ? p.numbers.other : [],
+      },
+      dates: {
+        primary_date: p.dates?.primary_date ?? null,
+        other:        Array.isArray(p.dates?.other) ? p.dates.other : [],
+      },
+    };
+
+    const factsRows = await supabasePost(env, '/rest/v1/facts', {
+      content_item_id:          article.id      ?? null,
+      site_id:                  article.site_id ?? null,
+      story_type:               facts.story_type,
+      entities:                 facts.entities,
+      numbers:                  facts.numbers,
+      dates:                    facts.dates,
+      extraction_model:         MODEL_FETCH,
+      extraction_input_tokens:  res.usage?.input_tokens  ?? null,
+      extraction_output_tokens: res.usage?.output_tokens ?? null,
+    });
+
+    await supabasePost(env, '/rest/v1/fact_lineage', {
+      content_item_id:          article.id ?? null,
+      facts_id:                 factsRows?.[0]?.id ?? null,
+      source_url:               article.url || article.original_url || '',
+      source_name:              article.source_name || '',
+      source_text_length:       source.length,
+      extraction_model:         MODEL_FETCH,
+      extraction_tokens_in:     res.usage?.input_tokens  ?? null,
+      extraction_tokens_out:    res.usage?.output_tokens ?? null,
+      destruction_confirmed_at: new Date().toISOString(),
+    });
+
+    return { ...facts, _id: factsRows?.[0]?.id ?? null, _usage: res.usage ?? null };
+  } catch {
+    return _fallbackExtractAndScore();
+  }
+}
+
+function _fallbackExtractAndScore() {
+  return {
+    story_type: 'other', story_category: 'other', nvs_score: null, _id: null, _usage: null,
+    entities: { players: [], clubs: [], competitions: [] },
+    numbers:  { transfer_fee: null, contract_years: null, ban_games: null, recovery_weeks: null, fine_amount: null, other: [] },
+    dates:    { primary_date: null, other: [] },
+  };
+}
+
 // ─── TRANSFER FACT SCHEMA ─────────────────────────────────────
 // Extraction scope: named entities (players, clubs, competitions),
 // numbers (fees, contract length, goals, minutes), dates only.
