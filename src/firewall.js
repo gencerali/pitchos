@@ -81,11 +81,13 @@ export async function extractAndScore(bodyText, article, env) {
 story_type (pick exactly one): transfer | injury | disciplinary | contract | match_result | squad | institutional | other
 story_category: sporting | financial | institutional | other
 nvs_score: integer 0-100 (Beşiktaş relevance x newsworthiness; 100=breaking BJK news, 0=no BJK angle)
+key_quotes: array of up to 3 verbatim short quotes or key phrases from the article that add voice (empty array if none)
 
 {
   "story_type": "...",
   "story_category": "...",
   "nvs_score": 0,
+  "key_quotes": [],
   "entities": { "players": [], "clubs": [], "competitions": [] },
   "numbers": { "transfer_fee": null, "contract_years": null, "ban_games": null, "recovery_weeks": null, "fine_amount": null, "other": [] },
   "dates": { "primary_date": null, "other": [] }
@@ -107,6 +109,7 @@ Return only the JSON.`;
       story_type:     normalizeStoryType(p.story_type),
       story_category: p.story_category || 'other',
       nvs_score:      typeof p.nvs_score === 'number' ? Math.max(0, Math.min(100, Math.round(p.nvs_score))) : null,
+      key_quotes:     Array.isArray(p.key_quotes) ? p.key_quotes.filter(q => typeof q === 'string' && q.trim()) : [],
       entities: {
         players:      Array.isArray(p.entities?.players)      ? p.entities.players      : [],
         clubs:        Array.isArray(p.entities?.clubs)        ? p.entities.clubs        : [],
@@ -158,7 +161,8 @@ Return only the JSON.`;
 
 function _fallbackExtractAndScore() {
   return {
-    story_type: 'other', story_category: 'other', nvs_score: null, _id: null, _usage: null,
+    story_type: 'other', story_category: 'other', nvs_score: null, key_quotes: [],
+    _id: null, _usage: null,
     entities: { players: [], clubs: [], competitions: [] },
     numbers:  { transfer_fee: null, contract_years: null, ban_games: null, recovery_weeks: null, fine_amount: null, other: [] },
     dates:    { primary_date: null, other: [] },
