@@ -1,6 +1,6 @@
 import { callClaude, extractText, supabase, generateSlug, MODEL_FETCH, MODEL_GENERATE, getEditorialNotes } from './utils.js';
 import { fetchViaReadability, cacheToKV, getCachedArticles, checkContentCoversTitlePromise } from './publisher.js';
-import { BJK_REGEX } from './processor.js';
+import { BJK_REGEX, ensureBjkFirstTitle } from './processor.js';
 import { normalizeStoryType } from './firewall.js';
 
 // ─── CONFIDENCE DELTAS ────────────────────────────────────────
@@ -479,6 +479,7 @@ BAŞLIK: [Türkçe manşet buraya]
 
 [haber gövdesi buraya]
 - 350–500 kelime, güçlü Kartalix sesi
+- Burası bir BEŞİKTAŞ sitesidir: manşeti ve haberi Beşiktaş açısından kur; rakip kulübü (Fenerbahçe/Galatasaray/Trabzonspor) ASLA manşete başa/özne yapma, yalnızca Beşiktaş'tan sonra bağlam olarak geçebilir
 - Lede: en önemli bilgiyi ilk cümlede ver, doğrudan ve çarpıcı
 - Kaynakların çerçevesinden bağımsız kendi Kartalix açını bul
 - Rakam ve tarih bilgilerini doğru kullan, yorumlarda özgün ol
@@ -500,6 +501,7 @@ BAŞLIK: [Türkçe manşet buraya]
     } else {
       body = raw;
     }
+    title = await ensureBjkFirstTitle(title, body, env); // never lead with a rival club
     console.log(`SYNTH-D2: story ${story.id} → title="${title.slice(0,60)}" ${body.split(/\s+/).length} words from ${validSources.length} sources`);
   } catch (e) {
     console.error('SYNTH-D2 failed:', e.message);

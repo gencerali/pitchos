@@ -1,4 +1,4 @@
-import { simpleHash, callClaude, extractText, MODEL_SCORE, supabase, bjkMatch, bjkMatchDetail } from './utils.js';
+import { simpleHash, callClaude, extractText, MODEL_SCORE, MODEL_FETCH, supabase, bjkMatch, bjkMatchDetail } from './utils.js';
 
 export const BJK_REGEX  = /beşiktaş|besiktas|bjk|kartal|siyah.beyaz/i;
 export const CUTOFF_48H = 72 * 60 * 60 * 1000; // kept for any external callers
@@ -41,6 +41,56 @@ export function isRivalSubject(title) {
   const ascii = t.normalize('NFKD').replace(/[̀-ͯ]/g, '');
   const hasRival = RIVAL_KEYWORDS.some(k => t.includes(k)) || RIVAL_FIGURES.some(k => ascii.includes(k));
   return hasRival && !BJK_ANGLE_RE.test(t);
+}
+
+// Editorial framing guard (NOT a drop guard): true when a title FOREGROUNDS a rival club —
+// a rival CLUB token appears before any Beşiktaş token. On a BJK fan site rivals may be
+// mentioned but must never lead/be the subject (e.g. "Galatasaray'a kimler veda edecek?
+// Beşiktaş hangi futbolcuları transfer edecek" reads rival-first, 2026-06-23).
+// Whitelists legitimate rival-first framings so we never mangle them:
+//   • derby coverage ("…derbi…")
+//   • rival in adjective/genitive form = Beşiktaş acquiring FROM the rival
+//     ("Galatasaraylı yıldız Beşiktaş'a", "Fenerbahçe'nin yıldızını Beşiktaş istiyor").
+// Bias to false-negatives (leave a title) over false-positives, and the only action taken
+// on a hit is a reframe attempt — never a drop. Uses RIVAL_KEYWORDS (clubs) only.
+export function isRivalLedTitle(title) {
+  const t = (title || '').toLowerCase();
+  let rivalIdx = -1, matched = '';
+  for (const k of RIVAL_KEYWORDS) {
+    const i = t.indexOf(k);
+    if (i !== -1 && (rivalIdx === -1 || i < rivalIdx)) { rivalIdx = i; matched = k; }
+  }
+  if (rivalIdx === -1) return false;             // no rival club → fine
+  const bjkIdx = t.search(BJK_ANGLE_RE);
+  if (bjkIdx === -1) return false;               // no BJK angle → isRivalSubject's job (drop), not framing
+  if (bjkIdx <= rivalIdx) return false;          // Beşiktaş already leads → fine
+  if (/derbi/.test(t)) return false;             // derby coverage is legitimately two-club
+  // Rival in adjective (-lı/li/lu/lü) or genitive (-'nın/nin… / -'ın/in…) form → BJK acquiring
+  // from the rival; that's a BJK-first story, leave it.
+  const after = t.slice(rivalIdx + matched.length, rivalIdx + matched.length + 4);
+  if (/^'?(l[ıiuü]|n[ıiuü]n|[ıiuü]n)/.test(after)) return false;
+  return true;                                   // rival leads with no whitelist → rival-led
+}
+
+// Reframe a rival-led title so it leads with Beşiktaş. Cheap Haiku call made ONLY when
+// isRivalLedTitle flags (≈0 marginal cost). Never mangles: returns the ORIGINAL title if the
+// reframe fails the framing re-check or the length bounds (false-negative bias by design).
+// Shared chokepoint for every generation path (synthesis, video, story synthesis).
+export async function ensureBjkFirstTitle(title, body, env, _usages = null) {
+  if (!isRivalLedTitle(title)) return title;
+  const prompt = `Bu başlık bir rakip kulübü öne çıkarıyor. Burası bir BEŞİKTAŞ haber sitesi. Başlığı yeniden yaz: Beşiktaş'ı (ya da Beşiktaş'ın oyuncusunu/teknik direktörünü) başa al; rakip kulüp (Fenerbahçe/Galatasaray/Trabzonspor) ASLA başta veya özne olmasın — yalnızca Beşiktaş'tan sonra, bağlam olarak geçebilir. Anlamı koru, uydurma bilgi ekleme.
+
+MEVCUT BAŞLIK: ${title}
+HABER METNİ: ${(body || '').slice(0, 1200)}
+
+50-90 karakter, abartı yok, emoji yok, tamamı büyük harf yok, ünlem yok. Sadece yeni başlığı yaz.`;
+  try {
+    const res = await callClaude(env, MODEL_FETCH, prompt, false, 50);
+    if (_usages && res?.usage) _usages.push({ model: MODEL_FETCH, usage: res.usage });
+    const out = extractText(res.content).trim().replace(/^["'«»]+|["'«»]+$/g, '').replace(/\.+$/, '').trim();
+    if (out.length >= 25 && out.length <= 100 && !isRivalLedTitle(out)) return out;
+  } catch { /* fall through to original */ }
+  return title;
 }
 
 // ─── PRE-FILTER (pure JS, zero Claude calls) ─────────────────

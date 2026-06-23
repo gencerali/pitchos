@@ -1,5 +1,5 @@
 ﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, getVoicePatterns, addUsagePhase, addCost, flushCostStats, saveSourceFact } from './utils.js';
-import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens } from './processor.js';
+import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens, ensureBjkFirstTitle } from './processor.js';
 import { articleBodyToHtml } from './render.js';
 import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
@@ -460,7 +460,8 @@ ${body.slice(0, 1500)}
 Bu haber için Türkçe bir başlık yaz:
 - 50-75 karakter
 - Haberin ana iddiasını yansıt (yan detayı değil)
-- Öznenin adını (oyuncu / teknik direktör / kulüp) erken kullan
+- Burası bir BEŞİKTAŞ sitesidir: başlığı Beşiktaş açısından kur. Beşiktaş'ı (ya da Beşiktaş'ın oyuncusunu/teknik direktörünü) başa al; rakip kulübü (Fenerbahçe/Galatasaray/Trabzonspor) ASLA başa veya özne yapma — rakip yalnızca Beşiktaş'tan sonra, bağlam olarak geçebilir
+- Öznenin adını (Beşiktaşlı oyuncu / teknik direktör / Beşiktaş) erken kullan
 - Abartma yok: "flaş", "bomba", "şok", "sürpriz" kullanma (metinde açıkça yoksa)
 - Emoji yok, tamamı büyük harf yok, ünlem işareti yok
 - Gerçek bir Türk futbol haberi başlığı gibi oku
@@ -472,15 +473,15 @@ Sadece başlığı yaz. Başka hiçbir şey yazma.`;
     const res = await callClaude(env, MODEL_FETCH, prompt, false, 50);
     if (_usages && res?.usage) _usages.push({ model: MODEL_FETCH, usage: res.usage });
     const title = clean(extractText(res.content));
-    if (title.length >= 30 && title.length <= 100) return title;
+    if (title.length >= 30 && title.length <= 100) return ensureBjkFirstTitle(title, body, env, _usages);
 
     const res2 = await callClaude(env, MODEL_FETCH, prompt, false, 50);
     if (_usages && res2?.usage) _usages.push({ model: MODEL_FETCH, usage: res2.usage });
     const title2 = clean(extractText(res2.content));
-    if (title2.length >= 30 && title2.length <= 100) return title2;
+    if (title2.length >= 30 && title2.length <= 100) return ensureBjkFirstTitle(title2, body, env, _usages);
 
     // Fallback: first sentence of body capped at 80 chars
-    return (body.split(/[.!?]/)[0].trim().slice(0, 80)) || rssTitle;
+    return ensureBjkFirstTitle((body.split(/[.!?]/)[0].trim().slice(0, 80)) || rssTitle, body, env, _usages);
   } catch {
     return rssTitle;
   }
@@ -632,6 +633,7 @@ Kurallar:
   * Kaynak desteklemeyen yoğunlaştırıcılar: flaş, bomba, şok, sürpriz, tarihi, kritik — kaynak metinde bu kelime yoksa kullanma
   * Dolgu cümlesi — kelime hedefine ulaşmak için ek cümle ekleme
 - Kaynak metinde tırnak içinde alıntı varsa kelimesi kelimesine koru
+- Kaynak birden fazla kulübü karşılaştırıyorsa (ör. "X'e kimler veda edecek, Beşiktaş kimi alacak"), YALNIZCA Beşiktaş'ı ilgilendiren kısmı işle; rakip kulüpler sadece bağlam olarak geçsin, haberin öznesi her zaman Beşiktaş olsun
 - DOĞRULANMIŞ VERİLER arka plan bilgisidir: sezon bağlamını habere işle ama birebir aktarma
 - Paragraflar arası boş satır bırak
 - Haber 350 kelimeyi aşarsa konuyu bölen EN FAZLA 2 kısa ara başlık kullan: kendi satırında "## Ara Başlık", ASLA ilk paragraftan önce. Daha kısa haberlerde ara başlık yok.
@@ -3194,9 +3196,9 @@ KURALLAR:
   if (!raw || raw.length < 100) return null;
 
   const titleMatch = raw.match(/^BAŞLIK:\s*(.+)/m);
-  const title = titleMatch ? titleMatch[1].trim() : video.title;
   const bodyText = raw.replace(/^BAŞLIK:.*\n+/m, '').trim();
   if (bodyText.length < 100) return null;
+  const title = await ensureBjkFirstTitle(titleMatch ? titleMatch[1].trim() : video.title, bodyText, env);
 
   const slug = generateSlug(title, video.published_at);
   // Shared converter: paragraphs + **bold** + gated ## subheads (same as the renderers).

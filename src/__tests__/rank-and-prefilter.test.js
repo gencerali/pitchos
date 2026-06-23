@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { preFilter, isRivalSubject } from '../processor.js';
+import { preFilter, isRivalSubject, isRivalLedTitle } from '../processor.js';
 import { rankAndEvict, SCORING_CONFIG_DEFAULTS as CFG } from '../publisher.js';
 import { simpleHash } from '../utils.js';
 
@@ -85,6 +85,23 @@ describe('isRivalSubject — deterministic rival guard', () => {
     expect(isRivalSubject("İsmail Kartal'dan Tadic'e sürpriz telefon! Geri mi dönüyor")).toBe(true);
     // …but a genuine Beşiktaş angle still spares it.
     expect(isRivalSubject('Beşiktaş, İsmail Kartal ile görüştü')).toBe(false);
+  });
+});
+
+describe('isRivalLedTitle — editorial framing guard (rival foregrounded)', () => {
+  it('flags a title that LEADS with a rival club before Beşiktaş', () => {
+    expect(isRivalLedTitle("Galatasaray'a kimler veda edecek? Beşiktaş hangi futbolcuları transfer edecek")).toBe(true);
+    expect(isRivalLedTitle("Trabzonspor'a teklif yağıyor, Beşiktaş da devrede")).toBe(true);
+  });
+  it('does NOT flag Beşiktaş-led, rivalless, or derby titles', () => {
+    expect(isRivalLedTitle('Beşiktaş hangi futbolcuları transfer edecek?')).toBe(false);
+    expect(isRivalLedTitle('Beşiktaş yeni transferini açıkladı')).toBe(false);
+    expect(isRivalLedTitle('Beşiktaş-Galatasaray derbisi ne zaman')).toBe(false);
+    expect(isRivalLedTitle('Galatasaray-Beşiktaş derbisi öncesi flaş gelişme')).toBe(false);
+  });
+  it('does NOT flag rival-to-BJK transfers (rival in adjective/genitive form)', () => {
+    expect(isRivalLedTitle("Galatasaraylı yıldız Beşiktaş'a geliyor")).toBe(false);
+    expect(isRivalLedTitle("Fenerbahçe'nin yıldızını Beşiktaş istiyor")).toBe(false);
   });
 });
 
