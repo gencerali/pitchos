@@ -23,7 +23,7 @@ Items deferred from the gamification build session (2026-06-14):
 
 **NEXT** — 3-phase ingestion overhaul (both legacy + Method B benefit)
 
-### Phase 0 — Firewall hardening (pure JS, zero Claude cost) ✅ DONE
+### Phase 0 — Firewall hardening (pure JS, zero Claude cost) ✅
 Goal: block more noise before any LLM call.
 
 **Changes:**
@@ -35,7 +35,7 @@ Goal: block more noise before any LLM call.
 
 ---
 
-### Phase 1 — Body-first unified extraction (next)
+### Phase 1 — Body-first unified extraction ✅
 Goal: replace 2 serial Haiku calls (classify + extract-from-blurb) with 1 Haiku call on the full article body.
 
 **Planned changes:**
@@ -49,31 +49,32 @@ Goal: replace 2 serial Haiku calls (classify + extract-from-blurb) with 1 Haiku 
 
 ---
 
-### Phase 2 — Synthesis from stored facts
-Goal: Sonnet synthesis reads the `facts` row (not body text) → input tokens ~4000→1200 tokens (~70% cut).
+### Phase 2 — Synthesis from stored facts ✅
 
-**Planned changes:**
-- `src/publisher.js`: `synthesizeArticle` reads `facts` row by `content_item_id`; `key_quotes` field in `facts` bridges structured data to synthesis voice.
-- Existing synthesis tests updated to cover the facts-first path.
+`synthesizeFromFacts()` in `src/publisher.js` builds a ~500-char compact prompt from entities/numbers/dates/key_quotes. `writeArticles` extracts facts at the TOP of the loop (before mode dispatch) so `synthesizeArticle` can use them via `article._facts`. Falls back to full proxy-fetch synthesis when facts are too sparse.
 
-**QA gate:** `npx vitest run src/__tests__/` → full suite green.
+**QA gate:** `npx vitest run src/__tests__/` → 422 pass, 20 pre-existing gamification failures. ✅
 
 ---
 
-### Dry-run plan (after all 3 phases)
-**Goal:** report on 50 recent `content_items` — which articles are blocked at each firewall stage and what facts are extracted from those that pass.
+### Dry-run plan ✅ — script ready, needs at-laptop run
 
-**Script:** `scripts/dry-run-pipeline.js` (to be created):
-1. Fetch 50 recent `content_items` from Supabase (last 24h, all sites).
-2. Run each through the Phase 0 JS filters with logging (no LLM calls).
-3. For articles that pass the JS filters, call `extractAndScore` (Phase 1) with a `DRY_RUN=true` flag that returns the prompt but skips the Claude call.
-4. For a 10-article sample, make real `extractAndScore` calls and log the extracted facts.
-5. Output: Markdown report with:
-   - Per-article table: URL, title, trust_tier, filter stage where blocked (or `PASS`), drop detail.
-   - Facts table (10-article sample): player/club/fee/dates extracted.
-   - Summary stats: pass rate per stage, per trust tier.
+**Script:** `scripts/dry-run-pipeline.mjs`
 
-**QA gate for dry-run:** visual inspection of the Markdown report; expect ≥20% T4 articles blocked at Stage 1.7 (based on observed T4 volume).
+```bash
+SUPABASE_URL=https://xxx.supabase.co \
+SUPABASE_SERVICE_KEY=xxx \
+ANTHROPIC_API_KEY=xxx \
+node scripts/dry-run-pipeline.mjs --limit 50 --live-extract 10 > dry-run-report.md
+```
+
+**What it produces:**
+- Summary table: total fetched, pass rate, drop counts per stage, pass rate by trust tier.
+- Per-article table (up to 80 rows): title, trust tier, source, PASS/DROP, which stage blocked it, drop detail.
+- Facts table for the 10 live-extracted articles: story_type, nvs_score, players, clubs, fees, dates, key_quotes.
+- Story type distribution from the live extraction.
+
+**QA gate:** visual inspection — expect ≥20% T4 articles blocked at `t4_title_gate`.
 
 ---
 
