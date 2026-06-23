@@ -32,6 +32,13 @@ jobs:
           wranglerVersion: '4.80.0'
           command: pages deploy . --project-name=pitchos --branch=main
 
+      - name: Deploy pitchos-story-agent (Method B Worker)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.PITCHOS_DEPLOY }}
+          wranglerVersion: '4.80.0'
+          command: deploy -c wrangler-story.toml
+
       - name: Deploy pitchos-bot-cron (Worker)
         uses: cloudflare/wrangler-action@v3
         with:
