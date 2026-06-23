@@ -9,6 +9,7 @@
 create table if not exists topics (
   id               uuid primary key default gen_random_uuid(),
   site_id          int  not null,
+  title            text,                           -- primary headline of the topic (from first correlating item)
   story_type       text not null,                 -- transfer/injury/disciplinary/contract/institutional/match/other
   news_mode        text not null default 'accretive', -- 'event' | 'accretive'
   entities         jsonb not null default '{}',

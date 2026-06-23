@@ -21,9 +21,68 @@ Items deferred from the gamification build session (2026-06-14):
 
 ## NEXT ACTION
 
-**NEXT** (Sprint 1 rescoped around **Method B** — see `docs/method-b-design.md`):
-1. **Deploy & observe** — `npx wrangler deploy -c wrangler-story.toml` + secrets, apply `0014_method_b.sql`, set KV `methodb:enabled=1`, then watch `/admin/pipeline` for a few days. Tune the rules pre-filter, delta prompt, and synthesis voice against real output. ← this task
-2. Step 3 — Haiku judge in `correlateToTopic` + `branch_of`/`sequel_of` edges (derbi→skandal, hoca krizi) + parallel claim-tracks (rakip-kulüp transfers). *(hold until shadow output observed.)*
+**NEXT** — 3-phase ingestion overhaul (both legacy + Method B benefit)
+
+### Phase 0 — Firewall hardening (pure JS, zero Claude cost) ✅
+Goal: block more noise before any LLM call.
+
+**Changes:**
+- `src/utils.js`: `BJK_CORE_SUBSTRINGS` + substring-first `bjkMatch`/`bjkMatchDetail` — catches Turkish agglutinated forms (`Beşiktaşlı`, `BJK'li`, `Beşiktaşa`) that the old token-split missed.
+- `src/processor.js`: Stage 1.7 T4 title gate — T4 aggregators must name BJK in the TITLE; summary-only matches no longer survive.
+- `src/__tests__/rank-and-prefilter.test.js`: tests for agglutinated forms + T4 gate.
+
+**QA gate:** `npx vitest run src/__tests__/rank-and-prefilter.test.js` → all pass. ✅
+
+---
+
+### Phase 1 — Body-first unified extraction ✅
+Goal: replace 2 serial Haiku calls (classify + extract-from-blurb) with 1 Haiku call on the full article body.
+
+**Planned changes:**
+- `src/firewall.js`: new `extractAndScore(bodyText, article, env)` → one Haiku call returning `{ story_type, story_category, nvs_score, entities, numbers, dates }`.
+- Remove `classifyStoryType` + `extractFactsForStory` as separate pipeline steps.
+- `src/publisher.js`: remove `MAX_FACTS_EXTRACTS = 5` cap (was a budget hack; body-first extraction is the right guardrail).
+- `worker-fetch-agent.js`: thread `full_text` through to `extractAndScore`; store refined `nvs_score` back onto `content_items`.
+- New test: `src/__tests__/extract-and-score.test.js` — mock Claude responses, verify schema normalisation.
+
+**QA gate:** `npx vitest run src/__tests__/extract-and-score.test.js` → all pass.
+
+---
+
+### Phase 2 — Synthesis from stored facts ✅
+
+`synthesizeFromFacts()` in `src/publisher.js` builds a ~500-char compact prompt from entities/numbers/dates/key_quotes. `writeArticles` extracts facts at the TOP of the loop (before mode dispatch) so `synthesizeArticle` can use them via `article._facts`. Falls back to full proxy-fetch synthesis when facts are too sparse.
+
+**QA gate:** `npx vitest run src/__tests__/` → 422 pass, 20 pre-existing gamification failures. ✅
+
+---
+
+### Dry-run plan ✅ — script ready, needs at-laptop run
+
+**Script:** `scripts/dry-run-pipeline.mjs`
+
+```bash
+SUPABASE_URL=https://xxx.supabase.co \
+SUPABASE_SERVICE_KEY=xxx \
+ANTHROPIC_API_KEY=xxx \
+node scripts/dry-run-pipeline.mjs --limit 50 --live-extract 10 > dry-run-report.md
+```
+
+**What it produces:**
+- Summary table: total fetched, pass rate, drop counts per stage, pass rate by trust tier.
+- Per-article table (up to 80 rows): title, trust tier, source, PASS/DROP, which stage blocked it, drop detail.
+- Facts table for the 10 live-extracted articles: story_type, nvs_score, players, clubs, fees, dates, key_quotes.
+- Story type distribution from the live extraction.
+
+**QA gate:** visual inspection — expect ≥20% T4 articles blocked at `t4_title_gate`.
+
+---
+
+### After all phases — Method B arming (at-laptop)
+- `npx wrangler secret put SUPABASE_SERVICE_KEY -c wrangler-story.toml`
+- `npx wrangler secret put ANTHROPIC_API_KEY -c wrangler-story.toml`
+- KV `methodb:enabled = 1`
+- Watch `/admin/pipeline`
 
 ---
 

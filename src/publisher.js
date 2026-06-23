@@ -1,7 +1,7 @@
 ﻿import { callClaude, supabase, extractText, simpleHash, MODEL_FETCH, MODEL_GENERATE, generateSlug, getEditorialNotes, getVoicePatterns, addUsagePhase, addCost, flushCostStats, saveSourceFact } from './utils.js';
 import { normalizeTitle, titleSimilarity, extractKeyTokens, sharedStoryTokens, ensureBjkFirstTitle } from './processor.js';
 import { articleBodyToHtml } from './render.js';
-import { extractFacts, writeTransfer, extractFactsForStory, SKIP_STORY_TYPES } from './firewall.js';
+import { extractFacts, writeTransfer, extractAndScore, SKIP_STORY_TYPES } from './firewall.js';
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
 // Note: getBJKLastLineupData + getOpponentLastLineup imported by caller (worker) to avoid circular deps
 
@@ -391,11 +391,8 @@ Bilmiyorsan null yaz.`;
 }
 
 // ─── WRITE ARTICLES (Readability for top 3 only, rss_summary rest) ─
-// extractFacts is capped at MAX_FACTS_EXTRACTS per run — each is a Claude call.
-// Articles arrive sorted by NVS, so only the highest-value P4 articles get facts.
 export const SYNTHESIS_NVS_THRESHOLD = 30;
 export const SYNTHESIS_CAP_PER_RUN = 12;
-export const MAX_FACTS_EXTRACTS = 5;
 
 // Max source-text chars fed to the LLM per article. The same source is sent to ~4 calls
 // (covers-title gate, key-entities, facts extraction — all Haiku — plus the Sonnet synthesis),
@@ -513,8 +510,87 @@ Madde yoksa "Doğrulanmış bilgi yok." yaz.`;
   }
 }
 
+// Phase 2: synthesize from pre-extracted structured facts.
+// Skips proxy fetch + 2 Haiku sub-calls. Input: ~500 chars vs ~6000 chars full body.
+// Used when article._facts are available (set at the top of the writeArticles loop).
+async function synthesizeFromFacts(article, site, env, _usages) {
+  const f = article._facts;
+  const lines = [
+    `Haber türü: ${f.story_type}`,
+    f.entities.players.length      ? `Oyuncular: ${f.entities.players.join(', ')}`      : null,
+    f.entities.clubs.length        ? `Kulüpler: ${f.entities.clubs.join(', ')}`          : null,
+    f.entities.competitions.length ? `Organizasyon: ${f.entities.competitions.join(', ')}` : null,
+    f.numbers.transfer_fee    ? `Bonservis: ${f.numbers.transfer_fee}`             : null,
+    f.numbers.contract_years  ? `Sozlesme: ${f.numbers.contract_years} yil`        : null,
+    f.numbers.ban_games       ? `Men cezasi: ${f.numbers.ban_games} mac`           : null,
+    f.numbers.recovery_weeks  ? `Iyilesme: ${f.numbers.recovery_weeks} hafta`      : null,
+    f.numbers.fine_amount     ? `Para cezasi: ${f.numbers.fine_amount}`            : null,
+    ...(f.numbers.other || []).map(n => `Diger sayi: ${n}`),
+    f.dates.primary_date ? `Tarih: ${f.dates.primary_date}` : null,
+    ...(f.dates.other || []).map(d => `Tarih (diger): ${d}`),
+    ...(f.key_quotes || []).slice(0, 2).map(q => `Alinti: "${q}"`),
+  ].filter(Boolean);
+
+  if (lines.length < 2) return null; // too sparse — caller falls back to full synthesis
+
+  const [editorialCtx, voicePatterns, groundingCtx] = await Promise.all([
+    getEditorialNotes(env, ['general', 'style'], { excludeVoicePatterns: true }),
+    getVoicePatterns(env),
+    buildGroundingContext(env, site),
+  ]);
+
+  const systemText = `Sen Kartalix'in Besiktas spor editorusun. Gorev: verilen gercekleri kullanarak ozgun Turkce Kartalix haberi yazmak.${editorialCtx}${groundingCtx}
+
+Kurallar:
+- Turkce, dogrudan haber uslubu
+- ILK CUMLE: KISILER ve OLAY — kim, ne yapti/oldu
+- Yalnizca asagidaki gercekleri kullan — bunlar disinda hicbir bilgi ekleme
+- Abartma yok: flas, bomba, sok, surpriz — gerceklerde yoksa kullanma
+- Paragraflar arasi bos satir birak
+- Ana baslik (H1) ekleme`;
+  const systemPrompt = [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }];
+
+  const voiceBlock = voicePatterns ? `\n\n${voicePatterns.trimEnd()}` : '';
+  const userContent = `Kaynak baslik: ${article.title}
+
+Dogrulanmis gercekler:
+${lines.join('\n')}
+${voiceBlock}
+
+150-300 kelime. Sadece verilen gercekleri kullan.`;
+
+  const res = await callClaude(env, MODEL_GENERATE, userContent, false, 800, systemPrompt);
+  if (res?.usage) _usages.push({ model: MODEL_GENERATE, usage: res.usage });
+  const body = extractText(res.content).trim();
+  if (!body || body.length < 200) return null;
+
+  const kartalixTitle = await generateKartalixTitle(body, article.title, env, _usages);
+  return { body, title: kartalixTitle, needs_review: false, _source: 'facts' };
+}
+
 export async function synthesizeArticle(article, env, site = null, opts = {}) {
   const _usages = []; // accumulates { model, usage } from all sub-calls
+
+  // Phase 2: facts-first path — skips proxy fetch when structured facts are available.
+  if (article._facts && article._facts.story_type !== 'other' && article._facts.entities) {
+    const factsResult = await synthesizeFromFacts(article, site, env, _usages);
+    if (factsResult) {
+      const h = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+      const s = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+      for (const { model, usage } of _usages) {
+        const t = model === MODEL_GENERATE ? s : h;
+        t.input_tokens                += usage.input_tokens                || 0;
+        t.output_tokens               += usage.output_tokens               || 0;
+        t.cache_creation_input_tokens += usage.cache_creation_input_tokens || 0;
+        t.cache_read_input_tokens     += usage.cache_read_input_tokens     || 0;
+      }
+      console.log(`FACTS-SYNTH [${article.nvs}]: "${article.title?.slice(0, 50)}"`);
+      return { ...factsResult, _usage: { haiku: h, sonnet: s } };
+    }
+    // If facts synthesis produced too-short output, fall through to full synthesis below.
+    console.log(`FACTS-SYNTH FALLBACK [${article.nvs}]: sparse facts, trying full synthesis`);
+  }
+
   const srcUrl = article.url || article.original_url || '';
   let sourceText = null; // null = source not fetched; synthesis requires real source text
 
@@ -721,7 +797,6 @@ ${targetWords} kelime — fazlası yasak. Kaynak kaç bilgi veriyorsa o kadar ya
 
 export async function writeArticles(articles, site, env) {
   const results = [];
-  let factsExtracted = 0;
   const _writeUsage = { haiku: { input_tokens: 0, output_tokens: 0 }, sonnet: { input_tokens: 0, output_tokens: 0 } };
 
   // Warm proxy once before the loop if any article is likely to need synthesis.
@@ -738,6 +813,22 @@ export async function writeArticles(articles, site, env) {
 
   for (let i = 0; i < articles.length; i++) {
     const article = articles[i];
+
+    // Phase 2: extract facts BEFORE mode dispatch so synthesizeArticle can use them.
+    // Mutating article (const reference, mutable object) is safe here — articles
+    // are plain objects created by the pipeline, not shared state.
+    if (article.is_p4 && !article._facts) {
+      try {
+        article._facts = await extractAndScore(article.full_text || '', article, env);
+        if (article._facts) {
+          console.log(`FACTS [${article._facts.story_type}] nvs=${article._facts.nvs_score}: "${article.title?.slice(0, 50)}"`);
+        }
+      } catch (e) {
+        console.error('extractAndScore failed:', e.message, '| article:', article.title?.slice(0, 60));
+      }
+      await new Promise(r => setTimeout(r, 200));
+    }
+
     const mode = decidePublishMode(article);
     let published = { ...article, publish_mode: mode };
 
@@ -846,22 +937,11 @@ export async function writeArticles(articles, site, env) {
         }
       }
 
-      // Extract facts for story matching (top P4 articles only, capped at MAX_FACTS_EXTRACTS).
-      // Classifies story type first — skips match_result/squad (handled by templates).
-      if (article.is_p4 && factsExtracted < MAX_FACTS_EXTRACTS) {
-        try {
-          const facts = await extractFactsForStory(article, env);
-          if (!SKIP_STORY_TYPES.has(facts.story_type)) {
-            published._facts = facts;
-            console.log(`FACTS [${facts.story_type}]: "${article.title?.slice(0, 50)}"`);
-          } else {
-            console.log(`FACTS [${facts.story_type}]: skipped story intake — "${article.title?.slice(0, 50)}"`);
-          }
-          factsExtracted++;
-        } catch (e) {
-          console.error('extractFactsForStory failed:', e.message, '| article:', article.title?.slice(0, 60));
-        }
-        await new Promise(r => setTimeout(r, 200));
+      // Propagate facts (extracted at top of loop) to the published record for story intake.
+      if (article._facts && !SKIP_STORY_TYPES.has(article._facts.story_type)) {
+        published._facts = article._facts;
+      } else if (article._facts) {
+        console.log(`FACTS [${article._facts.story_type}]: skipped story intake — "${article.title?.slice(0, 50)}"`);
       }
     }
 
@@ -935,10 +1015,11 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
           if (sim >= 0.5) return true;
           const shared = sharedStoryTokens(aKeys, extractKeyTokens(rt), true); // root-aware
           if (shared >= 3) return true;
-          // Paraphrased same-story headlines share few EXACT words but ≥2 meaningful roots
-          // plus moderate word overlap — e.g. the 4× "Beşiktaş UEFA kısıtlamaları" story
-          // ("geride bıraktı" / "tamamladı" / "tamamen kurtuldu"). (2026-06-18)
-          return shared >= 2 && sim >= 0.3;
+          // Paraphrased same-story headlines share ≥2 meaningful non-stopword roots even when
+          // word overlap (sim) is low — e.g. the 4× "Beşiktaş UEFA kısıtlamaları" story.
+          // sim backup dropped: TITLE_SIM_STOPWORDS removes generic tokens, so ≥2 shared roots
+          // already implies specific story overlap without needing sim to confirm. (2026-06-23)
+          return shared >= 2;
         });
         if (isDupe) {
           console.log(`CROSS-RUN DEDUP: "${(a.title || '').slice(0, 60)}" — similar article already published in last 24h`);
@@ -963,7 +1044,7 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
       if (sim >= 0.5) return true;
       const shared = sharedStoryTokens(aKeys, extractKeyTokens(k.title), true); // root-aware
       if (shared >= 3) return true;
-      return shared >= 2 && sim >= 0.3; // paraphrased same-story headlines
+      return shared >= 2; // paraphrased same-story headlines (sim backup dropped — see cross-run comment above)
     });
     if (isDupe) console.log(`WITHIN-BATCH DEDUP: "${(a.title || '').slice(0, 60)}" — similar article in same batch`);
     else batchKept.push(a);

@@ -141,8 +141,27 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
     return true;
   });
 
+  // Stage 1.7: T4 source trust gate — aggregators must name BJK in the title.
+  // T4 sources are low-trust aggregators that republish widely; their summaries
+  // frequently mention BJK tangentially (league context, rival comparisons).
+  // Requiring a BJK keyword in the TITLE cuts noise before LLM scoring spend.
+  const afterT4Gate = afterRival.filter(a => {
+    if ((a.trust_tier || a.trust) === 'T4' && !bjkMatch(a.title || '')) {
+      rejected.push({
+        url: a.url || a.original_url, title: a.title,
+        source_name: a.source_name || a.source, published_at: a.published_at,
+        _stage: 't4_title_gate',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: ((a.summary || '') + (a.full_text || '')).length,
+        drop_detail: 'T4 source: no BJK keyword in title',
+      });
+      return false;
+    }
+    return true;
+  });
+
   // Stage 2: BJK keyword + minimum summary length
-  const afterKeyword = afterRival.filter(a => {
+  const afterKeyword = afterT4Gate.filter(a => {
     const haystack = `${a.title} ${a.summary || ''} ${a.full_text || ''}`.slice(0, 600);
     if (!bjkMatch(haystack)) {
       rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'off_topic',
@@ -213,6 +232,7 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
     articles: afterTitle,
     counts: {
       after_date:    afterDate.length,
+      after_t4_gate: afterT4Gate.length,
       after_keyword: afterKeyword.length,
       after_hash:    afterHash.length,
       after_title:   afterTitle.length,
@@ -229,7 +249,21 @@ const KEY_TOKEN_RE = /\b([A-ZÇĞİÖŞÜa-zçğışöşü]{4,}|\d+-\d+)\b/g;
 // NOTE: KEY_TOKEN_RE uses ASCII word boundaries, so a trailing Turkish "ş" is dropped
 // ("Beşiktaş" → token "beşikta", "Kartal'ın" → "kartal"). The truncated/stem forms below
 // must be listed too, or the stopword never matches the actual token. (Found via tests 2026-06-05.)
-const DEDUP_STOPWORDS = new Set(['beşiktaş', 'beşikta', 'besiktas', 'bjk', 'kartal', 'siyahbeyaz', 'siyah', 'beyaz']);
+const DEDUP_STOPWORDS = new Set([
+  'beşiktaş', 'beşikta', 'besiktas', 'bjk', 'kartal', 'siyahbeyaz', 'siyah', 'beyaz',
+  // Generic Turkish football words — appear in almost every transfer headline; without
+  // stopword coverage two unrelated transfer stories match on these alone (2026-06-23).
+  'transfer', 'istiyor', 'gidiyor',
+]);
+
+// Stopwords for titleSimilarity — normalizeTitle uses ASCII-only \w, so Turkish diacritics
+// are stripped before this set is consulted: "Beşiktaş" → "beikta" (ş=b-e-ş-i-k-t-a-ş,
+// both ş stripped → "beikta"), "aldı" → "ald" (3 chars, pre-filtered by >3 before hitting here).
+// These tokens appear in virtually every BJK headline and carry no story-distinguishing signal.
+const TITLE_SIM_STOPWORDS = new Set([
+  'beikta', 'besiktas', 'kartal', 'siyah', 'beyaz',   // club identity (ASCII-stripped forms)
+  'transfer', 'istiyor', 'gidiyor',                    // generic Turkish football verbs/nouns
+]);
 
 export function extractKeyTokens(title) {
   return new Set((title.match(KEY_TOKEN_RE) || []).map(t => t.toLowerCase()));
@@ -272,8 +306,8 @@ export function normalizeTitle(title = '') {
 }
 
 export function titleSimilarity(a, b) {
-  const wordsA = new Set(a.split(' ').filter(w => w.length > 3));
-  const wordsB = new Set(b.split(' ').filter(w => w.length > 3));
+  const wordsA = new Set(a.split(' ').filter(w => w.length > 3 && !TITLE_SIM_STOPWORDS.has(w)));
+  const wordsB = new Set(b.split(' ').filter(w => w.length > 3 && !TITLE_SIM_STOPWORDS.has(w)));
   if (wordsA.size === 0 || wordsB.size === 0) return 0;
   let shared = 0;
   for (const w of wordsA) if (wordsB.has(w)) shared++;
