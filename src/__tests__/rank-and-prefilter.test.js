@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { preFilter, isRivalSubject, isRivalLedTitle } from '../processor.js';
 import { rankAndEvict, SCORING_CONFIG_DEFAULTS as CFG } from '../publisher.js';
-import { simpleHash } from '../utils.js';
+import { simpleHash, bjkMatch } from '../utils.js';
 
 // Characterization tests for the two functions that decide what enters the pipeline
 // (preFilter) and what composes the homepage (rankAndEvict). No prior direct coverage.
@@ -57,6 +57,48 @@ describe('preFilter — intake gating', () => {
     const seen = new Set([simpleHash(a.title + (a.summary || '').slice(0, 100))]);
     const { rejected } = preFilter([a], seen);
     expect(rejected.some(r => r._stage === 'hash_dedup')).toBe(true);
+  });
+});
+
+describe('bjkMatch — Turkish morphology (agglutination)', () => {
+  it('matches agglutinated Beşiktaş forms', () => {
+    expect(bjkMatch('Beşiktaşlı oyuncu transfer oldu')).toBe(true);
+    expect(bjkMatch("Beşiktaş'a yeni teknik direktör geliyor")).toBe(true);
+    expect(bjkMatch('Beşiktaşlıların büyük coşkusu')).toBe(true);
+  });
+  it('matches agglutinated BJK forms', () => {
+    expect(bjkMatch("BJK'li yöneticiler açıklama yaptı")).toBe(true);
+    expect(bjkMatch("BJK'ye transfer teklifi geldi")).toBe(true);
+  });
+  it('still rejects text with no BJK identity', () => {
+    expect(bjkMatch('Fenerbahçe yeni sezona hazır')).toBe(false);
+    expect(bjkMatch('Galatasaray şampiyon oldu')).toBe(false);
+  });
+});
+
+describe('preFilter — T4 title gate (Stage 1.7)', () => {
+  const fresh = () => new Date().toISOString();
+  const longSummary = 'yeterince uzun bir özet metni buraya yazıldı, Beşiktaş bağlamı var.';
+
+  it('passes a T4 article whose title contains a BJK keyword', () => {
+    const a = { title: 'Beşiktaşlı yıldız tekrar sakatlandı', summary: longSummary, url: 'https://x/t4-pass', published_at: fresh(), trust_tier: 'T4' };
+    const { articles } = preFilter([a], new Set());
+    expect(articles).toHaveLength(1);
+  });
+
+  it('drops a T4 article whose title has no BJK keyword even if summary mentions BJK', () => {
+    const a = { title: 'Süper Lig hafta sonu programı açıklandı', summary: longSummary, url: 'https://x/t4-drop', published_at: fresh(), trust_tier: 'T4' };
+    const { articles, rejected } = preFilter([a], new Set());
+    expect(articles).toHaveLength(0);
+    expect(rejected.some(r => r._stage === 't4_title_gate')).toBe(true);
+  });
+
+  it('does NOT apply the T4 gate to higher-trust tiers (T1/T2/T3)', () => {
+    for (const tier of ['T1', 'T2', 'T3']) {
+      const a = { title: 'Süper Lig hafta sonu programı', summary: 'Beşiktaş bu maçta oynayacak, geniş özet burada.', url: `https://x/${tier}`, published_at: fresh(), trust_tier: tier };
+      const { articles } = preFilter([a], new Set());
+      expect(articles).toHaveLength(1);
+    }
   });
 });
 
