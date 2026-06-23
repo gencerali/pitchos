@@ -1015,10 +1015,11 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
           if (sim >= 0.5) return true;
           const shared = sharedStoryTokens(aKeys, extractKeyTokens(rt), true); // root-aware
           if (shared >= 3) return true;
-          // Paraphrased same-story headlines share few EXACT words but ≥2 meaningful roots
-          // plus moderate word overlap — e.g. the 4× "Beşiktaş UEFA kısıtlamaları" story
-          // ("geride bıraktı" / "tamamladı" / "tamamen kurtuldu"). (2026-06-18)
-          return shared >= 2 && sim >= 0.3;
+          // Paraphrased same-story headlines share ≥2 meaningful non-stopword roots even when
+          // word overlap (sim) is low — e.g. the 4× "Beşiktaş UEFA kısıtlamaları" story.
+          // sim backup dropped: TITLE_SIM_STOPWORDS removes generic tokens, so ≥2 shared roots
+          // already implies specific story overlap without needing sim to confirm. (2026-06-23)
+          return shared >= 2;
         });
         if (isDupe) {
           console.log(`CROSS-RUN DEDUP: "${(a.title || '').slice(0, 60)}" — similar article already published in last 24h`);
@@ -1043,7 +1044,7 @@ export async function saveArticles(env, siteId, articles, status = 'published') 
       if (sim >= 0.5) return true;
       const shared = sharedStoryTokens(aKeys, extractKeyTokens(k.title), true); // root-aware
       if (shared >= 3) return true;
-      return shared >= 2 && sim >= 0.3; // paraphrased same-story headlines
+      return shared >= 2; // paraphrased same-story headlines (sim backup dropped — see cross-run comment above)
     });
     if (isDupe) console.log(`WITHIN-BATCH DEDUP: "${(a.title || '').slice(0, 60)}" — similar article in same batch`);
     else batchKept.push(a);

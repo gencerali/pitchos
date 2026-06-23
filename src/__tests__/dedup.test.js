@@ -28,8 +28,21 @@ describe('titleSimilarity — shared >3-char words / max set size', () => {
     expect(titleSimilarity('transfer haberi', 'maç sonucu')).toBe(0);
   });
   it('ignores words of length ≤3', () => {
-    // only "transfer" (>3) counts; "ve","de" dropped
-    expect(titleSimilarity('transfer ve de', 'transfer')).toBe(1);
+    // only "haberi" (>3) counts; "ve","de" dropped; "transfer" is a TITLE_SIM_STOPWORD
+    expect(titleSimilarity('transfer haberi geldi ve de', 'haberi geldi')).toBe(1);
+  });
+  it('filters TITLE_SIM_STOPWORDS: "transfer" and "beikta" do not create false dupe', () => {
+    // Regression for 2026-06-23: two different-player transfer headlines shared only
+    // "beikta" (ASCII-stripped Beşiktaş: ş→stripped → "beikta") + "transfer" → 0.4 similarity, wrongly deduped.
+    const a = normalizeTitle('Beşiktaş Bilal Bayazıt\'ı transfer listesine aldı');
+    const b = normalizeTitle('Sörloth\'un transfer kararı Beşiktaş\'ı bekletecek');
+    expect(titleSimilarity(a, b)).toBe(0);
+  });
+  it('filters TITLE_SIM_STOPWORDS: "istiyor" and "beikta" do not create false dupe', () => {
+    // Regression for 2026-06-23: two different-player want headlines shared "beikta"+"istiyor".
+    const a = normalizeTitle('Beşiktaş Amrabat\'ı istiyor');
+    const b = normalizeTitle('Beşiktaş El Bilal Toure\'yi istiyor');
+    expect(titleSimilarity(a, b)).toBe(0);
   });
 });
 
@@ -40,6 +53,12 @@ describe('sharedStoryTokens — morphological, stopword-aware', () => {
   });
   it('excludes club stopwords (beşiktaş/bjk)', () => {
     expect(sharedStoryTokens(extractKeyTokens('Beşiktaş haberi'), extractKeyTokens('Beşiktaş başka'))).toBe(0);
+  });
+  it('excludes generic football stopwords (transfer/istiyor/gidiyor)', () => {
+    // Regression 2026-06-23: two different transfer stories shared only generic words.
+    const a = extractKeyTokens('Amrabat transfer istiyor gidiyor');
+    const b = extractKeyTokens('Sörloth transfer istiyor gidiyor');
+    expect(sharedStoryTokens(a, b)).toBe(0);
   });
 });
 
@@ -58,12 +77,14 @@ describe('dedupeByTitle — pre-synthesis dedup', () => {
 
 describe('cross-run dedup — paraphrased same-story headlines (root-aware)', () => {
   // Mirrors the gate predicate in publisher.js saveArticles (cross-run + within-batch).
+  // sim backup dropped from 2-token branch (2026-06-23): TITLE_SIM_STOPWORDS now filters
+  // generic tokens so ≥2 shared non-stopword roots already implies specific story overlap.
   const sameStory = (a, b) => {
     const sim = titleSimilarity(normalizeTitle(a), normalizeTitle(b));
     if (sim >= 0.5) return true;
     const shared = sharedStoryTokens(extractKeyTokens(a), extractKeyTokens(b), true);
     if (shared >= 3) return true;
-    return shared >= 2 && sim >= 0.3;
+    return shared >= 2;
   };
 
   // The 4× live duplicate that slipped through (2026-06-18): same UEFA event, all synonyms.
