@@ -653,6 +653,36 @@ export async function synthesizeArticle(article, env, site = null, opts = {}) {
     }
   }
 
+  // Title+summary facts fallback: when both proxy and direct fetch fail for high-NVS articles,
+  // extract structured facts from title+summary via a Haiku call and synthesize via the facts
+  // path. Rescues articles from paywalled/blocked sources (e.g. Hürriyet, Duhuliye) when the
+  // headline + summary carry enough claim structure to produce a 150-300 word article.
+  // Not triggered for P4 articles (_facts already set and synthesizeFromFacts already tried).
+  if (!sourceText && (article.nvs || 0) >= SYNTHESIS_NVS_THRESHOLD && !article._facts) {
+    try {
+      const titleFacts = await extractAndScore(null, article, env);
+      if (titleFacts && titleFacts.story_type !== 'other' && titleFacts.entities) {
+        const tempArticle = { ...article, _facts: titleFacts };
+        const factsResult = await synthesizeFromFacts(tempArticle, site, env, _usages);
+        if (factsResult) {
+          const h = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+          const s = { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+          for (const { model, usage } of _usages) {
+            const t = model === MODEL_GENERATE ? s : h;
+            t.input_tokens                += usage.input_tokens                || 0;
+            t.output_tokens               += usage.output_tokens               || 0;
+            t.cache_creation_input_tokens += usage.cache_creation_input_tokens || 0;
+            t.cache_read_input_tokens     += usage.cache_read_input_tokens     || 0;
+          }
+          console.log(`TITLE-FACTS-SYNTH [${article.nvs}]: "${article.title?.slice(0, 50)}"`);
+          return { ...factsResult, _source: 'title_facts', needs_review: true, _usage: { haiku: h, sonnet: s } };
+        }
+      }
+    } catch(e) {
+      console.log(`TITLE-FACTS-SYNTH ERROR [${article.nvs}]: ${e.message}`);
+    }
+  }
+
   // No RSS fallback — RSS summaries are often a single generic line that misrepresents
   // the actual story direction (e.g. "Player joins club" when the story is about them leaving).
   // Without real source text we cannot rewrite accurately, so we skip.
