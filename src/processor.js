@@ -25,13 +25,13 @@ const RIVAL_FIGURES = [
 // coach "İsmail Kartal"), which let a rival-led story bypass this guard — published 2026-06-18
 // ("Fenerbahçe'de İsmail Kartal dönemi resmen başlıyor"). "kara kartal" and "kartallar"
 // (the eagles / the fans) are unambiguous and remain valid BJK signals.
-const BJK_ANGLE_RE = /beşiktaş|besiktas|\bbjk\b|siyah.?beyaz|kara kartal|kartallar/i;
+const BJK_ANGLE_RE = /beşiktaş|besiktas|\bbjk\b|siyah.?beyaz|kara kartal|kartallar|can uzun|serdal.adal/i;
 
 // True when an article TITLE is led by a rival club/figure AND carries no BJK angle in the
 // title — i.e. a rival-internal story (board election, rival-only transfer, rival coach move)
 // with no Beşiktaş relevance. Deterministic backstop: the LLM relevance scorer alone has let
 // these through (e.g. a Fenerbahçe genel-kurul article published on the BJK site, 2026-06-06).
-export function isRivalSubject(title) {
+export function isRivalSubject(title, url = '') {
   // Substring match (not token) so Turkish suffixes still match: "Fenerbahçe'de" → fenerbahçe.
   // A genuine Beşiktaş angle spares the article — but only on an UNAMBIGUOUS signal (BJK_ANGLE_RE),
   // never on the bare word "kartal", which is too easily a person's surname.
@@ -40,7 +40,12 @@ export function isRivalSubject(title) {
   // plain-ASCII RIVAL_FIGURES entries (strip combining marks U+0300–U+036F).
   const ascii = t.normalize('NFKD').replace(/[̀-ͯ]/g, '');
   const hasRival = RIVAL_KEYWORDS.some(k => t.includes(k)) || RIVAL_FIGURES.some(k => ascii.includes(k));
-  return hasRival && !BJK_ANGLE_RE.test(t);
+  if (!hasRival) return false;
+  if (BJK_ANGLE_RE.test(t)) return false;
+  // Source URL categorised under a /besiktas/ path (Fotospor, Sabah etc.) is an unambiguous
+  // BJK signal even when the title lacks an explicit club keyword.
+  if (/\/besiktas\b/i.test(url)) return false;
+  return true;
 }
 
 // Editorial framing guard (NOT a drop guard): true when a title FOREGROUNDS a rival club —
@@ -135,7 +140,7 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
   // Deterministic guard; the LLM relevance scorer alone has let rival-internal stories
   // through (e.g. Fenerbahçe genel kurul on the BJK site, 2026-06-06).
   const afterRival = afterLiveBlog.filter(a => {
-    if (isRivalSubject(a.title || '')) {
+    if (isRivalSubject(a.title || '', a.url || a.original_url || '')) {
       rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'rival_subject',
         trust_tier: a.trust_tier || a.trust || null,
         source_body_len: ((a.summary || '') + (a.full_text || '')).length,

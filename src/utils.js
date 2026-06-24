@@ -54,6 +54,7 @@ export const BJK_KEYWORDS = [
   'kartal kayra yılmaz','kartal kayra',
   'jean onana',
   // Wingers / attacking mid
+  'can uzun',
   'milot rashica','rashica',
   'junior olaitan','olaitan',
   'vaclav cerny','cerny',
