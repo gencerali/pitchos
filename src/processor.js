@@ -25,7 +25,7 @@ const RIVAL_FIGURES = [
 // coach "İsmail Kartal"), which let a rival-led story bypass this guard — published 2026-06-18
 // ("Fenerbahçe'de İsmail Kartal dönemi resmen başlıyor"). "kara kartal" and "kartallar"
 // (the eagles / the fans) are unambiguous and remain valid BJK signals.
-const BJK_ANGLE_RE = /beşiktaş|besiktas|\bbjk\b|siyah.?beyaz|kara kartal|kartallar|can uzun|serdal.adal/i;
+const BJK_ANGLE_RE = /beşiktaş|besiktas|\bbjk\b|siyah.?beyaz|kara kartal|kartallar|serdal.adal/i;
 
 // True when an article TITLE is led by a rival club/figure AND carries no BJK angle in the
 // title — i.e. a rival-internal story (board election, rival-only transfer, rival coach move)
