@@ -14,7 +14,7 @@
 name = "pitchos-story-agent"
 main = "worker-story-agent.js"
 compatibility_date = "2024-01-01"
-workers_dev = true
+workers_dev = false
 
 # Shared KV namespace (same id as the legacy worker) — both workers see the same keys.
 [[kv_namespaces]]
