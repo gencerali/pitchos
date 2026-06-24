@@ -216,6 +216,11 @@ async function addContribution(storyId, article, facts, decision, env) {
     contribution_type: decision.contribution_type,
     confidence_delta:  decision.confidence_delta ?? DELTA[decision.contribution_type] ?? 0,
   });
+  // Stamp story_id directly onto the facts row so it's a single-hop lookup.
+  // Without this, finding a fact's story requires joining through story_contributions.
+  if (facts._id) {
+    await supabase(env, 'PATCH', `/rest/v1/facts?id=eq.${facts._id}`, { story_id: storyId });
+  }
 }
 
 // ─── UPDATE STORY AFTER CONTRIBUTION ─────────────────────────

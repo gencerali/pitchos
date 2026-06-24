@@ -163,6 +163,7 @@ function parseOneClaim(p) {
     nvs_score:          typeof p.nvs_score === 'number' ? Math.max(0, Math.min(100, Math.round(p.nvs_score))) : null,
     claim_confidence:   VALID_CONFIDENCE.has(p.claim_confidence) ? p.claim_confidence : 'medium',
     grounding_summary:  typeof p.grounding_summary === 'string' ? p.grounding_summary.trim().slice(0, 500) : null,
+    article_context:    typeof p.article_context === 'string' ? p.article_context.trim().slice(0, 1500) : null,
     key_quotes:         keyQuotes,
     primary_entity:     primaryEntity,
     entity_fingerprint: buildEntityFingerprint(storyType, primaryEntity?.name),
@@ -216,6 +217,7 @@ Each claim object:
   "primary_entity": {"name": "SURNAME ONLY (Amrabat not Sofyan Amrabat)", "type": "player|coach|official"} or null,
   "negotiation_status": "rumor|interest|talks_opened|fee_agreed|personal_terms|medical|signed|official|collapsed|denied" or null (transfer only),
   "grounding_summary": "YOUR OWN 1-2 sentence paraphrase. Never copy verbatim from source.",
+  "article_context": "3-5 sentence prose summary: what happened, why it matters, key background. Write in Turkish if source is Turkish. Never copy verbatim.",
   "key_quotes": [{"text": "exact words ≤15 words", "speaker": "Full Name", "role": "kulüp başkanı"}],
   "entities": {"players": [], "clubs": [], "competitions": []},
   "numbers": {"transfer_fee": null, "contract_years": null, "ban_games": null, "recovery_weeks": null, "fine_amount": null, "other": []},
@@ -231,7 +233,7 @@ ${source}
 Return only {"claims":[...]}`;
 
   try {
-    const res = await callClaude(env, MODEL_FETCH, prompt, false, 900);
+    const res = await callClaude(env, MODEL_FETCH, prompt, false, 1100);
     const raw = extractText(res.content);
     const m   = raw.match(/\{[\s\S]*\}/);
     if (!m) return _fallbackExtractAndScore();
@@ -261,6 +263,7 @@ Return only {"claims":[...]}`;
         primary_entity:           claim.primary_entity,
         negotiation_status:       claim.negotiation_status,
         entity_fingerprint:       claim.entity_fingerprint,
+        fact_payload:             claim.article_context ? { context: claim.article_context } : null,
         delta_type:               deltaType,
         extraction_tier:          'llm_full',
         source_published_at:      article.published_at ?? null,
