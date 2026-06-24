@@ -101,9 +101,13 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
   const rejected = [];
 
   // Stage 1: date filter
+  // Use Math.max(pubMs, fetchedMs): fetched_at is the actual discovery wall-clock time,
+  // which is reliable even when RSS pubDate has a timezone error (Turkish feeds served
+  // without UTC offset are parsed as UTC in V8, causing up to 3h drift).
   const afterDate = articles.filter(a => {
-    const pubMs = a.published_at ? new Date(a.published_at).getTime() : Date.now();
-    if (pubMs < cutoff) {
+    const pubMs     = a.published_at ? new Date(a.published_at).getTime() : Date.now();
+    const fetchedMs = a.fetched_at   ? new Date(a.fetched_at).getTime()   : Date.now();
+    if (Math.max(pubMs, fetchedMs) < cutoff) {
       rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'date_old',
         trust_tier: a.trust_tier || a.trust || null,
         source_body_len: ((a.summary || '') + (a.full_text || '')).length,

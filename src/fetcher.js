@@ -180,6 +180,7 @@ export async function fetchViaRss2Json(feed) {
         summary:      desc.replace(/<[^>]+>/g, '').slice(0, 300),
         image_url:    null,
         published_at,
+        fetched_at:   new Date().toISOString(),
         source_name:  feed.name,
         source:       feed.name,
         trust_tier:   feed.trust,
@@ -212,8 +213,9 @@ export async function fetchRSSArticles(site, overrideFeeds = null, lookbackMs = 
       const cutoff = Date.now() - lookbackMs;
       // Apply same date cutoff as fetchOneFeed: articles with no parseable date = treat as now
       const afterDate = proxyItems.filter(a => {
-        const pubMs = a.published_at ? new Date(a.published_at).getTime() : Date.now();
-        return pubMs >= cutoff;
+        const pubMs     = a.published_at ? new Date(a.published_at).getTime() : Date.now();
+        const fetchedMs = a.fetched_at   ? new Date(a.fetched_at).getTime()   : Date.now();
+        return Math.max(pubMs, fetchedMs) >= cutoff;
       });
       const filtered = feed.keywordFilter
         ? afterDate.filter(a => keywords.some(k => (a.title + ' ' + (a.summary || '')).toLowerCase().includes(k.toLowerCase())))
@@ -365,6 +367,7 @@ async function fetchOneFeed(feed, site, keywords = BJK_KEYWORDS, lookbackMs = DE
       category:        'Club',
       time_ago:        pubMs ? relativeTime(pubMs) : 'Güncel',
       published_at,
+      fetched_at:      new Date().toISOString(),
       is_fresh:        true,
       trust_tier:      trustTier,
       is_p4:           !!feed.is_p4,
@@ -460,6 +463,7 @@ export async function fetchBJKOfficial() {
     }
   }
 
+  const bjkFetchedAt = new Date().toISOString();
   const articles = shaped.map(({ title, summary, url, published_at }) => ({
     title,
     summary,
@@ -470,6 +474,7 @@ export async function fetchBJKOfficial() {
     is_p4:        false,
     sport:        'football',
     published_at,
+    fetched_at:   bjkFetchedAt,
     time_ago:     'Güncel',
     is_fresh:     true,
   }));
