@@ -96,6 +96,7 @@ function buildEntityFingerprint(storyType, primaryEntityName) {
 // ─── SUPABASE GET ─────────────────────────────────────────────
 async function supabaseGet(env, path) {
   const res = await fetch(`${env.SUPABASE_URL}${path}`, {
+    signal: AbortSignal.timeout(8000),
     headers: {
       'apikey':        env.SUPABASE_SERVICE_KEY,
       'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
@@ -118,12 +119,16 @@ async function detectDeltaType(env, siteId, fingerprint, newNegStatus) {
   if (!fingerprint || !siteId) return 'new_claim';
   try {
     const rows = await supabaseGet(env,
-      `/rest/v1/facts?site_id=eq.${siteId}&entity_fingerprint=eq.${encodeURIComponent(fingerprint)}&order=source_published_at.desc&limit=1&select=negotiation_status`
+      `/rest/v1/facts?site_id=eq.${siteId}&entity_fingerprint=eq.${encodeURIComponent(fingerprint)}&order=created_at.desc&limit=1&select=negotiation_status`
     );
     if (!rows?.length) return 'new_claim';
     const priorNeg = rows[0].negotiation_status;
     if (!newNegStatus) return 'corroboration';
-    if (NEG_STATUS_TERMINAL.has(newNegStatus)) return 'denial';
+    // Classify new terminal status by its specific meaning
+    if (newNegStatus === 'denied')    return 'denial';
+    if (newNegStatus === 'collapsed') return 'collapsed';
+    // Prior was terminal but new is non-terminal → story revived, contradicts prior conclusion
+    if (NEG_STATUS_TERMINAL.has(priorNeg)) return 'contradiction';
     if (priorNeg === newNegStatus) return 'corroboration';
     const priorIdx = NEG_STATUS_ORDER.indexOf(priorNeg);
     const newIdx   = NEG_STATUS_ORDER.indexOf(newNegStatus);
@@ -409,6 +414,7 @@ export async function extractFacts(article, env) {
 async function supabasePost(env, path, body) {
   const res = await fetch(`${env.SUPABASE_URL}${path}`, {
     method: 'POST',
+    signal: AbortSignal.timeout(8000),
     headers: {
       'Content-Type': 'application/json',
       'apikey':        env.SUPABASE_SERVICE_KEY,

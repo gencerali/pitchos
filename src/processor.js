@@ -65,10 +65,10 @@ export function isRivalLedTitle(title) {
   if (bjkIdx === -1) return false;               // no BJK angle → isRivalSubject's job (drop), not framing
   if (bjkIdx <= rivalIdx) return false;          // Beşiktaş already leads → fine
   if (/derbi/.test(t)) return false;             // derby coverage is legitimately two-club
-  // Rival in adjective (-lı/li/lu/lü) or genitive (-'nın/nin… / -'ın/in…) form → BJK acquiring
+  // Rival in adjective (-lı/li/lu/lü) or genitive (-'nın/nin/ın/in/un/ün) form → BJK acquiring
   // from the rival; that's a BJK-first story, leave it.
   const after = t.slice(rivalIdx + matched.length, rivalIdx + matched.length + 4);
-  if (/^'?(l[ıiuü]|n[ıiuü]n|[ıiuü]n)/.test(after)) return false;
+  if (/^'?(l[ıiuü]|n[ıiuü]n|[ıiuü]n|[uo]n|[üu]n)/.test(after)) return false;
   return true;                                   // rival leads with no whitelist → rival-led
 }
 

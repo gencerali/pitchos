@@ -528,7 +528,7 @@ async function synthesizeFromFacts(article, site, env, _usages) {
     ...(f.numbers.other || []).map(n => `Diger sayi: ${n}`),
     f.dates.primary_date ? `Tarih: ${f.dates.primary_date}` : null,
     ...(f.dates.other || []).map(d => `Tarih (diger): ${d}`),
-    ...(f.key_quotes || []).slice(0, 2).map(q => `Alinti: "${q}"`),
+    ...(f.key_quotes || []).slice(0, 2).map(q => typeof q === 'string' ? `Alinti: "${q}"` : `Alinti: "${q.text}"${q.speaker ? ` (${q.speaker})` : ''}`),
   ].filter(Boolean);
 
   if (lines.length < 2) return null; // too sparse — caller falls back to full synthesis

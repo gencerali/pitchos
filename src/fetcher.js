@@ -444,7 +444,7 @@ export async function fetchBJKOfficial() {
       const desc  = stripHTML(stripCDATA(getTag(item, 'description'))).slice(0, 300);
       const pubRaw = getTag(item, 'pubDate') || getTag(item, 'published');
       const pubDate = pubRaw ? new Date(pubRaw) : null;
-      const published_at = pubDate && !isNaN(pubDate) ? pubDate.toISOString() : new Date().toISOString();
+      const published_at = pubDate && !isNaN(pubDate.getTime()) ? pubDate.toISOString() : new Date().toISOString();
       if (!title || title.length < 5) continue;
       shaped.push({ title, summary: desc || title, url, published_at });
     }
