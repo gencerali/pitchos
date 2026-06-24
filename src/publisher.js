@@ -681,7 +681,7 @@ export async function synthesizeArticle(article, env, site = null, opts = {}) {
   // Not triggered for P4 articles (_facts already set and synthesizeFromFacts already tried).
   if (!sourceText && (article.nvs || 0) >= SYNTHESIS_NVS_THRESHOLD && !article._facts) {
     try {
-      const titleFacts = await extractAndScore(null, article, env);
+      const titleFacts = await extractAndScore(null, { ...article, site_id: article.site_id || site?.id }, env);
       if (titleFacts && titleFacts.story_type !== 'other' && titleFacts.entities) {
         const tempArticle = { ...article, _facts: titleFacts };
         const factsResult = await synthesizeFromFacts(tempArticle, site, env, _usages);
@@ -864,6 +864,12 @@ export async function writeArticles(articles, site, env) {
 
   for (let i = 0; i < articles.length; i++) {
     const article = articles[i];
+
+    // Stamp site_id from the site config onto each article so extractAndScore
+    // writes it to the facts row. Without this, site_id is null on all facts rows
+    // and detectDeltaType queries return 0 rows (queries by site_id=eq.X, null rows
+    // are invisible) — causing every claim to be classified as 'new_claim'.
+    if (!article.site_id && site?.id) article.site_id = site.id;
 
     // Phase 2: extract facts BEFORE mode dispatch so synthesizeArticle can use them.
     // Mutating article (const reference, mutable object) is safe here — articles
