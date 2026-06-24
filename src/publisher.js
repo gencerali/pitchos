@@ -872,9 +872,12 @@ export async function writeArticles(articles, site, env) {
     if (!article.site_id && site?.id) article.site_id = site.id;
 
     // Phase 2: extract facts BEFORE mode dispatch so synthesizeArticle can use them.
+    // Runs for: P4 articles (full body available) and YouTube synthesize-treatment videos
+    // (transcript may be in full_text; falls back to title+description if absent).
+    // Embed-treatment YouTube videos extract facts in their own branch below.
     // Mutating article (const reference, mutable object) is safe here — articles
     // are plain objects created by the pipeline, not shared state.
-    if (article.is_p4 && !article._facts) {
+    if ((article.is_p4 || (article._video && article.treatment === 'synthesize')) && !article._facts) {
       try {
         article._facts = await extractAndScore(article.full_text || '', article, env);
         if (article._facts) {
@@ -909,12 +912,33 @@ export async function writeArticles(articles, site, env) {
       await new Promise(r => setTimeout(r, 300));
 
     } else if (article.treatment === 'embed') {
-      // YouTube embed — video is the content, no facts/synthesis needed
+      // YouTube embed — publish decision only; fact extraction runs unconditionally below.
       try {
         const card = await generateVideoEmbed(article._video, site, env);
         if (card) published = { ...article, ...card, publish_mode: 'video_embed', nvs: article.nvs_hint || article.nvs || 72 };
       } catch (e) {
         console.error('YT embed in writeArticles failed:', e.message, '|', article.title?.slice(0, 50));
+      }
+      // Fact extraction for ALL YouTube videos: title + Atom description as source.
+      // Embed/synthesize/rewrite is a publish decision; facts go to the story system regardless.
+      try {
+        const ytSiteId = article.site_id || site?.id || null;
+        const ytArticle = {
+          id:       published.id || null,
+          site_id:  ytSiteId,
+          title:    article._video?.title || article.title,
+          summary:  article._video?.description || article.summary || '',
+          url:      published.original_url || article._video ? `https://www.youtube.com/watch?v=${article._video?.video_id}` : '',
+          source_name: article._video?.channel_name || article.source_name || '',
+          published_at: article._video?.published_at || article.published_at || null,
+        };
+        const ytFacts = await extractAndScore(null, ytArticle, env);
+        if (ytFacts) {
+          published._facts = ytFacts;
+          console.log(`YT FACTS [${ytFacts.story_type}] nvs=${ytFacts.nvs_score} delta=${ytFacts.delta_type}: "${(ytArticle.title || '').slice(0, 50)}"`);
+        }
+      } catch (e) {
+        console.error('YT extractAndScore failed:', e.message, '|', article.title?.slice(0, 50));
       }
 
     } else {
