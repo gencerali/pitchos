@@ -5,6 +5,16 @@ import { extractFacts, writeTransfer, extractAndScore, SKIP_STORY_TYPES } from '
 import { getLastFixtures, getBJKStanding, getLeagueContext } from './api-football.js';
 // Note: getBJKLastLineupData + getOpponentLastLineup imported by caller (worker) to avoid circular deps
 
+// Strip internal editorial annotations Claude occasionally appends to synthesized bodies.
+// These are never publishable — they're the model explaining its own limitations.
+// Matched patterns (case-insensitive):
+//   --- **Köşe notu:** ...    (facts-first path, when facts are too sparse)
+//   --- **Editör notu:** ...  (main synthesis path)
+//   --- **Not:** ...          (generic internal note)
+function stripEditorialAnnotations(body) {
+  return body.replace(/\n{1,2}[-—]{2,}\n{1,2}\*{0,2}\s*(köşe\s+notu|editör\s+notu|not)\b[\s\S]*/i, '').trim();
+}
+
 // ─── FACTUAL GROUNDING ────────────────────────────────────────
 // Fetches verified API-Football stats and returns a Turkish-language
 // "DOĞRULANMIŞ VERİLER" block that is prepended to every synthesis prompt.
@@ -533,6 +543,17 @@ async function synthesizeFromFacts(article, site, env, _usages) {
 
   if (lines.length < 2) return null; // too sparse — caller falls back to full synthesis
 
+  // Require at least one concrete detail beyond entity identity.
+  // "Player X at Club Y is of interest" is 3 lines (story_type + player + club) and passes
+  // the length check, but produces hollow filler that is superseded by any real source article.
+  // A concrete detail = a number, date, quote, second player, or named competition.
+  const hasConcreteDetail =
+    f.numbers.transfer_fee || f.numbers.contract_years || f.numbers.ban_games ||
+    f.numbers.recovery_weeks || f.numbers.fine_amount || (f.numbers.other || []).length > 0 ||
+    f.dates.primary_date || (f.key_quotes || []).length > 0 ||
+    f.entities.players.length > 1 || f.entities.competitions.length > 0;
+  if (!hasConcreteDetail) return null;
+
   const [editorialCtx, voicePatterns, groundingCtx] = await Promise.all([
     getEditorialNotes(env, ['general', 'style'], { excludeVoicePatterns: true }),
     getVoicePatterns(env),
@@ -561,7 +582,7 @@ ${voiceBlock}
 
   const res = await callClaude(env, MODEL_GENERATE, userContent, false, 800, systemPrompt);
   if (res?.usage) _usages.push({ model: MODEL_GENERATE, usage: res.usage });
-  const body = extractText(res.content).trim();
+  const body = stripEditorialAnnotations(extractText(res.content).trim());
   if (!body || body.length < 200) return null;
 
   const kartalixTitle = await generateKartalixTitle(body, article.title, env, _usages);
@@ -756,7 +777,7 @@ ${targetWords} kelime — fazlası yasak. Kaynak kaç bilgi veriyorsa o kadar ya
 
   const res = await callClaude(env, MODEL_GENERATE, userContent, false, 1000, systemPrompt);
   if (res?.usage) _usages.push({ model: MODEL_GENERATE, usage: res.usage });
-  let body = extractText(res.content).trim();
+  let body = stripEditorialAnnotations(extractText(res.content).trim());
 
   // Detect Claude refusal/rejection responses — these must never be published.
   // Claude occasionally decides source content isn't publishable and returns an
