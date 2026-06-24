@@ -122,15 +122,51 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
     return true;
   });
 
-  // Stage 1.5: live-blog URL rejection — before keyword check to avoid wasting NVS budget
-  const LIVE_BLOG_PATTERNS = [/\/canli\//i, /\/live\//i, /\/live-blog\//i];
+  // Stage 1.5: unscrapeble URL rejection — live-blogs and gallery pages whose content
+  // the proxy cannot extract; synthesizing from these produces hollow, fact-free articles.
+  const UNSCRAPEBLE_URL_PATTERNS = [
+    /\/canli\//i, /\/live\//i, /\/live-blog\//i,
+    // NTV Spor / Fanatik / HaberTürk photo-gallery slideshows — proxy returns slide captions,
+    // not article text; Claude ends up writing vague unnamed-player filler (observed 2026-06-24).
+    /\/foto-galeri\//i, /\/fotogaleri\//i, /\/foto-haber\//i,
+  ];
   const afterLiveBlog = afterDate.filter(a => {
     const url = a.url || a.original_url || '';
-    if (LIVE_BLOG_PATTERNS.some(p => p.test(url))) {
+    if (UNSCRAPEBLE_URL_PATTERNS.some(p => p.test(url))) {
       rejected.push({ url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'live_blog_source',
         trust_tier: a.trust_tier || a.trust || null,
         source_body_len: ((a.summary || '') + (a.full_text || '')).length,
-        drop_detail: 'live-blog URL pattern' });
+        drop_detail: 'unscrapeble URL pattern (live-blog / gallery)' });
+      return false;
+    }
+    return true;
+  });
+
+  // Stage 1.55: multi-club roundup rejection — aggregator columns that cover all Süper Lig
+  // clubs in one article. BJK mention passes the keyword check but the article is not BJK-focused.
+  // Signals: (a) known roundup column title patterns, (b) summary that names 3+ rival clubs
+  // in the opening sentence (= league-wide digest, not a club-specific story).
+  const ROUNDUP_TITLE_RE = /transfer hatt[ıi]|bülten[i]?[^ ]|günün transfer|haftanın transfer/i;
+  const RIVAL_CLUB_MENTIONS_RE = /fenerbahçe|fenerbahce|galatasaray|trabzonspor/gi;
+  const afterRoundup = afterLiveBlog.filter(a => {
+    const title   = a.title   || '';
+    const summary = a.summary || '';
+    if (ROUNDUP_TITLE_RE.test(title)) {
+      rejected.push({ url: a.url || a.original_url, title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'roundup_column',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: (summary + (a.full_text || '')).length,
+        drop_detail: 'multi-club roundup column title' });
+      return false;
+    }
+    // Summary that opens by naming 3 rival clubs = league-wide digest (e.g. NTV Spor Transfer Hattı
+    // summary: "Beşiktaş, Fenerbahçe, Galatasaray ve Trabzonspor başta olmak üzere...")
+    const summaryHead = summary.slice(0, 200);
+    const rivalHits = (summaryHead.match(RIVAL_CLUB_MENTIONS_RE) || []).length;
+    if (rivalHits >= 3) {
+      rejected.push({ url: a.url || a.original_url, title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'roundup_column',
+        trust_tier: a.trust_tier || a.trust || null,
+        source_body_len: (summary + (a.full_text || '')).length,
+        drop_detail: `multi-club summary (${rivalHits} rival clubs in first 200ch)` });
       return false;
     }
     return true;
@@ -139,7 +175,7 @@ export function preFilter(articles, seenHashes, lookbackMs = 3 * 60 * 60 * 1000)
   // Stage 1.6: rival-subject rejection — title led by a rival club with no BJK angle.
   // Deterministic guard; the LLM relevance scorer alone has let rival-internal stories
   // through (e.g. Fenerbahçe genel kurul on the BJK site, 2026-06-06).
-  const afterRival = afterLiveBlog.filter(a => {
+  const afterRival = afterRoundup.filter(a => {
     if (isRivalSubject(a.title || '', a.url || a.original_url || '')) {
       rejected.push({ url: a.url || a.original_url, title: a.title, source_name: a.source_name || a.source, published_at: a.published_at, _stage: 'rival_subject',
         trust_tier: a.trust_tier || a.trust || null,
