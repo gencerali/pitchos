@@ -3346,6 +3346,233 @@ KURALLAR:
   };
 }
 
+// ─── SEASONAL BURST CONFIG ────────────────────────────────────
+// Controls how many topic-articles a single interview video can generate
+// and how many minutes apart they are spread in the burst queue.
+// Off-season (Jun–Aug): publish up to 8 topics, one every 30 min (agenda is thin).
+// Shoulder months (May, Sep): up to 5 topics, 20 min apart.
+// In-season (Oct–Apr): up to 3 topics, 15 min apart (match news dominates).
+export function getSeasonalBurstConfig(now = new Date()) {
+  const month = now.getUTCMonth() + 1; // 1–12
+  if (month >= 6 && month <= 8) return { maxTopics: 8, spreadMinutes: 30 };
+  if (month === 5 || month === 9) return { maxTopics: 5, spreadMinutes: 20 };
+  return { maxTopics: 3, spreadMinutes: 15 };
+}
+
+// ─── TRANSCRIPT TOPIC SEGMENTATION ───────────────────────────
+// Haiku pass: splits a long interview transcript into discrete newsworthy topics.
+// Returns an array sorted by nvs_estimate descending (highest value first).
+// Each element: { topic_title, nvs_estimate, key_quotes:[{text,speaker}], excerpt, transcript_slice }
+export async function segmentTranscript(transcript, video, env, opts = {}) {
+  const { maxTopics = 8 } = opts;
+  const speaker = video.channel_name || 'Konuşmacı';
+  const prompt = `Sen bir spor editörüsün. Aşağıda "${video.title}" başlıklı bir programın transkripti var (Kanal: ${speaker}).
+
+Bu transkrip, birden fazla bağımsız haber konusu barındırıyor. Her konu ayrı bir haber makalesi olabilir.
+
+GÖREV:
+1. Transkriptten en fazla ${maxTopics} bağımsız ve Beşiktaş ile ilgili haber konusu çıkar.
+2. Her konu için: başlık, tahmini haber değeri (0-100), önemli doğrudan alıntılar ve kısa özet yaz.
+3. Sadece Beşiktaş'la doğrudan ilgili konuları al. Genel futbol sohbeti dahil etme.
+4. Konuları haber değerine göre yüksekten düşüğe sırala.
+
+ÇIKTI FORMATI — Sadece geçerli JSON, başka hiçbir şey:
+[
+  {
+    "topic_title": "Beşiktaş'la ilgili başlık (50-90 karakter)",
+    "nvs_estimate": <0-100 arası haber değeri>,
+    "key_quotes": [
+      {"text": "Tam alıntı metni", "speaker": "Konuşmacı adı veya rolü"}
+    ],
+    "excerpt": "Bu konuyu özetleyen 2-3 cümle",
+    "transcript_slice": "Bu konuyla ilgili transkrip bölümü (max 800 karakter)"
+  }
+]
+
+TRANSKRİPT:
+${transcript.slice(0, 12000)}`;
+
+  try {
+    const res = await callClaude(env, MODEL_SCORE, prompt, false, 1500);
+    const raw = extractText(res.content).trim();
+    const jsonStart = raw.indexOf('[');
+    const jsonEnd = raw.lastIndexOf(']');
+    if (jsonStart === -1 || jsonEnd === -1) return null;
+    const topics = JSON.parse(raw.slice(jsonStart, jsonEnd + 1));
+    if (!Array.isArray(topics) || !topics.length) return null;
+    return topics
+      .filter(t => t.topic_title && t.nvs_estimate > 0)
+      .sort((a, b) => b.nvs_estimate - a.nvs_estimate)
+      .slice(0, maxTopics);
+  } catch (e) {
+    console.error('segmentTranscript failed:', e.message);
+    return null;
+  }
+}
+
+// ─── SINGLE TOPIC ARTICLE SYNTHESIS ──────────────────────────
+// Generates a focused 200–400 word article from a single transcript segment.
+// Uses Sonnet (MODEL_GENERATE) — same as full synthesis but topic-scoped.
+async function generateTopicArticle(video, segment, site, env, stats = null, includeEmbed = false) {
+  const quotesBlock = (segment.key_quotes || [])
+    .map(q => `"${q.text}" — ${q.speaker || 'Konuşmacı'}`)
+    .join('\n');
+
+  const prompt = `Sen Kartalix'in spor editörüsün. Aşağıda "${video.title}" programından tek bir konuya ait transkript bölümü ve öne çıkan alıntılar var.
+
+KONU BAŞLIĞI: ${segment.topic_title}
+KANAL / PROGRAM: ${video.channel_name}
+
+ÖNE ÇIKAN ALINTILAR:
+${quotesBlock || '(yok)'}
+
+TRANSKRIPT BÖLÜMÜ:
+${(segment.transcript_slice || segment.excerpt || '').slice(0, 3000)}
+
+KURALLAR:
+- İlk satır: bu konuya odaklanmış Türkçe başlık. "BAŞLIK: " öneki ile yaz.
+- Ardından boş satır bırak.
+- 200–400 kelime arası, sadece bu konuyu işle. Başka konuları karıştırma.
+- Alıntıları doğrudan ve tam olarak kullan; parafraz yapma.
+- ${video.channel_name}'e atıf yaparak aktarım yap.
+- Sade haber dili. Emoji yok. Başlık dışı büyük harf yok.`;
+
+  const res = await callClaude(env, MODEL_GENERATE, prompt, false, 800);
+  const raw = extractText(res.content).trim();
+  if (stats && res?.usage) { addUsagePhase(stats, res.usage, MODEL_GENERATE, 'template'); stats.claudeCalls++; }
+  if (!raw || raw.length < 80) return null;
+
+  const titleMatch = raw.match(/^BAŞLIK:\s*(.+)/m);
+  const bodyText = raw.replace(/^BAŞLIK:.*\n+/m, '').trim();
+  if (bodyText.length < 80) return null;
+
+  const rawTitle = titleMatch ? titleMatch[1].trim() : segment.topic_title;
+  const title = await ensureBjkFirstTitle(rawTitle, bodyText, env);
+  const slug = generateSlug(title, video.published_at);
+  const bodyHtml = articleBodyToHtml(bodyText, { publishMode: 'youtube_topic_synthesis' });
+  const embedHtml = includeEmbed
+    ? `\n<div class="yt-embed" style="margin:1.5rem 0"><iframe width="100%" height="380" src="https://www.youtube.com/embed/${video.video_id}" frameborder="0" allowfullscreen loading="lazy" style="border-radius:6px;display:block"></iframe></div>`
+    : '';
+  const full_body = bodyHtml + embedHtml;
+  const nvs = Math.max(50, Math.min(88, Math.round(segment.nvs_estimate || 70)));
+
+  const saved = await supabase(env, 'POST', '/rest/v1/content_items', {
+    site_id:      site.id,
+    source_type:  'youtube',
+    source_name:  video.channel_name,
+    original_url: `https://www.youtube.com/watch?v=${video.video_id}`,
+    title, summary: bodyText.slice(0, 220), full_body,
+    image_url:    youtubeThumbnailUrl(video.video_id),
+    category:     'Video',
+    content_type: 'kartalix_generated',
+    sport:        'football',
+    nvs_score:    nvs,
+    publish_mode: 'youtube_topic_synthesis',
+    status:       'published',
+    slug,
+    published_at: video.published_at,
+    reviewed_at:  new Date().toISOString(),
+    reviewed_by:  'auto',
+    video_type:   classifyVideoType(title),
+  }).catch(() => null);
+
+  console.log(`YT TOPIC: "${title.slice(0, 60)}" NVS=${nvs} [${video.channel_name}]`);
+  return saved?.[0] || {
+    title, summary: bodyText.slice(0, 220), full_body, slug,
+    publish_mode: 'youtube_topic_synthesis',
+    published_at: video.published_at, source_name: video.channel_name, nvs_score: nvs,
+    image_url: youtubeThumbnailUrl(video.video_id), original_url: `https://www.youtube.com/watch?v=${video.video_id}`,
+  };
+}
+
+// ─── MULTI-TOPIC VIDEO SYNTHESIS ─────────────────────────────
+// For notable-person interviews: segments the transcript into topics, generates
+// a focused article per topic, returns all articles sorted by NVS descending.
+// The caller publishes the first article immediately; the rest go to the burst queue.
+export async function generateMultiTopicVideoSynthesis(video, transcriptText, site, env, stats = null, opts = {}) {
+  const burstCfg = getSeasonalBurstConfig();
+  const maxTopics = opts.maxTopics ?? burstCfg.maxTopics;
+  const includeEmbedOnFirst = opts.includeEmbedOnFirst ?? video.embed_qualify ?? false;
+
+  const segments = await segmentTranscript(transcriptText, video, env, { maxTopics });
+  if (!segments || !segments.length) {
+    // Fallback: single-article synthesis if segmentation fails
+    const fallback = await generateVideoSynthesis(video, transcriptText, site, env, stats, includeEmbedOnFirst);
+    return fallback ? [fallback] : [];
+  }
+
+  console.log(`YT MULTI-TOPIC: "${video.title.slice(0, 50)}" → ${segments.length} topics (max ${maxTopics})`);
+
+  const articles = [];
+  for (let i = 0; i < segments.length; i++) {
+    try {
+      const article = await generateTopicArticle(video, segments[i], site, env, stats, includeEmbedOnFirst && i === 0);
+      if (article) articles.push(article);
+    } catch (e) {
+      console.error(`YT topic article failed [seg ${i}]:`, e.message);
+    }
+  }
+  return articles; // already sorted by nvs_estimate from segmentTranscript
+}
+
+// ─── BURST QUEUE — SCHEDULED ARTICLE PUBLISHING ──────────────
+// Stores overflow topic articles with planned publish timestamps in KV.
+// drainBurstQueue() is called on every 30-min cron; releases up to 2 articles whose
+// scheduledAt <= now. TTL: 12h (interview topics stale fast; discard leftovers).
+const BURST_QUEUE_TTL = 12 * 3600;
+const BURST_DRAIN_PER_RUN = 2;
+
+export async function enqueueBurstArticles(articles, siteCode, env, spreadMinutes = 30) {
+  if (!articles || !articles.length) return;
+  const key = `yt:burst:queue:${siteCode}`;
+  let queue = [];
+  try { const raw = await env.PITCHOS_CACHE.get(key); if (raw) queue = JSON.parse(raw); } catch {}
+  const now = Date.now();
+  articles.forEach((article, i) => {
+    const scheduledAt = now + (i + 1) * spreadMinutes * 60 * 1000;
+    const url = article.original_url || `yt-burst-${now}-${i}`;
+    if (queue.some(e => e.url === url && Math.abs(e._scheduledAt - scheduledAt) < 60000)) return;
+    queue.push({ ...article, url, _scheduledAt: scheduledAt });
+  });
+  queue.sort((a, b) => (b.nvs_score || 0) - (a.nvs_score || 0) || a._scheduledAt - b._scheduledAt);
+  if (queue.length > 50) queue = queue.slice(0, 50);
+  await env.PITCHOS_CACHE.put(key, JSON.stringify(queue), { expirationTtl: BURST_QUEUE_TTL });
+  console.log(`BURST ENQUEUE [${siteCode}]: +${articles.length} articles, queue=${queue.length}, spread=${spreadMinutes}min`);
+}
+
+export async function drainBurstQueue(site, env) {
+  const key = `yt:burst:queue:${site.short_code}`;
+  let queue = [];
+  try { const raw = await env.PITCHOS_CACHE.get(key); if (raw) queue = JSON.parse(raw); } catch { return []; }
+  if (!queue.length) return [];
+
+  const now = Date.now();
+  const ready = queue.filter(a => a._scheduledAt <= now).slice(0, BURST_DRAIN_PER_RUN);
+  if (!ready.length) return [];
+
+  const succeeded = [];
+  for (const article of ready) {
+    try {
+      const { _scheduledAt, url, ...articleData } = article;
+      const saved = await saveArticles(env, site.id, [{ ...articleData, status: 'published' }], 'published');
+      if (saved?.saved?.length) {
+        succeeded.push(url);
+        console.log(`BURST DRAIN [${site.short_code}]: "${article.title?.slice(0, 50)}"`);
+      }
+    } catch (e) {
+      console.error('Burst drain item failed:', e.message);
+    }
+  }
+
+  queue = queue.filter(e => !succeeded.includes(e.url));
+  if (queue.length) {
+    await env.PITCHOS_CACHE.put(key, JSON.stringify(queue), { expirationTtl: BURST_QUEUE_TTL });
+  } else {
+    await env.PITCHOS_CACHE.delete(key).catch(() => {});
+  }
+  return ready.filter(a => succeeded.includes(a.url));
+}
+
 // ─── TEMPLATE 08c — BROADCAST PITCH CARD (3D perspective) ────
 // Perspective trapezoid pitch, jersey icons, SofaScore-style rating badges.
 // Sidebar: BJK XI + subs + prose. Opponent shown smaller in far half.

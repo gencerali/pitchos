@@ -14,18 +14,26 @@ export const YOUTUBE_CHANNELS = [
   // Official Beşiktaş — all videos qualify; embed + transcript both enabled
   { id: 'UCLJVUlpsxZcIMECVDcZaM2g', name: 'Beşiktaş JK',       tier: 'official',   all_qualify: true,  embed_qualify: true,  transcript_qualify: false },
 
-  // Broadcast — match highlights and press conf embeds; no transcript synthesis
-  { id: 'UCNopxUNUMinlK3ybMGlpbGQ', name: 'beIN SPORTS TR',     tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
-  { id: 'UCJElRTCNEmLemgirqvsW63Q', name: 'A Spor',             tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
-  { id: 'UCebdo7-2NdjcktKzco64iNw', name: 'TRT Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
+  // Broadcast — match highlights and press conf embeds; interview_qualify enables
+  // multi-topic transcript synthesis when video title signals a notable-person interview
+  { id: 'UCNopxUNUMinlK3ybMGlpbGQ', name: 'beIN SPORTS TR',     tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false, interview_qualify: true },
+  { id: 'UCJElRTCNEmLemgirqvsW63Q', name: 'A Spor',             tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false, interview_qualify: true },
+  { id: 'UCebdo7-2NdjcktKzco64iNw', name: 'TRT Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false, interview_qualify: true },
+  { id: 'UCK3mI2lsk3LSo8PBUc8JTSw', name: 'HT Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false, interview_qualify: true },
 
   // Digital / analysis — Fırat Günayer videos on Rabona; transcript synthesis only, no embed
   { id: 'UCpj3LeIWetKktdIJQcBx-uw', name: 'Rabona Digital',     tier: 'digital',    all_qualify: true,  embed_qualify: false, transcript_qualify: true  },
 
-  // Additional channels — add channel IDs below (find via youtube.com/@handle → About → Share → Copy channel ID)
+  // Digital talk shows — multi-topic transcript synthesis; notable-person interviews generate
+  // multiple focused articles. Channel IDs: youtube.com/@handle → About → Share → Copy channel ID
+  //
+  // Kafa Sports (@KafaTV) — Find ID: open any Kafa Sports video, View Page Source, search "channelId"
+  // Confirmed ID from console.log output, or: youtube.com/@KafaTV → About → Share channel URL
+  { id: 'UCqNRHBVYfLBjeCo-s7D7yHQ', name: 'Kafa Sports',        tier: 'digital',    all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
+
+  // Additional channels — add channel IDs below
   // { id: 'UC___NTVSpor___',    name: 'NTV Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
   // { id: 'UC___Fanatik___',    name: 'Fanatik',            tier: 'press',      all_qualify: false, embed_qualify: false, transcript_qualify: true  },
-  // { id: 'UC___Haberturk___',  name: 'Habertürk Spor',     tier: 'broadcast',  all_qualify: false, embed_qualify: false, transcript_qualify: true  },
   // { id: 'UC___TurkiyeMilli___', name: 'Türkiye Millî',    tier: 'official',   all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
 ];
 
@@ -153,6 +161,20 @@ export async function fetchYouTubeTranscript(videoId) {
     console.error(`Transcript fetch failed [${videoId}]:`, e.message);
     return null;
   }
+}
+
+// Title patterns that signal a notable-person interview / press conference / studio appearance.
+// Used by shouldFetchTranscript() to enable transcript synthesis on interview_qualify channels
+// (e.g. HT Spor, beIN SPORTS) even when full transcript_qualify is not set.
+const INTERVIEW_VIDEO_RE = /röportaj|basın toplantısı|press\s?conf|açıkladı|konuştu|sözleri|özel görüşme|stüdyoda|canlı bağlantı|konuk|masada|gündemin|yorumladı|değerlendirdi|itiraf|bomba açıkl/i;
+
+// True when a transcript should be fetched for this video.
+// transcript_qualify: all videos on this channel get transcript synthesis.
+// interview_qualify: only when the title matches an interview/press-conf pattern.
+export function shouldFetchTranscript(video) {
+  if (video.transcript_qualify) return true;
+  if (video.interview_qualify && INTERVIEW_VIDEO_RE.test(video.title)) return true;
+  return false;
 }
 
 // Hard pre-filter — drops shorts, archive re-uploads, and off-topic content.

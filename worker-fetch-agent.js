@@ -12,7 +12,7 @@
 import { getActiveSites, addUsagePhase, addCost, flushCostStats, checkCostCap, costTrajectory, costAlarmConditions, rollupDailyCost, sleep, isTodayArticle, supabase, callClaude, extractText, MODEL_FETCH, MODEL_SCORE, MODEL_GENERATE, generateSlug, simpleHash, saveEditorialNote, deleteEditorialNote, listEditorialNotes, saveRawFeedback, getRawFeedbacks, markFeedbacksProcessed, deleteRawFeedback, saveReferenceArticle, getReferenceArticles, deleteReferenceArticle, saveSourceFact } from './src/utils.js';
 import { fetchRSSArticles, fetchArticles, fetchBeIN, fetchTwitterSources, fetchBJKOfficial, RSS_FEEDS, fetchSourceConfigs, configsToRSSFeeds, configsToYTChannels } from './src/fetcher.js';
 import { preFilter, dedupeByTitle, scoreArticles, getSeenHashes, saveSeenHashes, getSeenUrls, dedupeByStory, getOffTopicHashes, saveOffTopicHashes, getSynthesisFailedHashes, saveSynthesisFailedHashes } from './src/processor.js';
-import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
+import { writeArticles, saveArticles, cacheToKV, getCachedArticles, getServedArticles, logFetch, mergeAndDedupe, rankAndEvict, drainRewriteQueue, generateMatchDayCard, generateMuhtemel11, generateConfirmedLineup, generateMatchPreview, generateH2HHistory, generateFormGuide, generateInjuryReport, generateGoalFlash, generateResultFlash, generateManOfTheMatch, generateMatchReport, generateXGDelta, generateRefereeProfile, generateHalftimeReport, generateRedCardFlash, generateVARFlash, generateMissedPenaltyFlash, generateVideoEmbed, generateVideoSynthesis, generateMultiTopicVideoSynthesis, enqueueBurstArticles, drainBurstQueue, getSeasonalBurstConfig, buildGroundingContext, verifyArticle, synthesizeArticle, generateLineupCard, tierToTrustScore, classifyVideoType, SCORING_CONFIG_DEFAULTS, loadSiteConfig, HARD_TTL_BY_TEMPLATE, HARD_TTL_BY_MODE, getEffectiveNVS, getHalfLife, getTrustMultiplier, computeScore, SYNTHESIS_NVS_THRESHOLD, SYNTHESIS_CAP_PER_RUN, MAX_FACTS_EXTRACTS, REWRITE_QUEUE_MAX, REWRITE_QUEUE_TTL } from './src/publisher.js';
 import { matchOrCreateStory, getOpenStories, archiveStaleStories, createMatchStory, getMatchStory, advanceMatchStoryStates, synthesizeStory } from './src/story-matcher.js';
 import { extractFactsForStory, SKIP_STORY_TYPES } from './src/firewall.js';
 import { renderArticleCardSVG, pickBackground } from './src/card.js';
@@ -21,7 +21,7 @@ import { isKartalix as isKartalixArticle, videoEmbedHtml } from './src/shared.js
 import { computeSourceHealth, sourceHealthAlarms } from './src/source-health.js';
 import { buildNav } from './src/shared/nav.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup, seasonConfigStale } from './src/api-football.js';
-import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
+import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript, shouldFetchTranscript } from './src/youtube.js';
 
 // ─── CRON INTERVAL HELPER ────────────────────────────────────
 function cronToIntervalMs(cron) {
@@ -5080,6 +5080,15 @@ async function runAllSites(env, ctx, opts = {}) {
           console.log(`REWRITE DRAIN: saved ${saved.length} articles to DB+KV for ${site.short_code}`);
         }
       }
+
+      // Drain burst queue — releases interview topic articles at the configured spread interval
+      const burstDrained = await drainBurstQueue(site, env);
+      if (burstDrained?.length) {
+        const existing = await getCachedArticles(env, site.short_code);
+        const kvCards = burstDrained.map(a => toKVShape({ ...a, nvs: a.nvs_score || a.nvs || 65, is_kartalix_content: true }));
+        await cacheToKV(env, site.short_code, mergeAndDedupe([...kvCards, ...existing], 300));
+        console.log(`BURST DRAIN: published ${burstDrained.length} queued topic articles for ${site.short_code}`);
+      }
     } catch(e) { console.error(`Drain failed for ${site?.short_code}:`, e.message); }
   }
   return { processed: results.length, results };
@@ -5833,20 +5842,49 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null,
     console.log(`YT ${channel.name}: ${videos.length} fetched → ${newVids.length} qualified`);
 
     for (const video of newVids.slice(0, 3)) {
-      if (!video.embed_qualify && !video.transcript_qualify) continue;
+      const canTranscript = shouldFetchTranscript(video);
+      if (!video.embed_qualify && !canTranscript) continue;
 
       let card = null;
-
-      // 1. Synthesis path — transcript available → summary article (+ embed if embed_qualify)
       let transcriptText = null;
-      if (video.transcript_qualify) {
+
+      // 1. Transcript path — fetch and decide: multi-topic interview or single synthesis
+      if (canTranscript) {
         try {
           transcriptText = await fetchYouTubeTranscript(video.video_id);
-          if (transcriptText) {
-            card = await generateVideoSynthesis(video, transcriptText, site, env, stats, video.embed_qualify);
-          }
         } catch (e) {
-          console.error(`YT synthesis failed [${video.video_id}]:`, e.message);
+          console.error(`YT transcript fetch failed [${video.video_id}]:`, e.message);
+        }
+
+        if (transcriptText) {
+          // For full transcript_qualify channels with long content: multi-topic synthesis.
+          // For interview_qualify-only (broadcast channels on interview titles): single synthesis.
+          const useMultiTopic = video.transcript_qualify && transcriptText.length > 1500;
+          if (useMultiTopic) {
+            try {
+              const burstCfg = getSeasonalBurstConfig();
+              const articles = await generateMultiTopicVideoSynthesis(video, transcriptText, site, env, stats, {
+                maxTopics: burstCfg.maxTopics,
+                includeEmbedOnFirst: video.embed_qualify,
+              });
+              if (articles.length > 0) {
+                // Publish highest-NVS article immediately
+                card = articles[0];
+                // Queue the rest spread over time
+                if (articles.length > 1) {
+                  await enqueueBurstArticles(articles.slice(1), site.short_code, env, burstCfg.spreadMinutes);
+                }
+              }
+            } catch (e) {
+              console.error(`YT multi-topic synthesis failed [${video.video_id}]:`, e.message);
+            }
+          } else {
+            try {
+              card = await generateVideoSynthesis(video, transcriptText, site, env, stats, video.embed_qualify);
+            } catch (e) {
+              console.error(`YT synthesis failed [${video.video_id}]:`, e.message);
+            }
+          }
         }
       }
 
