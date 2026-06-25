@@ -18,6 +18,7 @@ export const YOUTUBE_CHANNELS = [
   { id: 'UCNopxUNUMinlK3ybMGlpbGQ', name: 'beIN SPORTS TR',     tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
   { id: 'UCJElRTCNEmLemgirqvsW63Q', name: 'A Spor',             tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
   { id: 'UCebdo7-2NdjcktKzco64iNw', name: 'TRT Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
+  { id: 'UCK3mI2lsk3LSo8PBUc8JTSw', name: 'HT Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: false },
 
   // Digital / analysis — Fırat Günayer videos on Rabona; transcript synthesis only, no embed
   { id: 'UCpj3LeIWetKktdIJQcBx-uw', name: 'Rabona Digital',     tier: 'digital',    all_qualify: true,  embed_qualify: false, transcript_qualify: true  },
@@ -25,7 +26,7 @@ export const YOUTUBE_CHANNELS = [
   // Additional channels — add channel IDs below (find via youtube.com/@handle → About → Share → Copy channel ID)
   // { id: 'UC___NTVSpor___',    name: 'NTV Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
   // { id: 'UC___Fanatik___',    name: 'Fanatik',            tier: 'press',      all_qualify: false, embed_qualify: false, transcript_qualify: true  },
-  // { id: 'UC___Haberturk___',  name: 'Habertürk Spor',     tier: 'broadcast',  all_qualify: false, embed_qualify: false, transcript_qualify: true  },
+  // HT Spor (Habertürk) added above as UCK3mI2lsk3LSo8PBUc8JTSw
   // { id: 'UC___TurkiyeMilli___', name: 'Türkiye Millî',    tier: 'official',   all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
 ];
 
