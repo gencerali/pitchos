@@ -144,19 +144,36 @@ function parseAtomFeed(xml, channel, since) {
   return videos;
 }
 
-const PROXY_BASE = 'https://pitchos-proxy.onrender.com';
+const SUPADATA_BASE = 'https://api.supadata.ai/v1/youtube';
 
 // ─── TRANSCRIPT FETCHER ───────────────────────────────────────
-// Routes through pitchos-proxy to avoid Cloudflare datacenter IP bot-detection.
-// Returns plain text capped at 3000 chars, or null if captions unavailable.
-export async function fetchYouTubeTranscript(videoId) {
+// Calls Supadata API directly (free tier: 100 req/month, no cold-start).
+// Returns plain text, or null if captions unavailable.
+export async function fetchYouTubeTranscript(videoId, env) {
+  const apiKey = env?.SUPADATA_API_KEY;
   try {
-    const res = await fetch(`${PROXY_BASE}/transcript?video_id=${encodeURIComponent(videoId)}`, {
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!res.ok) return null;
+    const res = await fetch(
+      `${SUPADATA_BASE}/transcript?videoId=${encodeURIComponent(videoId)}&text=true`,
+      {
+        headers: apiKey ? { 'x-api-key': apiKey } : {},
+        signal: AbortSignal.timeout(20000),
+      }
+    );
+    if (!res.ok) {
+      console.error(`Supadata transcript HTTP ${res.status} [${videoId}]`);
+      return null;
+    }
     const data = await res.json();
-    return data.text && data.text.length > 50 ? data.text : null;
+    // text=true → { content: "plain text...", lang: "tr" }
+    if (typeof data.content === 'string') {
+      return data.content.length > 50 ? data.content : null;
+    }
+    // fallback: segments array → join
+    if (Array.isArray(data.content)) {
+      const text = data.content.map(c => c.text).join(' ').trim();
+      return text.length > 50 ? text : null;
+    }
+    return null;
   } catch (e) {
     console.error(`Transcript fetch failed [${videoId}]:`, e.message);
     return null;

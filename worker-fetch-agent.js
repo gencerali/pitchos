@@ -5851,7 +5851,7 @@ async function processYouTubeVideos(site, env, seenUrls, channelOverride = null,
       // 1. Transcript path — fetch and decide: multi-topic interview or single synthesis
       if (canTranscript) {
         try {
-          transcriptText = await fetchYouTubeTranscript(video.video_id);
+          transcriptText = await fetchYouTubeTranscript(video.video_id, env);
         } catch (e) {
           console.error(`YT transcript fetch failed [${video.video_id}]:`, e.message);
         }
