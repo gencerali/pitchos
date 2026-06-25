@@ -29,7 +29,7 @@ export const YOUTUBE_CHANNELS = [
   //
   // Kafa Sports (@KafaTV) — Find ID: open any Kafa Sports video, View Page Source, search "channelId"
   // Confirmed ID from console.log output, or: youtube.com/@KafaTV → About → Share channel URL
-  { id: 'UCqNRHBVYfLBjeCo-s7D7yHQ', name: 'Kafa Sports',        tier: 'digital',    all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
+  { id: 'UCuRJ7zpj8K51YTnUio20rTg', name: 'Kafa Sports',        tier: 'digital',    all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
 
   // Additional channels — add channel IDs below
   // { id: 'UC___NTVSpor___',    name: 'NTV Spor',           tier: 'broadcast',  all_qualify: false, embed_qualify: true,  transcript_qualify: true  },
