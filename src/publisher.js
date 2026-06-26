@@ -1211,7 +1211,7 @@ export const HARD_TTL_BY_TEMPLATE = {
   'T09': 12, // Lineup — only useful on match day
 };
 export const HARD_TTL_BY_MODE = {
-  'copy_source': 12, 'rss_summary': 2, 'manual': 168,
+  'copy_source': 12, 'rss_summary': 8, 'manual': 168,
 };
 
 function getArticleAge(article) {
@@ -1572,7 +1572,7 @@ export function rankAndEvict(articles, limit = 200, opts = {}) {
 export async function cacheToKV(env, siteCode, articles, opts = {}) {
   try {
     const config = await loadSiteConfig(env, siteCode);
-    const { articles: ranked, evictedReasonMap, videoRail } = rankAndEvict(articles, 200, { minPool: 20, ...opts, config });
+    const { articles: ranked, evictedReasonMap, videoRail } = rankAndEvict(articles, 200, { minPool: 25, ...opts, config });
     const key = `articles:${siteCode}`;
     const timelineKey = `kv:timeline:${siteCode}`;
     const now = new Date().toISOString();

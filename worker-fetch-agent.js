@@ -6655,10 +6655,10 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
           _stage: (a.nvs || 0) >= 30 ? 'synthesis_failed' : 'scored_low',
           trust_tier: a.trust_tier || a.trust || null,
           source_body_len: ((a.summary || '') + (a.full_text || '')).length,
-          drop_detail: (a.nvs || 0) >= 30 ? 'synthesis_cap_or_source_unavailable' : null,
+          drop_detail: (a.nvs || 0) >= (site.auto_publish_threshold ?? 20) ? 'synthesis_cap_or_source_unavailable' : null,
         }));
 
-      const publishThreshold = site.auto_publish_threshold || 30;
+      const publishThreshold = site.auto_publish_threshold ?? 20;
       // template_official = @Besiktas official tweets — always publish regardless of NVS score
       const toPublish = allWritten.filter(a =>
         (a.nvs >= publishThreshold || a.publish_mode === 'template_official') &&
@@ -6709,39 +6709,56 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
       if (!latestRaw || latestKV.length < 10) {
         try {
           const seedCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-          // Exclude rss_summary and copy_source — hardTtl 2h/12h means they'd all be
-          // immediately evicted by rankAndEvict, defeating the seed entirely.
-          const seedModeExclude = ['rss_summary','copy_source'];
+          // Exclude copy_source (hardTtl 12h, very stale). rss_summary now has 8h hardTtl so
+          // recent ones survive rankAndEvict; include them only in the drought supplement below.
+          const seedModeExclude = ['copy_source'];
           const dbRows = await supabase(env, 'GET',
             `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&created_at=gte.${encodeURIComponent(seedCutoff)}&publish_mode=not.in.(${seedModeExclude.join(',')})&order=created_at.desc&limit=300&select=slug,title,summary,full_body,category,source_name,nvs_score,publish_mode,published_at,fetched_at,created_at,image_url,original_url,source_type,template_id,golden_score,push_to_homepage,manual_nvs,manual_half_life,push_enabled_at`);
+          const toKVRow = r => toKVShape({
+            title:        r.title,
+            summary:      r.summary || '',
+            full_body:    r.full_body || r.summary || '',
+            source_name:  r.source_name || '',
+            source:       r.source_name || '',
+            url:          r.original_url || '',
+            original_url: r.original_url || '',
+            category:     r.category || 'Haber',
+            nvs:          r.nvs_score || 0,
+            golden_score: r.golden_score || null,
+            published_at: r.published_at || r.created_at,
+            fetched_at:   r.created_at || r.fetched_at || null,
+            is_fresh:     false,
+            is_kartalix_content: r.source_type === 'kartalix',
+            publish_mode: r.publish_mode || 'rss_summary',
+            image_url:    r.image_url   || '',
+            slug:         r.slug,
+            template_id:  r.template_id || null,
+            push_to_homepage: r.push_to_homepage || false,
+            manual_nvs:       r.manual_nvs       ?? null,
+            manual_half_life: r.manual_half_life  ?? null,
+            push_enabled_at:  r.push_enabled_at  || null,
+          });
           if (Array.isArray(dbRows) && dbRows.length > 0) {
-            latestKV = dbRows.map(r => toKVShape({
-              title:        r.title,
-              summary:      r.summary || '',
-              full_body:    r.full_body || r.summary || '',
-              source_name:  r.source_name || '',
-              source:       r.source_name || '',
-              url:          r.original_url || '',
-              original_url: r.original_url || '',
-              category:     r.category || 'Haber',
-              nvs:          r.nvs_score || 0,
-              golden_score: r.golden_score || null,
-              published_at: r.published_at || r.created_at,
-              fetched_at:   r.created_at || r.fetched_at || null,
-              is_fresh:     false,
-              is_kartalix_content: r.source_type === 'kartalix',
-              publish_mode: r.publish_mode || 'rss_summary',
-              image_url:    r.image_url   || '',
-              slug:         r.slug,
-              template_id:  r.template_id || null,
-              push_to_homepage: r.push_to_homepage || false,
-              manual_nvs:       r.manual_nvs       ?? null,
-              manual_half_life: r.manual_half_life  ?? null,
-              push_enabled_at:  r.push_enabled_at  || null,
-            }));
+            latestKV = dbRows.map(toKVRow);
             console.log(`KV SEED from DB: ${latestKV.length} published articles (last 30d)`);
           } else {
             console.error(`KV SEED from DB: no rows returned — dbRows=${dbRows === null ? 'null (Supabase error)' : '[]'}`);
+          }
+          // Drought supplement: if seed returned few usable rows, pull recent rss_summary (< 8h,
+          // within hardTtl window) so the pool has content during off-season content droughts.
+          const nonRssCount = latestKV.filter(a => a.publish_mode !== 'rss_summary').length;
+          if (nonRssCount < 10) {
+            const rssCutoff = new Date(Date.now() - 8 * 60 * 60 * 1000).toISOString();
+            const rssRows = await supabase(env, 'GET',
+              `/rest/v1/content_items?site_id=eq.${site.id}&status=eq.published&created_at=gte.${encodeURIComponent(rssCutoff)}&publish_mode=eq.rss_summary&order=created_at.desc&limit=50&select=slug,title,summary,full_body,category,source_name,nvs_score,publish_mode,published_at,fetched_at,created_at,image_url,original_url,source_type,template_id,golden_score,push_to_homepage,manual_nvs,manual_half_life,push_enabled_at`
+            ).catch(() => null);
+            if (Array.isArray(rssRows) && rssRows.length > 0) {
+              const rssKV = rssRows.map(toKVRow);
+              const existingSlugs = new Set(latestKV.map(a => a.slug).filter(Boolean));
+              const newRss = rssKV.filter(a => !a.slug || !existingSlugs.has(a.slug));
+              latestKV = [...latestKV, ...newRss];
+              console.log(`KV SEED drought supplement: +${newRss.length} recent rss_summary (nonRssCount=${nonRssCount})`);
+            }
           }
         } catch(e) { console.error('KV seed from DB failed:', e.message); }
       }
