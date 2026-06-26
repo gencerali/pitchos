@@ -2918,6 +2918,11 @@
     document.getElementById('comments-list').innerHTML = '';
     document.getElementById('comment-msg').textContent = '';
     if (!article) return;
+    // Pre-fill name from profile when logged in
+    if (window.__kxLoggedIn && window.__kxProfile) {
+      const nameEl = document.getElementById('comment-name');
+      if (nameEl && !nameEl.value) nameEl.value = window.__kxProfile.display_name || window.__kxProfile.username || '';
+    }
     const articleUrl = article.url || article.original_url || '';
     try {
       const res = await fetch(`https://kartalix.com/comments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ article_url: articleUrl }) });
@@ -3169,26 +3174,35 @@
 
   async function submitComment() {
     if (!_currentArticle) return;
-    const name = document.getElementById('comment-name').value.trim();
-    const surname = document.getElementById('comment-surname').value.trim();
-    const comment = document.getElementById('comment-text').value.trim();
-    const honeypot = document.getElementById('comment-honeypot').value;
     const msg = document.getElementById('comment-msg');
+
+    if (!window.__kxLoggedIn || !window.kxToken) {
+      msg.style.color='#D90414'; msg.textContent='Yorum yapmak için giriş yapmanız gerekiyor.'; return;
+    }
+
+    const name = (window.__kxProfile?.display_name || window.__kxProfile?.username ||
+      document.getElementById('comment-name').value).trim().slice(0, 50);
+    const comment = document.getElementById('comment-text').value.trim();
 
     if (!name) { msg.style.color='#D90414'; msg.textContent='Lütfen adınızı girin.'; return; }
     if (comment.length < 3) { msg.style.color='#D90414'; msg.textContent='Yorum en az 3 karakter olmalı.'; return; }
+    if (hasProfanity(comment)) { msg.style.color='#D90414'; msg.textContent='Uygunsuz ifade içeren yorumlar kabul edilmiyor.'; return; }
 
     msg.style.color='var(--muted)'; msg.textContent='Gönderiliyor...';
+
+    const slug = _currentArticle.slug;
+    const articleUrl = _currentArticle.url || _currentArticle.original_url || '';
+    const body = slug ? { article_slug: slug, name, comment } : { article_url: articleUrl, name, comment };
 
     try {
       const res = await fetch('https://kartalix.com/comment', {
         method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ article_url: _currentArticle.url || _currentArticle.original_url, name, surname, comment, honeypot })
+        headers: {'Content-Type':'application/json', Authorization: `Bearer ${window.kxToken}`},
+        body: JSON.stringify(body)
       });
       const data = await res.json();
       if (data.success) {
-        msg.style.color='#166534'; msg.textContent='Yorumunuz eklendi!';
+        msg.style.color='#166534'; msg.textContent = data.pending ? 'Yorumunuz inceleniyor, onaylanınca yayınlanacak.' : 'Yorumunuz eklendi!';
         document.getElementById('comment-name').value = '';
         document.getElementById('comment-surname').value = '';
         document.getElementById('comment-text').value = '';

@@ -339,8 +339,8 @@ export default {
       }
       if (!user_id) return Response.json({ error: 'login_required' }, { status: 401, headers });
 
-      const { article_slug, name, comment, parent_id } = await request.json();
-      if (!article_slug || !comment?.trim() || comment.length < 3)
+      const { article_slug, article_url, name, comment, parent_id } = await request.json();
+      if ((!article_slug && !article_url) || !comment?.trim() || comment.length < 3)
         return Response.json({ error: 'invalid' }, { headers });
       if (/https?:\/\//.test(comment))
         return Response.json({ error: 'no links allowed' }, { headers });
@@ -348,7 +348,7 @@ export default {
         return Response.json({ error: 'Uygunsuz içerik tespit edildi.' }, { headers });
 
       const commentRow = {
-        article_slug,
+        ...(article_slug ? { article_slug } : { article_url }),
         user_id,
         name: (name || 'Üye').trim().slice(0, 50),
         comment: comment.trim().slice(0, 500),
