@@ -3168,7 +3168,7 @@ const PEOPLE_CACHE_TTL_MS = 6 * 3600 * 1000;
 async function getAllPeople(env) {
   const now = Date.now();
   if (_peopleCache && (now - _peopleCacheAt) < PEOPLE_CACHE_TTL_MS) return _peopleCache;
-  const kvKey = 'people:profiles:v1';
+  const kvKey = 'people:profiles:v2';
   const cached = await env.PITCHOS_CACHE.get(kvKey, { type: 'json' }).catch(() => null);
   if (cached) { _peopleCache = cached; _peopleCacheAt = now; return cached; }
   const data = await supabase(env, 'GET', '/rest/v1/people?select=*&order=name', null).catch(() => null);
