@@ -3156,6 +3156,56 @@ YAZIM KURALLARI:
   return saved?.[0] || { title, full_body: body, template_id: 'T-PEN', slug, published_at: new Date().toISOString() };
 }
 
+// ─── PEOPLE KNOWLEDGE BASE ────────────────────────────────────
+// Biographical ground-truth for BJK-relevant people (players, coaches, presidents).
+// Injected into generation prompts to prevent hallucinated bios.
+// Cached in KV (24h) and in-process (6h per isolate warm period).
+
+let _peopleCache = null;
+let _peopleCacheAt = 0;
+const PEOPLE_CACHE_TTL_MS = 6 * 3600 * 1000;
+
+async function getAllPeople(env) {
+  const now = Date.now();
+  if (_peopleCache && (now - _peopleCacheAt) < PEOPLE_CACHE_TTL_MS) return _peopleCache;
+  const kvKey = 'people:profiles:v1';
+  const cached = await env.PITCHOS_CACHE.get(kvKey, { type: 'json' }).catch(() => null);
+  if (cached) { _peopleCache = cached; _peopleCacheAt = now; return cached; }
+  const data = await supabase(env, 'GET', '/rest/v1/people?select=*&order=name', null).catch(() => null);
+  if (!data || !data.length) return [];
+  _peopleCache = data;
+  _peopleCacheAt = now;
+  await env.PITCHOS_CACHE.put(kvKey, JSON.stringify(data), { expirationTtl: 86400 }).catch(() => null);
+  return data;
+}
+
+function findMentionedPeople(text, allPeople) {
+  const lower = text.toLowerCase();
+  return allPeople.filter(p => {
+    const names = [p.name, ...(p.aliases || [])];
+    return names.some(n => n && lower.includes(n.toLowerCase()));
+  });
+}
+
+function buildPeopleProfileBlock(people) {
+  if (!people || !people.length) return '';
+  const staleThreshold = Date.now() - 365 * 86400 * 1000;
+  const lines = people.map(p => {
+    const parts = [`${p.name}:`];
+    if (p.role)         parts.push(`rol=${p.role}`);
+    if (p.status)       parts.push(p.status === 'active' ? 'aktif oyuncu' : 'eski');
+    if (p.current_club) parts.push(`kulüp=${p.current_club}`);
+    if (p.youth_academy)parts.push(`altyapı=${p.youth_academy}`);
+    if (p.nationality)  parts.push(`milliyet=${p.nationality}`);
+    if (p.bjk_from)     parts.push(`BJK=${p.bjk_from}–${p.bjk_to ?? 'devam'}`);
+    if (p.bio_tr)       parts.push(`| ${p.bio_tr}`);
+    const verified = p.last_verified_at ? new Date(p.last_verified_at).getTime() : 0;
+    if (verified < staleThreshold) parts.push('[!profil güncel olmayabilir]');
+    return parts.join(', ');
+  });
+  return `\n\nDOĞRULANMIŞ KİŞİ PROFİLLERİ:\n${lines.join('\n')}\n\nKRİTİK KURAL: Yukarıdaki profillerle çelişen HİÇBİR biyografik bilgi yazma. Profilde yer almayan kariyer geçişi, altyapı veya turnuva durumu hakkında hiçbir şey uydurma — emin değilsen yaz, emin değilsen boş bırak.`;
+}
+
 // ─── ORIGINAL NEWS SYNTHESIS ──────────────────────────────────
 // Generates an original Kartalix article from 1-3 P4 source articles
 // covering the same story. No source attribution — pure Kartalix voice.
@@ -3172,10 +3222,13 @@ export async function generateOriginalNews(sources, site, env) {
     return null;
   }
 
-  const [editorialCtx, groundingCtx] = await Promise.all([
+  const sourceText = sources.map(a => `${a.title} ${a.summary || ''}`).join(' ');
+  const [editorialCtx, groundingCtx, allPeople] = await Promise.all([
     getEditorialNotes(env, ['general', 'style']),
     buildGroundingContext(env, site),
+    getAllPeople(env).catch(() => []),
   ]);
+  const peopleCtx = buildPeopleProfileBlock(findMentionedPeople(sourceText, allPeople));
 
   const isNationalTeam = sources.some(a =>
     /milli takım|milli maç|a milli|b milli|national team|türkiye \d|\d\. türkiye/i.test(a.title + ' ' + (a.summary || ''))
@@ -3195,7 +3248,7 @@ export async function generateOriginalNews(sources, site, env) {
     ? `\nDİĞER SPOR DALI: Beşiktaş'ın bu branştaki başarısını futbol fanatiği bir okuyucuya da heyecan verecek şekilde anlat — kulüp kimliğini, turnuva bağlamını ve skoru net ortaya koy.`
     : '';
 
-  const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak bilgilerden yola çıkarak tamamen özgün bir Kartalix haberi yaz.${editorialCtx}${sportCtx}${groundingCtx}
+  const prompt = `Sen Kartalix'in Beşiktaş spor editörüsün. Aşağıdaki kaynak bilgilerden yola çıkarak tamamen özgün bir Kartalix haberi yaz.${editorialCtx}${sportCtx}${groundingCtx}${peopleCtx}
 
 ${sourceBlocks}
 
@@ -3275,11 +3328,15 @@ KURALLAR:
 // includeEmbed=false produces a text-only article (synthesize treatment).
 // Returns null if the transcript is too short or Claude output is unusable.
 export async function generateVideoSynthesis(video, transcriptText, site, env, stats = null, includeEmbed = false) {
+  const allPeople = await getAllPeople(env).catch(() => []);
+  const peopleCtx = buildPeopleProfileBlock(
+    findMentionedPeople(video.title + ' ' + transcriptText.slice(0, 2000), allPeople)
+  );
   const prompt = `Sen Kartalix'in spor editörüsün. Aşağıda bir YouTube videosunun transkripti var. Bu videoyu özetleyen özgün bir Türkçe haber yazısı hazırla.
 
 Video: ${video.title}
 Kanal: ${video.channel_name}
-
+${peopleCtx}
 Transkript:
 ${transcriptText.slice(0, 6000)}
 
@@ -3413,7 +3470,7 @@ ${transcript.slice(0, 12000)}`;
 // ─── SINGLE TOPIC ARTICLE SYNTHESIS ──────────────────────────
 // Generates a focused 200–400 word article from a single transcript segment.
 // Uses Sonnet (MODEL_GENERATE) — same as full synthesis but topic-scoped.
-async function generateTopicArticle(video, segment, site, env, stats = null, includeEmbed = false) {
+async function generateTopicArticle(video, segment, site, env, stats = null, includeEmbed = false, peopleProfileBlock = '') {
   const quotesBlock = (segment.key_quotes || [])
     .map(q => `"${q.text}" — ${q.speaker || 'Konuşmacı'}`)
     .join('\n');
@@ -3422,7 +3479,7 @@ async function generateTopicArticle(video, segment, site, env, stats = null, inc
 
 KONU BAŞLIĞI: ${segment.topic_title}
 KANAL / PROGRAM: ${video.channel_name}
-
+${peopleProfileBlock}
 ÖNE ÇIKAN ALINTILAR:
 ${quotesBlock || '(yok)'}
 
@@ -3494,9 +3551,14 @@ export async function generateMultiTopicVideoSynthesis(video, transcriptText, si
   const maxTopics = opts.maxTopics ?? burstCfg.maxTopics;
   const includeEmbedOnFirst = opts.includeEmbedOnFirst ?? video.embed_qualify ?? false;
 
+  // Fetch person profiles once for the whole interview — shared across all topic articles
+  const allPeople = await getAllPeople(env).catch(() => []);
+  const peopleProfileBlock = buildPeopleProfileBlock(
+    findMentionedPeople(video.title + ' ' + transcriptText.slice(0, 3000), allPeople)
+  );
+
   const segments = await segmentTranscript(transcriptText, video, env, { maxTopics });
   if (!segments || !segments.length) {
-    // Fallback: single-article synthesis if segmentation fails
     const fallback = await generateVideoSynthesis(video, transcriptText, site, env, stats, includeEmbedOnFirst);
     return fallback ? [fallback] : [];
   }
@@ -3506,7 +3568,7 @@ export async function generateMultiTopicVideoSynthesis(video, transcriptText, si
   const articles = [];
   for (let i = 0; i < segments.length; i++) {
     try {
-      const article = await generateTopicArticle(video, segments[i], site, env, stats, includeEmbedOnFirst && i === 0);
+      const article = await generateTopicArticle(video, segments[i], site, env, stats, includeEmbedOnFirst && i === 0, peopleProfileBlock);
       if (article) articles.push(article);
     } catch (e) {
       console.error(`YT topic article failed [seg ${i}]:`, e.message);
