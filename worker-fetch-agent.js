@@ -9399,7 +9399,8 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
     ? [['aday', status.candidates], ['olgulu', status.withFacts], ['event', status.eventRoute],
        ['delta-kontrol', status.deltaChecks], ['material', status.materialDelta],
        ['confirm-skip', status.confirmingSkip], ['üretilen', status.synthesized],
-       ['maliyet', '$' + (status.costUsd ?? 0)]].map(([k, v]) => `<b>${k}</b> ${v ?? '-'}`).join(' &nbsp;|&nbsp; ')
+       ['fan-out', status.fanOut ?? 0], ['maliyet', '$' + (status.costUsd ?? 0)]]
+      .map(([k, v]) => `<b>${k}</b> ${v ?? '-'}`).join(' &nbsp;|&nbsp; ')
     : 'henüz çalışmadı';
 
   // ── Acceptance gates ────────────────────────────────────────────────────────
