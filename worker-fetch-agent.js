@@ -9610,6 +9610,7 @@ ${adminNav('config', sc, allSites)}
           <button class="btn btn-sm" style="background:#0d8a7a;color:#fff;margin-left:.6rem" onclick="toggleMethodB(true)" ${methodbEnabled ? 'disabled' : ''}>Etkinleştir</button>
           <button class="btn btn-sm" style="background:#7a1f1f;color:#fff" onclick="toggleMethodB(false)" ${!methodbEnabled ? 'disabled' : ''}>Durdur</button>
           <button class="btn btn-sm" style="background:#1e3a5f;color:#fff;margin-left:.6rem" onclick="runMethodBNow()">Şimdi Çalıştır</button>
+          <button class="btn btn-sm" style="background:#4a2060;color:#fff;margin-left:.4rem" onclick="resetMethodBCursor()">Cursoru Sıfırla</button>
           <span id="mb-msg" class="save-status" style="margin-left:.4rem"></span>
         </div>
         <div class="cfg-note">Saatlik cron — gölge havuzuna (articles:{site}:methodb) olgu-tabanlı makaleler üretir. Anasayfayı etkilemez; aşağıdaki "Yayında olan" ayarı ayrıdır.</div>
@@ -9791,6 +9792,15 @@ async function toggleMethodB(enable){
     const j = await r.json();
     msg.textContent = j.ok ? (enable ? '✓ etkinleştirildi' : '✓ durduruldu') : ('hata: ' + (j.error || '?'));
     if(j.ok) setTimeout(() => location.reload(), 700);
+  }catch(e){ msg.textContent = 'hata: ' + e.message; }
+}
+async function resetMethodBCursor(){
+  const msg = document.getElementById('mb-msg');
+  msg.textContent = 'cursor sıfırlanıyor...';
+  try{
+    const r = await fetch('/admin/methodb/reset-cursor', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    const j = await r.json();
+    msg.textContent = j.ok ? ('✓ cursor silindi (' + (j.sites||[]).join(',') + ') — şimdi çalıştır') : ('hata: ' + (j.error||'?'));
   }catch(e){ msg.textContent = 'hata: ' + e.message; }
 }
 async function runMethodBNow(){
