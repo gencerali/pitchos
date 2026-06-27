@@ -3110,6 +3110,14 @@ Sadece JSON döndür:
           first_seen: state.alarm_first_seen.cost_daily,
         });
       }
+      if (state.cost_cap_detail) {
+        alarms.push({
+          id: 'cost_cap_reached', category: 'critical',
+          title: 'Monthly cost cap reached — pipeline blocked',
+          msg: `Spend $${state.cost_cap_detail.current} >= cap $${state.cost_cap_detail.cap}. Raise MONTHLY_CLAUDE_CAP or set KV key cost:cap.`,
+          first_seen: state.alarm_first_seen.cost_cap_reached,
+        });
+      }
 
       // 8. Source health (Module 1.1) — dead/noisy feeds (computed daily by runSourceHealth).
       const shRaw = await env.PITCHOS_CACHE.get('source_health:alarms').catch(() => null);
@@ -4637,6 +4645,19 @@ async function runAlarmChecks(env) {
         delete state.alarm_first_seen.cost_daily; delete state.alarm_acked.cost_daily; delete state.cost_daily_detail;
       }
     } catch (e) { console.log('cost trajectory check failed:', e.message); }
+
+    // 5. Cost cap reached — monthly cap hit, pipeline is actively blocked.
+    try {
+      const { blocked, current, cap } = await checkCostCap(env);
+      if (blocked) {
+        if (!state.alarm_first_seen.cost_cap_reached) state.alarm_first_seen.cost_cap_reached = now;
+        state.cost_cap_detail = { current: +current.toFixed(4), cap };
+      } else {
+        delete state.alarm_first_seen.cost_cap_reached;
+        delete state.alarm_acked.cost_cap_reached;
+        delete state.cost_cap_detail;
+      }
+    } catch (e) { console.log('cost cap alarm check failed:', e.message); }
 
     await env.PITCHOS_CACHE.put('alarms:state', JSON.stringify(state), { expirationTtl: 86400 * 7 });
   } catch (e) {
