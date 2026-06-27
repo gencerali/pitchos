@@ -115,7 +115,7 @@ async function processSiteMethodB(site, env) {
   const rows = await supabase(env, 'GET',
     `/rest/v1/content_items?site_id=eq.${site.id}&created_at=gt.${encodeURIComponent(cursorIso)}` +
     `&order=created_at.asc&limit=${BATCH}` +
-    `&select=id,title,summary,source_name,trust_tier,category,story_id,created_at`
+    `&select=id,title,summary,source_name,trust_score,category,story_id,created_at`
   ) || [];
 
   if (rows.length === 0) {
@@ -544,7 +544,7 @@ function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity
     source: 'Method B', source_name: item.source_name || '',
     source_url: '', url: '',
     category: facts?.story_type || item.category || 'Haber',
-    nvs: 0, trust_tier: item.trust_tier || null,
+    nvs: 0, trust_tier: item.trust_score || null,
     published_at, fetched_at: published_at,
     is_fresh: true, is_kartalix_content: true,
     publish_mode: 'methodb_synth', image_url: '', slug,
