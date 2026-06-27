@@ -146,12 +146,17 @@ async function processSiteMethodB(site, env) {
     if (mode === 'event') {
       tally.eventRoute++;
       doSynth = true; trigger = 'event';
+    } else if (!priorTrack) {
+      // New topic — first fact is always material; skip the delta LLM (answer is always
+      // {material:true, trigger:'initial'} when priorTrack===null). Edge detection already
+      // ran inside correlateToTopic if branch/sequel keywords were present.
+      doSynth = true; trigger = 'initial'; tally.materialDelta++;
     } else {
-      // Rules pre-filter FIRST — pure confirmations never reach the LLM (cost guardrail §6.3).
+      // Existing topic — rules pre-filter FIRST, then delta LLM only if a possible change.
       const pre = rulesPreFilterDelta(priorTrack, f, item);
       if (pre.possibleDelta) {
         if (cap.blocked || synthCount >= SHADOW_SYNTH_CAP) {
-          // would spend, but budget/cap reached this run — leave cursor to retry next run
+          // budget/cap reached this run — leave cursor to retry next run
         } else {
           tally.deltaChecks++;
           const delta = await detectDeltaLLM(priorTrack, f, item, env, stats);
