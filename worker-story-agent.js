@@ -115,8 +115,8 @@ async function processSiteMethodB(site, env) {
   // Cursor: only content_items newer than last run. Default = 30 days ago so the initial
   // run hits recently-ingested items (which have extracted facts) rather than crawling
   // through the entire historical backlog which has no facts and produces nothing.
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000).toISOString();
-  const cursorIso = (await env.PITCHOS_CACHE.get(cursorKey(code))) || thirtyDaysAgo;
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86400 * 1000).toISOString();
+  const cursorIso = (await env.PITCHOS_CACHE.get(cursorKey(code))) || sevenDaysAgo;
   const rows = await supabase(env, 'GET',
     `/rest/v1/content_items?site_id=eq.${site.id}&created_at=gt.${encodeURIComponent(cursorIso)}` +
     `&order=created_at.asc&limit=${BATCH}` +
