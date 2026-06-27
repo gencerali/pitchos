@@ -174,7 +174,7 @@ async function processSiteMethodB(site, env) {
       }
     }
 
-    if (doSynth && !cap.blocked && synthCount < SHADOW_SYNTH_CAP) {
+    if (doSynth && f && !cap.blocked && synthCount < SHADOW_SYNTH_CAP) {
       const allTracks = topicInfo?.topic?.claim_tracks || {};
       const fanEntities = buildFanEntities(topicInfo, newTracks, f);
       let phaseWritten = false;
