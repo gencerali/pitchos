@@ -110,8 +110,11 @@ async function processSiteMethodB(site, env) {
     return status;
   }
 
-  // Cursor: only content_items newer than last run. Read-only against legacy data.
-  const cursorIso = (await env.PITCHOS_CACHE.get(cursorKey(code))) || '1970-01-01T00:00:00Z';
+  // Cursor: only content_items newer than last run. Default = 30 days ago so the initial
+  // run hits recently-ingested items (which have extracted facts) rather than crawling
+  // through the entire historical backlog which has no facts and produces nothing.
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000).toISOString();
+  const cursorIso = (await env.PITCHOS_CACHE.get(cursorKey(code))) || thirtyDaysAgo;
   const rows = await supabase(env, 'GET',
     `/rest/v1/content_items?site_id=eq.${site.id}&created_at=gt.${encodeURIComponent(cursorIso)}` +
     `&order=created_at.asc&limit=${BATCH}` +
@@ -158,8 +161,8 @@ async function processSiteMethodB(site, env) {
     if (mode === 'event') {
       tally.eventRoute++;
       doSynth = true; trigger = 'event';
-    } else if (!hasAnyPrior) {
-      // All tracks new — always material/initial; no delta LLM needed.
+    } else if (!hasAnyPrior && f) {
+      // All tracks new and we have facts — always material/initial; no delta LLM needed.
       doSynth = true; trigger = 'initial'; tally.materialDelta++;
     } else {
       // Pre-filter: check if any track shows a possible delta before spending the Haiku call.

@@ -3285,6 +3285,15 @@ Sadece JSON döndür:
       return Response.json({ ok: true, enabled: enable });
     }
 
+    if (url.pathname === '/admin/methodb/reset-cursor' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const sites = await getActiveSites(env);
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000).toISOString();
+      await Promise.all(sites.map(s => env.PITCHOS_CACHE.delete(`methodb:cursor:${s.short_code}`)));
+      return Response.json({ ok: true, reset_to: thirtyDaysAgo, sites: sites.map(s => s.short_code) });
+    }
+
     if (url.pathname === '/admin/methodb/run' && request.method === 'POST') {
       const authed = await checkAdminAuth(request, env);
       if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
