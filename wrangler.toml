@@ -14,6 +14,11 @@ MONTHLY_CLAUDE_CAP = "100"
 [limits]
 subrequests = 1000
 
+# Service binding to the story worker so the admin panel can trigger an immediate run.
+[[services]]
+binding = "STORY_AGENT"
+service = "pitchos-story-agent"
+
 [triggers]
 crons = ["*/5 * * * *", "0 */3 * * *", "0 4 * * *", "0 3 * * 1", "0 2 * * 7"]
 # Bot cron is handled by workers/bot-cron — separate tiny worker, not this one.
