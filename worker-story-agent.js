@@ -38,7 +38,7 @@ export default {
   },
 
   // Minimal control surface. No public routes are bound to this worker (workers.dev only).
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/status') {
       const sites = await getActiveSites(env);
@@ -59,8 +59,10 @@ export default {
       const key = request.headers.get('x-methodb-key');
       const expected = await env.PITCHOS_CACHE.get('methodb:admin_key');
       if (!expected || key !== expected) return new Response('unauthorized', { status: 401 });
-      const result = await runMethodB(env, null, { force: true });
-      return Response.json(result);
+      // Return immediately — processing runs in background via waitUntil.
+      // Caller polls /admin/pipeline for results rather than waiting on this response.
+      ctx.waitUntil(runMethodB(env, null, { force: true }));
+      return Response.json({ ok: true, queued: true });
     }
     return new Response('pitchos-story-agent (Method B shadow worker). See /status.', {
       headers: { 'content-type': 'text/plain; charset=utf-8' },
