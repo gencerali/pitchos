@@ -3266,6 +3266,20 @@ Sadece JSON döndür:
       return Response.json({ ok: true, site: code, active: target });
     }
 
+    if (url.pathname === '/admin/methodb/toggle' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const body = await request.json().catch(() => ({}));
+      const enable = body.enabled === true;
+      if (enable) {
+        await env.PITCHOS_CACHE.put('methodb:enabled', '1');
+      } else {
+        await env.PITCHOS_CACHE.delete('methodb:enabled');
+      }
+      console.log(`METHODB TOGGLE → ${enable ? 'enabled' : 'disabled'}`);
+      return Response.json({ ok: true, enabled: enable });
+    }
+
     if (url.pathname === '/admin/config/save' && request.method === 'POST') {
       const authed = await checkAdminAuth(request, env);
       if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
@@ -9498,6 +9512,16 @@ ${adminNav('config', sc, allSites)}
     <div class="card-body">
       <div class="section-note">Hangi pipeline anasayfayı besliyor. <b>legacy</b> = mevcut sistem. <b>methodb</b> = yeni olgu-tabanlı üretici (yalnızca gölge havuzu hazırsa yayınlanır; değilse otomatik legacy'ye düşer). Anında geri alınabilir.</div>
       <div class="cfg-row">
+        <div class="cfg-label">Method B worker</div>
+        <div class="cfg-value">
+          <span id="mb-active" class="${methodbEnabled ? 'pl-on' : 'pl-off'}">${methodbEnabled ? 'ÇALIŞIYOR' : 'DEVRE DIŞI'}</span>
+          <button class="btn btn-sm" style="background:#0d8a7a;color:#fff;margin-left:.6rem" onclick="toggleMethodB(true)" ${methodbEnabled ? 'disabled' : ''}>Etkinleştir</button>
+          <button class="btn btn-sm" style="background:#7a1f1f;color:#fff" onclick="toggleMethodB(false)" ${!methodbEnabled ? 'disabled' : ''}>Durdur</button>
+          <span id="mb-msg" class="save-status" style="margin-left:.4rem"></span>
+        </div>
+        <div class="cfg-note">Saatlik cron — gölge havuzuna (articles:{site}:methodb) olgu-tabanlı makaleler üretir. Anasayfayı etkilemez; aşağıdaki "Yayında olan" ayarı ayrıdır.</div>
+      </div>
+      <div class="cfg-row">
         <div class="cfg-label">Yayında olan</div>
         <div class="cfg-value">
           <span id="pl-active" class="${pipelineActive === 'methodb' ? 'pl-on' : 'pl-off'}">${pipelineActive === 'methodb' ? 'METHOD B' : 'LEGACY'}</span>
@@ -9505,7 +9529,7 @@ ${adminNav('config', sc, allSites)}
           <button class="btn btn-sm" style="background:#0d8a7a;color:#fff" onclick="flipPipeline('methodb')" ${pipelineActive === 'methodb' ? 'disabled' : ''}>Method B yap</button>
           <span id="pl-msg" class="save-status" style="margin-left:.4rem"></span>
         </div>
-        <div class="cfg-note">Method B worker durumu: <b>${methodbEnabled ? 'ENABLED' : 'INERT (methodb:enabled≠1)'}</b> · Karşılaştırma: <a href="/admin/pipeline?site=${esc(sc)}" style="color:#7c9adb">/admin/pipeline</a></div>
+        <div class="cfg-note">Hangi havuz anasayfayı besliyor. Method B seçilirse ama gölge havuzu boşsa otomatik legacy'ye düşer. Karşılaştırma: <a href="/admin/pipeline?site=${esc(sc)}" style="color:#7c9adb">/admin/pipeline</a></div>
       </div>
     </div>
   </div>
@@ -9665,6 +9689,16 @@ async function _doSave(field, value) {
     else      { st.textContent = j.error || 'Error'; st.className = 'save-status save-err'; }
   } catch { st.textContent = 'Network error'; st.className = 'save-status save-err'; }
   btn.disabled = false;
+}
+async function toggleMethodB(enable){
+  const msg = document.getElementById('mb-msg');
+  msg.textContent = '...';
+  try{
+    const r = await fetch('/admin/methodb/toggle', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enabled: enable }) });
+    const j = await r.json();
+    msg.textContent = j.ok ? (enable ? '✓ etkinleştirildi' : '✓ durduruldu') : ('hata: ' + (j.error || '?'));
+    if(j.ok) setTimeout(() => location.reload(), 700);
+  }catch(e){ msg.textContent = 'hata: ' + e.message; }
 }
 async function flipPipeline(target){
   const label = target === 'methodb' ? 'METHOD B' : 'LEGACY';
