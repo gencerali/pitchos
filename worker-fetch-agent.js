@@ -3303,12 +3303,12 @@ Sadece JSON döndür:
         adminKey = 'mb-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now();
         await env.PITCHOS_CACHE.put('methodb:admin_key', adminKey, { expirationTtl: 86400 * 30 });
       }
-      const resp = await env.STORY_AGENT.fetch('https://pitchos-story-agent/run', {
+      // Fire-and-forget — story worker returns immediately (waitUntil) so we don't time out.
+      env.STORY_AGENT.fetch('https://pitchos-story-agent/run', {
         method: 'POST',
         headers: { 'x-methodb-key': adminKey },
-      });
-      const result = await resp.json().catch(() => ({ error: 'bad response' }));
-      return Response.json({ ok: true, result });
+      }).catch(() => {});
+      return Response.json({ ok: true, queued: true });
     }
 
     if (url.pathname === '/admin/config/save' && request.method === 'POST') {
@@ -9755,10 +9755,8 @@ async function runMethodBNow(){
     const r = await fetch('/admin/methodb/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
     const j = await r.json();
     if(j.error){ msg.textContent = 'hata: ' + j.error; return; }
-    const res = j.result || {};
-    const summary = Object.entries(res).map(([k,v]) => k + ':' + (v?.synthesized ?? (v?.error ? 'ERR' : JSON.stringify(v)))).join(', ');
-    msg.textContent = '✓ ' + (summary || 'tamam');
-    setTimeout(() => location.reload(), 2000);
+    msg.textContent = '✓ kuyruğa alındı — /admin/pipeline sayfasını 60sn sonra yenileyin';
+    setTimeout(() => location.reload(), 60000);
   }catch(e){ msg.textContent = 'hata: ' + e.message; }
 }
 async function flipPipeline(target){
