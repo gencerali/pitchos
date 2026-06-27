@@ -2071,6 +2071,10 @@ export default {
           await env.PITCHOS_CACHE.put('cost:cap', String(val.toFixed(2)));
           return Response.json({ ok: true }, { headers: h });
         }
+        if (body.action === 'clear-cap') {
+          await env.PITCHOS_CACHE.delete('cost:cap');
+          return Response.json({ ok: true, note: 'KV override cleared — falling back to MONTHLY_CLAUDE_CAP env var' }, { headers: h });
+        }
         return Response.json({ error: 'unknown action' }, { status: 400, headers: h });
       }
 
@@ -10211,7 +10215,7 @@ ${adminNav('cost', siteCode, allSites)}
       <button class="btn primary" onclick="saveCap()">Save</button>
       <button class="btn" onclick="toggleCapEdit()">Cancel</button>
     </div>
-    <div class="cap-source">${cap_is_override ? 'Cap: KV override (cost:cap key)' : 'Cap: MONTHLY_CLAUDE_CAP env var — use Edit Cap to override at runtime'}</div>
+    <div class="cap-source">${cap_is_override ? 'Cap: KV override (cost:cap key) — <a href="#" onclick="clearCapOverride();return false;" style="color:#f87171">clear override</a>' : 'Cap: MONTHLY_CLAUDE_CAP env var — use Edit Cap to override at runtime'}</div>
   </div>
 
   <div class="card">
@@ -10497,7 +10501,7 @@ ${adminNav('financials', siteCode, allSites)}
       <button class="cbtn primary" onclick="saveCap()">Save</button>
       <button class="cbtn" onclick="toggleCapEdit()">Cancel</button>
     </div>
-    <div class="cap-source">${cap_is_override ? 'Cap: KV override (cost:cap key)' : 'Cap: MONTHLY_CLAUDE_CAP env var — use Edit Cap to override at runtime'}</div>
+    <div class="cap-source">${cap_is_override ? 'Cap: KV override (cost:cap key) — <a href="#" onclick="clearCapOverride();return false;" style="color:#f87171">clear override</a>' : 'Cap: MONTHLY_CLAUDE_CAP env var — use Edit Cap to override at runtime'}</div>
   </div>
   <div class="cost-card">
     <div class="ch2">Alarms</div>
@@ -10579,6 +10583,7 @@ function toast(msg) { const t=document.getElementById('toast'); t.textContent=ms
 function toggleCapEdit() { const r=document.getElementById('capEditRow'); r.style.display=r.style.display==='flex'?'none':'flex'; }
 async function saveCap() { const cap=parseFloat(document.getElementById('capInput').value); if(!cap||cap<=0){toast('Invalid cap');return;} const r=await fetch('/admin/cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'set-cap',cap})}); if(r.ok){toast('Cap updated — reloading…');setTimeout(()=>location.reload(),800);}else{toast('Error saving cap');} }
 async function doReset() { if(!confirm('Reset current month counter and all alarm timestamps?'))return; const r=await fetch('/admin/cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'reset'})}); if(r.ok){toast('Counter reset — reloading…');setTimeout(()=>location.reload(),800);}else{toast('Error resetting');} }
+async function clearCapOverride() { if(!confirm('Clear KV cap override and fall back to MONTHLY_CLAUDE_CAP env var?'))return; const r=await fetch('/admin/cost',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'clear-cap'})}); if(r.ok){toast('Override cleared — reloading…');setTimeout(()=>location.reload(),800);}else{toast('Error clearing override');} }
 const ALL_DATA    = ${JSON.stringify(monthsData)};
 const FIXED_ITEMS = ${JSON.stringify(fixedItems)};
 const ALL_MANUAL  = ${JSON.stringify(allManual)};
