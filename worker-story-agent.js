@@ -139,29 +139,35 @@ async function processSiteMethodB(site, env) {
       try { topicInfo = await correlateToTopic(item, f, site, env, stats); }
       catch (e) { console.error(`correlate [${code}]:`, e.message); }
     }
-    const priorTrack = topicInfo?.priorTrack || null;
+    const priorTracks = topicInfo?.priorTracks || { main: null };
+    const hasAnyPrior = Object.values(priorTracks).some(t => t !== null);
 
-    let doSynth = false, trigger = 'update', newTrack = null;
+    let doSynth = false, trigger = 'update', newTracks = {};
 
     if (mode === 'event') {
       tally.eventRoute++;
       doSynth = true; trigger = 'event';
-    } else if (!priorTrack) {
-      // New topic — first fact is always material; skip the delta LLM (answer is always
-      // {material:true, trigger:'initial'} when priorTrack===null). Edge detection already
-      // ran inside correlateToTopic if branch/sequel keywords were present.
+    } else if (!hasAnyPrior) {
+      // All tracks new — always material/initial; no delta LLM needed.
       doSynth = true; trigger = 'initial'; tally.materialDelta++;
     } else {
-      // Existing topic — rules pre-filter FIRST, then delta LLM only if a possible change.
-      const pre = rulesPreFilterDelta(priorTrack, f, item);
-      if (pre.possibleDelta) {
+      // Pre-filter: check if any track shows a possible delta before spending the Haiku call.
+      const anyPossible = Object.values(priorTracks).some(prior =>
+        rulesPreFilterDelta(prior, f, item).possibleDelta
+      );
+      if (anyPossible) {
         if (cap.blocked || synthCount >= SHADOW_SYNTH_CAP) {
           // budget/cap reached this run — leave cursor to retry next run
         } else {
           tally.deltaChecks++;
-          const delta = await detectDeltaLLM(priorTrack, f, item, env, stats);
-          if (delta?.material) { doSynth = true; trigger = delta.trigger || 'update'; newTrack = delta.new_track || null; tally.materialDelta++; }
-          else tally.confirmingSkip++;
+          const deltaResult = await detectDeltaLLMMulti(priorTracks, f, item, env, stats);
+          const moving = Object.entries(deltaResult?.tracks || {}).filter(([, d]) => d?.material);
+          if (moving.length) {
+            doSynth = true;
+            trigger = moving[0][1].trigger || 'update';
+            newTracks = Object.fromEntries(moving.map(([k, d]) => [k, d.new_track || null]));
+            tally.materialDelta++;
+          } else tally.confirmingSkip++;
         }
       } else {
         tally.confirmingSkip++;
@@ -169,11 +175,12 @@ async function processSiteMethodB(site, env) {
     }
 
     if (doSynth && !cap.blocked && synthCount < SHADOW_SYNTH_CAP) {
-      const art = await synthesizePhase(topicInfo?.topic, f, item, env, stats, trigger);
+      const allTracks = topicInfo?.topic?.claim_tracks || {};
+      const art = await synthesizePhase(topicInfo?.topic, f, item, env, stats, trigger, allTracks);
       if (art) {
         newArticles.push(art);
         synthCount++; tally.synthesized++;
-        if (topicInfo?.topic) await persistPhase(topicInfo, newTrack, trigger, item, env).catch(() => {});
+        if (topicInfo?.topic) await persistPhase(topicInfo, newTracks, trigger, item, env).catch(() => {});
       }
     }
   }
@@ -250,12 +257,18 @@ async function correlateToTopic(item, facts, site, env, stats) {
     } catch (e) { console.error('edge detection:', e.message); }
   }
 
-  // Claim-track key: the non-home club (competing-narrative axis), else 'main'.
+  // Step 3: all non-home clubs → one track per competing club, else 'main'.
   const home = (site.team_name || '').toLowerCase();
-  const other = (ents.clubs || []).find(c => String(c).toLowerCase() !== home && String(c).toLowerCase());
-  const trackKey = other ? String(other).toLowerCase().replace(/\s+/g, '_').slice(0, 40) : 'main';
-  const priorTrack = (topic?.claim_tracks || {})[trackKey] || null;
-  return { topic, trackKey, priorTrack };
+  const otherClubs = [...new Set(
+    (ents.clubs || [])
+      .filter(c => String(c).toLowerCase() !== home)
+      .map(c => String(c).toLowerCase().replace(/\s+/g, '_').slice(0, 40))
+  )];
+  const trackKeys = otherClubs.length ? otherClubs : ['main'];
+  const priorTracks = Object.fromEntries(
+    trackKeys.map(k => [k, (topic?.claim_tracks || {})[k] || null])
+  );
+  return { topic, trackKeys, priorTracks, trackKey: trackKeys[0], priorTrack: priorTracks[trackKeys[0]] };
 }
 
 // ─── STEP 2: BRANCH / SEQUEL EDGE DETECTION ──────────────────────────────────
@@ -342,11 +355,17 @@ Only non-null if confidence ≥ 70.`;
 }
 
 // ─── STAGE 3: DELTA DETECTION (Haiku, behind the rules pre-filter) ────────────
-async function detectDeltaLLM(priorTrack, facts, item, env, stats) {
-  const prompt = `You compare a football news fact against a story's CURRENT known state and decide if it is a MATERIAL update.
+// One Haiku call covers all tracks — same token cost as a single-track call.
+async function detectDeltaLLMMulti(priorTracks, facts, item, env, stats) {
+  const trackList = Object.entries(priorTracks);
+
+  if (trackList.length === 1) {
+    // Single track — use the simpler single-track prompt to save tokens.
+    const [key, prior] = trackList[0];
+    const prompt = `You compare a football news fact against a story's CURRENT known state and decide if it is a MATERIAL update.
 
 CURRENT TRACK STATE (may be null = first time):
-${JSON.stringify(priorTrack)}
+${JSON.stringify(prior)}
 
 NEW FACT:
 title: ${item.title || ''}
@@ -355,21 +374,49 @@ entities: ${JSON.stringify(facts?.entities || {})}
 numbers: ${JSON.stringify(facts?.numbers || {})}
 dates: ${JSON.stringify(facts?.dates || {})}
 
-Return ONLY JSON:
-{"material": true|false, "trigger": "initial"|"update"|"contradiction", "new_track": {"status": "...", "numbers": {...}, "dates": {...}, "confidence": 0-100}}
-material=true ONLY if the fact changes status, a number/date, or contradicts the current state. A mere repeat = material:false.`;
+Return ONLY JSON (no explanation):
+{"tracks":{"${key}":{"material":true|false,"trigger":"initial"|"update"|"contradiction","new_track":{"status":"...","numbers":{},"dates":{},"confidence":0}}}}
+material=true ONLY if the fact changes status, a number/date, or contradicts the current state. A repeat = material:false.`;
+    try {
+      const res = await callClaude(env, MODEL_FETCH, prompt, false, 400);
+      addUsagePhase(stats, res.usage, MODEL_FETCH, 'methodb_delta');
+      const m = extractText(res.content).match(/\{[\s\S]*\}/);
+      return m ? JSON.parse(m[0]) : { tracks: {} };
+    } catch (e) { console.error('detectDeltaLLMMulti:', e.message); return { tracks: {} }; }
+  }
+
+  // Multiple tracks — batch them in one call.
+  const prompt = `You compare a football news fact against multiple story claim-tracks and decide, for EACH track, whether this fact is a MATERIAL update.
+
+NEW FACT:
+title: ${item.title || ''}
+type: ${facts?.story_type || ''}
+entities: ${JSON.stringify(facts?.entities || {})}
+numbers: ${JSON.stringify(facts?.numbers || {})}
+dates: ${JSON.stringify(facts?.dates || {})}
+
+CLAIM TRACKS (one per competing club/narrative):
+${trackList.map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n')}
+
+For each track: material=true only if the fact changes status, a number/date, or contradicts the track state. A repeat = false.
+Return ONLY valid JSON (no explanation):
+{"tracks":{"<track_key>":{"material":true|false,"trigger":"initial"|"update"|"contradiction","new_track":{"status":"...","numbers":{},"dates":{},"confidence":0}}}}`;
   try {
-    const res = await callClaude(env, MODEL_FETCH, prompt, false, 400);
+    const res = await callClaude(env, MODEL_FETCH, prompt, false, 600);
     addUsagePhase(stats, res.usage, MODEL_FETCH, 'methodb_delta');
     const m = extractText(res.content).match(/\{[\s\S]*\}/);
-    return m ? JSON.parse(m[0]) : null;
-  } catch (e) { console.error('detectDeltaLLM:', e.message); return null; }
+    return m ? JSON.parse(m[0]) : { tracks: {} };
+  } catch (e) { console.error('detectDeltaLLMMulti:', e.message); return { tracks: {} }; }
 }
 
 // ─── STAGE 4: SYNTHESIZE FROM STORED FACTS (Sonnet) ──────────────────────────
 // Writes from compact structured facts, NOT by re-fetching source text (design §4/§6).
-async function synthesizePhase(topic, facts, item, env, stats, trigger) {
+// allTracks: full claim_tracks map from the topic — used as competing-narrative context.
+async function synthesizePhase(topic, facts, item, env, stats, trigger, allTracks = {}) {
   const editorial = await getEditorialNotes(env, ['news', facts?.story_type || '']).catch(() => '');
+  const competing = Object.entries(allTracks)
+    .filter(([, v]) => v != null)
+    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n');
   const prompt = `${editorial}Sen Kartalix'in kıdemli spor editörüsün. Aşağıdaki DOĞRULANMIŞ OLGULARDAN özgün bir Türkçe haber yaz.
 
 OLGULAR:
@@ -378,7 +425,7 @@ tip: ${facts?.story_type || ''}
 varlıklar: ${JSON.stringify(facts?.entities || {})}
 sayılar: ${JSON.stringify(facts?.numbers || {})}
 tarihler: ${JSON.stringify(facts?.dates || {})}
-gelişme tipi: ${trigger}
+gelişme tipi: ${trigger}${competing ? `\n\nREKABET EDEN ANLATIMLAR (bağlam; yalnızca yeni olguyla çelişiyor veya destekliyorsa belirt):\n${competing}` : ''}
 
 KURALLAR:
 - Çıktı tam olarak şu formatta:
@@ -400,11 +447,13 @@ BAŞLIK: [Türkçe manşet]
   } catch (e) { console.error('synthesizePhase:', e.message); return null; }
 }
 
-// Persist the topic's updated claim-track + a phase row (new tables only — legacy never reads them).
-async function persistPhase(topicInfo, newTrack, trigger, item, env) {
+// Persist the topic's updated claim-tracks + a phase row (new tables only — legacy never reads them).
+// newTracks: map of trackKey → new_track (only the moving tracks returned by detectDeltaLLMMulti).
+async function persistPhase(topicInfo, newTracks, trigger, item, env) {
   const { topic, trackKey } = topicInfo;
-  if (newTrack) {
-    const tracks = { ...(topic.claim_tracks || {}), [trackKey]: newTrack };
+  const hasUpdates = newTracks && Object.keys(newTracks).length > 0;
+  if (hasUpdates) {
+    const tracks = { ...(topic.claim_tracks || {}), ...newTracks };
     await supabase(env, 'PATCH', `/rest/v1/topics?id=eq.${topic.id}`, {
       claim_tracks: tracks, last_event_at: new Date().toISOString(),
     });
@@ -413,9 +462,11 @@ async function persistPhase(topicInfo, newTrack, trigger, item, env) {
     `/rest/v1/phases?topic_id=eq.${topic.id}&select=seq&order=seq.desc&limit=1`
   ).catch(() => []);
   const nextSeq = ((seqRows?.[0]?.seq ?? -1) + 1);
+  // Primary track for the phase row: first moving track, or the topic's default track.
+  const primaryTrack = (hasUpdates ? Object.keys(newTracks)[0] : null) || trackKey;
   await supabase(env, 'POST', '/rest/v1/phases', {
-    topic_id: topic.id, track_key: trackKey, seq: nextSeq, trigger,
-    delta: newTrack || null,
+    topic_id: topic.id, track_key: primaryTrack, seq: nextSeq, trigger,
+    delta: (hasUpdates ? newTracks[primaryTrack] : null) || null,
     opened_by_fact_id: item?.id || null,
   });
 }
