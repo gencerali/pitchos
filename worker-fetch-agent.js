@@ -3285,6 +3285,23 @@ Sadece JSON döndür:
       return Response.json({ ok: true, enabled: enable });
     }
 
+    if (url.pathname === '/admin/methodb/run' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      if (!env.STORY_AGENT) return Response.json({ error: 'service binding not deployed yet' }, { status: 503 });
+      let adminKey = await env.PITCHOS_CACHE.get('methodb:admin_key').catch(() => null);
+      if (!adminKey) {
+        adminKey = 'mb-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now();
+        await env.PITCHOS_CACHE.put('methodb:admin_key', adminKey, { expirationTtl: 86400 * 30 });
+      }
+      const resp = await env.STORY_AGENT.fetch('https://pitchos-story-agent/run', {
+        method: 'POST',
+        headers: { 'x-methodb-key': adminKey },
+      });
+      const result = await resp.json().catch(() => ({ error: 'bad response' }));
+      return Response.json({ ok: true, result });
+    }
+
     if (url.pathname === '/admin/config/save' && request.method === 'POST') {
       const authed = await checkAdminAuth(request, env);
       if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
@@ -9528,6 +9545,7 @@ ${adminNav('config', sc, allSites)}
           <span id="mb-active" class="${methodbEnabled ? 'pl-on' : 'pl-off'}">${methodbEnabled ? 'ÇALIŞIYOR' : 'DEVRE DIŞI'}</span>
           <button class="btn btn-sm" style="background:#0d8a7a;color:#fff;margin-left:.6rem" onclick="toggleMethodB(true)" ${methodbEnabled ? 'disabled' : ''}>Etkinleştir</button>
           <button class="btn btn-sm" style="background:#7a1f1f;color:#fff" onclick="toggleMethodB(false)" ${!methodbEnabled ? 'disabled' : ''}>Durdur</button>
+          <button class="btn btn-sm" style="background:#1e3a5f;color:#fff;margin-left:.6rem" onclick="runMethodBNow()">Şimdi Çalıştır</button>
           <span id="mb-msg" class="save-status" style="margin-left:.4rem"></span>
         </div>
         <div class="cfg-note">Saatlik cron — gölge havuzuna (articles:{site}:methodb) olgu-tabanlı makaleler üretir. Anasayfayı etkilemez; aşağıdaki "Yayında olan" ayarı ayrıdır.</div>
@@ -9709,6 +9727,19 @@ async function toggleMethodB(enable){
     const j = await r.json();
     msg.textContent = j.ok ? (enable ? '✓ etkinleştirildi' : '✓ durduruldu') : ('hata: ' + (j.error || '?'));
     if(j.ok) setTimeout(() => location.reload(), 700);
+  }catch(e){ msg.textContent = 'hata: ' + e.message; }
+}
+async function runMethodBNow(){
+  const msg = document.getElementById('mb-msg');
+  msg.textContent = 'çalışıyor (30-60sn)...';
+  try{
+    const r = await fetch('/admin/methodb/run', { method:'POST', headers:{'Content-Type':'application/json'}, body: '{}' });
+    const j = await r.json();
+    if(j.error){ msg.textContent = 'hata: ' + j.error; return; }
+    const res = j.result || {};
+    const summary = Object.entries(res).map(([k,v]) => k + ':' + (v?.synthesized ?? (v?.error ? 'ERR' : JSON.stringify(v)))).join(', ');
+    msg.textContent = '✓ ' + (summary || 'tamam');
+    setTimeout(() => location.reload(), 2000);
   }catch(e){ msg.textContent = 'hata: ' + e.message; }
 }
 async function flipPipeline(target){
