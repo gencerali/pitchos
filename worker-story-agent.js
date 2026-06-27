@@ -160,11 +160,13 @@ async function processSiteMethodB(site, env) {
 
     let doSynth = false, trigger = 'update', newTracks = {};
 
-    if (mode === 'event') {
+    if (!f) {
+      // No extracted facts — nothing to correlate or synthesize. Advance cursor silently.
+    } else if (mode === 'event') {
       tally.eventRoute++;
       doSynth = true; trigger = 'event';
-    } else if (!hasAnyPrior && f) {
-      // All tracks new and we have facts — always material/initial; no delta LLM needed.
+    } else if (!hasAnyPrior) {
+      // All tracks new — always material/initial; no delta LLM needed.
       doSynth = true; trigger = 'initial'; tally.materialDelta++;
     } else {
       // Pre-filter: check if any track shows a possible delta before spending the Haiku call.
