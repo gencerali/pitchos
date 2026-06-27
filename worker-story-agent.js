@@ -136,7 +136,7 @@ async function processSiteMethodB(site, env) {
     // Correlate to a topic (needed for the prior claim-track that delta detection diffs against).
     let topicInfo = null;
     if (f) {
-      try { topicInfo = await correlateToTopic(item, f, site, env); }
+      try { topicInfo = await correlateToTopic(item, f, site, env, stats); }
       catch (e) { console.error(`correlate [${code}]:`, e.message); }
     }
     const priorTrack = topicInfo?.priorTrack || null;
@@ -201,31 +201,48 @@ async function processSiteMethodB(site, env) {
 
 // ─── STAGE 2: CORRELATE TO TOPIC ─────────────────────────────────────────────
 // Entity-fingerprint match against open topics (shared player OR ≥2 shared clubs); creates a
-// new topic on no match. TODO(Step 3): add the Haiku judge + branch_of/sequel_of edges.
-async function correlateToTopic(item, facts, site, env) {
+// new topic on no match. On creation, runs a Haiku judge to detect branch_of / sequel_of
+// edges against open + recently-closed topics (design §2.3, Step 2).
+async function correlateToTopic(item, facts, site, env, stats) {
   const ents = facts?.entities || {};
   const players = (ents.players || []).map(s => String(s).toLowerCase());
   const clubs   = (ents.clubs   || []).map(s => String(s).toLowerCase());
 
-  const open = await supabase(env, 'GET',
-    `/rest/v1/topics?site_id=eq.${site.id}&state=eq.open&order=last_event_at.desc&limit=50` +
-    `&select=id,story_type,entities,claim_tracks,title`
-  ) || [];
-
-  const overlaps = (t) => {
+  const entityOverlaps = (t) => {
     const te = t.entities || {};
     const tp = (te.players || []).map(s => String(s).toLowerCase());
     const tc = (te.clubs   || []).map(s => String(s).toLowerCase());
     return players.some(p => tp.includes(p)) || clubs.filter(c => tc.includes(c)).length >= 2;
   };
 
-  let topic = open.find(overlaps) || null;
+  const [open, recentClosed] = await Promise.all([
+    supabase(env, 'GET',
+      `/rest/v1/topics?site_id=eq.${site.id}&state=eq.open&order=last_event_at.desc&limit=50` +
+      `&select=id,story_type,entities,claim_tracks,title,state`
+    ).then(r => r || []),
+    supabase(env, 'GET',
+      `/rest/v1/topics?site_id=eq.${site.id}&state=eq.closed&order=last_event_at.desc&limit=20` +
+      `&select=id,story_type,entities,claim_tracks,title,state`
+    ).then(r => r || []),
+  ]);
+
+  let topic = open.find(entityOverlaps) || null;
+  let isNewTopic = false;
+
   if (!topic) {
     const created = await supabase(env, 'POST', '/rest/v1/topics', {
       site_id: site.id, story_type: facts?.story_type || 'other', news_mode: 'accretive',
       entities: ents, claim_tracks: {}, title: (item.title || '').slice(0, 200),
     });
     topic = Array.isArray(created) ? created[0] : created;
+    isNewTopic = true;
+  }
+
+  // Step 2: edge detection — only for new topics (existing topics already have their anchor).
+  if (isNewTopic && topic?.id) {
+    try {
+      await detectAndPersistEdge(topic, item, facts, [...open, ...recentClosed], env, stats);
+    } catch (e) { console.error('edge detection:', e.message); }
   }
 
   // Claim-track key: the non-home club (competing-narrative axis), else 'main'.
@@ -234,6 +251,89 @@ async function correlateToTopic(item, facts, site, env) {
   const trackKey = other ? String(other).toLowerCase().replace(/\s+/g, '_').slice(0, 40) : 'main';
   const priorTrack = (topic?.claim_tracks || {})[trackKey] || null;
   return { topic, trackKey, priorTrack };
+}
+
+// ─── STEP 2: BRANCH / SEQUEL EDGE DETECTION ──────────────────────────────────
+
+const BRANCH_SIGNALS = [
+  'soruşturma', 'disiplin', 'şike', 'dava', 'ceza', 'ihraç', 'skandal', 'suçlama',
+  'tff', 'pfdk', 'tahkim', 'kovuşturma', 'gözaltı', 'tutuklama',
+];
+const SEQUEL_SIGNALS = [
+  'arayışı', 'yeni hoca', 'yeni teknik', 'döndü', 'iyileşti', 'transfer sonrası',
+  'yerine', 'koltuğuna', 'görevine başla', 'imzaladı resmen',
+];
+
+// Rules pre-filter: identify candidate parents before spending a Haiku call.
+function findEdgeCandidates(newTopic, item) {
+  return (item._edgeCandidatePool || []).filter(t => {
+    if (t.id === newTopic.id) return false;
+    const te = t.entities || {};
+    const newEnts = newTopic.entities || {};
+    const sharedPlayer = (newEnts.players || []).some(p =>
+      (te.players || []).map(s => s.toLowerCase()).includes(String(p).toLowerCase())
+    );
+    const sharedClubs = (newEnts.clubs || []).filter(c =>
+      (te.clubs || []).map(s => s.toLowerCase()).includes(String(c).toLowerCase())
+    ).length >= 1;
+    return sharedPlayer || sharedClubs;
+  });
+}
+
+async function detectAndPersistEdge(newTopic, item, facts, allCandidates, env, stats) {
+  const text = `${item.title || ''} ${item.summary || ''}`.toLowerCase();
+  const hasBranchSignal = BRANCH_SIGNALS.some(w => text.includes(w));
+  const hasSequelSignal = SEQUEL_SIGNALS.some(w => text.includes(w));
+  if (!hasBranchSignal && !hasSequelSignal) return;
+
+  // Attach candidate pool for findEdgeCandidates
+  item._edgeCandidatePool = allCandidates;
+  const candidates = findEdgeCandidates(newTopic, item)
+    .filter(t => {
+      if (hasBranchSignal && t.story_type !== newTopic.story_type) return true;
+      if (hasSequelSignal) return true;
+      return false;
+    })
+    .slice(0, 5);
+  delete item._edgeCandidatePool;
+
+  if (!candidates.length) return;
+
+  const prompt = `You decide if a new football news topic is a BRANCH or SEQUEL of an existing topic.
+
+NEW TOPIC:
+type: ${newTopic.story_type}
+entities: ${JSON.stringify(newTopic.entities)}
+headline: ${item.title || ''}
+
+CANDIDATE PARENTS (≤5):
+${candidates.map((t, i) => `${i + 1}. id=${t.id} type=${t.story_type} state=${t.state || 'open'} title=${t.title || ''}`).join('\n')}
+
+branch_of: new topic detaches from parent and changes type (VAR dispute → TFF investigation; match event → scandal).
+sequel_of: parent was resolved/closed and new topic naturally follows (coach sacked → coach search; injury → return).
+
+Return ONLY JSON — no explanation:
+{"edge_type":"branch_of"|"sequel_of"|null,"parent_topic_id":"<uuid>|null","confidence":0-100}
+Only non-null if confidence ≥ 70.`;
+
+  const res = await callClaude(env, MODEL_FETCH, prompt, false, 120);
+  addUsagePhase(stats, res.usage, MODEL_FETCH, 'methodb_edge');
+  const m = extractText(res.content).match(/\{[\s\S]*?\}/);
+  if (!m) return;
+  const edge = JSON.parse(m[0]);
+  if (!edge.edge_type || !edge.parent_topic_id || edge.confidence < 70) return;
+
+  await Promise.all([
+    supabase(env, 'POST', '/rest/v1/topic_edges', {
+      from_topic_id: newTopic.id,
+      to_topic_id: edge.parent_topic_id,
+      edge_type: edge.edge_type,
+    }),
+    supabase(env, 'PATCH', `/rest/v1/topics?id=eq.${newTopic.id}`, {
+      parent_topic_ids: [edge.parent_topic_id],
+    }),
+  ]);
+  console.log(`EDGE [${edge.edge_type}] ${newTopic.id} → ${edge.parent_topic_id} (conf=${edge.confidence})`);
 }
 
 // ─── STAGE 3: DELTA DETECTION (Haiku, behind the rules pre-filter) ────────────
