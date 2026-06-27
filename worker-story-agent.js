@@ -74,13 +74,24 @@ export async function runMethodB(env, ctx, opts = {}) {
   const armed = (await env.PITCHOS_CACHE.get(ENABLED_KEY)) === '1';
   if (!armed && !opts.force) return { skipped: 'methodb:enabled != 1' };
   const sites = await getActiveSites(env);
+  if (!sites.length) {
+    const errStatus = { ts: new Date().toISOString(), error: 'getActiveSites returned [] — SUPABASE_SERVICE_KEY not set for this worker?' };
+    console.error('Method B:', errStatus.error);
+    // Write a diagnostic status for every known site code so the admin page isn't blank.
+    for (const code of ['BJK', 'TEST']) {
+      await env.PITCHOS_CACHE.put(statusKey(code), JSON.stringify(errStatus)).catch(() => {});
+    }
+    return errStatus;
+  }
   const results = {};
   for (const site of sites) {
     try {
       results[site.short_code] = await processSiteMethodB(site, env);
     } catch (e) {
       console.error(`Method B [${site.short_code}] failed:`, e.message);
-      results[site.short_code] = { error: e.message };
+      const errStatus = { ts: new Date().toISOString(), error: e.message };
+      await env.PITCHOS_CACHE.put(statusKey(site.short_code), JSON.stringify(errStatus)).catch(() => {});
+      results[site.short_code] = errStatus;
     }
   }
   return results;
