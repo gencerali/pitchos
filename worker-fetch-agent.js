@@ -3247,10 +3247,11 @@ Sadece JSON döndür:
         env.PITCHOS_CACHE.get(`pipeline:active:${code}`).catch(() => null),
       ]);
       let live = [];   try { live = liveRaw ? JSON.parse(liveRaw) : []; } catch {}
-      let shadow = []; try { const p = shadowRaw ? JSON.parse(shadowRaw) : null; shadow = p?.articles || []; } catch {}
+      let shadow = []; let shadowUpdatedAt = null;
+      try { const p = shadowRaw ? JSON.parse(shadowRaw) : null; shadow = p?.articles || []; shadowUpdatedAt = p?.updated_at || null; } catch {}
       const status = statusRaw ? JSON.parse(statusRaw) : null;
       return new Response(
-        renderPipelineComparePage(currentSite, allSites, live, shadow, status, enabledRaw === '1', parseFloat(costRaw || '0'), activeRaw || 'legacy'),
+        renderPipelineComparePage(currentSite, allSites, live, shadow, status, enabledRaw === '1', parseFloat(costRaw || '0'), activeRaw || 'legacy', shadowUpdatedAt),
         { headers: { 'Content-Type': 'text/html;charset=UTF-8' } });
     }
 
@@ -9323,12 +9324,12 @@ function resolveSite(url, sites) {
   return (code && sites.find(s => s.short_code === code)) || sites[0];
 }
 
-// Read-only side-by-side of the live homepage pool vs the Method B shadow pool.
-// This is the human "check it in parallel" view (design §7). Reads KV only; no writes.
-function renderPipelineComparePage(site, allSites, live, shadow, status, enabled, methodbCost, active = 'legacy') {
+// Side-by-side of live vs shadow pool with acceptance gates and direct flip (design §7 Step 5).
+function renderPipelineComparePage(site, allSites, live, shadow, status, enabled, methodbCost, active = 'legacy', shadowUpdatedAt = null) {
   const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const sc  = site.short_code;
   const rel = (iso) => {
-    if (!iso) return '';
+    if (!iso) return '—';
     const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
     if (m < 60) return m + 'dk';
     const h = Math.floor(m / 60);
@@ -9345,6 +9346,25 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
        ['confirm-skip', status.confirmingSkip], ['üretilen', status.synthesized],
        ['maliyet', '$' + (status.costUsd ?? 0)]].map(([k, v]) => `<b>${k}</b> ${v ?? '-'}`).join(' &nbsp;|&nbsp; ')
     : 'henüz çalışmadı';
+
+  // ── Acceptance gates ────────────────────────────────────────────────────────
+  const shadowAgeMin = shadowUpdatedAt ? Math.floor((Date.now() - new Date(shadowUpdatedAt).getTime()) / 60000) : Infinity;
+  const gates = [
+    { label: 'Worker etkin (methodb:enabled)', pass: enabled, detail: enabled ? 'ENABLED' : 'INERT — /admin/config → "Method B worker" → Etkinleştir' },
+    { label: 'Gölge havuzu ≥ 20 makale', pass: shadow.length >= 20, detail: `${shadow.length} makale` },
+    { label: 'Gölge havuzu < 3sa taze', pass: shadowAgeMin < 180, detail: shadowUpdatedAt ? `son güncelleme ${rel(shadowUpdatedAt)} önce` : 'hiç çalışmadı' },
+    { label: 'Son çalışmada ≥ 1 sentez', pass: (status?.synthesized ?? 0) > 0, detail: status ? `${status.synthesized ?? 0} sentez` : 'durum yok' },
+    { label: 'Son çalışmada hata yok', pass: !status?.error, detail: status?.error ? `hata: ${status.error}` : 'temiz' },
+    { label: 'Aylık maliyet < $80', pass: methodbCost < 80, detail: `$${methodbCost.toFixed(3)} harcandı` },
+  ];
+  const allPass = gates.every(g => g.pass);
+  const gateRows = gates.map(g => `
+    <div class="gate ${g.pass ? 'gate-ok' : 'gate-fail'}">
+      <span class="gate-icon">${g.pass ? '✓' : '✗'}</span>
+      <span class="gate-label">${esc(g.label)}</span>
+      <span class="gate-detail">${esc(g.detail)}</span>
+    </div>`).join('');
+
   return `<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pipeline Compare</title>
   <style>
     body{font-family:-apple-system,Helvetica,Arial,sans-serif;margin:0;background:#0f1115;color:#e5e7eb}
@@ -9355,6 +9375,20 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
     .meta{font-size:12px;color:#9aa4b2;margin-top:8px;line-height:1.7}
     .flag{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700}
     .on1{background:#16351f;color:#4ade80}.off1{background:#3a1f1f;color:#f87171}
+    /* Gates */
+    .gates{padding:12px 18px;background:#111620;border-bottom:1px solid #232a36}
+    .gates-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin-bottom:8px;display:flex;align-items:center;gap:8px}
+    .gate{display:flex;align-items:baseline;gap:8px;font-size:12px;padding:3px 0}
+    .gate-ok .gate-icon{color:#4ade80;font-size:13px}
+    .gate-fail .gate-icon{color:#f87171;font-size:13px}
+    .gate-label{color:#cbd5e1;min-width:260px}
+    .gate-detail{color:#6b7280;font-size:11px}
+    .flip-bar{margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .btn{border:none;border-radius:5px;font-size:12px;font-weight:700;padding:5px 14px;cursor:pointer}
+    .btn:disabled{opacity:.45;cursor:default}
+    .btn-green{background:#0d8a7a;color:#fff}.btn-gray{background:#222a36;color:#cbd5e1}
+    #flip-msg{font-size:12px;color:#9aa4b2}
+    /* Article cols */
     .cols{display:flex;gap:14px;padding:14px;align-items:flex-start}
     .col{flex:1;min-width:0}
     .col h2{font-size:13px;color:#9aa4b2;margin:0 0 8px}
@@ -9369,16 +9403,43 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
     <div class="tabs">${tabs}</div>
     <div class="meta">
       Method B: <span class="flag ${enabled ? 'on1' : 'off1'}">${enabled ? 'ENABLED' : 'INERT'}</span>
-      &nbsp; Yayında (serving): <span class="flag ${active === 'methodb' ? 'on1' : 'off1'}">${active === 'methodb' ? 'METHOD B' : 'LEGACY'}</span>
+      &nbsp; Yayında: <span class="flag ${active === 'methodb' ? 'on1' : 'off1'}">${active === 'methodb' ? 'METHOD B' : 'LEGACY'}</span>
       &nbsp; methodb aylık maliyet: <b>$${(methodbCost || 0).toFixed(4)}</b><br>
       Son çalışma: ${tally}
-      <div style="margin-top:8px;font-size:12px;color:#9aa4b2">Yayını değiştirmek için: <a href="/admin/config?site=${esc(site.short_code)}" style="color:#7c9adb">/admin/config</a> → "0. Pipeline (serving)"</div>
     </div>
   </header>
+  <div class="gates">
+    <div class="gates-title">
+      Kabul Kriterleri
+      <span style="font-size:11px;font-weight:400;color:${allPass ? '#4ade80' : '#f87171'};text-transform:none;letter-spacing:0">
+        ${allPass ? '— tüm kriterler geçti, geçiş hazır' : '— bazı kriterler henüz karşılanmadı'}
+      </span>
+    </div>
+    ${gateRows}
+    <div class="flip-bar">
+      <b style="font-size:12px;color:#9aa4b2">Yayın:</b>
+      <button class="btn btn-gray" onclick="flip('legacy')" ${active === 'legacy' ? 'disabled' : ''}>Legacy yap</button>
+      <button class="btn btn-green" onclick="flip('methodb')" ${active === 'methodb' ? 'disabled' : ''}>Method B yap${allPass ? '' : ' ⚠'}</button>
+      <span id="flip-msg"></span>
+      <span style="font-size:11px;color:#4b5563;margin-left:4px">Anında geri alınabilir. Method B seçilirse ama gölge havuzu boşsa otomatik legacy'ye düşer.</span>
+    </div>
+  </div>
   <div class="cols">
     <div class="col legend"><h2>LEGACY (canlı) — ${live.length}</h2>${live.slice(0, 60).map(card).join('') || '<div class="c">boş</div>'}</div>
-    <div class="col shadow"><h2>METHOD B (gölge) — ${shadow.length}</h2>${shadow.slice(0, 60).map(card).join('') || '<div class="c">henüz makale yok — worker deploy + methodb:enabled=1</div>'}</div>
+    <div class="col shadow"><h2>METHOD B (gölge) — ${shadow.length}${shadowUpdatedAt ? ` · ${rel(shadowUpdatedAt)} önce` : ''}</h2>${shadow.slice(0, 60).map(card).join('') || '<div class="c">henüz makale yok — worker çalışmadı veya methodb:enabled=0</div>'}</div>
   </div>
+  <script>
+  async function flip(target) {
+    const msg = document.getElementById('flip-msg');
+    msg.textContent = '...';
+    try {
+      const r = await fetch('/admin/pipeline/flip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ site: '${esc(sc)}', target }) });
+      const j = await r.json();
+      msg.textContent = j.ok ? ('✓ ' + j.active) : ('hata: ' + (j.error || '?'));
+      if (j.ok) setTimeout(() => location.reload(), 600);
+    } catch(e) { msg.textContent = 'hata: ' + e.message; }
+  }
+  </script>
   </body></html>`;
 }
 
