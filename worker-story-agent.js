@@ -122,7 +122,7 @@ async function processSiteMethodB(site, env) {
 
   const tally = {
     candidates: rows.length, withFacts: 0, eventRoute: 0,
-    deltaChecks: 0, materialDelta: 0, confirmingSkip: 0, synthesized: 0, capBlocked: cap.blocked,
+    deltaChecks: 0, materialDelta: 0, confirmingSkip: 0, synthesized: 0, fanOut: 0, capBlocked: cap.blocked,
   };
   const newArticles = [];
   let synthCount = 0;
@@ -176,11 +176,29 @@ async function processSiteMethodB(site, env) {
 
     if (doSynth && !cap.blocked && synthCount < SHADOW_SYNTH_CAP) {
       const allTracks = topicInfo?.topic?.claim_tracks || {};
-      const art = await synthesizePhase(topicInfo?.topic, f, item, env, stats, trigger, allTracks);
-      if (art) {
-        newArticles.push(art);
-        synthCount++; tally.synthesized++;
-        if (topicInfo?.topic) await persistPhase(topicInfo, newTracks, trigger, item, env).catch(() => {});
+      const fanEntities = buildFanEntities(topicInfo, newTracks, f);
+      let phaseWritten = false;
+
+      for (const entity of fanEntities) {
+        if (synthCount >= SHADOW_SYNTH_CAP) break;
+
+        // Per-(topic, item, entity) dedup — survives re-runs across cron ticks.
+        const dedupKey = topicInfo?.topic?.id
+          ? `synth:mb:${topicInfo.topic.id}:${item.id}:${entity}`
+          : null;
+        if (dedupKey && await env.PITCHOS_CACHE.get(dedupKey).catch(() => null)) continue;
+
+        const art = await synthesizePhase(topicInfo?.topic, f, item, env, stats, trigger, allTracks, entity);
+        if (art) {
+          newArticles.push(art);
+          synthCount++; tally.synthesized++;
+          if (phaseWritten) tally.fanOut++; // second+ article from same phase = fan-out
+          if (dedupKey) await env.PITCHOS_CACHE.put(dedupKey, '1', { expirationTtl: 86400 * 30 }).catch(() => {});
+          if (!phaseWritten && topicInfo?.topic) {
+            await persistPhase(topicInfo, newTracks, trigger, item, env).catch(() => {});
+            phaseWritten = true;
+          }
+        }
       }
     }
   }
@@ -409,14 +427,45 @@ Return ONLY valid JSON (no explanation):
   } catch (e) { console.error('detectDeltaLLMMulti:', e.message); return { tracks: {} }; }
 }
 
+// ─── STEP 4: FAN-OUT ENTITY LIST ─────────────────────────────────────────────
+// Returns up to 3 entity keys to synthesize an article for. One article per entity gives
+// each perspective its own piece (e.g. "Amrabat → BJK" vs "Amrabat → Galatasaray").
+// Falls back to ['main'] when there are no named competing clubs.
+function buildFanEntities(topicInfo, newTracks, facts) {
+  const normalize = s => String(s).toLowerCase().replace(/\s+/g, '_').slice(0, 40);
+  const entities = [];
+
+  // Clubs with a moving track — most specific, highest-value entities.
+  const movingClubs = Object.keys(newTracks || {}).filter(k => k !== 'main');
+  entities.push(...movingClubs.map(normalize));
+
+  // All track keys when everything is new (initial synthesis, newTracks is empty).
+  if (!entities.length && topicInfo?.trackKeys) {
+    entities.push(...(topicInfo.trackKeys || []).filter(k => k !== 'main').map(normalize));
+  }
+
+  // Primary player as an additional perspective (transfer target, injured player, etc.).
+  const player = facts?.entities?.players?.[0];
+  if (player) {
+    const pk = normalize(player);
+    if (!entities.includes(pk)) entities.push(pk);
+  }
+
+  return (entities.length ? entities : ['main']).slice(0, 3);
+}
+
 // ─── STAGE 4: SYNTHESIZE FROM STORED FACTS (Sonnet) ──────────────────────────
 // Writes from compact structured facts, NOT by re-fetching source text (design §4/§6).
-// allTracks: full claim_tracks map from the topic — used as competing-narrative context.
-async function synthesizePhase(topic, facts, item, env, stats, trigger, allTracks = {}) {
+// allTracks: full claim_tracks map — competing-narrative context.
+// focusEntity: when set (fan-out), the article is written from this entity's perspective.
+async function synthesizePhase(topic, facts, item, env, stats, trigger, allTracks = {}, focusEntity = null) {
   const editorial = await getEditorialNotes(env, ['news', facts?.story_type || '']).catch(() => '');
   const competing = Object.entries(allTracks)
     .filter(([, v]) => v != null)
     .map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n');
+  const entityLine = focusEntity && focusEntity !== 'main'
+    ? `\nodak varlık: ${focusEntity} (haberi bu varlığın bakış açısıyla yaz)`
+    : '';
   const prompt = `${editorial}Sen Kartalix'in kıdemli spor editörüsün. Aşağıdaki DOĞRULANMIŞ OLGULARDAN özgün bir Türkçe haber yaz.
 
 OLGULAR:
@@ -425,7 +474,7 @@ tip: ${facts?.story_type || ''}
 varlıklar: ${JSON.stringify(facts?.entities || {})}
 sayılar: ${JSON.stringify(facts?.numbers || {})}
 tarihler: ${JSON.stringify(facts?.dates || {})}
-gelişme tipi: ${trigger}${competing ? `\n\nREKABET EDEN ANLATIMLAR (bağlam; yalnızca yeni olguyla çelişiyor veya destekliyorsa belirt):\n${competing}` : ''}
+gelişme tipi: ${trigger}${entityLine}${competing ? `\n\nREKABET EDEN ANLATIMLAR (bağlam; yalnızca yeni olguyla çelişiyor veya destekliyorsa belirt):\n${competing}` : ''}
 
 KURALLAR:
 - Çıktı tam olarak şu formatta:
@@ -443,7 +492,7 @@ BAŞLIK: [Türkçe manşet]
     const title = (m ? m[1] : (item.title || '')).trim().slice(0, 200);
     const body  = (m ? m[2] : raw).trim();
     if (!body || body.length < 200) return null;
-    return toShadowKVShape({ title, body, item, facts, topic, trigger });
+    return toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity });
   } catch (e) { console.error('synthesizePhase:', e.message); return null; }
 }
 
@@ -473,9 +522,10 @@ async function persistPhase(topicInfo, newTracks, trigger, item, env) {
 
 // Build an object matching the frozen KV article contract (design §7) — `mb-` slug prefix
 // avoids any collision with legacy slugs during the shadow window.
-function toShadowKVShape({ title, body, item, facts, topic, trigger }) {
+function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity = null }) {
   const published_at = new Date().toISOString();
-  const slug = 'mb-' + simpleHash((title || item.title || '') + published_at);
+  // Include focusEntity in the hash so fan-out articles for the same item get distinct slugs.
+  const slug = 'mb-' + simpleHash((title || item.title || '') + (focusEntity ? ':' + focusEntity : '') + published_at);
   return {
     title: title || item.title || '',
     summary: (body || '').replace(/\s+/g, ' ').slice(0, 280),
