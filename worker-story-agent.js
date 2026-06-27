@@ -304,9 +304,14 @@ async function persistPhase(topicInfo, newTrack, trigger, item, env) {
       claim_tracks: tracks, last_event_at: new Date().toISOString(),
     });
   }
+  const seqRows = await supabase(env, 'GET',
+    `/rest/v1/phases?topic_id=eq.${topic.id}&select=seq&order=seq.desc&limit=1`
+  ).catch(() => []);
+  const nextSeq = ((seqRows?.[0]?.seq ?? -1) + 1);
   await supabase(env, 'POST', '/rest/v1/phases', {
-    topic_id: topic.id, track_key: trackKey, seq: 0, trigger,
+    topic_id: topic.id, track_key: trackKey, seq: nextSeq, trigger,
     delta: newTrack || null,
+    opened_by_fact_id: item?.id || null,
   });
 }
 
