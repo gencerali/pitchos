@@ -23,7 +23,7 @@ id = "dedaea653ed542cca25e6cc2551dd1c3"
 
 [vars]
 SUPABASE_URL = "https://qfgstxswcsodaaksjztz.supabase.co"
-MONTHLY_CLAUDE_CAP = "16"
+MONTHLY_CLAUDE_CAP = "100"
 
 [limits]
 subrequests = 1000
