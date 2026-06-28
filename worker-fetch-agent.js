@@ -9427,6 +9427,7 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
   const card = (a) => `<div class="c">
       <div class="t">${esc(a.title)}</div>
       <div class="m">${esc(a.source_name || a.source || '')} · ${esc(a.publish_mode || '')} · NVS ${a.nvs || 0} · ${rel(a.published_at)}</div>
+      ${a.full_body ? `<details class="body-details"><summary>Metni gör</summary><div class="body-text">${esc(a.full_body)}</div></details>` : ''}
     </div>`;
   const tabs = allSites.map(s => `<a href="/admin/pipeline?site=${s.short_code}" class="${s.short_code === site.short_code ? 'on' : ''}">${esc(s.short_code)}</a>`).join('');
   const tally = status
@@ -9486,6 +9487,12 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
     .c .t{font-size:14px;font-weight:600;line-height:1.35}
     .c .m{font-size:11px;color:#8b95a4;margin-top:5px}
     .legend .c{border-left:3px solid #2563eb}.shadow .c{border-left:3px solid #0d9488}
+    .body-details{margin-top:8px}
+    .body-details summary{font-size:11px;color:#7c9adb;cursor:pointer;user-select:none;list-style:none}
+    .body-details summary::-webkit-details-marker{display:none}
+    .body-details summary::before{content:'▶ ';font-size:9px}
+    .body-details[open] summary::before{content:'▼ '}
+    .body-text{margin-top:6px;font-size:12px;color:#c8d0db;line-height:1.65;white-space:pre-wrap;border-top:1px solid #232a36;padding-top:8px}
     @media(max-width:720px){.cols{flex-direction:column}}
   </style></head><body>
   <header>
