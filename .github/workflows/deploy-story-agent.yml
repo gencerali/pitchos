@@ -1,0 +1,22 @@
+name: Deploy Story Agent (Method B)
+
+# Auto-deploys pitchos-story-agent whenever changes land on the Method B
+# development branch. Uses the same PITCHOS_DEPLOY secret as deploy-worker.yml.
+
+on:
+  push:
+    branches: [claude/methodb-startup-7y5cu3]
+  workflow_dispatch: {}
+
+jobs:
+  deploy-story:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy pitchos-story-agent (Method B Worker)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.PITCHOS_DEPLOY }}
+          wranglerVersion: '4.80.0'
+          command: deploy -c wrangler-story.toml
