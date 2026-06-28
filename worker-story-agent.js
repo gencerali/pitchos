@@ -29,7 +29,7 @@ const costKey     = ()     => `methodb:cost:${new Date().toISOString().slice(0, 
 
 const BATCH            = 50;  // content_items scanned per site per cron run
 const BATCH_MANUAL     = 150; // larger batch for manual /run (admin catch-up)
-const SHADOW_SYNTH_CAP = 4;  // Sonnet syntheses per site per run (dev budget guardrail, design §6.1)
+const SHADOW_SYNTH_CAP = 3;  // Sonnet syntheses per site per run (dev budget guardrail, design §6.1)
 const SHADOW_POOL_MAX  = 60; // shadow homepage pool size
 
 export default {
@@ -219,7 +219,10 @@ async function processSiteMethodB(site, env, opts = {}) {
           : null;
         if (dedupKey && await env.PITCHOS_CACHE.get(dedupKey).catch(() => null)) continue;
         // Skip if another item in this same batch already synthesized for this topic+entity.
-        const runKey = `${topicInfo?.topic?.id || item.id}:${entity}`;
+        // Fall back to normalized primary player name so two items about the same player
+        // can't both synthesize even when topic.id is null (topic creation failed).
+        const primaryEnt = normEnt(f?.entities?.players?.[0] || f?.entities?.clubs?.[0] || item.id);
+        const runKey = `${topicInfo?.topic?.id || primaryEnt}:${entity}`;
         if (synthesizedThisRun.has(runKey)) continue;
         synthesizedThisRun.add(runKey);
 
@@ -527,7 +530,7 @@ YAZIM KURALLARI:
 BAŞLIK: [Türkçe manşet]
 
 [haber gövdesi]
-- 180–320 kelime
+- 60–160 kelime — sadece kaç kelime gerekiyorsa o kadar yaz; doldurucu cümle ekleme
 - Taraftara seslen: sevinç, öfke, beklenti — resmi duyuru veya analist raporu değil
 - Lede: en önemli gelişmeyi ilk cümlede ver (delta = ${trigger})
 - YALNIZCA yukarıdaki olgulara dayan; hoca taktikleri, sözleşme detayları ve diğer ayrıntılar için OLGULARDA olmayan hiçbir şeyi çıkarsama veya uydurma
@@ -541,7 +544,7 @@ BAŞLIK: [Türkçe manşet]
     const m = raw.match(/BAŞLIK:\s*(.+?)\n([\s\S]+)/);
     const title = (m ? m[1] : (item.title || '')).trim().slice(0, 200);
     const body  = (m ? m[2] : raw).trim();
-    if (!body || body.length < 200) return null;
+    if (!body || body.length < 60) return null;
     // Reject if model output editorial reasoning instead of an article.
     const DECISION_SIGNALS = [
       /devam etmemi ister misiniz/i, /çatışma tespit edildi/i,
@@ -585,8 +588,13 @@ async function persistPhase(topicInfo, newTracks, trigger, item, env) {
 function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity = null }) {
   const published_at = new Date().toISOString();
   const entityKey = focusEntity || 'main';
-  // Stable slug: same topic+entity always produces the same key so pool upsert replaces stale versions.
-  const slug = 'mb-' + simpleHash((topic?.id || title || item.title || '') + ':' + entityKey);
+  // Stable slug: topic.id is the primary key (survives re-runs of the same story).
+  // Fall back to normalized primary entity name — much more stable than title, so two
+  // items about the same player still get the same slug even when topic creation failed.
+  const stableBase = topic?.id
+    || normEnt(facts?.entities?.players?.[0] || facts?.entities?.clubs?.[0] || '')
+    || (item.title || '').slice(0, 60);
+  const slug = 'mb-' + simpleHash(stableBase + ':' + entityKey);
   return {
     title: title || item.title || '',
     summary: (body || '').replace(/\s+/g, ' ').slice(0, 280),
