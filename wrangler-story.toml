@@ -31,7 +31,7 @@ subrequests = 1000
 # Own cadence: hourly, not the legacy 5-min fetch tick. Method B correlation/synthesis
 # does not need freshness polling — it reacts to already-ingested content_items.
 [triggers]
-crons = ["0 * * * *"]
+crons = ["*/5 * * * *"]
 
 # No public routes — this worker is a PRODUCER only. The legacy worker keeps serving
 # pages from KV behind the blue/green `pipeline:active` pointer (design §7).
