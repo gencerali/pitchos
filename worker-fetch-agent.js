@@ -3311,8 +3311,10 @@ Sadece JSON döndür:
         adminKey = 'mb-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now();
         await env.PITCHOS_CACHE.put('methodb:admin_key', adminKey, { expirationTtl: 86400 * 30 });
       }
-      // Fire-and-forget — story worker returns immediately (waitUntil) so we don't time out.
-      env.STORY_AGENT.fetch('https://pitchos-story-agent/run', {
+      // Await the story worker's immediate acknowledgement — this keeps the service binding
+      // alive long enough for the story worker to register its ctx.waitUntil before we return.
+      // The actual processing runs in the story worker's own context after this returns.
+      await env.STORY_AGENT.fetch('https://pitchos-story-agent/run', {
         method: 'POST',
         headers: { 'x-methodb-key': adminKey },
       }).catch(() => {});
