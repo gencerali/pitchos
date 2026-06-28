@@ -495,26 +495,30 @@ async function synthesizePhase(topic, facts, item, env, stats, trigger, allTrack
     .filter(([, v]) => v != null)
     .map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n');
   const entityLine = focusEntity && focusEntity !== 'main'
-    ? `\nodak varlık: ${focusEntity} (haberi bu varlığın bakış açısıyla yaz)`
+    ? `\nodak varlık: ${focusEntity} (haberi bu varlığın perspektifinden yaz)`
     : '';
-  const prompt = `${editorial}Sen Kartalix'in kıdemli spor editörüsün. Aşağıdaki DOĞRULANMIŞ OLGULARDAN özgün bir Türkçe haber yaz.
+  const prompt = `${editorial}Sen Kartalix'in kıdemli spor muhabirissin — Beşiktaş taraftarı için yazan, sıcak, heyecan verici, güvenilir bir sessin.
 
-OLGULAR:
+DOĞRULANMIŞ OLGULAR (YALNIZCA BUNLARI KULLAN):
 başlık ipucu: ${item.title || ''}
 tip: ${facts?.story_type || ''}
 varlıklar: ${JSON.stringify(facts?.entities || {})}
 sayılar: ${JSON.stringify(facts?.numbers || {})}
 tarihler: ${JSON.stringify(facts?.dates || {})}
-gelişme tipi: ${trigger}${entityLine}${competing ? `\n\nREKABET EDEN ANLATIMLAR (bağlam; yalnızca yeni olguyla çelişiyor veya destekliyorsa belirt):\n${competing}` : ''}
+gelişme tipi: ${trigger}${entityLine}${competing ? `\n\nREKABET EDEN ANLATIMLAR (bağlam):\n${competing}` : ''}
 
-KURALLAR:
-- Çıktı tam olarak şu formatta:
+YAZIM KURALLARI:
+- Çıktın YALNIZCA şu formattan oluşmalı — başka hiçbir şey ekleme:
 BAŞLIK: [Türkçe manşet]
 
 [haber gövdesi]
-- 180–320 kelime, güçlü Kartalix sesi
-- Lede: en son GELİŞMEYİ ilk cümlede ver (delta = ${trigger})
-- Sadece olgulara dayan, uydurma; "habere göre" deme; emoji yok`;
+- 180–320 kelime
+- Taraftara seslen: sevinç, öfke, beklenti — resmi duyuru veya analist raporu değil
+- Lede: en önemli gelişmeyi ilk cümlede ver (delta = ${trigger})
+- YALNIZCA yukarıdaki olgulara dayan; hoca taktikleri, sözleşme detayları ve diğer ayrıntılar için OLGULARDA olmayan hiçbir şeyi çıkarsama veya uydurma
+- "henüz netleşmedi", "spekülatif", "doğrulanamadı" gibi iç süreç ifadelerini metne KOYMA — olguları güçlü yaz, çekinceleri taraftara gösterme
+- "habere göre" deme; emoji yok
+- Son olarak: editöryal karar notu, "devam etmemi ister misiniz?" veya talimat yorumu YAZMA — görevi yalnızca yukarıdaki haberi yazmak`;
   try {
     const res = await callClaude(env, MODEL_GENERATE, prompt, false, 1200);
     addUsagePhase(stats, res.usage, MODEL_GENERATE, 'methodb_synth');
@@ -523,6 +527,16 @@ BAŞLIK: [Türkçe manşet]
     const title = (m ? m[1] : (item.title || '')).trim().slice(0, 200);
     const body  = (m ? m[2] : raw).trim();
     if (!body || body.length < 200) return null;
+    // Reject if model output editorial reasoning instead of an article.
+    const DECISION_SIGNALS = [
+      /devam etmemi ister misiniz/i, /çatışma tespit edildi/i,
+      /editör talimat/i, /yayınlamıyorum/i, /çelişen.*kural/i,
+      /\*\*karar:\*\*/i, /odak varlık:.*galatasaray/i,
+    ];
+    if (DECISION_SIGNALS.some(p => p.test(body))) {
+      console.warn('synthesizePhase: rejected chain-of-thought output');
+      return null;
+    }
     return toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity });
   } catch (e) { console.error('synthesizePhase:', e.message); return null; }
 }
