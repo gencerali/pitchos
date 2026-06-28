@@ -19,6 +19,7 @@ import { renderArticleCardSVG, pickBackground } from './src/card.js';
 import { articleBodyToHtml } from './src/render.js';
 import { isKartalix as isKartalixArticle, videoEmbedHtml } from './src/shared.js';
 import { computeSourceHealth, sourceHealthAlarms } from './src/source-health.js';
+import { runMethodB } from './worker-story-agent.js';
 import { buildNav } from './src/shared/nav.js';
 import { apiFetch, getNextFixture, getLiveFixture, getFixture, getH2H, getFixturePlayers, getFixtureStats, getFixtureEvents, getLastFixtures, getInjuries, getFixtureLineup, getStandings, getBJKLastLineupData, getOpponentLastLineup, seasonConfigStale } from './src/api-football.js';
 import { YOUTUBE_CHANNELS, fetchYouTubeChannel, qualifyYouTubeVideo, fetchYouTubeTranscript } from './src/youtube.js';
@@ -3305,19 +3306,9 @@ Sadece JSON döndür:
     if (url.pathname === '/admin/methodb/run' && request.method === 'POST') {
       const authed = await checkAdminAuth(request, env);
       if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
-      if (!env.STORY_AGENT) return Response.json({ error: 'service binding not deployed yet' }, { status: 503 });
-      let adminKey = await env.PITCHOS_CACHE.get('methodb:admin_key').catch(() => null);
-      if (!adminKey) {
-        adminKey = 'mb-' + Math.random().toString(36).slice(2, 10) + '-' + Date.now();
-        await env.PITCHOS_CACHE.put('methodb:admin_key', adminKey, { expirationTtl: 86400 * 30 });
-      }
-      // Await the story worker's immediate acknowledgement — this keeps the service binding
-      // alive long enough for the story worker to register its ctx.waitUntil before we return.
-      // The actual processing runs in the story worker's own context after this returns.
-      await env.STORY_AGENT.fetch('https://pitchos-story-agent/run', {
-        method: 'POST',
-        headers: { 'x-methodb-key': adminKey },
-      }).catch(() => {});
+      // Run directly in this worker's ctx.waitUntil — avoids service-binding lifetime issues
+      // that prevented the trigger from working when called via service binding.
+      ctx.waitUntil(runMethodB(env, null, { force: true }));
       return Response.json({ ok: true, queued: true });
     }
 
