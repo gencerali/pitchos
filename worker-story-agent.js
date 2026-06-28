@@ -132,11 +132,19 @@ async function processSiteMethodB(site, env, opts = {}) {
   }
 
   // Reuse legacy fact extraction: read existing `facts` rows (design §6.1, no re-extraction).
+  // Chunk into 50 per request to stay under URL length limits on PostgREST/Kong.
   const ids = rows.map(r => r.id);
-  const facts = await supabase(env, 'GET',
-    `/rest/v1/facts?content_item_id=in.(${ids.join(',')})&select=content_item_id,story_type,entities,numbers,dates`
-  ) || [];
-  const factsByItem = new Map(facts.map(f => [f.content_item_id, f]));
+  const FACTS_CHUNK = 50;
+  const factChunks = [];
+  for (let i = 0; i < ids.length; i += FACTS_CHUNK) {
+    factChunks.push(ids.slice(i, i + FACTS_CHUNK));
+  }
+  const factsRaw = (await Promise.all(
+    factChunks.map(chunk => supabase(env, 'GET',
+      `/rest/v1/facts?content_item_id=in.(${chunk.join(',')})&select=content_item_id,story_type,entities,numbers,dates`
+    ).then(r => r || []))
+  )).flat();
+  const factsByItem = new Map(factsRaw.map(f => [f.content_item_id, f]));
 
   const tally = {
     candidates: rows.length, withFacts: 0, eventRoute: 0,
@@ -246,7 +254,7 @@ async function processSiteMethodB(site, env, opts = {}) {
     await env.PITCHOS_CACHE.put(costKey(), String((prev + costUsd).toFixed(6))).catch(() => {});
   }
 
-  const status = { ts: new Date().toISOString(), cursor: newCursor, ...tally, costUsd: +costUsd.toFixed(5), poolSize: pool.length, phases: stats.phases };
+  const status = { ts: new Date().toISOString(), cursorUsed: cursorIso, cursor: newCursor, ...tally, costUsd: +costUsd.toFixed(5), poolSize: pool.length, phases: stats.phases };
   await env.PITCHOS_CACHE.put(statusKey(code), JSON.stringify(status));
   console.log(`Method B [${code}]: ${JSON.stringify(tally)} cost=$${costUsd.toFixed(4)}`);
   return status;
