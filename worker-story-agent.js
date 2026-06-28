@@ -27,7 +27,8 @@ const statusKey   = (code) => `methodb:status:${code}`;      // last-run telemet
 const shadowKey   = (code) => `articles:${code}:methodb`;    // shadow homepage pool (blue/green green-side)
 const costKey     = ()     => `methodb:cost:${new Date().toISOString().slice(0, 7)}`; // monthly methodb-only spend
 
-const BATCH            = 50; // content_items scanned per site per run
+const BATCH            = 50;  // content_items scanned per site per cron run
+const BATCH_MANUAL     = 150; // larger batch for manual /run (admin catch-up)
 const SHADOW_SYNTH_CAP = 4;  // Sonnet syntheses per site per run (dev budget guardrail, design §6.1)
 const SHADOW_POOL_MAX  = 60; // shadow homepage pool size
 
@@ -88,7 +89,7 @@ export async function runMethodB(env, ctx, opts = {}) {
   const results = {};
   for (const site of sites) {
     try {
-      results[site.short_code] = await processSiteMethodB(site, env);
+      results[site.short_code] = await processSiteMethodB(site, env, opts);
     } catch (e) {
       console.error(`Method B [${site.short_code}] failed:`, e.message);
       const errStatus = { ts: new Date().toISOString(), error: e.message };
@@ -99,8 +100,9 @@ export async function runMethodB(env, ctx, opts = {}) {
   return results;
 }
 
-async function processSiteMethodB(site, env) {
+async function processSiteMethodB(site, env, opts = {}) {
   const code = site.short_code;
+  const batch = opts.force ? BATCH_MANUAL : BATCH;
   const stats = { phases: {}, models: {} };
   const cap = await checkCostCap(env);
 
@@ -119,7 +121,7 @@ async function processSiteMethodB(site, env) {
   const cursorIso = (await env.PITCHOS_CACHE.get(cursorKey(code))) || sevenDaysAgo;
   const rows = await supabase(env, 'GET',
     `/rest/v1/content_items?site_id=eq.${site.id}&created_at=gt.${encodeURIComponent(cursorIso)}` +
-    `&order=created_at.asc&limit=${BATCH}` +
+    `&order=created_at.asc&limit=${batch}` +
     `&select=id,title,summary,source_name,trust_score,category,story_id,created_at`
   ) || [];
 
