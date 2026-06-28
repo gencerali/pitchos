@@ -221,12 +221,15 @@ async function processSiteMethodB(site, env) {
     }
   }
 
-  // Merge into the shadow pool (most-recent first, deduped by slug, capped).
+  // Merge into the shadow pool: upsert by slug (stable per topic+entity) so re-runs replace
+  // stale versions rather than appending duplicates.
   let pool = [];
   try { const p = JSON.parse((await env.PITCHOS_CACHE.get(shadowKey(code))) || 'null'); pool = p?.articles || []; } catch {}
-  const seen = new Set(pool.map(a => a.slug));
-  for (const a of newArticles) if (!seen.has(a.slug)) { pool.unshift(a); seen.add(a.slug); }
-  pool = pool.slice(0, SHADOW_POOL_MAX);
+  const poolMap = new Map(pool.map(a => [a.slug, a]));
+  for (const a of newArticles) poolMap.set(a.slug, a);
+  pool = [...poolMap.values()]
+    .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
+    .slice(0, SHADOW_POOL_MAX);
   await env.PITCHOS_CACHE.put(shadowKey(code), JSON.stringify({ ready: pool.length > 0, articles: pool, updated_at: new Date().toISOString() }));
 
   // Advance cursor.
@@ -542,8 +545,9 @@ async function persistPhase(topicInfo, newTracks, trigger, item, env) {
 // avoids any collision with legacy slugs during the shadow window.
 function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity = null }) {
   const published_at = new Date().toISOString();
-  // Include focusEntity in the hash so fan-out articles for the same item get distinct slugs.
-  const slug = 'mb-' + simpleHash((title || item.title || '') + (focusEntity ? ':' + focusEntity : '') + published_at);
+  const entityKey = focusEntity || 'main';
+  // Stable slug: same topic+entity always produces the same key so pool upsert replaces stale versions.
+  const slug = 'mb-' + simpleHash((topic?.id || title || item.title || '') + ':' + entityKey);
   return {
     title: title || item.title || '',
     summary: (body || '').replace(/\s+/g, ' ').slice(0, 280),
@@ -555,7 +559,7 @@ function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity
     published_at, fetched_at: published_at,
     is_fresh: true, is_kartalix_content: true,
     publish_mode: 'methodb_synth', image_url: '', slug,
-    _methodb: { topic_id: topic?.id || null, trigger },
+    _methodb: { topic_id: topic?.id || null, trigger, focus_entity: entityKey },
   };
 }
 

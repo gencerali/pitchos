@@ -3294,6 +3294,14 @@ Sadece JSON döndür:
       return Response.json({ ok: true, reset_to: sevenDaysAgo, sites: sites.map(s => s.short_code) });
     }
 
+    if (url.pathname === '/admin/methodb/clear-pool' && request.method === 'POST') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const sites = await getActiveSites(env);
+      await Promise.all(sites.map(s => env.PITCHOS_CACHE.delete(`articles:${s.short_code}:methodb`)));
+      return Response.json({ ok: true, cleared: sites.map(s => s.short_code) });
+    }
+
     if (url.pathname === '/admin/methodb/run' && request.method === 'POST') {
       const authed = await checkAdminAuth(request, env);
       if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
@@ -9611,6 +9619,7 @@ ${adminNav('config', sc, allSites)}
           <button class="btn btn-sm" style="background:#7a1f1f;color:#fff" onclick="toggleMethodB(false)" ${!methodbEnabled ? 'disabled' : ''}>Durdur</button>
           <button class="btn btn-sm" style="background:#1e3a5f;color:#fff;margin-left:.6rem" onclick="runMethodBNow()">Şimdi Çalıştır</button>
           <button class="btn btn-sm" style="background:#4a2060;color:#fff;margin-left:.4rem" onclick="resetMethodBCursor()">Cursoru Sıfırla</button>
+          <button class="btn btn-sm" style="background:#7a2020;color:#fff;margin-left:.4rem" onclick="clearMethodBPool()">Havuzu Temizle</button>
           <span id="mb-msg" class="save-status" style="margin-left:.4rem"></span>
         </div>
         <div class="cfg-note">Saatlik cron — gölge havuzuna (articles:{site}:methodb) olgu-tabanlı makaleler üretir. Anasayfayı etkilemez; aşağıdaki "Yayında olan" ayarı ayrıdır.</div>
@@ -9812,6 +9821,15 @@ async function runMethodBNow(){
     if(j.error){ msg.textContent = 'hata: ' + j.error; return; }
     msg.textContent = '✓ kuyruğa alındı — /admin/pipeline sayfasını 60sn sonra yenileyin';
     setTimeout(() => location.reload(), 60000);
+  }catch(e){ msg.textContent = 'hata: ' + e.message; }
+}
+async function clearMethodBPool(){
+  const msg = document.getElementById('mb-msg');
+  msg.textContent = 'havuz temizleniyor...';
+  try{
+    const r = await fetch('/admin/methodb/clear-pool', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    const j = await r.json();
+    msg.textContent = j.ok ? ('✓ havuz temizlendi (' + (j.cleared||[]).join(',') + ')') : ('hata: ' + (j.error||'?'));
   }catch(e){ msg.textContent = 'hata: ' + e.message; }
 }
 async function flipPipeline(target){
