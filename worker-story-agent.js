@@ -126,7 +126,7 @@ async function processSiteMethodB(site, env, opts = {}) {
   ) || [];
 
   if (rows.length === 0) {
-    const status = { ts: new Date().toISOString(), candidates: 0, note: 'no new content_items' };
+    const status = { ts: new Date().toISOString(), cursorUsed: cursorIso, candidates: 0, note: 'no new content_items' };
     await env.PITCHOS_CACHE.put(statusKey(code), JSON.stringify(status));
     return status;
   }
