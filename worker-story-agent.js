@@ -152,6 +152,9 @@ async function processSiteMethodB(site, env, opts = {}) {
   };
   const newArticles = [];
   let synthCount = 0;
+  // Within-run dedup: prevents two content_items about the same topic+entity from both
+  // synthesizing in the same batch (the pool upsert handles across-run dedup via stable slug).
+  const synthesizedThisRun = new Set();
 
   for (const item of rows) {
     const f = factsByItem.get(item.id) || null;
@@ -215,6 +218,10 @@ async function processSiteMethodB(site, env, opts = {}) {
           ? `synth:mb:${topicInfo.topic.id}:${item.id}:${entity}`
           : null;
         if (dedupKey && await env.PITCHOS_CACHE.get(dedupKey).catch(() => null)) continue;
+        // Skip if another item in this same batch already synthesized for this topic+entity.
+        const runKey = `${topicInfo?.topic?.id || item.id}:${entity}`;
+        if (synthesizedThisRun.has(runKey)) continue;
+        synthesizedThisRun.add(runKey);
 
         const art = await synthesizePhase(topicInfo?.topic, f, item, env, stats, trigger, allTracks, entity);
         if (art) {
@@ -260,19 +267,31 @@ async function processSiteMethodB(site, env, opts = {}) {
   return status;
 }
 
+// Normalize Turkish characters for robust entity matching across LLM outputs.
+// "Bayazıt" === "Bayazit", "İlhan" === "ilhan", etc.
+function normEnt(s) {
+  return String(s).toLowerCase()
+    .replace(/İ/g, 'i').replace(/ı/g, 'i')
+    .replace(/Ş/g, 's').replace(/ş/g, 's')
+    .replace(/Ğ/g, 'g').replace(/ğ/g, 'g')
+    .replace(/Ç/g, 'c').replace(/ç/g, 'c')
+    .replace(/Ö/g, 'o').replace(/ö/g, 'o')
+    .replace(/Ü/g, 'u').replace(/ü/g, 'u');
+}
+
 // ─── STAGE 2: CORRELATE TO TOPIC ─────────────────────────────────────────────
 // Entity-fingerprint match against open topics (shared player OR ≥2 shared clubs); creates a
 // new topic on no match. On creation, runs a Haiku judge to detect branch_of / sequel_of
 // edges against open + recently-closed topics (design §2.3, Step 2).
 async function correlateToTopic(item, facts, site, env, stats) {
   const ents = facts?.entities || {};
-  const players = (ents.players || []).map(s => String(s).toLowerCase());
-  const clubs   = (ents.clubs   || []).map(s => String(s).toLowerCase());
+  const players = (ents.players || []).map(normEnt);
+  const clubs   = (ents.clubs   || []).map(normEnt);
 
   const entityOverlaps = (t) => {
     const te = t.entities || {};
-    const tp = (te.players || []).map(s => String(s).toLowerCase());
-    const tc = (te.clubs   || []).map(s => String(s).toLowerCase());
+    const tp = (te.players || []).map(normEnt);
+    const tc = (te.clubs   || []).map(normEnt);
     return players.some(p => tp.includes(p)) || clubs.filter(c => tc.includes(c)).length >= 2;
   };
 
@@ -459,30 +478,26 @@ Return ONLY valid JSON (no explanation):
 }
 
 // ─── STEP 4: FAN-OUT ENTITY LIST ─────────────────────────────────────────────
-// Returns up to 3 entity keys to synthesize an article for. One article per entity gives
-// each perspective its own piece (e.g. "Amrabat → BJK" vs "Amrabat → Galatasaray").
-// Falls back to ['main'] when there are no named competing clubs.
+// Fan-out ONLY when there are 2+ genuinely competing clubs (e.g. "Amrabat → BJK" vs
+// "Amrabat → Galatasaray"). A single-club story or a player-vs-club split writes ONE
+// article — not one per entity — to prevent near-identical duplicates in the pool.
 function buildFanEntities(topicInfo, newTracks, facts) {
   const normalize = s => String(s).toLowerCase().replace(/\s+/g, '_').slice(0, 40);
-  const entities = [];
 
-  // Clubs with a moving track — most specific, highest-value entities.
-  const movingClubs = Object.keys(newTracks || {}).filter(k => k !== 'main');
-  entities.push(...movingClubs.map(normalize));
+  // Clubs with a moving track this item (delta-detected).
+  const movingClubs = Object.keys(newTracks || {}).filter(k => k !== 'main').map(normalize);
+  if (movingClubs.length >= 2) return movingClubs.slice(0, 3); // genuine competition
 
-  // All track keys when everything is new (initial synthesis, newTracks is empty).
-  if (!entities.length && topicInfo?.trackKeys) {
-    entities.push(...(topicInfo.trackKeys || []).filter(k => k !== 'main').map(normalize));
+  // All known track keys when everything is new (initial, newTracks is empty).
+  if (!movingClubs.length && topicInfo?.trackKeys) {
+    const otherClubs = (topicInfo.trackKeys || []).filter(k => k !== 'main').map(normalize);
+    if (otherClubs.length >= 2) return otherClubs.slice(0, 3); // e.g. two clubs in same race
+    if (otherClubs.length === 1) return [otherClubs[0]];       // one competing club → one article
   }
 
-  // Primary player as an additional perspective (transfer target, injured player, etc.).
-  const player = facts?.entities?.players?.[0];
-  if (player) {
-    const pk = normalize(player);
-    if (!entities.includes(pk)) entities.push(pk);
-  }
-
-  return (entities.length ? entities : ['main']).slice(0, 3);
+  // Single or no competing club → one article from the main/club perspective (no player split).
+  if (movingClubs.length === 1) return [movingClubs[0]];
+  return ['main'];
 }
 
 // ─── STAGE 4: SYNTHESIZE FROM STORED FACTS (Sonnet) ──────────────────────────
