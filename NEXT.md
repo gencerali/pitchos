@@ -32,129 +32,196 @@
 
 ### MB-NEXT-3 — Unified Fact Extraction (`src/extractor.js`)
 
-#### Reality check (from DB audit, 2025-06-29)
+#### Reality check (DB audit 2026-06-29)
 
 | | Count | % |
 |---|---|---|
-| Total facts rows | 2523 | — |
+| Total facts | 2523 | — |
 | Has grounding_summary | 1163 | 46% |
 | Has source_date | 1082 | 43% |
 | Has extraction_tier | 1163 | 46% |
-| Has fact_payload | **0** | **0%** |
+| Has fact_payload written | **0** | **0%** |
 
-- `extraction_tier = 'llm_full'` (P1–P3 full body): 1163 rows — have summary, mostly have source_date ✅
-- `extraction_tier = null` (P4 title-only + legacy): 1360 rows — **zero summary, zero source_date** ❌
-- `key_quotes` **column does not exist** in the DB — all quote extraction silently dropped since day 1
-- `grounding_summary` is stored in **English** — wrong language for Turkish synthesis
-- `source_url` lives only in `fact_lineage` — requires a join every time synthesis needs it
+- `llm_full` rows (P1–P3 full body): 1163 — summary ✅, source_date mostly ✅
+- `null` tier rows (P4 + legacy): 1360 — **zero summary, zero source_date** ❌
+- `key_quotes` column **does not exist in DB** — all quote extraction silently lost since day 1
+- `grounding_summary` stored in **English** — Turkish synthesis gets a language-mismatch input
+- `source_url` only in `fact_lineage` — every synthesis needs a join to get it
 
-**54% of all facts are hollow.** Synthesis and delta detection have been running on incomplete data.
+**54% of facts are hollow. The project memory is half-empty.**
 
 ---
 
 #### Canonical fact schema — every source, every type, always complete
 
 ```
-Core claim
-  story_type        text      transfer|injury|contract|match_result|squad|disciplinary|statement|other
-  entities          jsonb     { players[], clubs[], competitions[] }
-  numbers           jsonb     { transfer_fee, contract_years, other[] }
-  dates             jsonb     { primary_date, other[] }
-  claim_confidence  text      high | medium | low
-  claim_status      text      rumor | developing | confirmed | denied | completed | obsolete
-                              (replaces transfer-only negotiation_status; generalizes to all story types)
+─── CORE CLAIM ────────────────────────────────────────────────────────
+story_type       text    transfer|injury|contract|match_result|squad|
+                         disciplinary|statement|other
+entities         jsonb   { players[], clubs[], competitions[] }
+numbers          jsonb   { transfer_fee, contract_years, other[] }
+dates            jsonb   { primary_date, other[] }
+event_date       date    When the described event happened — may differ from
+                         source_date (e.g. retrospective article today about
+                         a January signing). Extracted by model from content.
+claim_status     text    rumor | developing | confirmed | denied | completed | obsolete
+                         Universal lifecycle (replaces transfer-only negotiation_status).
+                         Injury: rumor→confirmed→completed. Contract: same. Match: confirmed.
+                         Model sets it; corroboration and trust can promote it.
+claim_confidence text    high | medium | low  — model's own confidence, BEFORE source ceiling.
 
-Narrative context — currently broken, most important gap
-  grounding_summary text      Always present. 1–2 sentence Türkçe özet of the key claim.
-                              Paraphrase only — never verbatim. Machine-readable.
-  key_quotes        jsonb     [{ text, speaker, role }] — empty [] if none.
-                              Verbatim attributed quotes only, in original Turkish.
+─── NARRATIVE CONTEXT ─────────────────────────────────────────────────
+grounding_summary text   Always present. 1–2 cümle Türkçe özet. Paraphrase,
+                         never verbatim. The narrative bridge for synthesis.
+key_quotes       jsonb   [{ text, speaker?, role? }] — verbatim Turkish quotes.
+                         speaker and role are optional (may be unknown in transcript).
+                         Empty [] if none — never null.
 
-Source provenance — for synthesis, audit, and future analytics
-  source_type       text      rss_full | rss_summary | yt_transcript | yt_title |
-                              twitter | instagram | manual
-                              Tells synthesis how much to weight the grounding_summary.
-                              (transcript > rss_full > rss_summary > yt_title)
-  source_date       timestamptz  When the source article was published (item.published_at).
-                                 Already in DB as source_published_at but unreliable — must
-                                 be set on every write.
-  source_url        text      Denormalized from fact_lineage for synthesis queries.
-                              fact_lineage keeps the legal audit trail; this is convenience.
-  source_name       text      Publication name (Fotomaç, Sabah, YouTube channel).
-                              Denormalized same reason.
+─── SOURCE PROVENANCE ─────────────────────────────────────────────────
+source_type      text    rss_full | rss_summary | yt_transcript | yt_title |
+                         twitter | instagram | api | manual
+source_date      timestamptz  Publication date of the source (= source_published_at,
+                              kept for back-compat). Set on every write — no more nulls.
+source_url       text    Denormalized from fact_lineage. Enables synthesis/audit without join.
+source_name      text    Publication name (Fotomaç, Sabah, kanal adı).
 
-Already present, keep
-  entity_fingerprint  text    For delta detection
-  corroboration_count int     Already exists (default 0)
-  story_id            uuid    Link to legacy stories table
-  extraction_model    text    Which model extracted
-  extraction_tier     text    llm_full | llm_summary | llm_transcript | llm_title
+─── TRUST ─────────────────────────────────────────────────────────────
+fact_trust       smallint  Computed [0–100]. See trust model below.
+                           Replaces ad-hoc proxyNVS in story agent.
+
+─── ALREADY PRESENT, KEEP ────────────────────────────────────────────
+entity_fingerprint, corroboration_count, story_id, extraction_model, extraction_tier
 ```
-
-**On `claim_status`:** `negotiation_status` only works for transfers. `claim_status` is a universal lifecycle that works for all story types:
-- injury: rumor → confirmed → completed (player returns)
-- contract: rumor → developing → confirmed → completed (signed)
-- disciplinary: rumor → confirmed → completed (ban served)
-
-This enables MB-NEXT-4 to sort facts chronologically by claim lifecycle, not just date.
-
-**On `source_type` vs `extraction_tier`:** `source_type` is about WHERE the content came from (rss, youtube, twitter). `extraction_tier` is about HOW MUCH text we had (full body vs title only). Both matter — keep both, but make source_type mandatory from now on.
-
-**On `grounding_summary` language:** Currently stored in English. Must be Turkish. The prompt needs to say explicitly: "Türkçe yaz". This is critical — synthesis prompts are in Turkish, an English summary creates a language mismatch Sonnet has to bridge.
 
 ---
 
-#### DB migration needed
+#### Fact Trust Model — four layers, one score
+
+Reuses the existing T1–T4 tier system as the base. Extends it with source-type ceilings, content richness bonuses, and corroboration.
+
+```
+Layer 1 — Source tier (existing, already in content_items.trust_score)
+  T1 / official:          90
+  T2 / broadcast:         70
+  T3 / journalist/press:  50
+  T4 / digital/aggregator:25
+
+Layer 2 — Source type ceiling (new — caps model from over-trusting weak inputs)
+  api:           100  (structured, verified)
+  yt_transcript:  85  (rich, but editorialised)
+  rss_full:       80
+  instagram_official, twitter_official: 75  (account type from source metadata)
+  rss_summary:    60
+  twitter:        40
+  yt_title:       35
+  instagram:      35
+  manual:         80
+
+Layer 3 — Content richness bonus (what's actually in the fact)
+  +10  numbers present (transfer_fee, contract_years, or other[])
+  +10  specific date present (not just "yakında" — a real date)
+  +10  key_quotes present (at least one verbatim quote)
+  + 5  ≥2 named player entities
+  + 5  model says claim_confidence = 'high'
+  −10  model says claim_confidence = 'low'
+  − 5  story_type = 'other' (couldn't be classified)
+
+Layer 4 — Corroboration bonus (same entity_fingerprint, different source_name)
+  +5 per corroborating fact, max +20 (4 sources)
+  corroboration_count column already exists in DB (currently always 0)
+  Incremented when a new content_item matches the same entity_fingerprint
+
+Formula:
+  base    = source_tier_score (Layer 1)
+  ceiling = source_type_ceiling (Layer 2)
+  bonus   = Σ(Layer 3) + corroboration_bonus (Layer 4)
+  fact_trust = clamp(min(ceiling, base + bonus), 0, 100)
+
+Examples:
+  Fabrizio Romano tweet, "X Beşiktaş'ta" — no source tier config yet:
+    base=50 (T3 default), ceiling=40 (twitter), numbers=0, quotes=0 → fact_trust=40
+  Official club RSS, confirmed signing with fee + contract:
+    base=90 (T1), ceiling=80, +10 fee, +10 date, +5 high confidence → min(80, 115) = 80
+  Anonymous yt_title "3 Bomba Transfer!":
+    base=25 (T4), ceiling=35, story_type=other −5 → fact_trust=20
+  Same transfer corroborated by 3 sources:
+    base=50, ceiling=60, +10 numbers, +15 corrob → fact_trust=60 → claim_status upgrades
+```
+
+**claim_status auto-promotion via trust:**
+- fact_trust < 35 → force `rumor` (overrides model if it said 'confirmed')
+- fact_trust 35–59 → `developing` if model says rumor/developing; `confirmed` only if model also says confirmed
+- fact_trust ≥ 60 + model says 'confirmed' → `confirmed`
+- `denied` and `completed` always model-set; trust doesn't override
+
+**Where fact_trust is consumed:**
+- Method B cooldown gate — replaces `proxyNVS` (same concept, now principled)
+- MB-NEXT-4 synthesis context — higher trust facts surfaced first in topic history
+- Future: claim_status upgrades when corroboration pushes fact_trust across threshold
+
+---
+
+#### Stress-test fixes incorporated
+
+| Weakness found | Fix |
+|---|---|
+| No event_date | Added to schema — model extracts "olayın tarihi" separately from source_date |
+| Confidence ceiling per source_type | Layer 2 hard ceiling in fact_trust formula |
+| YouTube multi-claim (single claim only) | Extractor always returns `claims[]`; single-claim is claims[0] |
+| API sources shouldn't hit LLM | `parseStructuredFact()` bypass path for source_type='api' |
+| Denial direction wrong | Prompt explicitly asks: "Bu iddia mı, red mi, yoksa spekülasyon mu?" |
+| Relative date unresolved | source_date injected into prompt: "Kaynak tarihi: {date}. Göreceli tarihleri buna göre çevir." |
+| speaker optional in key_quotes | speaker and role are optional fields |
+| 1360 hollow rows | Backfill task: re-extract from content_items where full_text available |
+
+---
+
+#### DB migration
 
 ```sql
 ALTER TABLE facts
-  ADD COLUMN key_quotes      jsonb DEFAULT '[]',
-  ADD COLUMN source_type     text,
-  ADD COLUMN source_url      text,
-  ADD COLUMN source_name     text,
-  ADD COLUMN claim_status    text;
--- source_date: already exists as source_published_at — keep that column name, just make it reliable
--- extraction_tier: already exists — extend allowed values
+  ADD COLUMN key_quotes    jsonb DEFAULT '[]',
+  ADD COLUMN source_type   text,
+  ADD COLUMN source_url    text,
+  ADD COLUMN source_name   text,
+  ADD COLUMN claim_status  text,
+  ADD COLUMN event_date    date,
+  ADD COLUMN fact_trust    smallint DEFAULT 0;
+-- source_published_at already exists → keep, just make it reliable
+-- corroboration_count already exists → wire up increment logic
+-- negotiation_status: keep for transfer backward compat, but claim_status is primary
 ```
 
 ---
 
-#### Implementation plan
+#### Implementation steps
 
-**Step 1 — DB migration** (new columns above)
-
-**Step 2 — `src/extractor.js`** — single unified function:
-```js
-extractFacts({ text, sourceType, item, env })
-// → persists canonical row, returns { ...facts, id }
-```
-- One prompt template, adapted by sourceType (longer/richer for yt_transcript, compact for rss_summary)
-- Always produces: grounding_summary (Turkish), key_quotes, claim_status
-- Single `writeFactRow()` that sets ALL columns — no nulls by accident
-- Writes source_url + source_name directly (no separate lineage call needed for those fields)
-- `fact_lineage` still written for legal audit (destruction_confirmed_at, text_length)
-
-**Step 3 — Replace existing extractors**
-- `extractAndScore()` in `firewall.js` → calls `extractFacts()`, keeps multi-claim loop
-- `extractFacts()` in `firewall.js` (P4 lightweight) → calls `extractFacts()` with `sourceType: 'rss_summary'`
-- `fetchYouTubeAndExtractFacts()` in `worker-story-agent.js` → calls `extractFacts()` with `sourceType: 'yt_transcript'` or `'yt_title'`
-
-**Step 4 — Fix the story-agent select query**
-The current query selects `key_quotes` which doesn't exist in DB yet (causes silent failure). After migration it will work correctly.
+1. **DB migration** — apply above ALTER
+2. **`src/extractor.js`** — `extractFacts({ text, sourceType, item, env })`
+   - Prompt adapts by sourceType (length, language hint, relative date anchor)
+   - Always outputs: `claims[]` (1–5), each with full canonical shape
+   - `computeFactTrust(claim, item)` computes fact_trust before write
+   - `writeFactRow(claim, item, env)` — single DB path, all columns, no accidental nulls
+   - `fact_lineage` still written separately (legal audit trail)
+   - `parseStructuredFact(data, item)` bypass for source_type='api'
+3. **Replace existing extractors** — `extractAndScore`, `extractFacts` (P4), `fetchYouTubeAndExtractFacts`
+4. **Wire corroboration increment** — when delta detection returns 'corroboration', increment count + recompute fact_trust
+5. **Replace proxyNVS in story agent** with `fact.fact_trust`
 
 ---
 
-#### Source type guide — current + future
+#### Source type guide
 
-| Source | sourceType | extraction_tier | text input |
-|--------|-----------|----------------|-----------|
-| RSS full body (P1–P3) | `rss_full` | `llm_full` | body up to 2500 chars |
-| RSS title+summary (P4) | `rss_summary` | `llm_summary` | title + summary ≤800 chars |
-| YouTube + Supadata transcript | `yt_transcript` | `llm_transcript` | title + transcript ≤4000 chars |
-| YouTube title only | `yt_title` | `llm_title` | title only |
-| Twitter/X | `twitter` | `llm_summary` | tweet + thread ≤500 chars |
-| Instagram | `instagram` | `llm_summary` | caption ≤300 chars |
-| Manual admin entry | `manual` | — | free text |
+| sourceType | extraction_tier | Trust ceiling | Text input |
+|-----------|----------------|:---:|-----------|
+| `rss_full` | `llm_full` | 80 | body ≤2500 chars |
+| `rss_summary` | `llm_summary` | 60 | title + summary ≤800 |
+| `yt_transcript` | `llm_transcript` | 85 | title + transcript ≤4000 |
+| `yt_title` | `llm_title` | 35 | title only |
+| `twitter` | `llm_summary` | 40 | tweet ≤500 chars |
+| `instagram` | `llm_summary` | 35 | caption ≤300 chars |
+| `api` | — | 100 | structured JSON (no LLM) |
+| `manual` | — | 80 | admin free text |
 
 ---
 
