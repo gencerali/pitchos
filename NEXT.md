@@ -30,6 +30,91 @@
 
 ---
 
+### MB-NEXT-3 — Unified Fact Extraction (`src/extractor.js`)
+
+**Problem:** Three separate extractors (`extractAndScore`, `extractFacts`, `fetchYouTubeAndExtractFacts`) write inconsistently to the same `facts` table. P4 RSS rows have no `grounding_summary` or `key_quotes`. YouTube quotes land in `fact_payload.quotes` instead of `key_quotes`. Future sources (Twitter, Instagram, etc.) would each need their own ad-hoc path.
+
+**Goal:** One canonical fact shape, one DB write path, all source types plugging into the same function.
+
+#### Canonical fact schema (every source, every type)
+
+```
+story_type          string   transfer|injury|contract|match_result|squad|disciplinary|statement|other
+entities            object   { players[], clubs[], competitions[] }
+numbers             object   { transfer_fee, contract_years, other[] }
+dates               object   { primary_date, other[] }
+grounding_summary   string   Always present. 1-2 sentence paraphrase of the key claim.
+                             Machine-readable, factual, never verbatim.
+key_quotes          array    [{ text, speaker, role }] — empty [] if none.
+                             Verbatim attributed quotes only.
+source_type         string   'rss_full' | 'rss_summary' | 'yt_transcript' | 'yt_title'
+                             | 'twitter' | 'instagram' | 'manual'
+source_date         string   ISO date of original publication (item.published_at or item.created_at)
+claim_confidence    string   high | medium | low
+```
+
+`grounding_summary` is the narrative bridge between sparse JSON and readable synthesis.
+`source_type` lets synthesis weight credibility (transcript > full body > title+summary).
+`source_date` lets synthesis reference timing and staleness.
+
+#### Implementation plan
+
+1. Create `src/extractor.js` — single `extractFacts(sourceInput, env)` where `sourceInput` = `{ text, sourceType, item }`.
+   - One prompt template, adapted by `sourceType` (shorter for `rss_summary`, full for `yt_transcript`).
+   - Single `parseAndValidate()` that enforces the canonical shape — fills `grounding_summary: ''` and `key_quotes: []` if model omits them.
+   - Single `writeFactsRow(facts, item, env)` — one DB path, all columns set.
+
+2. Retire the three existing extractors — replace callers in `firewall.js` and `worker-story-agent.js` with `extractFacts()` from `src/extractor.js`.
+
+3. Migration: backfill `source_type` and `source_date` for existing rows where null.
+
+#### Source type guide (current + future)
+
+| Source | sourceType | text input |
+|--------|-----------|-----------|
+| RSS with full body (P1–P3) | `rss_full` | full body text, up to 2500 chars |
+| RSS title+summary only (P4) | `rss_summary` | title + summary, up to 800 chars |
+| YouTube with Supadata transcript | `yt_transcript` | title + transcript, up to 4000 chars |
+| YouTube title only (Tier 2 skip) | `yt_title` | title only |
+| Twitter/X post | `twitter` | tweet text + thread context |
+| Instagram caption | `instagram` | caption text |
+
+---
+
+### MB-NEXT-4 — Multi-source Topic Synthesis
+
+**Problem:** `synthesizePhase` receives only the current triggering item's facts. A story built from 6 sources over 3 days gives Sonnet only the 6th source's grounding_summary. Everything the first 5 said in prose is lost — only their structured `claim_tracks` (entities/numbers/negotiation_status) survives.
+
+**Goal:** When a topic has a known ID, fetch `grounding_summary + key_quotes + source_date + source_type` for ALL content_items that contributed to that topic, and pass them as accumulated context to Sonnet.
+
+#### How to fetch all contributing facts
+
+```js
+// In synthesizePhase, after topic is known:
+const allFacts = await supabase(env, 'GET',
+  `/rest/v1/facts?content_item_id=in.(${contributingItemIds.join(',')})` +
+  `&select=grounding_summary,key_quotes,source_date,source_type&order=source_date.asc`
+);
+```
+
+`contributingItemIds` comes from phases for the topic (already in DB as `phases.content_item_id` or via `story_id` backlink).
+
+#### Synthesis prompt addition
+
+```
+KONU GEÇMİŞİ (kronolojik — tüm kaynaklar):
+[rss_full, 2026-06-25] Beşiktaş, Nübel için RB Leipzig ile görüşmeleri başlattı.
+[yt_transcript, 2026-06-27] Özen: "3 kaleci adayımız var, biri önümüzdeki hafta netleşir."
+[rss_full, 2026-06-29] Leipzig, 8M€ bonservis talep ediyor.
+
+GÜNCEL KAYNAK (bu haberi tetikleyen):
+...
+```
+
+Sonnet can now write with full story arc awareness — not just the latest data point.
+
+---
+
 ## Gamification
 
 ### Done
