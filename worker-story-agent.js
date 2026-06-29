@@ -173,7 +173,7 @@ For "quotes": extract only direct verbatim quotes (in quotes/tırnak in source).
     numbers: facts.numbers, dates: facts.dates,
     grounding_summary: facts.grounding_summary,
     extraction_model: MODEL_FETCH,
-    fact_payload: quotes.length ? { quotes } : null,
+    fact_payload: { ...(quotes.length ? { quotes } : {}), source_date: item.created_at || null },
   }).catch(e => console.error('YT facts save failed:', e.message));
 
   return facts;
