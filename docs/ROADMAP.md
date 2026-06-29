@@ -4,12 +4,13 @@
 
 ---
 
-## Current Focus: NVS Harmonization
+## Current Focus: Method B Shadow Worker + v1.0 Path
 
-Active workstream: 12 packages (P0–P12), one at a time.  
-Critical path: P0 → P1 → P2 → P4 / P5 / P6  
-Reason: AdSense rejected Kartalix for "valuable inventory." Homepage cleanup (reducing video dominance, surfacing quality content) required before resubmission.  
-Full plan: `docs/nvs-harmonization-assessment-2026-05-30.md`
+Method B (`pitchos-story-agent`) is live: shadow KV pool, topic correlation, Sonnet synthesis, NVS cooldown, YouTube transcript extraction via Supadata. See "Method B" parallel workstream below.
+
+Next gate: verify YouTube synthesis end-to-end after Supadata credits reset 04.07.
+
+v1.0 critical path: Worker Split Ph1 → Sprint K (situational awareness) → Sprint L (alarm framework) → security freeze criteria. Target: July 2026.
 
 ---
 
@@ -97,6 +98,23 @@ Goal: improve from estimated 60-70% to 85%+ approval probability before reviewer
 
 **Constraint:** No new article types or sources during review window. About / Editorial Policy copy must be in Ali's own voice — do not use AI-polished boilerplate.
 **Owner:** Ali (all copy). Claude Code (code changes). **Estimated effort:** P0 ≈ 2 days code + Ali writing time. P1 ≈ 2-3 days. P2 ≈ 1 day.
+
+---
+
+### Method B — pitchos-story-agent *(live as of June 2026)*
+
+Separate Cloudflare Worker sharing code (`src/*.js`) and KV with the legacy worker. Produces articles into shadow pool `articles:{site}:methodb`; gated by `methodb:enabled` KV flag.
+
+| Item | Status | Notes |
+|------|--------|-------|
+| MB-1 Shadow worker setup | ✅ Done | `worker-story-agent.js`, `wrangler-story.toml`, `*/5 * * * *` cron, GitHub Actions CI |
+| MB-2 Core pipeline | ✅ Done | Cursor-based `content_items` processing, topic correlation, delta detection (Haiku), Sonnet synthesis, `mb-` stable slugs |
+| MB-3 Editorial quality | ✅ Done | NVS-based cooldown (3h, low-trust updates), DECISION_SIGNALS rejection filter, fan-facing tone, 60–160 word target |
+| MB-4 YouTube transcript pipeline | ✅ Done | Tier 1 (Supadata transcript for pressers/exec quotes/Günayer), Tier 2 (title+summary), quotes preserved as `alıntılar` in synthesis |
+| MB-NEXT-1 Multi-article from single video | 🔲 Gated | `segmentTranscript()` + `generateMultiTopicVideoSynthesis()` already in `publisher.js`; gate: verify single-article YT synthesis first |
+| MB-NEXT-2 Mystery follow-up article | 🔲 Designed | Count-without-names detection → cross-query transfer facts → `mystery_followup` synthesis |
+
+**Supadata budget:** 80/month (leave 20 for main worker). Credits exhausted — reset 04.07. Key set in Cloudflare dashboard.
 
 ---
 
@@ -194,7 +212,7 @@ Full task-level plan in `docs/kartalix_sprint_plan.txt`. Working method: one tas
 | 3 | 5–6 | Rewrite quality (A1, A2, B1–B3) + editorial voice + image system (Unsplash/Pexels + API-Football photos) + multi-source synthesis (A3) | 🔲 |
 | 4 | 7–8 | Frontend redesign via template customization + design system tokens + auth schema (D0) + launch hardening + **v1.0 ship** | 🔲 |
 | 5–10 | 9–20 | Post-launch: facts pipeline worker separation, analytics, multi-tenant prep | 🔲 |
-| — | live | **Gamification** — core shipped. 386+ tests. XP engine, streaks, leaderboard (5 tabs), tribün (predictions/Starting 11/polls), profile (feed/badges/history/activity pagination), pitch player positioning, injury/suspension flags, score prediction history. `XP_TOKEN_SECRET` set. Remaining pre-launch: bot seeding (1500 users). **Boost Plan** (4 phases — badge progress, weekly leagues, PWA push, shareable cards, accuracy leaderboard, seasonal events, sounds): see `NEXT.md` Phase 9 and `docs/gamification_dev.md` Phase 11. | ✅ |
+| — | live | **Gamification** — core shipped. 386+ tests. XP engine, streaks, leaderboard (5 tabs), tribün (predictions/Starting 11/polls), profile (feed/badges/history/activity pagination), pitch player positioning, injury/suspension flags, score prediction history. `XP_TOKEN_SECRET` set. **Boost Plan B1+B2 done:** badge progress bars, prediction accuracy stat, streak revival modal, daily quest banner, weekly leagues, PWA. **Remaining pre-launch:** bot seeding (1500 users). **B3–B4 open:** shareable result card, prediction heatmap, email digest, seasonal events, match alerts. Sound on iPhone still blocked. | ✅ |
 
 ---
 

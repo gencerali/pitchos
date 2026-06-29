@@ -1,165 +1,107 @@
-# Gamification To-Do
+# What's Next
 
-Track at: https://kartalix.com/admin/releases?site=BJK → expand "Gamification System"
-
----
-
-## Phase 1 — Core Engine ✅ DONE
-
-- [x] XP actions table, `awardXP()`, dedup, daily caps, streak multiplier
-- [x] Level thresholds (20 levels, 5 tiers)
-- [x] Daily check-in XP
-- [x] Article read XP (10s dwell, server-side HMAC token)
-- [x] Video watch XP (30s dwell, server-side HMAC token)
-- [x] Central `gamification.js` meta-tag system
-- [x] Leaderboard page `/liderlik` (5 tabs)
-- [x] XP Admin Panel `/admin/gamification`
-- [x] Profile page `/profil`
-- [x] All XP backend endpoints written
+**One file. All tracks. Updated every session.**
 
 ---
 
-## Phase 2 — Bugs & Quick Wins ✅ DONE
+## Blocked / Waiting
 
-- [x] **2.1** Post-cap fallback XP — `cap_fallback_xp` col on `xp_actions`; +1 after daily cap
-- [x] **2.2** Reaction XP — `react_article` action (+1, daily_cap=10); `/api/xp/react` endpoint; wired in SPA + Worker article page
-- [x] **2.3** Streak bonus — auto-award `streak_5_bonus` (+50) every 5th checkin streak
-- [x] **2.4** Share XP — wire `share_link` XP call to share buttons in SPA + Worker article page
-
----
-
-## Phase 3 — Comment & Reaction System
-
-- [x] **3.1** Fix comments not showing in SPA article view (`renderArticleView`)
-- [x] **3.2** Slug-based keying — `article_comments` + `article_reactions` now use `article_slug` + `user_id`; no guest commenting (auth required)
-- [x] **3.3** Comment XP — wire `/api/xp/comment` on successful submit
-- [x] **3.4** Reply threading — `parent_id UUID` on `article_comments`, 1-level indented display
-- [x] ~~**3.5** Guest commenting~~ — **cancelled**: require login to comment; guest CTA shown instead
-- [x] **3.6** Moderation Layer 1 — client-side Turkish swear word blocklist (~50 terms)
-- [ ] **3.7** Moderation Layer 2 — Claude Haiku toxicity check on `/api/xp/comment` POST. Needs `ANTHROPIC_API_KEY` in Cloudflare env.
-- [x] **3.8** Emotion reactions — 5 emotions (🔥 Ateşli / 😊 Mutlu / ❤️ Uzgun / 😔 Hayal kırıklığı / 💛 Kızgın) live in `index.html` article view and article page; XP wired via `/api/xp/react`.
-- [x] **3.9** Taraftar Nabzı widget — live in `tribun.html` (community hub) and `index.html`; calls `/api/sentiment`; shows 5-emotion bar + Turkish conclusion text (e.g. "Taraftar ateşli! Heyecan dorukta.").
-
----
-
-## Phase 4 — Tribün / Community Features ✅ DONE
-
-- [x] **4.1** Score prediction UI + `/api/xp/predict` wiring — `tribun.html`, `/api/upcoming-match`, 52 tests
-- [x] **4.2** Prediction evaluation — `/api/xp/evaluate-predictions` (cron, `X-Internal-Secret` protected, fully tested in Phase 4.1)
-- [x] **4.3** Starting 11 lineup guess — `/api/xp/starting-11`, `/api/squad`, UI card in `tribun.html` with duplicate guard + XP, 40 tests
-- [x] **4.4** Poll voting — `/api/xp/poll-vote`, `/api/polls`, DB tables (`polls`, `poll_votes`), UI card in `tribun.html` with auth gate + results, 35 tests
-- [x] **4.5** Tribün page `/tribun` — full community hub: score prediction + Starting 11 + Poll + community stats section
-
----
-
-## Phase 5 — Profile & UX Polish ✅ DONE
-
-- [x] **5.1** Profile: XP activity feed — rendered in `profil.html`, backed by `/api/me` (queries `xp_events`, last 20 rows, Turkish action labels + icons)
-- [x] **5.2** Profile: badge grid — earned + locked-as-goals display
-- [x] **5.3** Profile: prediction history tab — rendered in `profil.html`, backed by `/api/me` (queries `score_predictions`, shows predicted vs actual score, exact/outcome/wrong outcome indicator)
-- [x] **5.4** Level-up notification — `window.kxShowLevelUp` in `gamification.js`, wired in checkin/article-read/video-watch and all three tribün XP handlers
-- [x] **5.5** Badge unlock notification — `window.kxShowBadge` in `gamification.js`, wired same as 5.4
-- [x] **5.6** Wire badge + level-up notifications in `index.html` for comment / react / share XP handlers
-
----
-
-## Phase 6 — Schema Migrations
-
-- [x] `xp_actions`: `cap_fallback_xp integer default 0`
-- [x] `xp_actions`: insert `react_article` row
-- [x] `article_comments`: add `article_slug`, `user_id`, `site_id`
-- [x] `article_comments`: add `parent_id` (reply threading, Phase 3.4)
-- [x] `article_reactions`: add `article_slug`, `site_id`
-- [x] `polls`: add `starts_at TIMESTAMPTZ` (scheduled poll publishing)
-- [x] `article_reactions`: `reaction` column already stores emotion type (atesli/mutlu/uzgun/kizgin/hayal_kirikligi) — separate `emotion` col not needed
-- [x] `profiles`: add `is_bot BOOLEAN DEFAULT false` — applied; all 5 leaderboard views updated to filter `is_bot = false`
-
----
-
-## Phase 7 — Poll Automation (Future)
-
-- [ ] **7.A** AI poll generator — Claude Haiku auto-creates weekly polls from trending article topics; scheduled via cron
-- [ ] **7.B** Poll scheduling engine — batch-create future polls with start/end dates from admin or API
-- [ ] **7.C** Sentiment-driven polls — auto-generate polls triggered by match outcomes or viral articles
-- [ ] **7.D** Poll analytics dashboard — per-poll breakdown, demographic split, time-series vote chart
-
----
-
-## Phase 8 — Pre-Launch
-
-- [x] Full XP QA pass — 399 tests; lifetime dedup (daily_cap=-1) + isRateLimited + comment handler all covered
-- [x] Set `XP_TOKEN_SECRET` in Cloudflare Pages env vars (not `dev-secret`) ← config only, set in Cloudflare dashboard
-- [ ] Bot seeding — 1500 synthetic users + weekly cron engine. `profiles.is_bot` column now ready (Phase 6 ✅)
-- [x] Rate limiting on `/api/xp/react` and `/api/xp/comment` — DB-based sliding window, returns 429
-
----
-
-## Phase 9 — Gamification Boost Plan
-
-Four phased improvements to drive retention, virality, and depth. Each phase has a sound design component (all audio default OFF per Phase 7 spec: MP3+WebM, ≤100KB total, server-side toggle).
-
-### Phase B1 — Quick Wins
-
-- [ ] **B1.1** Badge progress visibility — show "3/5 articles read" progress toward every unearned badge
-- [ ] **B1.2** Prediction accuracy stat — % correct predictions shown on profile + accuracy column on leaderboard
-- [ ] **B1.3** Streak drama — animated counter on streak loss; XP-cost revival option (spend 100 XP to restore a broken streak once per week)
-- [ ] **B1.S** Sound: activate existing Phase 7 design — coin-drop for XP award, chime for badge unlock
-
-### Phase B2 — Core Retention Loop
-
-- [ ] **B2.1** Weekly leagues — Bronze/Silver/Gold/Diamond tiers; weekly XP race; top 20% promoted, bottom 20% relegated; resets Monday 00:00 UTC
-- [ ] **B2.2** Daily quest banner — countdown to next match prediction lock; "günün görevi" banner on tribün and profile
-- [ ] **B2.3** Web Push + PWA — `manifest.json` + service worker; push triggers: match-day reminder, lineup prediction open, streak-break warning
-- [ ] **B2.S** Sound: league promotion fanfare (ascending stadium cheer ≤2s); streak-break drama (low drum hit ≤0.5s)
-
-### Phase B3 — Social & Viral
-
-- [ ] **B3.1** Shareable result card — dynamic OG image generated after match result; shows user's predicted vs actual score + accuracy badge; share button on Tribün
-- [ ] **B3.2** Community prediction reveal — after prediction lock, show score heatmap of what all users predicted; unlocked only after user has submitted own prediction
-- [ ] **B3.3** Weekly email digest — Monday morning; personal stats recap + leaderboard rank + upcoming week preview; skimmable format via Resend
-- [ ] **B3.S** Sound: exact-prediction celebration — crowd roar + goal-horn variant (≤1.5s); triggers with existing Kara Kartal animation
-
-### Phase B4 — Depth & Seasonal
-
-- [ ] **B4.1** Seasonal events — double XP weekends tied to derby fixtures; limited-time badges (Kadıköy Derbisi, Şampiyonluk, etc.)
-- [ ] **B4.2** Prediction accuracy leaderboard tab — separate tab on `/liderlik`; ranked by % exact + % correct outcome; lifetime and seasonal views
-- [ ] **B4.3** Match alerts — WhatsApp or Telegram channel; kickoff reminders + result pings; opt-in via profile settings
-- [ ] **B4.S** Sound: seasonal event jingle — distinct limited-time audio cue (≤1s); only plays during active seasonal event window
-
----
-
-## Gamification Live Criteria
-
-- [x] All Phase 1 + 2 shipped
-- [x] Comments visible and submittable on all articles
-- [ ] Emotion reactions wired with XP (Phase 3.8)
-- [x] At least one Tribün feature live — all three live: score prediction, Starting 11, polls
-- [x] Profile shows XP feed + badges + prediction history
-- [ ] `XP_TOKEN_SECRET` set in production
-- [ ] Bot seeding complete — 1500+ users on leaderboard
-
----
-
-## All Tests Passing
-
-386 tests passing as of 2026-06-19. Last fixes: test format mismatch after ESPN/upcoming-match migration (predict + starting-11 test suites), mobile UX bugs (header fixed position, 16px font on form inputs).
+| Item | Waiting on | ETA |
+|------|-----------|-----|
+| Supadata transcripts | Credits reset | 04.07 — then automatic |
+| AdSense approval | Google review | Unknown — check dashboard |
+| v1.0 ship | Sprints K + L + security hardening | July 2026 target |
 
 ---
 
 ## Method B (pitchos-story-agent)
 
 ### Done
+- [x] MB-1 Shadow worker — cron, CI deploy, `methodb:enabled` KV gate
+- [x] MB-2 Core pipeline — topic correlation → delta detection → Sonnet synthesis
+- [x] MB-3 Editorial quality — NVS cooldown, DECISION_SIGNALS filter, fan-facing tone
+- [x] MB-4 YouTube transcript pipeline — Supadata Tier 1 / title+summary Tier 2, quotes preserved
+- [x] SUPADATA_API_KEY set in Cloudflare dashboard
 
-- [x] **MB-1** Shadow worker — `worker-story-agent.js` + `wrangler-story.toml`, `*/5 * * * *` cron, GitHub Actions auto-deploy, `methodb:enabled` KV flag gates pipeline
-- [x] **MB-2** Core pipeline — cursor-based `content_items` processing, topic correlation → delta detection (Haiku) → Sonnet synthesis, stable `mb-` slugs, shadow pool upsert
-- [x] **MB-3** Editorial quality — fan-facing tone, 60–160 word target, DECISION_SIGNALS rejection filter, NVS-based cooldown (low-trust accretive updates gated to 1/topic/3h)
-- [x] **MB-4** YouTube transcript pipeline — detects `youtube_embed` items, two-tier extraction (Tier 1: Supadata transcript; Tier 2: title+summary), quotes preserved for synthesis, `SUPADATA_MONTHLY_CAP=80`
+### Next (after 04.07)
+- [ ] **MB-NEXT-1** Verify single-article YouTube synthesis works end-to-end (check admin pipeline after first few runs with transcripts)
+- [ ] **MB-NEXT-1b** Multi-article from single video — `segmentTranscript()` + `generateMultiTopicVideoSynthesis()` (already in `publisher.js`). Gate: MB-NEXT-1 verified first.
+- [ ] **MB-NEXT-2** Mystery follow-up article — detect count-without-names in facts, cross-query transfer facts, synthesize speculation grounded only in DB. Trigger: `mystery_followup`.
 
-### Pending
+---
 
-- [ ] **SUPADATA credits** — exhausted, reset 04.07. Transcript extraction falls back to title+summary until then. Key already set in Cloudflare dashboard.
+## Gamification
 
-### Next
+### Done
+- [x] Phases 1–6 (XP engine, streaks, leaderboard, tribün, profile, schema)
+- [x] Phase 7 Sound (toggle, XP coin sparkle, level-up fanfare)
+- [x] B1.1 Badge progress bars (locked badges show count/threshold + progress bar)
+- [x] B1.2 Prediction accuracy stat (profile + accuracy leaderboard tab)
+- [x] B1.3 Streak revival modal (100 XP cost, 7-day cooldown)
+- [x] B2.1 Daily quest banner (7 quest sets, 3/day, tribün + profile)
+- [x] B2.2 Weekly leagues (Bronz/Gümüş/Altın/Platin/Elmas, Monday reset)
+- [x] B2.3 PWA (manifest.json, Apple meta tags)
 
-- [ ] **MB-NEXT-1** Multi-article from single YouTube video — use `segmentTranscript()` + `generateMultiTopicVideoSynthesis()` (already in `publisher.js`). **Gate:** verify single-article YouTube synthesis works first (check after 04.07).
-- [ ] **MB-NEXT-2** Mystery follow-up article — when official names a count without players (e.g. "3 transfer targets"), cross-query related transfer fact rows, synthesize speculation article grounded only in existing DB facts. Trigger type: `mystery_followup`.
+### Open
+- [ ] **3.7** Haiku toxicity check on comments — needs `ANTHROPIC_API_KEY` in Cloudflare Pages env
+- [ ] **8** Bot seeding — 1500 synthetic users (`profiles.is_bot` col ready) — pre-launch blocker
+- [ ] **B3.1** Shareable result card — dynamic OG image after match result
+- [ ] **B3.2** Community prediction reveal — score heatmap after lock
+- [ ] **B3.3** Weekly email digest — Monday recap via Resend
+- [ ] **B4.1** Seasonal events — double XP weekends, derby badges
+- [ ] **B4.3** Match alerts — WhatsApp/Telegram opt-in
+- [ ] **Sound (iPhone)** — Chrome + Safari still silent; needs Safari Web Inspector remote debug on real device
+
+### Phase 7 (Poll Automation — future)
+- [ ] 7.A AI poll generator (Haiku, weekly from trending topics)
+- [ ] 7.B Poll scheduling engine
+- [ ] 7.C Sentiment-driven polls
+- [ ] 7.D Poll analytics dashboard
+
+---
+
+## Pipeline / v1.0
+
+### v1.0 Freeze Criteria (open items)
+- [ ] `/run`, `/force-*` endpoints require auth (no unauthenticated triggers)
+- [ ] `ADMIN_PIN` secret set — no hardcoded fallback
+- [ ] Homepage loads <2s on mobile (4G throttled)
+- [ ] 40+ articles visible without manual intervention for 3 consecutive days
+- [ ] Telegram ops alert wired (Claude cap hit + zero-article run)
+- [ ] At least one synthesis article contains situational context block
+- [ ] `git tag v1.0.0` + Cloudflare version + KV export + Supabase backup
+
+### Sprint K — Situational Awareness Engine (v0.97)
+- [ ] K4 `sites.editorial_context` schema + admin form + BJK seed data *(do first)*
+- [ ] K1 Layer 1: remaining fixtures, cache invalidation after result flash
+- [ ] K2 Mathematical locks + rival threat index + GD tiebreaker
+- [ ] K3 European qualification tree
+- [ ] K5 `src/situation.js` glue + synthesis integration *(needs Worker Split Ph1 first)*
+
+### Sprint L — Alarm Framework (v0.98)
+- [ ] L1 `src/relevance.js` — unify filter paths, retire `BJK_KEYWORDS`
+- [ ] L2 `team_entities` table + API-Football weekly sync
+- [ ] L5–L10 Alarm DB schema, runner, Telegram bot, `/admin/rapor` UI
+
+### Worker Split (prerequisite for Sprint K5 + Cockpit)
+- [ ] Phase 1: extract `renderAdminReportPage` → `routes/admin-report.js`
+- [ ] Phase 2: extract `/force-*` endpoints → `routes/force-triggers.js`
+- [ ] Phase 3: extract `processSite`, `matchWatcher` → `domain/`
+
+---
+
+## Post-Launch (v1.1+)
+
+- [ ] Squad Intelligence — `squad_members` DB, dynamic keywords
+- [ ] Distribution Agent — push notifications (NVS≥80)
+- [ ] Visual Assets — image pipeline *(blocked: lawyer consult re Wikimedia + AI images)*
+- [ ] Editorial QA Agent
+- [ ] Multi-tenant (v2.0) — after Beşiktaş site proven
+
+---
+
+## Tech Debt (fix opportunistically)
+
+- [ ] `normalizeTitle` / `KEY_TOKEN_RE` — Turkish Unicode boundary bug (v1.1)
+- [ ] `fetchBeIN` stub — delete or implement
+- [ ] Unify SPA + server-rendered article templates (SEO gap)
