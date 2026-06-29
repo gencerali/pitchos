@@ -373,6 +373,11 @@ async function processSiteMethodB(site, env, opts = {}) {
     if (doSynth && f && !cap.blocked && synthCount < SHADOW_SYNTH_CAP) {
       const allTracks = topicInfo?.topic?.claim_tracks || {};
       const fanEntities = buildFanEntities(topicInfo, newTracks, f);
+      // Compute once per item — reused for cooldown gate, NVS field, and cooldown setter.
+      const proxyNVS = (item.trust_score || 0)
+        + (Object.keys(f?.numbers || {}).length > 0 ? 15 : 0)
+        + (Object.keys(f?.dates   || {}).length > 0 ? 10 : 0)
+        + (['transfer', 'contract', 'injury'].includes(f?.story_type) ? 10 : 0);
       let phaseWritten = false;
 
       for (const entity of fanEntities) {
@@ -394,36 +399,21 @@ async function processSiteMethodB(site, env, opts = {}) {
         // Cooldown gate for accretive updates only (not events/initials).
         // Low-trust content (proxyNVS < 50) is gated to max 1 article per topic per 3h.
         // High-trust or concrete-fact content bypasses so breaking news always gets through.
-        if (trigger === 'update') {
-          const proxyNVS = (item.trust_score || 0)
-            + (Object.keys(f?.numbers || {}).length > 0 ? 15 : 0)
-            + (Object.keys(f?.dates   || {}).length > 0 ? 10 : 0)
-            + (['transfer', 'contract', 'injury'].includes(f?.story_type) ? 10 : 0);
-          if (proxyNVS < 50) {
-            const cooldownKey = `methodb:cooldown:${topicInfo?.topic?.id || primaryEnt}:${entity}`;
-            const onCooldown = await env.PITCHOS_CACHE.get(cooldownKey).catch(() => null);
-            if (onCooldown) { tally.confirmingSkip++; continue; }
-            // Will set cooldown after successful synthesis below.
-          }
+        if (trigger === 'update' && proxyNVS < 50) {
+          const cooldownKey = `methodb:cooldown:${topicInfo?.topic?.id || primaryEnt}:${entity}`;
+          const onCooldown = await env.PITCHOS_CACHE.get(cooldownKey).catch(() => null);
+          if (onCooldown) { tally.confirmingSkip++; continue; }
         }
 
-        const art = await synthesizePhase(topicInfo?.topic, f, item, env, stats, trigger, allTracks, entity);
+        const art = await synthesizePhase(topicInfo?.topic, f, item, env, stats, trigger, allTracks, entity, proxyNVS);
         if (art) {
           newArticles.push(art);
           synthCount++; tally.synthesized++;
           if (phaseWritten) tally.fanOut++; // second+ article from same phase = fan-out
           if (dedupKey) await env.PITCHOS_CACHE.put(dedupKey, '1', { expirationTtl: 86400 * 30 }).catch(() => {});
-          // Set 3h cooldown for low-trust accretive updates so the same rumor
-          // can't flood the pool. High-trust content and events never reach here gated.
-          if (trigger === 'update') {
-            const proxyNVS = (item.trust_score || 0)
-              + (Object.keys(f?.numbers || {}).length > 0 ? 15 : 0)
-              + (Object.keys(f?.dates   || {}).length > 0 ? 10 : 0)
-              + (['transfer', 'contract', 'injury'].includes(f?.story_type) ? 10 : 0);
-            if (proxyNVS < 50) {
-              const cooldownKey = `methodb:cooldown:${topicInfo?.topic?.id || primaryEnt}:${entity}`;
-              await env.PITCHOS_CACHE.put(cooldownKey, '1', { expirationTtl: 3 * 3600 }).catch(() => {});
-            }
+          if (trigger === 'update' && proxyNVS < 50) {
+            const cooldownKey = `methodb:cooldown:${topicInfo?.topic?.id || primaryEnt}:${entity}`;
+            await env.PITCHOS_CACHE.put(cooldownKey, '1', { expirationTtl: 3 * 3600 }).catch(() => {});
           }
           if (!phaseWritten && topicInfo?.topic) {
             await persistPhase(topicInfo, newTracks, trigger, item, env).catch(() => {});
@@ -440,6 +430,37 @@ async function processSiteMethodB(site, env, opts = {}) {
   try { const p = JSON.parse((await env.PITCHOS_CACHE.get(shadowKey(code))) || 'null'); pool = p?.articles || []; } catch {}
   const poolMap = new Map(pool.map(a => [a.slug, a]));
   for (const a of newArticles) poolMap.set(a.slug, a);
+
+  // Secondary dedup by (topic_id, focus_entity): guards against topic correlation being
+  // intermittent across runs — same story can get slug from topic.id one run and from
+  // player name the next, producing two entries. Keep the newest per topic+entity pair.
+  const topicEntitySeen = new Map();
+  for (const [slug, art] of poolMap) {
+    const tid = art._methodb?.topic_id;
+    if (!tid) continue;
+    const key = `${tid}:${art._methodb?.focus_entity || 'main'}`;
+    const prev = topicEntitySeen.get(key);
+    if (!prev) { topicEntitySeen.set(key, { slug, t: art.published_at }); continue; }
+    if (new Date(art.published_at) >= new Date(prev.t)) {
+      poolMap.delete(prev.slug); topicEntitySeen.set(key, { slug, t: art.published_at });
+    } else {
+      poolMap.delete(slug);
+    }
+  }
+  // Tertiary title dedup: collapses identical-title articles that slipped through
+  // (e.g. two sources for the same story when topic correlation failed for both).
+  const titleSeen = new Map();
+  for (const [slug, art] of poolMap) {
+    const normTitle = (art.title || '').toLowerCase().slice(0, 80);
+    const prev = titleSeen.get(normTitle);
+    if (!prev) { titleSeen.set(normTitle, { slug, t: art.published_at }); continue; }
+    if (new Date(art.published_at) >= new Date(prev.t)) {
+      poolMap.delete(prev.slug); titleSeen.set(normTitle, { slug, t: art.published_at });
+    } else {
+      poolMap.delete(slug);
+    }
+  }
+
   pool = [...poolMap.values()]
     .sort((a, b) => new Date(b.published_at) - new Date(a.published_at))
     .slice(0, SHADOW_POOL_MAX);
@@ -700,7 +721,7 @@ function buildFanEntities(topicInfo, newTracks, facts) {
 // Writes from compact structured facts, NOT by re-fetching source text (design §4/§6).
 // allTracks: full claim_tracks map — competing-narrative context.
 // focusEntity: when set (fan-out), the article is written from this entity's perspective.
-async function synthesizePhase(topic, facts, item, env, stats, trigger, allTracks = {}, focusEntity = null) {
+async function synthesizePhase(topic, facts, item, env, stats, trigger, allTracks = {}, focusEntity = null, proxyNVS = 0) {
   const editorial = await getEditorialNotes(env, ['news', facts?.story_type || '']).catch(() => '');
   const competing = Object.entries(allTracks)
     .filter(([, v]) => v != null)
@@ -748,7 +769,7 @@ BAŞLIK: [Türkçe manşet]
       console.warn('synthesizePhase: rejected chain-of-thought output');
       return null;
     }
-    return toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity });
+    return toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity, proxyNVS });
   } catch (e) { console.error('synthesizePhase:', e.message); return null; }
 }
 
@@ -778,7 +799,7 @@ async function persistPhase(topicInfo, newTracks, trigger, item, env) {
 
 // Build an object matching the frozen KV article contract (design §7) — `mb-` slug prefix
 // avoids any collision with legacy slugs during the shadow window.
-function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity = null }) {
+function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity = null, proxyNVS = 0 }) {
   const published_at = new Date().toISOString();
   const entityKey = focusEntity || 'main';
   // Stable slug: topic.id is the primary key (survives re-runs of the same story).
@@ -796,7 +817,7 @@ function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity
     source: 'Method B', source_name: item.source_name || '',
     source_url: '', url: '',
     category: facts?.story_type || item.category || 'Haber',
-    nvs: 0, trust_tier: item.trust_score || null,
+    nvs: Math.min(85, Math.max(30, proxyNVS)), trust_tier: item.trust_score || null,
     published_at, fetched_at: published_at,
     is_fresh: true, is_kartalix_content: true,
     publish_mode: 'methodb_synth', image_url: '', slug,
