@@ -226,12 +226,40 @@ async function processSiteMethodB(site, env, opts = {}) {
         if (synthesizedThisRun.has(runKey)) continue;
         synthesizedThisRun.add(runKey);
 
+        // Cooldown gate for accretive updates only (not events/initials).
+        // Low-trust content (proxyNVS < 50) is gated to max 1 article per topic per 3h.
+        // High-trust or concrete-fact content bypasses so breaking news always gets through.
+        if (trigger === 'update') {
+          const proxyNVS = (item.trust_score || 0)
+            + (Object.keys(f?.numbers || {}).length > 0 ? 15 : 0)
+            + (Object.keys(f?.dates   || {}).length > 0 ? 10 : 0)
+            + (['transfer', 'contract', 'injury'].includes(f?.story_type) ? 10 : 0);
+          if (proxyNVS < 50) {
+            const cooldownKey = `methodb:cooldown:${topicInfo?.topic?.id || primaryEnt}:${entity}`;
+            const onCooldown = await env.PITCHOS_CACHE.get(cooldownKey).catch(() => null);
+            if (onCooldown) { tally.confirmingSkip++; continue; }
+            // Will set cooldown after successful synthesis below.
+          }
+        }
+
         const art = await synthesizePhase(topicInfo?.topic, f, item, env, stats, trigger, allTracks, entity);
         if (art) {
           newArticles.push(art);
           synthCount++; tally.synthesized++;
           if (phaseWritten) tally.fanOut++; // second+ article from same phase = fan-out
           if (dedupKey) await env.PITCHOS_CACHE.put(dedupKey, '1', { expirationTtl: 86400 * 30 }).catch(() => {});
+          // Set 3h cooldown for low-trust accretive updates so the same rumor
+          // can't flood the pool. High-trust content and events never reach here gated.
+          if (trigger === 'update') {
+            const proxyNVS = (item.trust_score || 0)
+              + (Object.keys(f?.numbers || {}).length > 0 ? 15 : 0)
+              + (Object.keys(f?.dates   || {}).length > 0 ? 10 : 0)
+              + (['transfer', 'contract', 'injury'].includes(f?.story_type) ? 10 : 0);
+            if (proxyNVS < 50) {
+              const cooldownKey = `methodb:cooldown:${topicInfo?.topic?.id || primaryEnt}:${entity}`;
+              await env.PITCHOS_CACHE.put(cooldownKey, '1', { expirationTtl: 3 * 3600 }).catch(() => {});
+            }
+          }
           if (!phaseWritten && topicInfo?.topic) {
             await persistPhase(topicInfo, newTracks, trigger, item, env).catch(() => {});
             phaseWritten = true;
