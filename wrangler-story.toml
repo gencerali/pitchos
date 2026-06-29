@@ -8,6 +8,7 @@
 # Deploy:  npx wrangler deploy -c wrangler-story.toml
 # Secrets: npx wrangler secret put SUPABASE_SERVICE_KEY -c wrangler-story.toml
 #          npx wrangler secret put ANTHROPIC_API_KEY    -c wrangler-story.toml
+#          npx wrangler secret put SUPADATA_API_KEY     -c wrangler-story.toml
 #
 # Inert by default: runMethodB() no-ops unless KV flag `methodb:enabled` == "1".
 

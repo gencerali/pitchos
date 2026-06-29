@@ -20,6 +20,7 @@ import {
   supabase, getActiveSites, callClaude, extractText, addUsagePhase, addCost, checkCostCap,
   getEditorialNotes, simpleHash, MODEL_FETCH, MODEL_GENERATE,
 } from './src/utils.js';
+import { fetchYouTubeTranscript } from './src/youtube.js';
 
 const ENABLED_KEY = 'methodb:enabled';                       // "1" to arm the pipeline
 const cursorKey   = (code) => `methodb:cursor:${code}`;      // ISO ts of last processed content_item
@@ -31,6 +32,81 @@ const BATCH            = 50;  // content_items scanned per site per cron run
 const BATCH_MANUAL     = 150; // larger batch for manual /run (admin catch-up)
 const SHADOW_SYNTH_CAP = 3;  // Sonnet syntheses per site per run (dev budget guardrail, design §6.1)
 const SHADOW_POOL_MAX  = 60; // shadow homepage pool size
+const YT_TRANSCRIPT_CAP    = 2;  // Supadata transcript fetches per story-agent run
+const SUPADATA_MONTHLY_CAP = 80; // leave 20 credits for main worker (100/month total)
+const supKey = () => `methodb:supadata:${new Date().toISOString().slice(0, 7)}`;
+
+async function isSupadataAvailable(env) {
+  if (!env.SUPADATA_API_KEY) return false;
+  const used = parseInt((await env.PITCHOS_CACHE.get(supKey()).catch(() => '0')) || '0');
+  return used < SUPADATA_MONTHLY_CAP;
+}
+async function incSupadataUsed(env) {
+  const k = supKey();
+  const used = parseInt((await env.PITCHOS_CACHE.get(k).catch(() => '0')) || '0');
+  await env.PITCHOS_CACHE.put(k, String(used + 1), { expirationTtl: 40 * 24 * 3600 }).catch(() => {});
+}
+
+// Fetch transcript + run Haiku fact extraction for a youtube_embed content_item.
+// Saves extracted facts to the facts table so future runs skip re-extraction.
+// Returns a facts object with _synthetic:true, or null on failure.
+async function extractYtItemFacts(item, site, env, stats) {
+  const videoId = (item.original_url || '').match(/(?:[?&]v=|\/embed\/|youtu\.be\/)([A-Za-z0-9_-]{11})/)?.[1];
+  let sourceText = [item.title, item.summary].filter(Boolean).join('. ');
+
+  if (videoId && (await isSupadataAvailable(env))) {
+    const transcript = await fetchYouTubeTranscript(videoId, env).catch(() => null);
+    if (transcript && transcript.length > 100) {
+      sourceText = `${item.title}.\n\n${transcript.slice(0, 4000)}`;
+      await incSupadataUsed(env);
+      stats.ytTranscripts = (stats.ytTranscripts || 0) + 1;
+    }
+  }
+
+  const prompt = `Extract facts from this Turkish football news content. Reply ONLY with valid JSON, no other text.
+
+CONTENT:
+${sourceText.slice(0, 5000)}
+
+JSON schema (fill in what you can, null for unknown):
+{
+  "story_type": "transfer|injury|contract|match_result|squad|disciplinary|statement|other",
+  "entities": { "players": [], "clubs": [], "competitions": [] },
+  "numbers": { "transfer_fee": null, "contract_years": null, "other": [] },
+  "dates": { "primary_date": null, "other": [] },
+  "grounding_summary": "1-2 sentence factual English summary of the key claim"
+}`;
+
+  const res = await callClaude(env, MODEL_FETCH, prompt, false, 400);
+  addUsagePhase(stats, 'yt_fact_extract', res.usage);
+  await addCost(env, res.usage, MODEL_FETCH, costKey());
+
+  const raw = extractText(res.content);
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  let parsed;
+  try { parsed = JSON.parse(m[0]); } catch { return null; }
+
+  const facts = {
+    story_type:        parsed.story_type || 'other',
+    entities:          { players: parsed.entities?.players || [], clubs: parsed.entities?.clubs || [], competitions: parsed.entities?.competitions || [] },
+    numbers:           parsed.numbers || {},
+    dates:             parsed.dates || {},
+    grounding_summary: parsed.grounding_summary || '',
+    _synthetic:        true,
+  };
+
+  // Persist so future cron runs don't re-extract the same video
+  await supabase(env, 'POST', '/rest/v1/facts', {
+    content_item_id: item.id, site_id: site.id,
+    story_type: facts.story_type, entities: facts.entities,
+    numbers: facts.numbers, dates: facts.dates,
+    grounding_summary: facts.grounding_summary,
+    extraction_model: MODEL_FETCH,
+  }).catch(e => console.error('YT facts save failed:', e.message));
+
+  return facts;
+}
 
 export default {
   // Hourly cron (wrangler-story.toml). Reacts to ingested content; no freshness polling.
@@ -122,7 +198,7 @@ async function processSiteMethodB(site, env, opts = {}) {
   const rows = await supabase(env, 'GET',
     `/rest/v1/content_items?site_id=eq.${site.id}&created_at=gt.${encodeURIComponent(cursorIso)}` +
     `&order=created_at.asc&limit=${batch}` +
-    `&select=id,title,summary,source_name,trust_score,category,story_id,created_at`
+    `&select=id,title,summary,source_name,trust_score,category,story_id,created_at,content_type,original_url`
   ) || [];
 
   if (rows.length === 0) {
@@ -152,13 +228,24 @@ async function processSiteMethodB(site, env, opts = {}) {
   };
   const newArticles = [];
   let synthCount = 0;
+  let ytTranscriptCount = 0;
   // Within-run dedup: prevents two content_items about the same topic+entity from both
   // synthesizing in the same batch (the pool upsert handles across-run dedup via stable slug).
   const synthesizedThisRun = new Set();
 
   for (const item of rows) {
-    const f = factsByItem.get(item.id) || null;
+    let f = factsByItem.get(item.id) || null;
     if (f) tally.withFacts++;
+
+    // youtube_embed items have no extracted facts — fetch transcript via Supadata
+    // and run Haiku fact extraction so Method B can synthesize from interviews/statements.
+    if (!f && item.content_type === 'youtube_embed' && ytTranscriptCount < YT_TRANSCRIPT_CAP) {
+      f = await extractYtItemFacts(item, site, env, stats).catch(e => {
+        console.error(`YT fact extract [${item.id}]:`, e.message);
+        return null;
+      });
+      if (f) { tally.withFacts++; ytTranscriptCount++; tally.ytExtracted = (tally.ytExtracted || 0) + 1; }
+    }
 
     const mode = routeNewsMode(item, f);
 
@@ -620,7 +707,8 @@ function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity
   // Fall back to normalized primary entity name — much more stable than title, so two
   // items about the same player still get the same slug even when topic creation failed.
   const stableBase = topic?.id
-    || normEnt(facts?.entities?.players?.[0] || facts?.entities?.clubs?.[0] || '')
+    || normEnt(facts?.entities?.players?.[0] || '')
+    || (facts?._synthetic ? item.id : normEnt(facts?.entities?.clubs?.[0] || ''))
     || (item.title || '').slice(0, 60);
   const slug = 'mb-' + simpleHash(stableBase + ':' + entityKey);
   return {
