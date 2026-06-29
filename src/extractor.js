@@ -11,23 +11,7 @@
 // + corroboration). Computed as fact_trust [0-100] on every write.
 // Replaces ad-hoc proxyNVS in story agent.
 
-import { callClaude, extractText, MODEL_FETCH } from './utils.js';
-
-// Inlined from firewall.js to avoid circular import (firewall imports computeFactTrust from here).
-const _VALID_STORY_TYPES = new Set(['transfer', 'injury', 'disciplinary', 'contract', 'institutional', 'match_result', 'squad', 'other']);
-function normalizeStoryType(raw) {
-  if (!raw) return 'other';
-  if (_VALID_STORY_TYPES.has(raw)) return raw;
-  const t = raw.toLowerCase();
-  if (t.includes('transfer') || t.includes('signing') || t.includes('loan')) return 'transfer';
-  if (t.includes('injur') || t.includes('medical') || t.includes('recovery')) return 'injury';
-  if (t.includes('disciplin') || t.includes('suspension') || t.includes('ban') || t.includes('fine')) return 'disciplinary';
-  if (t.includes('contract') || t.includes('renewal') || t.includes('extension') || t.includes('buyout')) return 'contract';
-  if (t.includes('institutional') || t.includes('management') || t.includes('ownership') || t.includes('executive') || t.includes('appointment') || t.includes('managerial')) return 'institutional';
-  if (t.includes('match') || t.includes('result') || t.includes('score') || t.includes('goal')) return 'match_result';
-  if (t.includes('squad') || t.includes('lineup') || t.includes('formation')) return 'squad';
-  return 'other';
-}
+import { callClaude, extractText, MODEL_FETCH, normalizeStoryType } from './utils.js';
 
 const TR_SUFFIXES = /'(?:nın|nin|nun|nün|ın|in|un|ün|nda|nde|dan|den|tan|ten|ya|ye|da|de|yı|yi|yu|yü|a|e|ı|i|u|ü|nı|nle|le|la|yla|yda|yde|yta|yte|lı|li|lu|lü|lar|ler|lardan|lerden|lara|lere|larda|lerde|larla|lerle|ları|leri)+$/i;
 

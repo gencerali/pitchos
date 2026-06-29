@@ -107,14 +107,19 @@ describe('extractAndScore — schema normalization', () => {
   it('extracts key_quotes from response', async () => {
     setupFetch({
       story_type: 'transfer', story_category: 'sporting', nvs_score: 80,
-      key_quotes: ['Takim icin en iyi secim', 'Sozlesme imzalandi'],
+      key_quotes: [
+        { text: 'Takim icin en iyi secim', speaker: 'Önder Özen', role: 'Sportif Direktör' },
+        { text: 'Sozlesme imzalandi', speaker: null, role: null },
+      ],
       entities: { players: ['Test Player'], clubs: ['Besiktas'], competitions: [] },
       numbers: { transfer_fee: null, contract_years: 1, ban_games: null, recovery_weeks: null, fine_amount: null, other: [] },
       dates: { primary_date: null, other: [] },
     });
     const result = await extractAndScore('body text', ARTICLE, ENV);
     expect(result.key_quotes).toHaveLength(2);
-    expect(result.key_quotes[0]).toBe('Takim icin en iyi secim');
+    expect(result.key_quotes[0].text).toBe('Takim icin en iyi secim');
+    expect(result.key_quotes[0].speaker).toBe('Önder Özen');
+    expect(result.key_quotes[1].text).toBe('Sozlesme imzalandi');
   });
 
   it('falls back to title+summary when bodyText is empty', async () => {

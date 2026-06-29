@@ -1,25 +1,7 @@
-import { callClaude, extractText, MODEL_FETCH } from './utils.js';
+import { callClaude, extractText, MODEL_FETCH, normalizeStoryType } from './utils.js';
 import { computeFactTrust } from './extractor.js';
 
-// ─── CONTROLLED STORY TYPE SET ───────────────────────────────
-const VALID_STORY_TYPES = new Set(['transfer', 'injury', 'disciplinary', 'contract', 'institutional', 'match_result', 'squad', 'other']);
-
-// Maps Claude free-text output → nearest controlled type.
-// Claude sometimes invents compound types ("transfer_interest", "player_contract_extension").
-// This catches them by keyword scan before they reach the DB.
-export function normalizeStoryType(raw) {
-  if (!raw) return 'other';
-  if (VALID_STORY_TYPES.has(raw)) return raw;
-  const t = raw.toLowerCase();
-  if (t.includes('transfer') || t.includes('signing') || t.includes('loan')) return 'transfer';
-  if (t.includes('injur') || t.includes('medical') || t.includes('recovery')) return 'injury';
-  if (t.includes('disciplin') || t.includes('suspension') || t.includes('ban') || t.includes('fine')) return 'disciplinary';
-  if (t.includes('contract') || t.includes('renewal') || t.includes('extension') || t.includes('buyout')) return 'contract';
-  if (t.includes('institutional') || t.includes('management') || t.includes('ownership') || t.includes('executive') || t.includes('appointment') || t.includes('managerial')) return 'institutional';
-  if (t.includes('match') || t.includes('result') || t.includes('score') || t.includes('goal')) return 'match_result';
-  if (t.includes('squad') || t.includes('lineup') || t.includes('formation')) return 'squad';
-  return 'other';
-}
+export { normalizeStoryType };
 
 // ─── STORY TYPE CLASSIFIER ────────────────────────────────────
 // Single Haiku call — classifies news before fact extraction so

@@ -196,17 +196,22 @@ ALTER TABLE facts
 
 #### Implementation steps
 
-1. **DB migration** — apply above ALTER
-2. **`src/extractor.js`** — `extractFacts({ text, sourceType, item, env })`
-   - Prompt adapts by sourceType (length, language hint, relative date anchor)
-   - Always outputs: `claims[]` (1–5), each with full canonical shape
-   - `computeFactTrust(claim, item)` computes fact_trust before write
-   - `writeFactRow(claim, item, env)` — single DB path, all columns, no accidental nulls
-   - `fact_lineage` still written separately (legal audit trail)
-   - `parseStructuredFact(data, item)` bypass for source_type='api'
-3. **Replace existing extractors** — `extractAndScore`, `extractFacts` (P4), `fetchYouTubeAndExtractFacts`
-4. **Wire corroboration increment** — when delta detection returns 'corroboration', increment count + recompute fact_trust
-5. **Replace proxyNVS in story agent** with `fact.fact_trust`
+1. ✅ **DB migration** — applied (`mb_next3_unified_fact_schema`)
+2. ✅ **`src/extractor.js`** — created. Turkish prompt, multi-claim, trust model, dryRun mode
+3. ✅ **Replace existing extractors** — firewall.js + story agent wired to new extractor
+4. ✅ **Replace proxyNVS in story agent** with `fact.fact_trust`
+5. ✅ **Circular import** — `normalizeStoryType` inlined in extractor.js, no cross-import
+
+#### Open bugs & follow-ups (post-implementation review)
+
+| # | Issue | Impact | Fix |
+|---|---|---|---|
+| **MB-N3-1** | Trust base always 50 in story agent — `trust_score` int not mapped to tier string before `computeFactTrust` | Medium — all story-agent facts under-trusted | Add `trust_tier` mapping in story agent (1 line) |
+| **MB-N3-2** | `normalizeStoryType` duplicated in `firewall.js` + `extractor.js` | Low — divergence risk if story types added | Move to `utils.js`, both import from there |
+| **MB-N3-3** | Corroboration increment not wired — `corroboration_count` always 0, Layer 4 trust never fires | High — trust model incomplete | Increment on delta detection 'corroboration' signal |
+| **MB-N3-4** | 1360+ legacy facts not backfilled — English summaries, fact_trust=0, null claim_status | High — synthesis reads stale data for half the DB | Backfill script: re-extract from `content_items` where `full_body` available |
+| **MB-N3-5** | Duplicate fact rows on reprocessing — `writeFactRow` inserts, no upsert | Medium — corrupts corroboration counts | Check `content_item_id` + `story_type` before insert, or use upsert |
+| **MB-N3-6** | `kartalix_generated` items recycled through extractor — our own output re-extracted | Low — circular noise | Skip `content_type IN ('kartalix_generated','analysis')` in pipeline |
 
 ---
 

@@ -23,6 +23,15 @@ import {
 import { fetchYouTubeTranscript } from './src/youtube.js';
 import { extractFacts, computeFactTrust } from './src/extractor.js';
 
+// Maps content_items.trust_score (int) → TIER_BASE key for computeFactTrust.
+// Mirrors the T1-T4 thresholds used by the site feed config.
+function scoreTier(s) {
+  if (!s || s <= 30) return 'T4';
+  if (s <= 55)       return 'T3';
+  if (s <= 75)       return 'T2';
+  return 'T1';
+}
+
 const ENABLED_KEY = 'methodb:enabled';                       // "1" to arm the pipeline
 const cursorKey   = (code) => `methodb:cursor:${code}`;      // ISO ts of last processed content_item
 const statusKey   = (code) => `methodb:status:${code}`;      // last-run telemetry (/status + /admin/pipeline)
@@ -132,7 +141,7 @@ async function extractYtItemFacts(item, site, env, stats, needsTranscript = true
     }
   }
 
-  const enrichedItem = { ...item, site_id: site.id };
+  const enrichedItem = { ...item, site_id: site.id, trust_tier: scoreTier(item.trust_score) };
   const claims = await extractFacts({ text, sourceType, item: enrichedItem, env });
   if (!claims.length) return null;
 
@@ -353,7 +362,8 @@ async function processSiteMethodB(site, env, opts = {}) {
       // for older rows that predate the MB-NEXT-3 migration.
       const factTrust = f?.fact_trust > 0
         ? f.fact_trust
-        : computeFactTrust({ ...f, _sourceType: f?.source_type || 'rss_summary' }, item);
+        : computeFactTrust({ ...f, _sourceType: f?.source_type || 'rss_summary' },
+                            { ...item, trust_tier: scoreTier(item.trust_score) });
       let phaseWritten = false;
 
       for (const entity of fanEntities) {
