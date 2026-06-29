@@ -143,3 +143,23 @@ Four phased improvements to drive retention, virality, and depth. Each phase has
 ## All Tests Passing
 
 386 tests passing as of 2026-06-19. Last fixes: test format mismatch after ESPN/upcoming-match migration (predict + starting-11 test suites), mobile UX bugs (header fixed position, 16px font on form inputs).
+
+---
+
+## Method B (pitchos-story-agent)
+
+### Done
+
+- [x] **MB-1** Shadow worker — `worker-story-agent.js` + `wrangler-story.toml`, `*/5 * * * *` cron, GitHub Actions auto-deploy, `methodb:enabled` KV flag gates pipeline
+- [x] **MB-2** Core pipeline — cursor-based `content_items` processing, topic correlation → delta detection (Haiku) → Sonnet synthesis, stable `mb-` slugs, shadow pool upsert
+- [x] **MB-3** Editorial quality — fan-facing tone, 60–160 word target, DECISION_SIGNALS rejection filter, NVS-based cooldown (low-trust accretive updates gated to 1/topic/3h)
+- [x] **MB-4** YouTube transcript pipeline — detects `youtube_embed` items, two-tier extraction (Tier 1: Supadata transcript; Tier 2: title+summary), quotes preserved for synthesis, `SUPADATA_MONTHLY_CAP=80`
+
+### Pending
+
+- [ ] **SUPADATA credits** — exhausted, reset 04.07. Transcript extraction falls back to title+summary until then. Key already set in Cloudflare dashboard.
+
+### Next
+
+- [ ] **MB-NEXT-1** Multi-article from single YouTube video — use `segmentTranscript()` + `generateMultiTopicVideoSynthesis()` (already in `publisher.js`). **Gate:** verify single-article YouTube synthesis works first (check after 04.07).
+- [ ] **MB-NEXT-2** Mystery follow-up article — when official names a count without players (e.g. "3 transfer targets"), cross-query related transfer fact rows, synthesize speculation article grounded only in existing DB facts. Trigger type: `mystery_followup`.
