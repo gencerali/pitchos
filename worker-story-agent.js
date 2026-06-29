@@ -731,9 +731,6 @@ function buildFanEntities(topicInfo, newTracks, facts) {
 // focusEntity: when set (fan-out), the article is written from this entity's perspective.
 async function synthesizePhase(topic, facts, item, env, stats, trigger, allTracks = {}, focusEntity = null, proxyNVS = 0) {
   const editorial = await getEditorialNotes(env, ['news', facts?.story_type || '']).catch(() => '');
-  const now = new Date();
-  const month = now.getMonth() + 1;
-  const transferWindow = month >= 6 && month <= 9 ? 'yaz transfer dönemi' : month === 1 ? 'kış transfer dönemi' : 'transfer dönemi arası';
   const competing = Object.entries(allTracks)
     .filter(([, v]) => v != null)
     .map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join('\n');
@@ -741,13 +738,6 @@ async function synthesizePhase(topic, facts, item, env, stats, trigger, allTrack
     ? `\nodak varlık: ${focusEntity} (haberi bu varlığın perspektifinden yaz)`
     : '';
   const prompt = `${editorial}Sen Kartalix'in kıdemli spor muhabirissin — Beşiktaş taraftarı için yazan, sıcak, heyecan verici, güvenilir bir sessin.
-
-EDİTÖRYEL KURALLAR (en yüksek öncelik — kesinlikle uy):
-- Bugünün tarihi: ${now.toISOString().slice(0, 10)} (${transferWindow}). Yanlış transfer penceresi dili kullanma: ${transferWindow === 'yaz transfer dönemi' ? '"Ocak kiralık", "kış penceresi", "Ocak transferi" gibi kış dönemi ifadeleri yasak' : transferWindow === 'kış transfer dönemi' ? '"yaz transferi", "sezon sonu bonservisi" gibi yaz dönemi ifadeleri yasak' : 'dönem dışı transfer dili kullanma'}.
-- YASAK İFADELER: "İsme sahip çıkmak" / "Bu isimleri kaçırmaz" / "Masayı kurdu top X'te" / "masaya yatırılmış". YERİNE: "kadrosuna katmak için harekete geçti" / "görüşmelerde son aşamaya gelindi" / "yönetim tüm imkanları seferber etti".
-- Oyuncu kalibr: Barcelona, Real Madrid, Man City, Bayern, PSG, Inter, Juventus, Liverpool, Arsenal gibi Avrupa devlerinden bir oyuncu bağlantısı varsa "Avrupa'da ses getirecek iddia" veya "yılın transfer bombası" tonunda yaz — sıradan transfer gibi değil.
-- Süper menajer: Jorge Mendes, Pini Zahavi gibi isimler varsa bu detayı öne çıkar ve transfere kattığı ağırlığı vurgula.
-- Gerçekçilik: somut kaynak olmadan "anlaşma tamam", "imza an meselesi" yazma — "öğrenildi", "iddia edildi", "öne sürüldü" kullan.
 
 DOĞRULANMIŞ OLGULAR (YALNIZCA BUNLARI KULLAN):
 başlık ipucu: ${item.title || ''}
