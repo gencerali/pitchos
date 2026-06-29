@@ -21,7 +21,7 @@ import {
   getEditorialNotes, simpleHash, MODEL_FETCH, MODEL_GENERATE,
 } from './src/utils.js';
 import { fetchYouTubeTranscript } from './src/youtube.js';
-import { extractFacts, computeFactTrust } from './src/extractor.js';
+import { extractFacts, computeFactTrust, incrementCorroboration } from './src/extractor.js';
 
 // Maps content_items.trust_score (int) → TIER_BASE key for computeFactTrust.
 // Mirrors the T1-T4 thresholds used by the site feed config.
@@ -340,10 +340,18 @@ async function processSiteMethodB(site, env, opts = {}) {
             trigger = moving[0][1].trigger || 'update';
             newTracks = Object.fromEntries(moving.map(([k, d]) => [k, d.new_track || null]));
             tally.materialDelta++;
-          } else tally.confirmingSkip++;
+          } else {
+            tally.confirmingSkip++;
+            // Corroboration: same entity, different source → Layer 4 trust increment.
+            if (f?.entity_fingerprint && item.source_name)
+              incrementCorroboration(f.entity_fingerprint, item.source_name, item.id, env).catch(() => {});
+          }
         }
       } else {
         tally.confirmingSkip++;
+        // Corroboration: rules pre-filter ruled out material delta → still a corroborating signal.
+        if (f?.entity_fingerprint && item.source_name)
+          incrementCorroboration(f.entity_fingerprint, item.source_name, item.id, env).catch(() => {});
       }
     }
 

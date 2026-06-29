@@ -65,7 +65,7 @@ export function computeFactTrust(claim, item) {
   return Math.max(0, Math.min(ceiling, base + bonus));
 }
 
-function resolveClaimStatus(rawStatus, factTrust) {
+export function resolveClaimStatus(rawStatus, factTrust) {
   if (rawStatus === 'denied' || rawStatus === 'completed' || rawStatus === 'obsolete') return rawStatus;
   if (factTrust < 35) return 'rumor';
   if (!rawStatus || rawStatus === 'rumor') return factTrust >= 60 ? 'developing' : 'rumor';
@@ -191,6 +191,72 @@ async function supabasePost(env, path, body) {
   });
   if (!res.ok) throw new Error(`Supabase POST ${path}: ${res.status}`);
   return res.json();
+}
+
+async function supabaseGet(env, path) {
+  const res = await fetch(`${env.SUPABASE_URL}${path}`, {
+    headers: {
+      'apikey':        env.SUPABASE_SERVICE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    },
+  });
+  if (!res.ok) throw new Error(`Supabase GET ${path}: ${res.status}`);
+  return res.json();
+}
+
+async function supabasePatch(env, path, body) {
+  const res = await fetch(`${env.SUPABASE_URL}${path}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type':  'application/json',
+      'apikey':        env.SUPABASE_SERVICE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Supabase PATCH ${path}: ${res.status}`);
+}
+
+/**
+ * incrementCorroboration — Layer 4 of the fact trust model.
+ *
+ * When a new content_item confirms an existing fact (same entity_fingerprint,
+ * different source_name), increments corroboration_count on the existing fact
+ * rows and recomputes fact_trust. Also promotes claim_status if the new trust
+ * crosses a threshold (rumor → developing at 60).
+ *
+ * Each corroborating source adds +5 to fact_trust, capped at +20 (4 sources)
+ * and never exceeding the source_type ceiling.
+ *
+ * Non-fatal: failures are logged but never propagate.
+ */
+export async function incrementCorroboration(fingerprint, currentSourceName, currentItemId, env) {
+  if (!fingerprint || !currentSourceName || !currentItemId) return;
+  try {
+    const existing = await supabaseGet(env,
+      `/rest/v1/facts?entity_fingerprint=eq.${encodeURIComponent(fingerprint)}` +
+      `&source_name=neq.${encodeURIComponent(currentSourceName)}` +
+      `&content_item_id=neq.${currentItemId}` +
+      `&corroboration_count=lt.4` +
+      `&select=id,corroboration_count,fact_trust,claim_status,source_type`
+    );
+    if (!existing?.length) return;
+
+    await Promise.all(existing.map(fact => {
+      const newCount   = (fact.corroboration_count || 0) + 1;
+      const ceiling    = SOURCE_CEILING[fact.source_type] ?? 60;
+      const newTrust   = Math.min(ceiling, (fact.fact_trust || 0) + 5);
+      const newStatus  = resolveClaimStatus(fact.claim_status, newTrust);
+      return supabasePatch(env,
+        `/rest/v1/facts?id=eq.${fact.id}`,
+        { corroboration_count: newCount, fact_trust: newTrust, claim_status: newStatus }
+      );
+    }));
+
+    console.log(`corroboration: +1 on ${existing.length} fact(s) for fingerprint ${fingerprint}`);
+  } catch (e) {
+    console.error('incrementCorroboration:', e.message);
+  }
 }
 
 async function writeFactRow(claim, item, sourceType, env, usage, claimIdx) {
