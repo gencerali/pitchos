@@ -647,7 +647,7 @@ export function isTodayArticle(timeAgo = '') {
 // ─── STORY TYPE NORMALIZER ────────────────────────────────────
 // Canonical set + keyword fallback for Claude free-text output.
 // Single source of truth — imported by both firewall.js and extractor.js.
-const _VALID_STORY_TYPES = new Set(['transfer', 'injury', 'disciplinary', 'contract', 'institutional', 'match_result', 'squad', 'other']);
+const _VALID_STORY_TYPES = new Set(['transfer', 'injury', 'disciplinary', 'contract', 'institutional', 'match', 'squad', 'other']);
 export function normalizeStoryType(raw) {
   if (!raw) return 'other';
   if (_VALID_STORY_TYPES.has(raw)) return raw;
@@ -657,7 +657,7 @@ export function normalizeStoryType(raw) {
   if (t.includes('disciplin') || t.includes('suspension') || t.includes('ban') || t.includes('fine')) return 'disciplinary';
   if (t.includes('contract') || t.includes('renewal') || t.includes('extension') || t.includes('buyout')) return 'contract';
   if (t.includes('institutional') || t.includes('management') || t.includes('ownership') || t.includes('executive') || t.includes('appointment') || t.includes('managerial')) return 'institutional';
-  if (t.includes('match') || t.includes('result') || t.includes('score') || t.includes('goal')) return 'match_result';
+  if (t.includes('match') || t.includes('result') || t.includes('score') || t.includes('goal')) return 'match';
   if (t.includes('squad') || t.includes('lineup') || t.includes('formation')) return 'squad';
   return 'other';
 }

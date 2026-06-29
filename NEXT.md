@@ -209,8 +209,9 @@ ALTER TABLE facts
 | **MB-N3-1** | Trust base always 50 in story agent — `trust_score` int not mapped to tier string before `computeFactTrust` | Medium — all story-agent facts under-trusted | Add `trust_tier` mapping in story agent (1 line) |
 | **MB-N3-2** | `normalizeStoryType` duplicated in `firewall.js` + `extractor.js` | Low — divergence risk if story types added | Move to `utils.js`, both import from there |
 | **MB-N3-3** | Corroboration increment not wired — `corroboration_count` always 0, Layer 4 trust never fires | High — trust model incomplete | Increment on delta detection 'corroboration' signal |
-| **MB-N3-4** | ✅ Phase 1 done (SQL): all 2534 facts now have claim_status/source_type/fact_trust. Phase 2: LLM re-extract 74 facts that have full_body — run `node scripts/backfill-facts.mjs` | High — grounding_summary still English on ~1100 rows | Run backfill script with secrets when convenient |
-| **MB-N3-5** | Duplicate fact rows on reprocessing — `writeFactRow` inserts, no upsert | Medium — corrupts corroboration counts | Check `content_item_id` + `story_type` before insert, or use upsert |
+| **MB-N3-4** | ✅ Phase 1 (SQL) + Phase 2 (inline MCP): all 74 facts with full_body now have Turkish grounding_summary, entity_fingerprint, correct fact_trust, negotiation_status. | — | Done |
+| **MB-N3-5** | ✅ Upsert guard in `writeFactRow` — checks `content_item_id` + `entity_fingerprint` (or `story_type`) before insert; PATCHes if exists. Also fixed `extraction_tier` to only write `llm_full`/`llm_light` (constraint values). | — | Done |
+| **MB-N3-5b** | ✅ DB migration `mb_n3_5_fix_fact_constraints`: expanded `story_type` check to `transfer\|match\|injury\|contract\|disciplinary\|institutional\|squad\|other`; relaxed `extraction_tier` to allow NULL. | — | Done |
 | **MB-N3-6** | `kartalix_generated` items recycled through extractor — our own output re-extracted | Low — circular noise | Skip `content_type IN ('kartalix_generated','analysis')` in pipeline |
 
 ---

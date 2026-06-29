@@ -264,11 +264,23 @@ async function writeFactRow(claim, item, sourceType, env, usage, claimIdx) {
   const claimStatus = resolveClaimStatus(claim.claim_status, factTrust);
   const fingerprint = buildEntityFingerprint(claim.story_type, claim.primary_entity?.name);
 
-  const row = await supabasePost(env, '/rest/v1/facts', {
+  // MB-N3-5: upsert guard — patch existing row instead of inserting a duplicate
+  let existingId = null;
+  if (item.id) {
+    try {
+      const fpFilter = fingerprint
+        ? `&entity_fingerprint=eq.${encodeURIComponent(fingerprint)}`
+        : `&story_type=eq.${encodeURIComponent(claim.story_type)}`;
+      const hits = await supabaseGet(env,
+        `/rest/v1/facts?content_item_id=eq.${item.id}${fpFilter}&select=id&limit=1`
+      );
+      existingId = hits?.[0]?.id ?? null;
+    } catch (_) {}
+  }
+
+  const payload = {
     content_item_id:          item.id          ?? null,
     site_id:                  item.site_id     ?? null,
-
-    // Core claim
     story_type:               claim.story_type,
     entities:                 claim.entities,
     numbers:                  claim.numbers,
@@ -279,32 +291,29 @@ async function writeFactRow(claim, item, sourceType, env, usage, claimIdx) {
     primary_entity:           claim.primary_entity,
     negotiation_status:       claim.negotiation_status,
     entity_fingerprint:       fingerprint,
-
-    // Narrative context
     grounding_summary:        claim.grounding_summary || null,
     key_quotes:               claim.key_quotes,
-
-    // Source provenance
     source_type:              sourceType,
     source_url:               item.url || item.original_url || null,
     source_name:              item.source_name || null,
     source_published_at:      item.published_at ?? null,
-
-    // Trust
     fact_trust:               factTrust,
-
-    // Extraction metadata
-    extraction_tier:          sourceType === 'rss_full'      ? 'llm_full'
-                            : sourceType === 'yt_transcript' ? 'llm_transcript'
-                            : sourceType === 'rss_summary'   ? 'llm_summary'
-                            : sourceType === 'yt_title'      ? 'llm_title'
-                            : 'llm_summary',
+    extraction_tier:          (sourceType === 'rss_full' || sourceType === 'yt_transcript') ? 'llm_full' : 'llm_light',
     extraction_model:         MODEL_FETCH,
     extraction_input_tokens:  claimIdx === 0 ? (usage?.input_tokens  ?? null) : null,
     extraction_output_tokens: claimIdx === 0 ? (usage?.output_tokens ?? null) : null,
-  });
+  };
 
-  return { ...claim, claim_status: claimStatus, fact_trust: factTrust, entity_fingerprint: fingerprint, _id: row?.[0]?.id ?? null };
+  let id;
+  if (existingId) {
+    await supabasePatch(env, `/rest/v1/facts?id=eq.${existingId}`, payload);
+    id = existingId;
+  } else {
+    const row = await supabasePost(env, '/rest/v1/facts', payload);
+    id = row?.[0]?.id ?? null;
+  }
+
+  return { ...claim, claim_status: claimStatus, fact_trust: factTrust, entity_fingerprint: fingerprint, _id: id };
 }
 
 // ─── MAIN ENTRY POINT ─────────────────────────────────────────
