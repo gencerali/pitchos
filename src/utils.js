@@ -414,33 +414,33 @@ export function extractText(content = []) {
     .join('\n');
 }
 
-function addUsage(stats, usage, model) {
-  if (!usage) return;
+function _computeUsage(usage, model) {
   const rates = COST[model] || { input: 3.00, output: 15.00 };
-  const inp   = usage.input_tokens  || 0;
-  const out   = usage.output_tokens || 0;
-  const cw    = usage.cache_creation_input_tokens || 0; // cache write: 1.25x input rate
-  const cr    = usage.cache_read_input_tokens     || 0; // cache read: 0.10x input rate
-  stats.tokensIn  += inp + cw + cr;
-  stats.tokensOut += out;
-  stats.costEur   += ((inp / 1_000_000) * rates.input) +
-                     ((out / 1_000_000) * rates.output) +
-                     ((cw  / 1_000_000) * rates.input * 1.25) +
-                     ((cr  / 1_000_000) * rates.input * 0.10);
-}
-
-export function addUsagePhase(stats, usage, model, phase) {
-  if (!usage) return;
-  addUsage(stats, usage, model);
-  const rates = COST[model] || { input: 3.00, output: 15.00 };
-  const inp = usage.input_tokens || 0;
+  const inp = usage.input_tokens  || 0;
   const out = usage.output_tokens || 0;
-  const cw  = usage.cache_creation_input_tokens || 0;
-  const cr  = usage.cache_read_input_tokens     || 0;
+  const cw  = usage.cache_creation_input_tokens || 0; // cache write: 1.25x input rate
+  const cr  = usage.cache_read_input_tokens     || 0; // cache read: 0.10x input rate
   const cost = ((inp / 1_000_000) * rates.input) +
                ((out / 1_000_000) * rates.output) +
                ((cw  / 1_000_000) * rates.input * 1.25) +
                ((cr  / 1_000_000) * rates.input * 0.10);
+  return { inp, out, cw, cr, cost };
+}
+
+function addUsage(stats, usage, model) {
+  if (!usage) return;
+  const { inp, out, cw, cr, cost } = _computeUsage(usage, model);
+  stats.tokensIn  += inp + cw + cr;
+  stats.tokensOut += out;
+  stats.costEur   += cost;
+}
+
+export function addUsagePhase(stats, usage, model, phase) {
+  if (!usage) return;
+  const { inp, out, cw, cr, cost } = _computeUsage(usage, model);
+  stats.tokensIn  += inp + cw + cr;
+  stats.tokensOut += out;
+  stats.costEur   += cost;
   // Legacy fields for backward compat
   if (phase === 'scout') {
     stats.scout_tokens_in  += inp;

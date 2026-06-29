@@ -46,15 +46,15 @@ const YT_TRANSCRIPT_CAP    = 2;  // Supadata transcript fetches per story-agent 
 const SUPADATA_MONTHLY_CAP = 80; // leave 20 credits for main worker (100/month total)
 const supKey = () => `methodb:supadata:${new Date().toISOString().slice(0, 7)}`;
 
-async function isSupadataAvailable(env) {
+// Checks cap, increments counter, and returns true — all in one KV read+write.
+// Increment happens before the fetch (we're paying for the API call regardless of result).
+async function tryClaimSupadataCredit(env) {
   if (!env.SUPADATA_API_KEY) return false;
-  const used = parseInt((await env.PITCHOS_CACHE.get(supKey()).catch(() => '0')) || '0');
-  return used < SUPADATA_MONTHLY_CAP;
-}
-async function incSupadataUsed(env) {
   const k = supKey();
   const used = parseInt((await env.PITCHOS_CACHE.get(k).catch(() => '0')) || '0');
+  if (used >= SUPADATA_MONTHLY_CAP) return false;
   await env.PITCHOS_CACHE.put(k, String(used + 1), { expirationTtl: 40 * 24 * 3600 }).catch(() => {});
+  return true;
 }
 
 // ─── YOUTUBE EXTRACTION TIER DECISION ────────────────────────────────────────
@@ -130,12 +130,11 @@ async function extractYtItemFacts(item, site, env, stats, needsTranscript = true
 
   if (needsTranscript) {
     const videoId = (item.original_url || '').match(/(?:[?&]v=|\/embed\/|youtu\.be\/)([A-Za-z0-9_-]{11})/)?.[1];
-    if (videoId && (await isSupadataAvailable(env))) {
+    if (videoId && await tryClaimSupadataCredit(env)) {
       const transcript = await fetchYouTubeTranscript(videoId, env).catch(() => null);
       if (transcript && transcript.length > 100) {
         text = `${item.title}.\n\n${transcript}`;
         sourceType = 'yt_transcript';
-        await incSupadataUsed(env);
         stats.ytTranscripts = (stats.ytTranscripts || 0) + 1;
       }
     }
@@ -500,13 +499,6 @@ async function correlateToTopic(item, facts, site, env, stats) {
   const players = (ents.players || []).map(normEnt);
   const clubs   = (ents.clubs   || []).map(normEnt);
 
-  const entityOverlaps = (t) => {
-    const te = t.entities || {};
-    const tp = (te.players || []).map(normEnt);
-    const tc = (te.clubs   || []).map(normEnt);
-    return players.some(p => tp.includes(p)) || clubs.filter(c => tc.includes(c)).length >= 2;
-  };
-
   const [open, recentClosed] = await Promise.all([
     supabase(env, 'GET',
       `/rest/v1/topics?site_id=eq.${site.id}&state=eq.open&order=last_event_at.desc&limit=50` +
@@ -518,7 +510,15 @@ async function correlateToTopic(item, facts, site, env, stats) {
     ).then(r => r || []),
   ]);
 
-  let topic = open.find(entityOverlaps) || null;
+  // Pre-normalize topic entity lists once so the find loop doesn't re-normalize on every topic.
+  const openNorm = open.map(t => {
+    const te = t.entities || {};
+    return { ...t, _tp: (te.players || []).map(normEnt), _tc: (te.clubs || []).map(normEnt) };
+  });
+  const entityOverlaps = (t) =>
+    players.some(p => t._tp.includes(p)) || clubs.filter(c => t._tc.includes(c)).length >= 2;
+
+  let topic = openNorm.find(entityOverlaps) || null;
   let isNewTopic = false;
 
   if (!topic) {
@@ -758,7 +758,7 @@ BAŞLIK: [Türkçe manşet]
     const DECISION_SIGNALS = [
       /devam etmemi ister misiniz/i, /çatışma tespit edildi/i,
       /editör talimat/i, /yayınlamıyorum/i, /çelişen.*kural/i,
-      /\*\*karar:\*\*/i, /odak varlık:.*galatasaray/i,
+      /\*\*karar:\*\*/i, /odak varlık:/i,
     ];
     if (DECISION_SIGNALS.some(p => p.test(body))) {
       console.warn('synthesizePhase: rejected chain-of-thought output');
@@ -823,7 +823,7 @@ function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity
 // ─── STAGE 1: EVENT / ACCRETIVE ROUTER ───────────────────────────────────────
 export function routeNewsMode(item, facts) {
   const st = facts?.story_type || '';
-  if (st === 'match_result' || st === 'squad') return 'event';
+  if (st === 'match' || st === 'squad') return 'event';
   const t = `${item.title || ''} ${item.summary || ''}`.toLowerCase();
   if (/\bresmi\b|resmen|açıkland|imzaladı|duyurdu|kadroya kat|gol|kırmızı kart|kart gördü/.test(t)) return 'event';
   return 'accretive';

@@ -11,7 +11,7 @@
 // + corroboration). Computed as fact_trust [0-100] on every write.
 // Replaces ad-hoc proxyNVS in story agent.
 
-import { callClaude, extractText, MODEL_FETCH, normalizeStoryType } from './utils.js';
+import { callClaude, extractText, MODEL_FETCH, normalizeStoryType, supabase } from './utils.js';
 
 const TR_SUFFIXES = /'(?:nın|nin|nun|nün|ın|in|un|ün|nda|nde|dan|den|tan|ten|ya|ye|da|de|yı|yi|yu|yü|a|e|ı|i|u|ü|nı|nle|le|la|yla|yda|yde|yta|yte|lı|li|lu|lü|lar|ler|lardan|lerden|lara|lere|larda|lerde|larla|lerle|ları|leri)+$/i;
 
@@ -96,7 +96,7 @@ YALNIZCA metinde açıkça belirtilenleri çıkar. Tahmin etme, uydurmaa.
 
 Her iddia nesnesi:
 {
-  "story_type": "transfer|injury|disciplinary|contract|match_result|squad|institutional|other",
+  "story_type": "transfer|injury|disciplinary|contract|match|squad|institutional|other",
   "claim_status": "rumor|developing|confirmed|denied|completed",
   "claim_confidence": "confirmed|high|medium|low|rumor",
   "event_date": "YYYY-MM-DD veya null — olayın yaşandığı tarih (yayın tarihi değil)",
@@ -178,43 +178,11 @@ function parseClaims(rawText) {
 
 // ─── DB WRITE ─────────────────────────────────────────────────
 
-async function supabasePost(env, path, body) {
-  const res = await fetch(`${env.SUPABASE_URL}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type':  'application/json',
-      'apikey':        env.SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-      'Prefer':        'return=representation',
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Supabase POST ${path}: ${res.status}`);
-  return res.json();
-}
-
-async function supabaseGet(env, path) {
-  const res = await fetch(`${env.SUPABASE_URL}${path}`, {
-    headers: {
-      'apikey':        env.SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-    },
-  });
-  if (!res.ok) throw new Error(`Supabase GET ${path}: ${res.status}`);
-  return res.json();
-}
-
-async function supabasePatch(env, path, body) {
-  const res = await fetch(`${env.SUPABASE_URL}${path}`, {
-    method: 'PATCH',
-    headers: {
-      'Content-Type':  'application/json',
-      'apikey':        env.SUPABASE_SERVICE_KEY,
-      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Supabase PATCH ${path}: ${res.status}`);
+function _computeClaimMeta(claim, item, sourceType) {
+  const factTrust   = computeFactTrust({ ...claim, _sourceType: sourceType }, item);
+  const claimStatus = resolveClaimStatus(claim.claim_status, factTrust);
+  const fingerprint = buildEntityFingerprint(claim.story_type, claim.primary_entity?.name);
+  return { factTrust, claimStatus, fingerprint };
 }
 
 /**
@@ -233,7 +201,7 @@ async function supabasePatch(env, path, body) {
 export async function incrementCorroboration(fingerprint, currentSourceName, currentItemId, env) {
   if (!fingerprint || !currentSourceName || !currentItemId) return;
   try {
-    const existing = await supabaseGet(env,
+    const existing = await supabase(env, 'GET',
       `/rest/v1/facts?entity_fingerprint=eq.${encodeURIComponent(fingerprint)}` +
       `&source_name=neq.${encodeURIComponent(currentSourceName)}` +
       `&content_item_id=neq.${currentItemId}` +
@@ -247,7 +215,7 @@ export async function incrementCorroboration(fingerprint, currentSourceName, cur
       const ceiling    = SOURCE_CEILING[fact.source_type] ?? 60;
       const newTrust   = Math.min(ceiling, (fact.fact_trust || 0) + 5);
       const newStatus  = resolveClaimStatus(fact.claim_status, newTrust);
-      return supabasePatch(env,
+      return supabase(env, 'PATCH',
         `/rest/v1/facts?id=eq.${fact.id}`,
         { corroboration_count: newCount, fact_trust: newTrust, claim_status: newStatus }
       );
@@ -260,9 +228,7 @@ export async function incrementCorroboration(fingerprint, currentSourceName, cur
 }
 
 async function writeFactRow(claim, item, sourceType, env, usage, claimIdx) {
-  const factTrust   = computeFactTrust({ ...claim, _sourceType: sourceType }, item);
-  const claimStatus = resolveClaimStatus(claim.claim_status, factTrust);
-  const fingerprint = buildEntityFingerprint(claim.story_type, claim.primary_entity?.name);
+  const { factTrust, claimStatus, fingerprint } = _computeClaimMeta(claim, item, sourceType);
 
   // MB-N3-5: upsert guard — patch existing row instead of inserting a duplicate
   let existingId = null;
@@ -271,7 +237,7 @@ async function writeFactRow(claim, item, sourceType, env, usage, claimIdx) {
       const fpFilter = fingerprint
         ? `&entity_fingerprint=eq.${encodeURIComponent(fingerprint)}`
         : `&story_type=eq.${encodeURIComponent(claim.story_type)}`;
-      const hits = await supabaseGet(env,
+      const hits = await supabase(env, 'GET',
         `/rest/v1/facts?content_item_id=eq.${item.id}${fpFilter}&select=id&limit=1`
       );
       existingId = hits?.[0]?.id ?? null;
@@ -306,10 +272,11 @@ async function writeFactRow(claim, item, sourceType, env, usage, claimIdx) {
 
   let id;
   if (existingId) {
-    await supabasePatch(env, `/rest/v1/facts?id=eq.${existingId}`, payload);
+    await supabase(env, 'PATCH', `/rest/v1/facts?id=eq.${existingId}`, payload);
     id = existingId;
   } else {
-    const row = await supabasePost(env, '/rest/v1/facts', payload);
+    const row = await supabase(env, 'POST', '/rest/v1/facts', payload);
+    if (!row) throw new Error('Supabase POST /facts returned null');
     id = row?.[0]?.id ?? null;
   }
 
@@ -345,9 +312,7 @@ export async function extractFacts({ text, sourceType, item, env, dryRun = false
 
     if (dryRun) {
       return claims.map(claim => {
-        const factTrust   = computeFactTrust({ ...claim, _sourceType: sourceType }, item);
-        const claimStatus = resolveClaimStatus(claim.claim_status, factTrust);
-        const fingerprint = buildEntityFingerprint(claim.story_type, claim.primary_entity?.name);
+        const { factTrust, claimStatus, fingerprint } = _computeClaimMeta(claim, item, sourceType);
         return { ...claim, claim_status: claimStatus, fact_trust: factTrust, entity_fingerprint: fingerprint, _id: null, _dryRun: true };
       });
     }
@@ -357,7 +322,7 @@ export async function extractFacts({ text, sourceType, item, env, dryRun = false
     );
 
     // Legal lineage — first claim only (all share the same source article)
-    await supabasePost(env, '/rest/v1/fact_lineage', {
+    await supabase(env, 'POST', '/rest/v1/fact_lineage', {
       content_item_id:          item.id  ?? null,
       facts_id:                 persisted[0]._id ?? null,
       source_url:               item.url || item.original_url || '',
@@ -383,15 +348,7 @@ export async function extractFacts({ text, sourceType, item, env, dryRun = false
  */
 export async function extractFactsPrimary({ text, sourceType, item, env }) {
   const claims = await extractFacts({ text, sourceType, item, env });
-  if (!claims.length) return _fallback();
-  return {
-    ...claims[0],
-    _all_fact_ids: claims.map(c => c._id).filter(Boolean),
-  };
-}
-
-function _fallback() {
-  return {
+  if (!claims.length) return {
     story_type: 'other', claim_status: 'rumor', claim_confidence: 'medium',
     grounding_summary: '', key_quotes: [], event_date: null,
     primary_entity: null, negotiation_status: null, entity_fingerprint: null,
@@ -399,5 +356,9 @@ function _fallback() {
     entities: { players: [], clubs: [], competitions: [] },
     numbers:  { transfer_fee: null, contract_years: null, ban_games: null, recovery_weeks: null, fine_amount: null, other: [] },
     dates:    { primary_date: null, other: [] },
+  };
+  return {
+    ...claims[0],
+    _all_fact_ids: claims.map(c => c._id).filter(Boolean),
   };
 }
