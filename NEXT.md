@@ -212,7 +212,7 @@ ALTER TABLE facts
 | **MB-N3-4** | ✅ Phase 1 (SQL) + Phase 2 (inline MCP): all 74 facts with full_body now have Turkish grounding_summary, entity_fingerprint, correct fact_trust, negotiation_status. | — | Done |
 | **MB-N3-5** | ✅ Upsert guard in `writeFactRow` — checks `content_item_id` + `entity_fingerprint` (or `story_type`) before insert; PATCHes if exists. Also fixed `extraction_tier` to only write `llm_full`/`llm_light` (constraint values). | — | Done |
 | **MB-N3-5b** | ✅ DB migration `mb_n3_5_fix_fact_constraints`: expanded `story_type` check to `transfer\|match\|injury\|contract\|disciplinary\|institutional\|squad\|other`; relaxed `extraction_tier` to allow NULL. | — | Done |
-| **MB-N3-6** | `kartalix_generated` items recycled through extractor — our own output re-extracted | Low — circular noise | Skip `content_type IN ('kartalix_generated','analysis')` in pipeline |
+| **MB-N3-6** | ✅ Added `&content_type=not.in.(kartalix_generated,analysis)` to DB fetch in `worker-story-agent.js`. Our own output no longer recycled through extractor. | — | Done |
 
 ---
 

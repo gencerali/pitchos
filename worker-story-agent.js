@@ -242,6 +242,7 @@ async function processSiteMethodB(site, env, opts = {}) {
   const cursorIso = (await env.PITCHOS_CACHE.get(cursorKey(code))) || sevenDaysAgo;
   const rows = await supabase(env, 'GET',
     `/rest/v1/content_items?site_id=eq.${site.id}&created_at=gt.${encodeURIComponent(cursorIso)}` +
+    `&content_type=not.in.(kartalix_generated,analysis)` +
     `&order=created_at.asc&limit=${batch}` +
     `&select=id,title,summary,source_name,trust_score,category,story_id,created_at,content_type,original_url`
   ) || [];
