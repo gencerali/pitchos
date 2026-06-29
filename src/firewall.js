@@ -1,4 +1,5 @@
 import { callClaude, extractText, MODEL_FETCH } from './utils.js';
+import { computeFactTrust } from './extractor.js';
 
 // ─── CONTROLLED STORY TYPE SET ───────────────────────────────
 const VALID_STORY_TYPES = new Set(['transfer', 'injury', 'disciplinary', 'contract', 'institutional', 'match_result', 'squad', 'other']);
@@ -244,6 +245,7 @@ Return only {"claims":[...]}`;
     const factIds = [];
     await Promise.all(claims.map(async (claim, idx) => {
       const deltaType = await detectDeltaType(env, article.site_id, claim.entity_fingerprint, claim.negotiation_status);
+      const factTrust = computeFactTrust({ ...claim, _sourceType: article.full_text ? 'rss_full' : 'rss_summary' }, article);
       const row = await supabasePost(env, '/rest/v1/facts', {
         content_item_id:          article.id         ?? null,
         site_id:                  article.site_id    ?? null,
@@ -252,13 +254,19 @@ Return only {"claims":[...]}`;
         numbers:                  claim.numbers,
         dates:                    claim.dates,
         grounding_summary:        claim.grounding_summary || null,
+        key_quotes:               Array.isArray(claim.key_quotes) ? claim.key_quotes : [],
         claim_confidence:         claim.claim_confidence,
+        claim_status:             claim.claim_status || (claim.claim_confidence === 'confirmed' ? 'confirmed' : 'rumor'),
         primary_entity:           claim.primary_entity,
         negotiation_status:       claim.negotiation_status,
         entity_fingerprint:       claim.entity_fingerprint,
         delta_type:               deltaType,
         extraction_tier:          'llm_full',
+        source_type:              article.full_text ? 'rss_full' : 'rss_summary',
+        source_url:               article.url || article.original_url || null,
+        source_name:              article.source_name || null,
         source_published_at:      article.published_at ?? null,
+        fact_trust:               factTrust,
         extraction_model:         MODEL_FETCH,
         extraction_input_tokens:  idx === 0 ? (res.usage?.input_tokens  ?? null) : null,
         extraction_output_tokens: idx === 0 ? (res.usage?.output_tokens ?? null) : null,
@@ -375,14 +383,22 @@ export async function extractFacts(article, env) {
   const res    = await callClaude(env, MODEL_FETCH, prompt, false, 500);
   const facts  = parseFirewallResponse(extractText(res.content));
 
-  // Save to facts table, get back the row ID
+  const factTrust = computeFactTrust({ ...facts, story_type: 'transfer', _sourceType: 'rss_summary' }, article);
   const factsRows = await supabasePost(env, '/rest/v1/facts', {
-    content_item_id:         article.id   ?? null,
+    content_item_id:         article.id      ?? null,
     site_id:                 article.site_id ?? null,
     story_type:              'transfer',
     entities:                facts.entities,
     numbers:                 facts.numbers,
     dates:                   facts.dates,
+    key_quotes:              [],
+    claim_status:            'rumor',
+    source_type:             'rss_summary',
+    source_url:              article.url || article.original_url || null,
+    source_name:             article.source_name || null,
+    source_published_at:     article.published_at ?? null,
+    fact_trust:              factTrust,
+    extraction_tier:         'llm_summary',
     extraction_model:        MODEL_FETCH,
     extraction_input_tokens:  res.usage?.input_tokens  ?? null,
     extraction_output_tokens: res.usage?.output_tokens ?? null,

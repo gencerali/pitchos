@@ -21,6 +21,7 @@ import {
   getEditorialNotes, simpleHash, MODEL_FETCH, MODEL_GENERATE,
 } from './src/utils.js';
 import { fetchYouTubeTranscript } from './src/youtube.js';
+import { extractFacts, computeFactTrust } from './src/extractor.js';
 
 const ENABLED_KEY = 'methodb:enabled';                       // "1" to arm the pipeline
 const cursorKey   = (code) => `methodb:cursor:${code}`;      // ISO ts of last processed content_item
@@ -110,73 +111,37 @@ function ytItemExtractDecision(item) {
   return { extract: false, needsTranscript: false };
 }
 
-// Fetch transcript + run Haiku fact extraction for a youtube_embed content_item.
-// Saves extracted facts + quotes to the facts table so future runs skip re-extraction.
-// Returns a facts object with _synthetic:true, or null on failure.
+// Fetch transcript + run unified fact extraction for a youtube_embed content_item.
+// Delegates to src/extractor.js which persists the canonical row (grounding_summary
+// in Turkish, key_quotes, source_type, fact_trust, etc.) and writes fact_lineage.
+// Returns primary claim object or null on failure.
 async function extractYtItemFacts(item, site, env, stats, needsTranscript = true) {
-  let sourceText = [item.title, item.summary].filter(Boolean).join('. ');
+  let text = [item.title, item.summary].filter(Boolean).join('. ');
+  let sourceType = 'yt_title';
 
   if (needsTranscript) {
     const videoId = (item.original_url || '').match(/(?:[?&]v=|\/embed\/|youtu\.be\/)([A-Za-z0-9_-]{11})/)?.[1];
     if (videoId && (await isSupadataAvailable(env))) {
       const transcript = await fetchYouTubeTranscript(videoId, env).catch(() => null);
       if (transcript && transcript.length > 100) {
-        sourceText = `${item.title}.\n\n${transcript.slice(0, 4000)}`;
+        text = `${item.title}.\n\n${transcript}`;
+        sourceType = 'yt_transcript';
         await incSupadataUsed(env);
         stats.ytTranscripts = (stats.ytTranscripts || 0) + 1;
       }
     }
   }
 
-  const prompt = `Extract facts from this Turkish football news content. Reply ONLY with valid JSON, no other text.
+  const enrichedItem = { ...item, site_id: site.id };
+  const claims = await extractFacts({ text, sourceType, item: enrichedItem, env });
+  if (!claims.length) return null;
 
-CONTENT:
-${sourceText.slice(0, 5000)}
-
-JSON schema (fill in what you can, null for unknown):
-{
-  "story_type": "transfer|injury|contract|match_result|squad|disciplinary|statement|other",
-  "entities": { "players": [], "clubs": [], "competitions": [] },
-  "numbers": { "transfer_fee": null, "contract_years": null, "other": [] },
-  "dates": { "primary_date": null, "other": [] },
-  "grounding_summary": "1-2 sentence factual English summary of the key claim",
-  "quotes": [{"speaker": "person name", "text": "direct quote in original Turkish"}]
-}
-
-For "quotes": extract only direct verbatim quotes (in quotes/tırnak in source). Empty array if none.`;
-
-  const res = await callClaude(env, MODEL_FETCH, prompt, false, 500);
-  addUsagePhase(stats, 'yt_fact_extract', res.usage);
-  await addCost(env, res.usage, MODEL_FETCH, costKey());
-
-  const raw = extractText(res.content);
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  let parsed;
-  try { parsed = JSON.parse(m[0]); } catch { return null; }
-
-  const quotes = Array.isArray(parsed.quotes) ? parsed.quotes.filter(q => q?.text?.length > 10) : [];
-  const facts = {
-    story_type:        parsed.story_type || 'other',
-    entities:          { players: parsed.entities?.players || [], clubs: parsed.entities?.clubs || [], competitions: parsed.entities?.competitions || [] },
-    numbers:           parsed.numbers || {},
-    dates:             parsed.dates || {},
-    grounding_summary: parsed.grounding_summary || '',
-    _synthetic:        true,
-    _quotes:           quotes,
+  const primary = claims[0];
+  return {
+    ...primary,
+    _synthetic: true,
+    _quotes:    primary.key_quotes || [],
   };
-
-  // Persist so future cron runs don't re-extract the same video
-  await supabase(env, 'POST', '/rest/v1/facts', {
-    content_item_id: item.id, site_id: site.id,
-    story_type: facts.story_type, entities: facts.entities,
-    numbers: facts.numbers, dates: facts.dates,
-    grounding_summary: facts.grounding_summary,
-    extraction_model: MODEL_FETCH,
-    fact_payload: { ...(quotes.length ? { quotes } : {}), source_date: item.created_at || null },
-  }).catch(e => console.error('YT facts save failed:', e.message));
-
-  return facts;
 }
 
 export default {
@@ -288,7 +253,7 @@ async function processSiteMethodB(site, env, opts = {}) {
   }
   const factsRaw = (await Promise.all(
     factChunks.map(chunk => supabase(env, 'GET',
-      `/rest/v1/facts?content_item_id=in.(${chunk.join(',')})&select=content_item_id,story_type,entities,numbers,dates,grounding_summary,key_quotes`
+      `/rest/v1/facts?content_item_id=in.(${chunk.join(',')})&select=content_item_id,story_type,entities,numbers,dates,grounding_summary,key_quotes,fact_trust,source_type,claim_status`
     ).then(r => r || []))
   )).flat();
   const factsByItem = new Map(factsRaw.map(f => [f.content_item_id, {
@@ -384,11 +349,11 @@ async function processSiteMethodB(site, env, opts = {}) {
     if (doSynth && f && !cap.blocked && synthCount < SHADOW_SYNTH_CAP) {
       const allTracks = topicInfo?.topic?.claim_tracks || {};
       const fanEntities = buildFanEntities(topicInfo, newTracks, f);
-      // Compute once per item — reused for cooldown gate, NVS field, and cooldown setter.
-      const proxyNVS = (item.trust_score || 0)
-        + (Object.keys(f?.numbers || {}).length > 0 ? 15 : 0)
-        + (Object.keys(f?.dates   || {}).length > 0 ? 10 : 0)
-        + (['transfer', 'contract', 'injury'].includes(f?.story_type) ? 10 : 0);
+      // Use fact_trust from unified extractor when available; fall back to factTrust
+      // for older rows that predate the MB-NEXT-3 migration.
+      const factTrust = f?.fact_trust > 0
+        ? f.fact_trust
+        : computeFactTrust({ ...f, _sourceType: f?.source_type || 'rss_summary' }, item);
       let phaseWritten = false;
 
       for (const entity of fanEntities) {
@@ -408,21 +373,21 @@ async function processSiteMethodB(site, env, opts = {}) {
         synthesizedThisRun.add(runKey);
 
         // Cooldown gate for accretive updates only (not events/initials).
-        // Low-trust content (proxyNVS < 50) is gated to max 1 article per topic per 3h.
+        // Low-trust content (factTrust < 50) is gated to max 1 article per topic per 3h.
         // High-trust or concrete-fact content bypasses so breaking news always gets through.
-        if (trigger === 'update' && proxyNVS < 50) {
+        if (trigger === 'update' && factTrust < 50) {
           const cooldownKey = `methodb:cooldown:${topicInfo?.topic?.id || primaryEnt}:${entity}`;
           const onCooldown = await env.PITCHOS_CACHE.get(cooldownKey).catch(() => null);
           if (onCooldown) { tally.confirmingSkip++; continue; }
         }
 
-        const art = await synthesizePhase(topicInfo?.topic, f, item, env, stats, trigger, allTracks, entity, proxyNVS);
+        const art = await synthesizePhase(topicInfo?.topic, f, item, env, stats, trigger, allTracks, entity, factTrust);
         if (art) {
           newArticles.push(art);
           synthCount++; tally.synthesized++;
           if (phaseWritten) tally.fanOut++; // second+ article from same phase = fan-out
           if (dedupKey) await env.PITCHOS_CACHE.put(dedupKey, '1', { expirationTtl: 86400 * 30 }).catch(() => {});
-          if (trigger === 'update' && proxyNVS < 50) {
+          if (trigger === 'update' && factTrust < 50) {
             const cooldownKey = `methodb:cooldown:${topicInfo?.topic?.id || primaryEnt}:${entity}`;
             await env.PITCHOS_CACHE.put(cooldownKey, '1', { expirationTtl: 3 * 3600 }).catch(() => {});
           }
@@ -732,7 +697,7 @@ function buildFanEntities(topicInfo, newTracks, facts) {
 // Writes from compact structured facts, NOT by re-fetching source text (design §4/§6).
 // allTracks: full claim_tracks map — competing-narrative context.
 // focusEntity: when set (fan-out), the article is written from this entity's perspective.
-async function synthesizePhase(topic, facts, item, env, stats, trigger, allTracks = {}, focusEntity = null, proxyNVS = 0) {
+async function synthesizePhase(topic, facts, item, env, stats, trigger, allTracks = {}, focusEntity = null, factTrust = 0) {
   const editorial = await getEditorialNotes(env, ['news', facts?.story_type || '']).catch(() => '');
   const competing = Object.entries(allTracks)
     .filter(([, v]) => v != null)
@@ -780,7 +745,7 @@ BAŞLIK: [Türkçe manşet]
       console.warn('synthesizePhase: rejected chain-of-thought output');
       return null;
     }
-    return toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity, proxyNVS });
+    return toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity, factTrust });
   } catch (e) { console.error('synthesizePhase:', e.message); return null; }
 }
 
@@ -810,7 +775,7 @@ async function persistPhase(topicInfo, newTracks, trigger, item, env) {
 
 // Build an object matching the frozen KV article contract (design §7) — `mb-` slug prefix
 // avoids any collision with legacy slugs during the shadow window.
-function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity = null, proxyNVS = 0 }) {
+function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity = null, factTrust = 0 }) {
   const published_at = new Date().toISOString();
   const entityKey = focusEntity || 'main';
   // Stable slug: topic.id is the primary key (survives re-runs of the same story).
@@ -828,7 +793,7 @@ function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity
     source: 'Method B', source_name: item.source_name || '',
     source_url: '', url: '',
     category: facts?.story_type || item.category || 'Haber',
-    nvs: Math.min(85, Math.max(30, proxyNVS)), trust_tier: item.trust_score || null,
+    nvs: Math.min(85, Math.max(30, factTrust)), trust_tier: item.trust_score || null,
     published_at, fetched_at: published_at,
     is_fresh: true, is_kartalix_content: true,
     publish_mode: 'methodb_synth', image_url: '', slug,
