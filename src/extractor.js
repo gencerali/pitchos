@@ -273,7 +273,7 @@ async function writeFactRow(claim, item, sourceType, env, usage, claimIdx) {
  * Each has: ...canonical fields, _id (facts row uuid), fact_trust [0-100].
  * Returns [] on total failure (never throws).
  */
-export async function extractFacts({ text, sourceType, item, env }) {
+export async function extractFacts({ text, sourceType, item, env, dryRun = false }) {
   try {
     const sourceDateIso = item.published_at
       ? new Date(item.published_at).toISOString().slice(0, 10)
@@ -283,6 +283,15 @@ export async function extractFacts({ text, sourceType, item, env }) {
     const res    = await callClaude(env, MODEL_FETCH, prompt, false, 900);
     const claims = parseClaims(extractText(res.content));
     if (!claims.length) return [];
+
+    if (dryRun) {
+      return claims.map(claim => {
+        const factTrust   = computeFactTrust({ ...claim, _sourceType: sourceType }, item);
+        const claimStatus = resolveClaimStatus(claim.claim_status, factTrust);
+        const fingerprint = buildEntityFingerprint(claim.story_type, claim.primary_entity?.name);
+        return { ...claim, claim_status: claimStatus, fact_trust: factTrust, entity_fingerprint: fingerprint, _id: null, _dryRun: true };
+      });
+    }
 
     const persisted = await Promise.all(
       claims.map((claim, idx) => writeFactRow(claim, item, sourceType, env, res.usage, idx))
