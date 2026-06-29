@@ -32,52 +32,129 @@
 
 ### MB-NEXT-3 — Unified Fact Extraction (`src/extractor.js`)
 
-**Problem:** Three separate extractors (`extractAndScore`, `extractFacts`, `fetchYouTubeAndExtractFacts`) write inconsistently to the same `facts` table. P4 RSS rows have no `grounding_summary` or `key_quotes`. YouTube quotes land in `fact_payload.quotes` instead of `key_quotes`. Future sources (Twitter, Instagram, etc.) would each need their own ad-hoc path.
+#### Reality check (from DB audit, 2025-06-29)
 
-**Goal:** One canonical fact shape, one DB write path, all source types plugging into the same function.
+| | Count | % |
+|---|---|---|
+| Total facts rows | 2523 | — |
+| Has grounding_summary | 1163 | 46% |
+| Has source_date | 1082 | 43% |
+| Has extraction_tier | 1163 | 46% |
+| Has fact_payload | **0** | **0%** |
 
-#### Canonical fact schema (every source, every type)
+- `extraction_tier = 'llm_full'` (P1–P3 full body): 1163 rows — have summary, mostly have source_date ✅
+- `extraction_tier = null` (P4 title-only + legacy): 1360 rows — **zero summary, zero source_date** ❌
+- `key_quotes` **column does not exist** in the DB — all quote extraction silently dropped since day 1
+- `grounding_summary` is stored in **English** — wrong language for Turkish synthesis
+- `source_url` lives only in `fact_lineage` — requires a join every time synthesis needs it
+
+**54% of all facts are hollow.** Synthesis and delta detection have been running on incomplete data.
+
+---
+
+#### Canonical fact schema — every source, every type, always complete
 
 ```
-story_type          string   transfer|injury|contract|match_result|squad|disciplinary|statement|other
-entities            object   { players[], clubs[], competitions[] }
-numbers             object   { transfer_fee, contract_years, other[] }
-dates               object   { primary_date, other[] }
-grounding_summary   string   Always present. 1-2 sentence paraphrase of the key claim.
-                             Machine-readable, factual, never verbatim.
-key_quotes          array    [{ text, speaker, role }] — empty [] if none.
-                             Verbatim attributed quotes only.
-source_type         string   'rss_full' | 'rss_summary' | 'yt_transcript' | 'yt_title'
-                             | 'twitter' | 'instagram' | 'manual'
-source_date         string   ISO date of original publication (item.published_at or item.created_at)
-claim_confidence    string   high | medium | low
+Core claim
+  story_type        text      transfer|injury|contract|match_result|squad|disciplinary|statement|other
+  entities          jsonb     { players[], clubs[], competitions[] }
+  numbers           jsonb     { transfer_fee, contract_years, other[] }
+  dates             jsonb     { primary_date, other[] }
+  claim_confidence  text      high | medium | low
+  claim_status      text      rumor | developing | confirmed | denied | completed | obsolete
+                              (replaces transfer-only negotiation_status; generalizes to all story types)
+
+Narrative context — currently broken, most important gap
+  grounding_summary text      Always present. 1–2 sentence Türkçe özet of the key claim.
+                              Paraphrase only — never verbatim. Machine-readable.
+  key_quotes        jsonb     [{ text, speaker, role }] — empty [] if none.
+                              Verbatim attributed quotes only, in original Turkish.
+
+Source provenance — for synthesis, audit, and future analytics
+  source_type       text      rss_full | rss_summary | yt_transcript | yt_title |
+                              twitter | instagram | manual
+                              Tells synthesis how much to weight the grounding_summary.
+                              (transcript > rss_full > rss_summary > yt_title)
+  source_date       timestamptz  When the source article was published (item.published_at).
+                                 Already in DB as source_published_at but unreliable — must
+                                 be set on every write.
+  source_url        text      Denormalized from fact_lineage for synthesis queries.
+                              fact_lineage keeps the legal audit trail; this is convenience.
+  source_name       text      Publication name (Fotomaç, Sabah, YouTube channel).
+                              Denormalized same reason.
+
+Already present, keep
+  entity_fingerprint  text    For delta detection
+  corroboration_count int     Already exists (default 0)
+  story_id            uuid    Link to legacy stories table
+  extraction_model    text    Which model extracted
+  extraction_tier     text    llm_full | llm_summary | llm_transcript | llm_title
 ```
 
-`grounding_summary` is the narrative bridge between sparse JSON and readable synthesis.
-`source_type` lets synthesis weight credibility (transcript > full body > title+summary).
-`source_date` lets synthesis reference timing and staleness.
+**On `claim_status`:** `negotiation_status` only works for transfers. `claim_status` is a universal lifecycle that works for all story types:
+- injury: rumor → confirmed → completed (player returns)
+- contract: rumor → developing → confirmed → completed (signed)
+- disciplinary: rumor → confirmed → completed (ban served)
+
+This enables MB-NEXT-4 to sort facts chronologically by claim lifecycle, not just date.
+
+**On `source_type` vs `extraction_tier`:** `source_type` is about WHERE the content came from (rss, youtube, twitter). `extraction_tier` is about HOW MUCH text we had (full body vs title only). Both matter — keep both, but make source_type mandatory from now on.
+
+**On `grounding_summary` language:** Currently stored in English. Must be Turkish. The prompt needs to say explicitly: "Türkçe yaz". This is critical — synthesis prompts are in Turkish, an English summary creates a language mismatch Sonnet has to bridge.
+
+---
+
+#### DB migration needed
+
+```sql
+ALTER TABLE facts
+  ADD COLUMN key_quotes      jsonb DEFAULT '[]',
+  ADD COLUMN source_type     text,
+  ADD COLUMN source_url      text,
+  ADD COLUMN source_name     text,
+  ADD COLUMN claim_status    text;
+-- source_date: already exists as source_published_at — keep that column name, just make it reliable
+-- extraction_tier: already exists — extend allowed values
+```
+
+---
 
 #### Implementation plan
 
-1. Create `src/extractor.js` — single `extractFacts(sourceInput, env)` where `sourceInput` = `{ text, sourceType, item }`.
-   - One prompt template, adapted by `sourceType` (shorter for `rss_summary`, full for `yt_transcript`).
-   - Single `parseAndValidate()` that enforces the canonical shape — fills `grounding_summary: ''` and `key_quotes: []` if model omits them.
-   - Single `writeFactsRow(facts, item, env)` — one DB path, all columns set.
+**Step 1 — DB migration** (new columns above)
 
-2. Retire the three existing extractors — replace callers in `firewall.js` and `worker-story-agent.js` with `extractFacts()` from `src/extractor.js`.
+**Step 2 — `src/extractor.js`** — single unified function:
+```js
+extractFacts({ text, sourceType, item, env })
+// → persists canonical row, returns { ...facts, id }
+```
+- One prompt template, adapted by sourceType (longer/richer for yt_transcript, compact for rss_summary)
+- Always produces: grounding_summary (Turkish), key_quotes, claim_status
+- Single `writeFactRow()` that sets ALL columns — no nulls by accident
+- Writes source_url + source_name directly (no separate lineage call needed for those fields)
+- `fact_lineage` still written for legal audit (destruction_confirmed_at, text_length)
 
-3. Migration: backfill `source_type` and `source_date` for existing rows where null.
+**Step 3 — Replace existing extractors**
+- `extractAndScore()` in `firewall.js` → calls `extractFacts()`, keeps multi-claim loop
+- `extractFacts()` in `firewall.js` (P4 lightweight) → calls `extractFacts()` with `sourceType: 'rss_summary'`
+- `fetchYouTubeAndExtractFacts()` in `worker-story-agent.js` → calls `extractFacts()` with `sourceType: 'yt_transcript'` or `'yt_title'`
 
-#### Source type guide (current + future)
+**Step 4 — Fix the story-agent select query**
+The current query selects `key_quotes` which doesn't exist in DB yet (causes silent failure). After migration it will work correctly.
 
-| Source | sourceType | text input |
-|--------|-----------|-----------|
-| RSS with full body (P1–P3) | `rss_full` | full body text, up to 2500 chars |
-| RSS title+summary only (P4) | `rss_summary` | title + summary, up to 800 chars |
-| YouTube with Supadata transcript | `yt_transcript` | title + transcript, up to 4000 chars |
-| YouTube title only (Tier 2 skip) | `yt_title` | title only |
-| Twitter/X post | `twitter` | tweet text + thread context |
-| Instagram caption | `instagram` | caption text |
+---
+
+#### Source type guide — current + future
+
+| Source | sourceType | extraction_tier | text input |
+|--------|-----------|----------------|-----------|
+| RSS full body (P1–P3) | `rss_full` | `llm_full` | body up to 2500 chars |
+| RSS title+summary (P4) | `rss_summary` | `llm_summary` | title + summary ≤800 chars |
+| YouTube + Supadata transcript | `yt_transcript` | `llm_transcript` | title + transcript ≤4000 chars |
+| YouTube title only | `yt_title` | `llm_title` | title only |
+| Twitter/X | `twitter` | `llm_summary` | tweet + thread ≤500 chars |
+| Instagram | `instagram` | `llm_summary` | caption ≤300 chars |
+| Manual admin entry | `manual` | — | free text |
 
 ---
 
