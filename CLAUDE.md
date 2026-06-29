@@ -54,6 +54,67 @@
 
 ---
 
+# Method B (pitchos-story-agent) — Status
+
+## Done
+
+### MB-1 Shadow Worker Setup
+- `worker-story-agent.js` + `wrangler-story.toml`, `*/5 * * * *` cron
+- GitHub Actions auto-deploy on push to `claude/methodb-startup-7y5cu3`
+- `methodb:enabled` KV flag gates the pipeline; shadow pool at `articles:{site}:methodb`
+
+### MB-2 Core Pipeline
+- Cursor-based processing of `content_items` with extracted facts
+- Topic correlation → delta detection (Haiku) → Sonnet synthesis
+- Stable slug (`mb-` prefix), shadow pool upsert (latest state per topic+entity)
+- `synthesizedThisRun` Set + `normEnt()` Turkish normalization for within-run dedup
+- Fan-out only for 2+ genuinely competing clubs
+
+### MB-3 Editorial Quality
+- Fan-facing tone, 60–160 word target, no analyst/disclaimer language
+- DECISION_SIGNALS rejection filter (catches chain-of-thought leaking into body)
+- NVS-based cooldown: low-trust accretive updates gated to 1 article per topic per 3h;
+  high-trust (numbers/dates/key story types) and match events bypass gate entirely
+
+### MB-4 YouTube Transcript Pipeline
+- Story agent detects `content_type='youtube_embed'` items with no facts
+- Reuses legacy-filtered video list (main worker ingests from `YOUTUBE_CHANNELS`, story agent reads same `content_items` rows)
+- Two-tier decision per video based on CONTENT TYPE, not channel:
+  - **Tier 1 (Supadata transcript):** press conferences (`basın toplantısı`, `maç sonu açıkl*`), named exec/coach + verbatim quote in title, Günayer/Rabona analysis
+  - **Tier 2 (title+summary only):** named exec without quote, squad/attendance headlines
+  - **Skip:** training montages, highlights, journalist takes ("aktardı" panels)
+- Extracts facts + verbatim quotes; saves to `facts` table (no re-extraction on next run)
+- Quotes passed to Sonnet synthesis prompt (`alıntılar`) for direct quotation in articles
+- Budget: `YT_TRANSCRIPT_CAP=2` per run, `SUPADATA_MONTHLY_CAP=80` (KV counter)
+- **Action needed:** `npx wrangler secret put SUPADATA_API_KEY -c wrangler-story.toml`
+
+---
+
+## Backlog (Method B)
+
+### MB-NEXT-1: Multi-Article Synthesis from Single YouTube Video
+- **Context:** One interview (e.g. Özen transfer presser, Sergen on Kafa Sports) contains
+  multiple distinct newsworthy topics. Currently only one article is produced per video.
+- **Mechanism:** After transcript fetch, call `segmentTranscript()` (already in `publisher.js`)
+  to split into 3-5 topic segments, then synthesize one article per segment.
+- **Precedent:** `generateMultiTopicVideoSynthesis()` built for Sergen/Kafa Sports case.
+- **Gate:** Verify basic single-article YouTube synthesis works correctly before enabling.
+
+### MB-NEXT-2: Mystery Follow-Up Article ("Özen said 3 — but who?")
+- **Context:** When an official states a count without naming the subjects (e.g. "3 transfer
+  targets in final stage") the mystery itself has reader value.
+- **Mechanism:**
+  1. Detect "mystery": fact has `numbers.other[].value = N` but `entities.players = []`
+  2. Query DB: pull all `story_type=transfer` facts for the same site in past 7 days where
+     specific player names appear → these are known candidates from parallel fact items
+  3. New synthesis trigger type `mystery_followup` with speculation-framed prompt:
+     "Özen 3 dedi — işte şu ana kadar görüşüldüğü bildirilen adaylar"
+  4. Ground strictly in existing fact rows only — no invented names
+- **Today's data:** Ouattara, Nübel, Thorstvedt, Bueno all have separate transfer fact rows
+  that could populate this article without fabrication.
+
+---
+
 ## Backlog
 
 ### Sound (iPhone)
