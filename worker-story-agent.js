@@ -47,19 +47,44 @@ async function incSupadataUsed(env) {
   await env.PITCHOS_CACHE.put(k, String(used + 1), { expirationTtl: 40 * 24 * 3600 }).catch(() => {});
 }
 
+// Title signals that indicate an interview / press conference with actual spoken content.
+const YT_INTERVIEW_RE = /röportaj|basın toplantısı|açıkladı|konuştu|sözleri|özel görüşme|aktardı|değerlendirdi|yorumladı|itiraf|bomba açıkl|anlattı|dedi ki/i;
+// Known BJK executives/coaches — their videos are always worth a transcript.
+const YT_EXEC_RE = /önder özen|serdal adalı|ahmet nur çebi|vincenzo italiano|italiano/i;
+// Squad/training signals where title+summary is sufficient (no transcript needed).
+const YT_SQUAD_RE = /antrenmanda yer almadı|kadro dışı|antrenmana çıkmadı|eksik|sakatlık|ilk 11|muhtemel 11/i;
+
+// Decides whether to extract facts from a youtube_embed item and whether a Supadata transcript is worth fetching.
+// Returns { extract, needsTranscript }.
+function ytItemExtractDecision(item) {
+  const title  = item.title  || '';
+  const source = item.source_name || '';
+  // Günayer / Rabona: trusted analyst, transcript always worth it
+  if (/günayer|rabona/i.test(source)) return { extract: true, needsTranscript: true };
+  // Interview or named executive in title → full transcript
+  if (YT_INTERVIEW_RE.test(title) || YT_EXEC_RE.test(title)) return { extract: true, needsTranscript: true };
+  // Squad / training attendance → title+summary is enough (no Supadata spend)
+  if (YT_SQUAD_RE.test(title)) return { extract: true, needsTranscript: false };
+  // Official club channel → extract from title, not worth transcript for training montages
+  if (source === 'Beşiktaş JK') return { extract: true, needsTranscript: false };
+  return { extract: false, needsTranscript: false };
+}
+
 // Fetch transcript + run Haiku fact extraction for a youtube_embed content_item.
-// Saves extracted facts to the facts table so future runs skip re-extraction.
+// Saves extracted facts + quotes to the facts table so future runs skip re-extraction.
 // Returns a facts object with _synthetic:true, or null on failure.
-async function extractYtItemFacts(item, site, env, stats) {
-  const videoId = (item.original_url || '').match(/(?:[?&]v=|\/embed\/|youtu\.be\/)([A-Za-z0-9_-]{11})/)?.[1];
+async function extractYtItemFacts(item, site, env, stats, needsTranscript = true) {
   let sourceText = [item.title, item.summary].filter(Boolean).join('. ');
 
-  if (videoId && (await isSupadataAvailable(env))) {
-    const transcript = await fetchYouTubeTranscript(videoId, env).catch(() => null);
-    if (transcript && transcript.length > 100) {
-      sourceText = `${item.title}.\n\n${transcript.slice(0, 4000)}`;
-      await incSupadataUsed(env);
-      stats.ytTranscripts = (stats.ytTranscripts || 0) + 1;
+  if (needsTranscript) {
+    const videoId = (item.original_url || '').match(/(?:[?&]v=|\/embed\/|youtu\.be\/)([A-Za-z0-9_-]{11})/)?.[1];
+    if (videoId && (await isSupadataAvailable(env))) {
+      const transcript = await fetchYouTubeTranscript(videoId, env).catch(() => null);
+      if (transcript && transcript.length > 100) {
+        sourceText = `${item.title}.\n\n${transcript.slice(0, 4000)}`;
+        await incSupadataUsed(env);
+        stats.ytTranscripts = (stats.ytTranscripts || 0) + 1;
+      }
     }
   }
 
@@ -74,10 +99,13 @@ JSON schema (fill in what you can, null for unknown):
   "entities": { "players": [], "clubs": [], "competitions": [] },
   "numbers": { "transfer_fee": null, "contract_years": null, "other": [] },
   "dates": { "primary_date": null, "other": [] },
-  "grounding_summary": "1-2 sentence factual English summary of the key claim"
-}`;
+  "grounding_summary": "1-2 sentence factual English summary of the key claim",
+  "quotes": [{"speaker": "person name", "text": "direct quote in original Turkish"}]
+}
 
-  const res = await callClaude(env, MODEL_FETCH, prompt, false, 400);
+For "quotes": extract only direct verbatim quotes (in quotes/tırnak in source). Empty array if none.`;
+
+  const res = await callClaude(env, MODEL_FETCH, prompt, false, 500);
   addUsagePhase(stats, 'yt_fact_extract', res.usage);
   await addCost(env, res.usage, MODEL_FETCH, costKey());
 
@@ -87,6 +115,7 @@ JSON schema (fill in what you can, null for unknown):
   let parsed;
   try { parsed = JSON.parse(m[0]); } catch { return null; }
 
+  const quotes = Array.isArray(parsed.quotes) ? parsed.quotes.filter(q => q?.text?.length > 10) : [];
   const facts = {
     story_type:        parsed.story_type || 'other',
     entities:          { players: parsed.entities?.players || [], clubs: parsed.entities?.clubs || [], competitions: parsed.entities?.competitions || [] },
@@ -94,6 +123,7 @@ JSON schema (fill in what you can, null for unknown):
     dates:             parsed.dates || {},
     grounding_summary: parsed.grounding_summary || '',
     _synthetic:        true,
+    _quotes:           quotes,
   };
 
   // Persist so future cron runs don't re-extract the same video
@@ -103,6 +133,7 @@ JSON schema (fill in what you can, null for unknown):
     numbers: facts.numbers, dates: facts.dates,
     grounding_summary: facts.grounding_summary,
     extraction_model: MODEL_FETCH,
+    fact_payload: quotes.length ? { quotes } : null,
   }).catch(e => console.error('YT facts save failed:', e.message));
 
   return facts;
@@ -237,14 +268,21 @@ async function processSiteMethodB(site, env, opts = {}) {
     let f = factsByItem.get(item.id) || null;
     if (f) tally.withFacts++;
 
-    // youtube_embed items have no extracted facts — fetch transcript via Supadata
-    // and run Haiku fact extraction so Method B can synthesize from interviews/statements.
-    if (!f && item.content_type === 'youtube_embed' && ytTranscriptCount < YT_TRANSCRIPT_CAP) {
-      f = await extractYtItemFacts(item, site, env, stats).catch(e => {
-        console.error(`YT fact extract [${item.id}]:`, e.message);
-        return null;
-      });
-      if (f) { tally.withFacts++; ytTranscriptCount++; tally.ytExtracted = (tally.ytExtracted || 0) + 1; }
+    // youtube_embed items have no extracted facts — decide per-item whether to extract and
+    // whether a Supadata transcript call is worth spending (capped at YT_TRANSCRIPT_CAP/run).
+    if (!f && item.content_type === 'youtube_embed') {
+      const { extract, needsTranscript } = ytItemExtractDecision(item);
+      if (extract && (!needsTranscript || ytTranscriptCount < YT_TRANSCRIPT_CAP)) {
+        f = await extractYtItemFacts(item, site, env, stats, needsTranscript).catch(e => {
+          console.error(`YT fact extract [${item.id}]:`, e.message);
+          return null;
+        });
+        if (f) {
+          tally.withFacts++;
+          if (needsTranscript) ytTranscriptCount++;
+          tally.ytExtracted = (tally.ytExtracted || 0) + 1;
+        }
+      }
     }
 
     const mode = routeNewsMode(item, f);
@@ -637,7 +675,7 @@ başlık ipucu: ${item.title || ''}
 tip: ${facts?.story_type || ''}
 varlıklar: ${JSON.stringify(facts?.entities || {})}
 sayılar: ${JSON.stringify(facts?.numbers || {})}
-tarihler: ${JSON.stringify(facts?.dates || {})}
+tarihler: ${JSON.stringify(facts?.dates || {})}${facts?.grounding_summary ? `\nözet: ${facts.grounding_summary}` : ''}${facts?._quotes?.length ? `\nalıntılar: ${JSON.stringify(facts._quotes)}` : ''}
 gelişme tipi: ${trigger}${entityLine}${competing ? `\n\nREKABET EDEN ANLATIMLAR (bağlam):\n${competing}` : ''}
 
 YAZIM KURALLARI:
