@@ -1,23 +1,17 @@
 # Next Actions
 
-## Pending: Set SUPADATA_API_KEY on story worker
+## Supadata API — Credits
 
-The story agent falls back to title+summary extraction only until this secret is set.
-No CLI needed — do it from Cloudflare dashboard on your phone:
-
-1. Open **dash.cloudflare.com** → Workers & Pages → **pitchos-story-agent**
-2. Settings → Variables → **Environment Variables** → Edit variables
-3. Add → Name: `SUPADATA_API_KEY` → Value: (your key from supadata.ai dashboard) → **Encrypt** → Save
-
-That's it. No deploy needed — secrets take effect on the next cron run.
-
-Your Supadata key is at: **app.supadata.ai** → API Keys
+- `SUPADATA_API_KEY` set on `pitchos-story-agent` via Cloudflare dashboard ✅
+- Monthly credits exhausted — **resets 04.07**
+- Until then: story agent falls back to title+summary extraction only (no transcript fetch)
+- After 04.07: transcripts will flow automatically — no action needed
 
 ---
 
 ## MB-NEXT-1: Multi-Article Synthesis from Single YouTube Video
 
-**Status:** Waiting — verify basic single-article YouTube synthesis works first.
+**Status:** Waiting — verify basic single-article YouTube synthesis works first (check after 04.07 when Supadata resets).
 
 **What it does:** One interview (e.g. Özen transfer presser, Sergen on Kafa Sports) contains
 multiple distinct newsworthy topics. Currently only one article is produced per video.
@@ -28,7 +22,7 @@ multiple distinct newsworthy topics. Currently only one article is produced per 
 - Synthesize one article per segment
 - `generateMultiTopicVideoSynthesis()` already built for the Sergen/Kafa Sports case
 
-**Gate:** Confirm Özen presser video → fact extraction → article is working end-to-end first.
+**Gate:** Confirm Özen presser video → fact extraction → article is working end-to-end before enabling.
 
 ---
 
@@ -45,5 +39,25 @@ targets in final stage"), the mystery itself has reader value.
    "Özen 3 dedi — işte şu ana kadar görüşüldüğü bildirilen adaylar"
 4. Ground strictly in existing fact rows only — no invented names
 
-**Today's data:** Ouattara, Nübel, Thorstvedt, Bueno all have separate transfer fact rows
+**Example data:** Ouattara, Nübel, Thorstvedt, Bueno all have separate transfer fact rows
 that could populate this article without fabrication.
+
+---
+
+## Backlog
+
+### Sound (iPhone)
+- iPhone Chrome and Safari: no sound despite 4 fix attempts
+- Needs real-device debugging with Safari Web Inspector (remote debug via Mac)
+
+### B1.3 Streak Revival — Untested
+- Needs a real broken streak (miss a day after ≥ 2-day streak) to trigger
+
+### B3
+- Shareable Result Card (canvas image after prediction resolves)
+- Community Prediction Heatmap (score distribution overlay on prediction UI)
+- Weekly Email Digest (summary email with XP, rank, highlights)
+
+### B4
+- Seasonal Events (e.g. playoff bonus XP windows, themed badges)
+- Match Alerts (push notification opt-in via Web Push API)
