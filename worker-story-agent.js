@@ -47,26 +47,57 @@ async function incSupadataUsed(env) {
   await env.PITCHOS_CACHE.put(k, String(used + 1), { expirationTtl: 40 * 24 * 3600 }).catch(() => {});
 }
 
-// Title signals that indicate an interview / press conference with actual spoken content.
-const YT_INTERVIEW_RE = /röportaj|basın toplantısı|açıkladı|konuştu|sözleri|özel görüşme|aktardı|değerlendirdi|yorumladı|itiraf|bomba açıkl|anlattı|dedi ki/i;
-// Known BJK executives/coaches — their videos are always worth a transcript.
-const YT_EXEC_RE = /önder özen|serdal adalı|ahmet nur çebi|vincenzo italiano|italiano/i;
-// Squad/training signals where title+summary is sufficient (no transcript needed).
-const YT_SQUAD_RE = /antrenmanda yer almadı|kadro dışı|antrenmana çıkmadı|eksik|sakatlık|ilk 11|muhtemel 11/i;
+// Structural signals: these formats ALWAYS contain the principal speaking directly.
+// "basın toplantısı", "maç sonu açıkl*", "maç sonu basın" → press conference or post-match presser.
+const YT_PRESSER_RE = /basın toplantısı|maç sonu açıkl|maç sonu basın|maç sonu yoruml/i;
 
-// Decides whether to extract facts from a youtube_embed item and whether a Supadata transcript is worth fetching.
+// Known BJK principals (executives + coaches). Their words are news.
+// We DON'T include players here — player interviews qualify only when combined with a strong quote signal.
+const YT_EXEC_RE = /önder özen|serdal adalı|ahmet nur çebi|vincenzo italiano\b|italian[oa]\b/i;
+
+// Strong quote signal: title contains a verbatim quote (colon followed by quote marks or tırnak).
+// e.g. "Önder Özen: '3 isimle finale yaklaştık!'" — the colon-quote pattern is reliable.
+const YT_QUOTE_RE = /:\s*["""''«»]/;
+
+// Squad/training signals where the title IS the complete fact — transcript adds nothing.
+const YT_SQUAD_RE = /antrenmanda yer almadı|kadro dışı|antrenmana çıkmadı|ilk 11|muhtemel 11/i;
+
+// Decides whether to extract facts from a youtube_embed item and whether to spend a Supadata call.
 // Returns { extract, needsTranscript }.
+//
+// Tier 1 (Supadata transcript):  spoken content where the title alone can't capture what was said
+// Tier 2 (title+summary only):   factual event where title is self-contained
+// Skip:                          pundit opinion, transfer rumour roundups, unrelated content
 function ytItemExtractDecision(item) {
   const title  = item.title  || '';
   const source = item.source_name || '';
-  // Günayer / Rabona: trusted analyst, transcript always worth it
+
+  // ── Tier 1: Günayer / Rabona ──────────────────────────────────────────────
+  // Trusted analyst, weekly deep-dives — full transcript always valuable
   if (/günayer|rabona/i.test(source)) return { extract: true, needsTranscript: true };
-  // Interview or named executive in title → full transcript
-  if (YT_INTERVIEW_RE.test(title) || YT_EXEC_RE.test(title)) return { extract: true, needsTranscript: true };
-  // Squad / training attendance → title+summary is enough (no Supadata spend)
+
+  // ── Tier 1: Press conferences and post-match statements ───────────────────
+  // Structural: coach/president is the speaker by definition
+  if (YT_PRESSER_RE.test(title)) return { extract: true, needsTranscript: true };
+
+  // ── Tier 1: Named BJK exec/coach + verbatim quote in title ────────────────
+  // e.g. "Önder Özen: '3 isimle finale yaklaştık!'" — the quote is a teaser; transcript has more
+  if (YT_EXEC_RE.test(title) && YT_QUOTE_RE.test(title)) return { extract: true, needsTranscript: true };
+
+  // ── Tier 2: Named exec/coach appears but no direct quote ──────────────────
+  // e.g. "Italiano futbolcularla yemekte buluştu" — event is the fact, title covers it
+  if (YT_EXEC_RE.test(title)) return { extract: true, needsTranscript: false };
+
+  // ── Tier 2: Squad / training attendance ───────────────────────────────────
+  // Title lists who was absent — self-contained, no transcript needed
   if (YT_SQUAD_RE.test(title)) return { extract: true, needsTranscript: false };
-  // Official club channel → extract from title, not worth transcript for training montages
+
+  // ── Tier 2: Official club channel (non-presser) ────────────────────────────
+  // Training montages, hype reels — title + summary is enough
   if (source === 'Beşiktaş JK') return { extract: true, needsTranscript: false };
+
+  // ── Skip ──────────────────────────────────────────────────────────────────
+  // Generic pundit roundups, "aktardı" journalist takes, transfer speculation panels
   return { extract: false, needsTranscript: false };
 }
 
