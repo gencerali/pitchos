@@ -370,14 +370,12 @@ async function processSiteMethodB(site, env, opts = {}) {
       }
     }
 
-    // Staleness gate: suppress synthesis when all explicitly mentioned dates are more than
-    // 60 days in the past. Catches old loan/transfer stories re-surfaced by retrospective
-    // articles — e.g. "Asllani Ocak'ta kiralık" reported anew months after the fact.
-    if (doSynth && f?.dates && Object.keys(f.dates).length > 0) {
-      const cutoff = Date.now() - 60 * 24 * 3600 * 1000;
-      const dateVals = Object.values(f.dates).flat().filter(Boolean);
-      const allStale = dateVals.every(d => { try { return new Date(d).getTime() < cutoff; } catch { return false; } });
-      if (allStale && dateVals.length > 0) { doSynth = false; tally.confirmingSkip++; }
+    // Staleness gate: content_item age is the ground truth for freshness.
+    // If the source published more than 7 days ago it is old news regardless of what
+    // the facts say — this catches retrospective articles that re-surface stale transfers.
+    if (doSynth && item.created_at) {
+      const ageMs = Date.now() - new Date(item.created_at).getTime();
+      if (ageMs > 7 * 24 * 3600 * 1000) { doSynth = false; tally.confirmingSkip++; }
     }
 
     if (doSynth && f && !cap.blocked && synthCount < SHADOW_SYNTH_CAP) {
