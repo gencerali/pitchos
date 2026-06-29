@@ -288,10 +288,13 @@ async function processSiteMethodB(site, env, opts = {}) {
   }
   const factsRaw = (await Promise.all(
     factChunks.map(chunk => supabase(env, 'GET',
-      `/rest/v1/facts?content_item_id=in.(${chunk.join(',')})&select=content_item_id,story_type,entities,numbers,dates`
+      `/rest/v1/facts?content_item_id=in.(${chunk.join(',')})&select=content_item_id,story_type,entities,numbers,dates,grounding_summary,key_quotes`
     ).then(r => r || []))
   )).flat();
-  const factsByItem = new Map(factsRaw.map(f => [f.content_item_id, f]));
+  const factsByItem = new Map(factsRaw.map(f => [f.content_item_id, {
+    ...f,
+    _quotes: Array.isArray(f.key_quotes) ? f.key_quotes : [],
+  }]));
 
   const tally = {
     candidates: rows.length, withFacts: 0, eventRoute: 0,
