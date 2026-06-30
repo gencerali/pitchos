@@ -231,6 +231,67 @@ ALTER TABLE facts
 
 ---
 
+### MB-NEXT-5 — Synthesis Redesign
+
+Closes 14 gaps vs. the legacy `synthesizeArticle` / `synthesizeFromFacts` pipeline. Implement roughly in this order.
+
+#### A — Grounding context (highest payoff)
+Add `buildGroundingContext(env, site)` call inside `synthesizePhase` before the Sonnet call.
+Prepend its `DOĞRULANMIŞ VERİLER` block to the prompt (standings, form, next match, relegation/European gaps).
+Cache result per site per run (4h TTL) to cap API-Football calls.
+**Cost:** 2–3 API-Football calls per synthesis unless cached. With TTL cache, ~3 calls per cron tick total.
+**Coverage:** Hard structural context only (position, form, stakes). NOT fan mood or player pressure — that is Sprint K / item D2 below.
+
+#### B — Dedicated title generation
+After body synthesis, call `generateKartalixTitle(body, item.title, env, stats)` from `publisher.js`.
+Remove the in-prompt `BAŞLIK:` instruction entirely — title and body generation separate like legacy.
+No extra token cost beyond the existing Haiku budget.
+
+#### C — Post-generation verification
+Run `verifyArticle` (or a trimmed variant) against grounding block + structured facts after synthesis.
+On fail: set `needs_review: true` in KV shape rather than blocking publish.
+**Cost:** ~1 extra Haiku call per article.
+
+#### D — Entity-scoped cross-fact context (situational awareness bridge)
+After topic is known, query recent facts for the **focus entity** across all topics (last 14 days):
+```js
+const entityFacts = await supabase(env, 'GET',
+  `/rest/v1/facts?entities->>'players'=ilike.*${focusEntity}*` +
+  `&select=grounding_summary,key_quotes,source_date,story_type&order=source_date.desc&limit=5`
+);
+```
+Inject as `OYUNCU/KULÜP BAĞLAMI` block in prompt. Gives: transfer links, pressure notes, manager quotes about this player — without Sprint K.
+This is the bridge to "player hasn't scored in 10 games / looking for another team" situational awareness.
+
+#### E — Competing tracks as Turkish narrative
+Replace `JSON.stringify(allTracks)` with a formatter that outputs 1–2 Turkish sentences per competing club
+(e.g., "Galatasaray da aynı oyuncuyla ilgileniyor, ancak resmi teklif yapılmadı.").
+Zero extra API calls.
+
+#### F — Guard expansion
+Merge DECISION_SIGNALS with the ~8 applicable legacy REFUSAL_SIGNALS (model-deflection patterns,
+not proxy/scrape-specific ones). One-line array extension.
+
+#### G — Word count and story-type prompt deltas
+Raise floor to "120–250 kelime" (default).
+Add light inline `story_type` conditionals in prompt — structural only, never editorial content
+(editorial tone rules stay in KV `editorial:notes` only, never hardcoded here):
+- `transfer`: if fee or contract_years in numbers, include them; if not, don't speculate
+- `injury`: emphasize recovery timeline field; frame around return date if known
+- `institutional`: emphasize decision-maker name + announced outcome
+
+#### H — toShadowKVShape fixes
+1. `source`: use `item.source_name` from the content_items row (outlet name, not `'Method B'`)
+2. `category`: add `EN_TO_TR_CATEGORY` map: `{transfer:'Transfer', injury:'Sakatlık', match:'Maç', squad:'Kadro', institutional:'Kulüp', contract:'Sözleşme', other:'Haber'}`
+3. `image_url`: use `item.image_url` from the row (already captured by most RSS feeds) instead of `''`
+4. `full_body`: pipe through `articleBodyToHtml()` before storing (matches legacy stored format)
+
+#### I — fact_trust zero-value bug (one-liner)
+Change `f?.fact_trust > 0` to `typeof f?.fact_trust === 'number'` so a legitimate `fact_trust: 0`
+isn't silently re-derived via `computeFactTrust`.
+
+---
+
 ### MB-NEXT-4 — Multi-source Topic Synthesis
 
 **Problem:** `synthesizePhase` receives only the current triggering item's facts. A story built from 6 sources over 3 days gives Sonnet only the 6th source's grounding_summary. Everything the first 5 said in prose is lost — only their structured `claim_tracks` (entities/numbers/negotiation_status) survives.
