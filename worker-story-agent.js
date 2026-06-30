@@ -445,7 +445,10 @@ async function processSiteMethodB(site, env, opts = {}) {
   // (e.g. two sources for the same story when topic correlation failed for both).
   const titleSeen = new Map();
   for (const [slug, art] of poolMap) {
-    const normTitle = (art.title || '').toLowerCase().slice(0, 80);
+    // Strip punctuation, keep first 6 words — collapses variants like "X: Y Hamlede" vs "X — Y Hamlede".
+    const normTitle = (art.title || '').toLowerCase()
+      .replace(/[^a-z0-9ğüşıöç\s]/gi, '').trim()
+      .split(/\s+/).slice(0, 6).join(' ');
     const prev = titleSeen.get(normTitle);
     if (!prev) { titleSeen.set(normTitle, { slug, t: art.published_at }); continue; }
     if (new Date(art.published_at) >= new Date(prev.t)) {
@@ -515,8 +518,11 @@ async function correlateToTopic(item, facts, site, env, stats) {
     const te = t.entities || {};
     return { ...t, _tp: (te.players || []).map(normEnt), _tc: (te.clubs || []).map(normEnt) };
   });
+  // Surname-tolerant name match: "nubel" matches "alexander nubel" and vice versa.
+  const nameMatches = (a, b) => a === b || a.endsWith(' ' + b) || b.endsWith(' ' + a);
   const entityOverlaps = (t) =>
-    players.some(p => t._tp.includes(p)) || clubs.filter(c => t._tc.includes(c)).length >= 2;
+    players.some(p => t._tp.some(tp => nameMatches(p, tp))) ||
+    clubs.filter(c => t._tc.includes(c)).length >= 2;
 
   let topic = openNorm.find(entityOverlaps) || null;
   let isNewTopic = false;
@@ -812,7 +818,7 @@ function toShadowKVShape({ title, body, item, facts, topic, trigger, focusEntity
     source: 'Method B', source_name: item.source_name || '',
     source_url: '', url: '',
     category: facts?.story_type || item.category || 'Haber',
-    nvs: Math.min(85, Math.max(30, factTrust)), trust_tier: item.trust_score || null,
+    nvs: Math.min(85, Math.max(30, +factTrust || 0)), trust_tier: item.trust_score || null,
     published_at, fetched_at: published_at,
     is_fresh: true, is_kartalix_content: true,
     publish_mode: 'methodb_synth', image_url: '', slug,
