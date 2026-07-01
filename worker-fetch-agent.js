@@ -4338,6 +4338,12 @@ Sadece JSON döndür:
       return Response.json({ ok: true, added }, { headers: h });
     }
 
+    if (url.pathname === '/admin/seed-methodb-rules' && request.method === 'POST') {
+      const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
+      const added = await seedMethodBRules(env);
+      return Response.json({ ok: true, added }, { headers: h });
+    }
+
     if (url.pathname === '/admin/run-voice-patterns' && request.method === 'POST') {
       const h = { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' };
       try {
@@ -4873,6 +4879,41 @@ async function seedVoiceRules(env) {
   const all = [...newNotes, ...existing];
   await env.PITCHOS_CACHE.put('editorial:notes', JSON.stringify(all));
   console.log(`SEED-VOICE: added ${newNotes.length} voice rules`);
+  return newNotes.length;
+}
+
+// ─── METHOD B EDITORIAL REVIEW RULES SEED ────────────────────
+// One-time bootstrap: writes systemic fixes flagged in a Method B (methodb_synth)
+// content review into editorial:notes KV — branch mixups, duplicate variants,
+// literal-translation jargon, defeatist framing, and stale-timeline references.
+// Called via POST /admin/seed-methodb-rules. Idempotent — won't add duplicates
+// if these rules already exist.
+async function seedMethodBRules(env) {
+  const existing = await listEditorialNotes(env);
+  if (existing.some(n => n.text.includes('parkeye çıkıyor') || n.text.includes('Örtüşen ajans girdilerini'))) {
+    return 0; // already seeded
+  }
+
+  const METHODB_RULES = [
+    { scope: 'global', text: 'Bir transferi otomatik olarak futbol takımına ait sayma — önce oyuncunun branşını doğrula; oyuncu basketbolcuysa (ör. Metecan Birsen) "Vodafone Park", "sahaya çıkıyor" gibi futbol terimleri yerine "parkeye çıkıyor", "pota", "Akatlar", "kısa forvet" gibi basketbol terminolojisi kullan.' },
+    { scope: 'global', text: 'Aynı gelişme hakkında birbirine çok benzeyen birden fazla haber üretme (ör. aynı transfer için tekrar eden başlıklar); örtüşen ajans girdilerini tek, bütünlüklü ve yetkin bir habere birleştir.' },
+    { scope: 'global', text: 'Birebir çeviri veya kurumsal jargon kullanma — "Strikerlar", "Attackerlar", "Savunma hattı önü oyuncusu", "Rakam tartışması masada", "İsme sahip çıkmak" YASAK; bunun yerine "Santrfor", "Gol makinesi", "Ön libero", "Bonservis pazarlığı", "Kadrosuna katmak için devreye girdi" gibi doğru spor jargonunu kullan.' },
+    { scope: 'global', text: 'Beşiktaş\'ı zayıf veya mağlup konumdan yazma — "Avrupa devlerinin gölgesinde kalıyor", "taraftar bunu hazmedemez" gibi yenilgici ifadeler kullanma; büyük kulüplerle rekabeti "devlerin savaşı", "dev operasyon" gibi güçlü bir çerçeveyle sun.' },
+    { scope: 'global', text: 'Güncel takvimle (yaz transfer dönemi) çelişen ifadeler kullanma — kış transfer dönemine atıf yapma — ve temel olguları doğrula (ör. Acun Ilıcalı Hull City\'nin sahibidir, Başakşehir\'in değil; oyuncunun güncel kulübünü karıştırma).' },
+  ];
+
+  const now = new Date().toISOString();
+  const newNotes = METHODB_RULES.map(r => ({
+    id: crypto.randomUUID(),
+    scope: r.scope,
+    text: r.text,
+    active: true,
+    created_at: now,
+  }));
+
+  const all = [...newNotes, ...existing];
+  await env.PITCHOS_CACHE.put('editorial:notes', JSON.stringify(all));
+  console.log(`SEED-METHODB-RULES: added ${newNotes.length} rules`);
   return newNotes.length;
 }
 
@@ -14487,6 +14528,13 @@ ${nav}
   </div>
 
   <div class="card">
+    <h2>Method B İnceleme Kuralları</h2>
+    <p style="font-size:.8rem;color:#888;margin-bottom:1rem">Editöryal incelemede tespit edilen sistemik sorunları (branş karışıklığı, tekrar eden haberler, çeviri Türkçesi, mağlup çerçeveleme, takvim hataları) KV'ye ekler (idempotent).</p>
+    <button class="btn" onclick="seedMethodBRules()">Method B Kurallarını Ekle</button>
+    <div id="methodb-rules-status" class="status"></div>
+  </div>
+
+  <div class="card">
     <h2>Eski İçerikleri Arşivle</h2>
     <p style="font-size:.8rem;color:#888;margin-bottom:1rem">publish_mode = null veya rss_summary veya pre_firewall_cleaned olan yayınlanmış makaleleri arşivler.</p>
     <div style="display:flex;gap:.75rem;flex-wrap:wrap">
@@ -14540,6 +14588,9 @@ function refreshMatch() {
 }
 function seedVoice() {
   post('/admin/seed-voice', d => \`Eklendi: \${d.added} kural\`, 'voice-status');
+}
+function seedMethodBRules() {
+  post('/admin/seed-methodb-rules', d => \`Eklendi: \${d.added} kural\`, 'methodb-rules-status');
 }
 function archivePreview() {
   const el = document.getElementById('archive-status');

@@ -459,6 +459,7 @@ _Two related problems discovered 2026-05-10: (1) no visibility into which templa
 - [x] Weekly cron (Sunday 02:00) added — `runVoicePatternExtraction(env)` in worker cron handler
 - [x] `extractStyleDNA` via Haiku: sentence rhythm, idiom usage, emotional vocabulary — NOT content
 - [x] Phase 1 seed: 13 Turkish voice rules added to editorial:notes via `seedVoiceRules()` — activate with POST /admin/seed-voice
+- [x] Method B content review seed (2026-07-01): 5 systemic rules (sports-branch verification, de-duplication, jargon vs. proper terminology, fan-psychology framing, timeline/fact checks) added via `seedMethodBRules()` — activate with POST /admin/seed-methodb-rules
 - [x] `editorial:voice_patterns` KV key: growing library (30-pattern cap, weighted by NVS score)
 - [x] `getEditorialNotes` updated: injects 3 weighted-random style examples into all generation prompts
 - [x] Style examples weighted by NVS score + rotated randomly per generation to prevent pattern lock-in
