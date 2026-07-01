@@ -175,6 +175,16 @@ async function formNewWeek(env, site_id, weekStr) {
 }
 
 async function awardMondayBonuses(env, site_id) {
+  // Only award on Monday UTC; idempotent via source_ref check
+  if (new Date().getUTCDay() !== 1) return;
+
+  const today     = new Date().toISOString().split('T')[0];
+  const sourceRef = `${today}_tier_bonus`;
+  const alreadyRan = await sbGet(env,
+    `xp_events?site_id=eq.${site_id}&action_id=eq.league_tier_bonus&source_ref=eq.${encodeURIComponent(sourceRef)}&select=id&limit=1`
+  ).catch(() => []);
+  if (alreadyRan.length) return;
+
   for (const [tier, bonusXp] of Object.entries(MONDAY_BONUS)) {
     if (!bonusXp) continue;
     const users = await sbGet(env,
@@ -185,7 +195,7 @@ async function awardMondayBonuses(env, site_id) {
       await sbPost(env, 'xp_events', {
         user_id: u.id, site_id, action_id: 'league_tier_bonus',
         xp_earned: bonusXp, base_xp: bonusXp, multiplier: 1.00,
-        source_ref: `${new Date().toISOString().split('T')[0]}_tier_bonus`, nullified: false,
+        source_ref: sourceRef, nullified: false,
       }).catch(() => {});
     }
   }

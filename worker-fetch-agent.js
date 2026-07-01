@@ -4543,7 +4543,7 @@ Sadece JSON döndür:
       }
       ctx.waitUntil(Promise.all(work));
     } else if (cron === '0 4 * * *') {
-      ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env), archiveDailyCost(env), runSourceHealth(env), runBotSimulation(env)]));
+      ctx.waitUntil(Promise.all([runDailyArchival(env), runSourceTests(env), archiveDailyCost(env), runSourceHealth(env), runBotSimulation(env), runLeagueSettle(env)]));
     } else if (cron === '0 3 * * 1') {
       ctx.waitUntil(Promise.all([
         redistillEditorialNotes(env),
