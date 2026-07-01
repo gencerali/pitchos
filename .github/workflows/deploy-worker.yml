@@ -6,6 +6,8 @@ name: Deploy
 # One-time setup (repo Settings → Secrets and variables → Actions):
 #   PITCHOS_DEPLOY    — Cloudflare API token with Workers + Pages Edit permissions
 #   XP_TOKEN_SECRET   — shared secret for bot-cron → /api/bot/tick auth
+#   SETTLE_SECRET     — shared secret for weekly league settle trigger
+#                       Must also be set in Cloudflare Pages env vars (dashboard)
 
 on:
   push:
@@ -24,6 +26,10 @@ jobs:
           apiToken: ${{ secrets.PITCHOS_DEPLOY }}
           wranglerVersion: '4.80.0'
           command: deploy
+          secrets: |
+            SETTLE_SECRET
+        env:
+          SETTLE_SECRET: ${{ secrets.SETTLE_SECRET }}
 
       - name: Deploy pitchos (Pages)
         uses: cloudflare/wrangler-action@v3
