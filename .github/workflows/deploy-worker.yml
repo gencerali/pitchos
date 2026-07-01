@@ -21,24 +21,14 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy pitchos-fetch-agent (Worker)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.PITCHOS_DEPLOY }}
-          wranglerVersion: '4.80.0'
-          command: deploy
-          secrets: |
-            SETTLE_SECRET
+        run: npx wrangler@4.106.0 deploy
         env:
-          SETTLE_SECRET: ${{ secrets.SETTLE_SECRET }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PITCHOS_DEPLOY }}
 
       - name: Set SETTLE_SECRET on pitchos-fetch-agent
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.PITCHOS_DEPLOY }}
-          wranglerVersion: '4.80.0'
-          secrets: |
-            SETTLE_SECRET
+        run: echo "$SETTLE_SECRET" | npx wrangler@4.106.0 secret put SETTLE_SECRET
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.PITCHOS_DEPLOY }}
           SETTLE_SECRET: ${{ secrets.SETTLE_SECRET }}
 
       - name: Deploy pitchos (Pages)
