@@ -26,6 +26,12 @@ jobs:
           apiToken: ${{ secrets.PITCHOS_DEPLOY }}
           wranglerVersion: '4.80.0'
           command: deploy
+
+      - name: Set SETTLE_SECRET on pitchos-fetch-agent
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.PITCHOS_DEPLOY }}
+          wranglerVersion: '4.80.0'
           secrets: |
             SETTLE_SECRET
         env:
