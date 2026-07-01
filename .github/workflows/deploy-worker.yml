@@ -26,7 +26,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.PITCHOS_DEPLOY }}
 
       - name: Set SETTLE_SECRET on pitchos-fetch-agent
-        run: echo "$SETTLE_SECRET" | npx wrangler@4.106.0 secret put SETTLE_SECRET
+        run: echo "$SETTLE_SECRET" | npx wrangler@4.106.0 versions secret put SETTLE_SECRET
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.PITCHOS_DEPLOY }}
           SETTLE_SECRET: ${{ secrets.SETTLE_SECRET }}
