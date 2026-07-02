@@ -3312,6 +3312,64 @@ Sadece JSON döndür:
       return Response.json({ ok: true, queued: true });
     }
 
+    if (url.pathname === '/admin/methodb/topics' && request.method === 'GET') {
+      const authed = await checkAdminAuth(request, env);
+      if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
+      const allSites = await getActiveSites(env);
+      const site = resolveSite(url, allSites);
+      const stateParam = url.searchParams.get('state') || 'open';
+      const stateFilter = stateParam === 'all' ? '' : `&state=eq.${stateParam}`;
+      const topics = await supabase(env, 'GET',
+        `/rest/v1/topics?site_id=eq.${site.id}${stateFilter}&order=last_event_at.desc&limit=60&select=id,title,story_type,state,entities,last_event_at,created_at`
+      ).catch(() => []);
+      if (!Array.isArray(topics) || !topics.length) return Response.json({ topics: [] });
+      const topicIds = topics.map(t => t.id);
+      const phases = await supabase(env, 'GET',
+        `/rest/v1/phases?topic_id=in.(${topicIds.join(',')})&select=topic_id,seq,trigger,delta,opened_by_fact_id&order=topic_id.asc,seq.asc&limit=600`
+      ).catch(() => []);
+      const factIds = [...new Set((Array.isArray(phases) ? phases : []).map(p => p.opened_by_fact_id).filter(Boolean))];
+      let items = [], facts = [];
+      if (factIds.length) {
+        [items, facts] = await Promise.all([
+          supabase(env, 'GET',
+            `/rest/v1/content_items?id=in.(${factIds.join(',')})&select=id,title,source_name,original_url,created_at`
+          ).catch(() => []),
+          supabase(env, 'GET',
+            `/rest/v1/facts?content_item_id=in.(${factIds.join(',')})&select=content_item_id,grounding_summary,key_quotes,fact_trust,claim_status`
+          ).catch(() => []),
+        ]);
+      }
+      const itemMap = new Map((Array.isArray(items) ? items : []).map(i => [i.id, i]));
+      const factMap = new Map((Array.isArray(facts) ? facts : []).map(f => [f.content_item_id, f]));
+      const phasesByTopic = new Map();
+      for (const p of (Array.isArray(phases) ? phases : [])) {
+        if (!phasesByTopic.has(p.topic_id)) phasesByTopic.set(p.topic_id, []);
+        const item = p.opened_by_fact_id ? itemMap.get(p.opened_by_fact_id) : null;
+        const fact = p.opened_by_fact_id ? factMap.get(p.opened_by_fact_id) : null;
+        phasesByTopic.get(p.topic_id).push({
+          seq: p.seq,
+          trigger: p.trigger,
+          delta: p.delta,
+          source: item ? { title: item.title, source_name: item.source_name, original_url: item.original_url, created_at: item.created_at } : null,
+          grounding_summary: fact?.grounding_summary || null,
+          key_quotes: Array.isArray(fact?.key_quotes) ? fact.key_quotes : [],
+          fact_trust: fact?.fact_trust || 0,
+          claim_status: fact?.claim_status || null,
+        });
+      }
+      const result = topics.map(t => ({
+        id: t.id,
+        title: t.title,
+        story_type: t.story_type,
+        state: t.state,
+        entities: t.entities || {},
+        created_at: t.created_at,
+        last_event_at: t.last_event_at,
+        phases: phasesByTopic.get(t.id) || [],
+      }));
+      return Response.json({ topics: result });
+    }
+
     if (url.pathname === '/admin/config/save' && request.method === 'POST') {
       const authed = await checkAdminAuth(request, env);
       if (!authed) return Response.json({ error: 'unauth' }, { status: 401 });
@@ -9519,6 +9577,37 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
     <div class="col legend"><h2>LEGACY (canlı) — ${live.length}</h2>${live.slice(0, 60).map(card).join('') || '<div class="c">boş</div>'}</div>
     <div class="col shadow"><h2>METHOD B (gölge) — ${shadow.length}${shadowUpdatedAt ? ` · ${rel(shadowUpdatedAt)} önce` : ''}</h2>${shadow.slice(0, 60).map(card).join('') || '<div class="c">henüz makale yok — worker çalışmadı veya methodb:enabled=0</div>'}</div>
   </div>
+
+  <!-- TOPICS TABLE -->
+  <div style="padding:14px 14px 0">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div style="display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;font-weight:700;color:#cbd5e1">Story Topics</span>
+        <span id="topic-count" style="font-size:11px;color:#6b7280"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <select id="topic-state-filter" onchange="loadTopics()" style="background:#1e2533;border:1px solid #2e3a4e;color:#cbd5e1;font-size:12px;padding:3px 8px;border-radius:4px">
+          <option value="open">Açık</option>
+          <option value="closed">Kapalı</option>
+          <option value="all">Tümü</option>
+        </select>
+        <select id="topic-type-filter" onchange="filterTopics()" style="background:#1e2533;border:1px solid #2e3a4e;color:#cbd5e1;font-size:12px;padding:3px 8px;border-radius:4px">
+          <option value="">Tüm türler</option>
+          <option value="transfer">Transfer</option>
+          <option value="match">Maç</option>
+          <option value="squad">Kadro</option>
+          <option value="injury">Sakatlık</option>
+          <option value="contract">Sözleşme</option>
+        </select>
+        <span id="topics-ts" style="font-size:11px;color:#4b5563"></span>
+        <button onclick="loadTopics()" style="background:#1e2533;border:1px solid #2e3a4e;color:#9aa4b2;font-size:11px;padding:3px 10px;border-radius:4px;cursor:pointer">↻</button>
+      </div>
+    </div>
+    <div id="topics-body" style="background:#111620;border:1px solid #232a36;border-radius:8px;overflow:hidden;margin-bottom:20px">
+      <div style="padding:20px;text-align:center;color:#6b7280;font-size:12px">Yükleniyor...</div>
+    </div>
+  </div>
+
   <script>
   async function flip(target) {
     const msg = document.getElementById('flip-msg');
@@ -9530,6 +9619,204 @@ function renderPipelineComparePage(site, allSites, live, shadow, status, enabled
       if (j.ok) setTimeout(() => location.reload(), 600);
     } catch(e) { msg.textContent = 'hata: ' + e.message; }
   }
+
+  let _topicsData = [];
+
+  const TYPE_COLORS = {
+    transfer: { bg: '#1e3a5f', fg: '#60a5fa' },
+    match:    { bg: '#0d2a27', fg: '#34d399' },
+    squad:    { bg: '#3a2a00', fg: '#fbbf24' },
+    injury:   { bg: '#3a1a1a', fg: '#f87171' },
+    contract: { bg: '#2a1a3a', fg: '#c084fc' },
+  };
+  const tc = (type) => TYPE_COLORS[type] || { bg: '#1a1f2a', fg: '#9aa4b2' };
+
+  function relTime(iso) {
+    if (!iso) return '—';
+    const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+    if (m < 1)  return 'şimdi';
+    if (m < 60) return m + 'dk';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + 'sa';
+    return Math.floor(h / 24) + 'g';
+  }
+
+  function depthBar(n) {
+    const color = n >= 4 ? '#34d399' : n >= 2 ? '#fbbf24' : '#6b7280';
+    const pct   = Math.min(100, n * 20);
+    return '<div style="display:flex;align-items:center;gap:6px">' +
+      '<div style="width:48px;height:4px;background:#2e3a4e;border-radius:2px;overflow:hidden">' +
+        '<div style="height:100%;background:' + color + ';width:' + pct + '%"></div>' +
+      '</div>' +
+      '<span style="font-size:11px;color:' + color + '">' + n + '</span>' +
+    '</div>';
+  }
+
+  function esc(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function renderEntities(entities) {
+    const parts = [];
+    const players = (entities?.players || []).slice(0, 3);
+    const clubs   = (entities?.clubs   || []).slice(0, 2);
+    players.forEach(p => parts.push('<span style="background:#1a263a;color:#60a5fa;font-size:10px;padding:1px 6px;border-radius:3px">' + esc(p) + '</span>'));
+    clubs.forEach(c => parts.push('<span style="background:#1a2a1a;color:#6ee7b7;font-size:10px;padding:1px 6px;border-radius:3px">' + esc(c) + '</span>'));
+    return parts.join(' ') || '<span style="color:#4b5563;font-size:10px">—</span>';
+  }
+
+  function renderTopicsTable(topics) {
+    if (!topics.length) {
+      return '<div style="padding:24px;text-align:center;color:#6b7280;font-size:12px">Konu bulunamadı.</div>';
+    }
+    const rows = topics.map((t, i) => {
+      const color = tc(t.story_type);
+      const phaseCount = t.phases.length;
+      const latestFact = t.phases.slice().reverse().find(p => p.grounding_summary);
+      const sourceCount = t.phases.filter(p => p.source).length;
+      const stateColor = t.state === 'open' ? '#34d399' : '#6b7280';
+      return '<tr id="tr-' + i + '" onclick="toggleExpand(' + i + ')" style="cursor:pointer;border-bottom:1px solid #1a2030">' +
+        '<td style="padding:8px 10px;white-space:nowrap">' +
+          '<span style="background:' + color.bg + ';color:' + color.fg + ';font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;text-transform:uppercase">' + esc(t.story_type || '?') + '</span>' +
+        '</td>' +
+        '<td style="padding:8px 10px;max-width:280px">' +
+          '<div style="font-size:13px;font-weight:600;color:#e2e8f0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(t.title || '—') + '</div>' +
+        '</td>' +
+        '<td style="padding:8px 10px;white-space:nowrap">' +
+          '<span style="color:' + stateColor + ';font-size:10px;font-weight:700">' + esc(t.state) + '</span>' +
+        '</td>' +
+        '<td style="padding:8px 10px;max-width:200px"><div style="display:flex;flex-wrap:wrap;gap:3px">' + renderEntities(t.entities) + '</div></td>' +
+        '<td style="padding:8px 10px">' + depthBar(phaseCount) + '</td>' +
+        '<td style="padding:8px 10px;white-space:nowrap;font-size:11px;color:#6b7280">' + relTime(t.created_at) + '</td>' +
+        '<td style="padding:8px 10px;white-space:nowrap;font-size:11px;color:#9aa4b2">' + relTime(t.last_event_at) + '</td>' +
+        '<td style="padding:8px 10px;font-size:11px;color:#6b7280">' + sourceCount + ' kaynak</td>' +
+        '<td style="padding:8px 10px;color:#6b7280;font-size:10px;max-width:180px">' +
+          (latestFact ? '<span style="display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px">' + esc((latestFact.grounding_summary || '').slice(0, 80)) + '</span>' : '—') +
+        '</td>' +
+        '<td style="padding:8px 10px;font-size:11px;color:#6b7280">▶</td>' +
+      '</tr>' +
+      '<tr id="expand-' + i + '" style="display:none">' +
+        '<td colspan="10" style="padding:0;background:#0d1117;border-bottom:2px solid #2e3a4e">' +
+          renderExpandedDetail(t) +
+        '</td>' +
+      '</tr>';
+    });
+    return '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-family:system-ui,sans-serif">' +
+      '<thead><tr style="border-bottom:1px solid #2e3a4e">' +
+        '<th style="padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;text-align:left;font-weight:500">Tür</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;text-align:left;font-weight:500">Konu Başlığı</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;text-align:left;font-weight:500">Durum</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;text-align:left;font-weight:500">Varlıklar</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;text-align:left;font-weight:500">Derinlik</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;text-align:left;font-weight:500">Oluşturma</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;text-align:left;font-weight:500">Son güncelleme</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;text-align:left;font-weight:500">Kaynaklar</th>' +
+        '<th style="padding:7px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;text-align:left;font-weight:500">Son Olgu</th>' +
+        '<th style="padding:7px 10px;font-size:10px;color:#6b7280;text-align:left;font-weight:500"></th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows.join('') + '</tbody>' +
+    '</table></div>';
+  }
+
+  function renderExpandedDetail(t) {
+    let html = '<div style="padding:12px 16px;display:flex;gap:20px;flex-wrap:wrap">';
+
+    // Phase timeline
+    html += '<div style="flex:1;min-width:260px">';
+    html += '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#6b7280;margin-bottom:8px">Faz Zinciri</div>';
+    if (t.phases.length) {
+      t.phases.forEach(p => {
+        const trustColor = p.fact_trust >= 70 ? '#34d399' : p.fact_trust >= 50 ? '#fbbf24' : '#f87171';
+        html += '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:flex-start">';
+        html += '<div style="background:#1e2533;color:#9aa4b2;font-size:10px;font-weight:700;min-width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0">' + (p.seq || '?') + '</div>';
+        html += '<div style="flex:1;min-width:0">';
+        html += '<div style="font-size:11px;color:#94a3b8;margin-bottom:2px">';
+        html += '<span style="background:#1a263a;color:#60a5fa;font-size:9px;padding:1px 5px;border-radius:2px;margin-right:4px">' + esc(p.trigger || '?') + '</span>';
+        if (p.fact_trust) html += '<span style="color:' + trustColor + ';font-size:10px">güven ' + p.fact_trust + '</span>';
+        if (p.claim_status) html += '<span style="color:#6b7280;font-size:10px;margin-left:4px">· ' + esc(p.claim_status) + '</span>';
+        html += '</div>';
+        if (p.source) {
+          html += '<div style="font-size:11px;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">';
+          if (p.source.original_url) {
+            html += '<a href="' + esc(p.source.original_url) + '" target="_blank" style="color:#60a5fa;text-decoration:none">' + esc(p.source.source_name || '') + '</a>';
+            html += ' — ' + esc((p.source.title || '').slice(0, 70));
+          } else {
+            html += esc(p.source.source_name || '') + ' — ' + esc((p.source.title || '').slice(0, 70));
+          }
+          html += '</div>';
+        }
+        if (p.grounding_summary) {
+          html += '<div style="font-size:11px;color:#94a3b8;margin-top:3px;line-height:1.5">' + esc(p.grounding_summary.slice(0, 200)) + (p.grounding_summary.length > 200 ? '…' : '') + '</div>';
+        }
+        if (p.key_quotes && p.key_quotes.length) {
+          html += '<div style="font-size:10px;color:#6b7280;margin-top:3px;font-style:italic">';
+          p.key_quotes.slice(0, 2).forEach(q => {
+            const text = typeof q === 'string' ? q : (q.text || q.quote || '');
+            if (text) html += '"' + esc(text.slice(0, 120)) + '" ';
+          });
+          html += '</div>';
+        }
+        html += '</div></div>';
+      });
+    } else {
+      html += '<div style="font-size:12px;color:#4b5563">Faz bulunamadı.</div>';
+    }
+    html += '</div>';
+
+    // Entity detail
+    html += '<div style="min-width:160px;max-width:220px">';
+    html += '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#6b7280;margin-bottom:8px">Varlıklar</div>';
+    const ents = t.entities || {};
+    if ((ents.players || []).length) {
+      html += '<div style="font-size:10px;color:#6b7280;margin-bottom:4px">OYUNCULAR</div>';
+      (ents.players || []).forEach(p => { html += '<div style="font-size:12px;color:#60a5fa;margin-bottom:2px">' + esc(p) + '</div>'; });
+    }
+    if ((ents.clubs || []).length) {
+      html += '<div style="font-size:10px;color:#6b7280;margin-top:6px;margin-bottom:4px">KULÜPLER</div>';
+      (ents.clubs || []).forEach(c => { html += '<div style="font-size:12px;color:#6ee7b7;margin-bottom:2px">' + esc(c) + '</div>'; });
+    }
+    if ((ents.officials || []).length) {
+      html += '<div style="font-size:10px;color:#6b7280;margin-top:6px;margin-bottom:4px">YÖNETİCİLER</div>';
+      (ents.officials || []).forEach(o => { html += '<div style="font-size:12px;color:#c084fc;margin-bottom:2px">' + esc(o) + '</div>'; });
+    }
+    html += '</div>';
+
+    html += '</div>';
+    return html;
+  }
+
+  function toggleExpand(i) {
+    const el = document.getElementById('expand-' + i);
+    if (!el) return;
+    const open = el.style.display !== 'none';
+    el.style.display = open ? 'none' : 'table-row';
+    const tr = document.getElementById('tr-' + i);
+    if (tr) tr.style.background = open ? '' : '#0d1520';
+  }
+
+  function filterTopics() {
+    const typeFilter = (document.getElementById('topic-type-filter')?.value || '').toLowerCase();
+    const filtered = typeFilter ? _topicsData.filter(t => (t.story_type || '').toLowerCase() === typeFilter) : _topicsData;
+    document.getElementById('topics-body').innerHTML = renderTopicsTable(filtered);
+    document.getElementById('topic-count').textContent = filtered.length + ' konu' + (typeFilter ? ' (filtreli)' : '');
+  }
+
+  async function loadTopics() {
+    const state = document.getElementById('topic-state-filter')?.value || 'open';
+    const ts = document.getElementById('topics-ts');
+    if (ts) ts.textContent = 'yükleniyor...';
+    try {
+      const r = await fetch('/admin/methodb/topics?site=${esc(sc)}&state=' + state);
+      const j = await r.json();
+      _topicsData = j.topics || [];
+      filterTopics();
+      if (ts) ts.textContent = 'güncellendi ' + new Date().toLocaleTimeString('tr-TR', { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    } catch(e) {
+      document.getElementById('topics-body').innerHTML = '<div style="padding:20px;text-align:center;color:#f87171;font-size:12px">Hata: ' + e.message + '</div>';
+      if (ts) ts.textContent = 'hata';
+    }
+  }
+
+  loadTopics();
+  setInterval(loadTopics, 60000);
   </script>
   </body></html>`;
 }
