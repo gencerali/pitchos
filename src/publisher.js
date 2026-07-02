@@ -1275,10 +1275,12 @@ export async function loadSiteConfig(env, siteCode) {
   }
 }
 
+const YOUTUBE_MODES = new Set(['youtube_embed', 'youtube_synthesis', 'youtube_embed_synthesis']);
+
 export function getEffectiveNVS(article, config) {
   const cfg = config || {};
   if (article.push_to_homepage && article.manual_nvs != null) return article.manual_nvs;
-  if (article.publish_mode === 'youtube_embed') {
+  if (YOUTUBE_MODES.has(article.publish_mode)) {
     if (cfg.curated_video_nvs?.[article.category] !== undefined)
       return cfg.curated_video_nvs[article.category];
     if (article.video_type && cfg.video_nvs_by_type?.[article.video_type] !== undefined) {
@@ -1299,7 +1301,7 @@ export function getHalfLife(article, config) {
   const cfg = config || {};
   if (article.template_id === 'T05') return null; // pin until kickoff+2h
   if (article.push_to_homepage && article.manual_half_life != null) return article.manual_half_life;
-  if (article.publish_mode === 'youtube_embed') {
+  if (YOUTUBE_MODES.has(article.publish_mode)) {
     if (article.video_type && cfg.video_half_life_by_type?.[article.video_type] !== undefined)
       return cfg.video_half_life_by_type[article.video_type];
     return 24;
