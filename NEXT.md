@@ -292,6 +292,54 @@ isn't silently re-derived via `computeFactTrust`.
 
 ---
 
+### MB-NEXT-6 — Topic Architecture (Canonical Naming + Sport Category)
+
+#### Vision: canonical topic slugs as story containers
+
+Right now topics are named by whatever title the first source article happened to have.
+The design should be:
+
+**Transfer topics** → canonical key = `{player_surname}_transfer` (e.g., `nubel_transfer`)
+- All Nübel-related content (initial link, price talks, rejection, alternatives search) lands under ONE topic
+- Sub-topics branch off when the story pivots (e.g., `nubel_transfer → nubel_alternatives_gk` as a sequel_of edge)
+- The topic title shown to readers: "Nübel Transferi" — permanent, not overwritten by article titles
+
+**Match topics** → canonical key = `bjk_v_{opponent}_{date}` (e.g., `bjk_v_slavia_2026-07-10`)
+- Pre-match buildup, injury list, starting XI, live updates, post-match reaction all land below this topic
+- Sub-topics emerge naturally: `bjk_v_slavia_2026-07-10 → referee_controversy` (branch_of)
+- Phases represent the story arc: preview → match → reaction
+
+**Implementation needed:**
+1. `canonicalTopicKey(facts, item)` — compute a stable key from story_type + primary entity + season year
+2. On topic creation, write the `canonical_key` column (new DB column, indexed)
+3. `correlateToTopic` — check `canonical_key` BEFORE entity overlap (exact match wins)
+4. Admin UI: display by canonical key so editors can see the full arc for a transfer/match
+
+This restructures topic correlation from "entity similarity" to "identity" — much more reliable.
+
+---
+
+#### Sport category in DB (for frontend filtering)
+
+Add `sport_category` to `content_items` and `topics`:
+- Values: `football` (default), `volleyball`, `basketball`, `wrestling`, `other`
+- Extractor: detect from source feed metadata or keywords in title (`Aras Kargo`, `voleybol`, etc.)
+- Topics inherit `sport_category` from first contributing content_item
+- Frontend: filter shadow pool by `sport_category='football'` so volleyball transfers (Domaç) never appear in the football digest
+- Later: separate sport-specific digest pages once traffic warrants
+
+---
+
+#### story_type misclassification (extractor prompt fix)
+
+Current problem: "Beşiktaş, Vlahovic için temas kuruyor" classified as `squad` instead of `transfer`.
+- Confusion happens when the article mentions a player in the context of squad planning ("kadro için hedef")
+- Fix: add a disambiguation rule to the extractor prompt:
+  > "Eğer makale bir oyuncu ile ileride gerçekleşecek transfer veya görüşmeyi konu alıyorsa, mevcut kadrodaki rolünden bağımsız olarak story_type='transfer' seç."
+- Also: explicitly list `squad` as "currently on the team's squad — fitness, training exclusions, starting XI"
+
+---
+
 ### MB-NEXT-4 — Multi-source Topic Synthesis
 
 **Problem:** `synthesizePhase` receives only the current triggering item's facts. A story built from 6 sources over 3 days gives Sonnet only the 6th source's grounding_summary. Everything the first 5 said in prose is lost — only their structured `claim_tracks` (entities/numbers/negotiation_status) survives.

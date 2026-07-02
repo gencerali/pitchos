@@ -234,6 +234,14 @@ async function processSiteMethodB(site, env, opts = {}) {
     return status;
   }
 
+  // Auto-close stale open topics: not updated in 14+ days → state='closed'.
+  // Keeps the limit=200 open-topics query from growing unboundedly and burying old topics.
+  await supabase(env, 'PATCH',
+    `/rest/v1/topics?site_id=eq.${site.id}&state=eq.open` +
+    `&last_event_at=lt.${encodeURIComponent(new Date(Date.now() - 14 * 86400 * 1000).toISOString())}`,
+    { state: 'closed' }
+  ).catch(() => {});
+
   // Cursor: only content_items newer than last run. Default = 30 days ago so the initial
   // run hits recently-ingested items (which have extracted facts) rather than crawling
   // through the entire historical backlog which has no facts and produces nothing.
@@ -280,6 +288,9 @@ async function processSiteMethodB(site, env, opts = {}) {
   // Within-run dedup: prevents two content_items about the same topic+entity from both
   // synthesizing in the same batch (the pool upsert handles across-run dedup via stable slug).
   const synthesizedThisRun = new Set();
+  // Topics created in this batch — passed to correlateToTopic so within-run items can
+  // correlate to new topics before they're visible via DB query.
+  const batchTopics = [];
 
   for (const item of rows) {
     let f = factsByItem.get(item.id) || null;
@@ -307,7 +318,7 @@ async function processSiteMethodB(site, env, opts = {}) {
     // Correlate to a topic (needed for the prior claim-track that delta detection diffs against).
     let topicInfo = null;
     if (f) {
-      try { topicInfo = await correlateToTopic(item, f, site, env, stats); }
+      try { topicInfo = await correlateToTopic(item, f, site, env, stats, batchTopics); }
       catch (e) { console.error(`correlate [${code}]:`, e.message); }
     }
     const priorTracks = topicInfo?.priorTracks || { main: null };
@@ -415,6 +426,13 @@ async function processSiteMethodB(site, env, opts = {}) {
           }
         }
       }
+      // Auto-close topic when the triggering fact is confirmed completed (signing confirmed,
+      // loan signed, departure announced). Prevents stale "open" topics accumulating forever.
+      if (f?.claim_status === 'completed' && topicInfo?.topic?.id) {
+        await supabase(env, 'PATCH', `/rest/v1/topics?id=eq.${topicInfo.topic.id}`,
+          { state: 'closed' }
+        ).catch(() => {});
+      }
     }
   }
 
@@ -481,30 +499,74 @@ async function processSiteMethodB(site, env, opts = {}) {
   return status;
 }
 
-// Normalize Turkish characters for robust entity matching across LLM outputs.
-// "Bayazıt" === "Bayazit", "İlhan" === "ilhan", etc.
+// Normalize Turkish + common Slavic/Latin diacritics for robust entity matching.
+// "Bayazıt"==="Bayazit", "Vlahović"==="Vlahovic", "Çalhanoğlu"==="calhanoglu".
 function normEnt(s) {
   return String(s).toLowerCase()
+    // Turkish
     .replace(/İ/g, 'i').replace(/ı/g, 'i')
     .replace(/Ş/g, 's').replace(/ş/g, 's')
     .replace(/Ğ/g, 'g').replace(/ğ/g, 'g')
     .replace(/Ç/g, 'c').replace(/ç/g, 'c')
     .replace(/Ö/g, 'o').replace(/ö/g, 'o')
-    .replace(/Ü/g, 'u').replace(/ü/g, 'u');
+    .replace(/Ü/g, 'u').replace(/ü/g, 'u')
+    // Slavic / Latin (covers Balkan, Spanish, French, German player names)
+    .replace(/[šŠ]/g, 's').replace(/[čČ]/g, 'c').replace(/[ćĆ]/g, 'c')
+    .replace(/[žŽ]/g, 'z').replace(/[đĐ]/g, 'd').replace(/[ñÑ]/g, 'n')
+    .replace(/[áàâäãÁÀÂÄÃ]/g, 'a').replace(/[éèêëÉÈÊË]/g, 'e')
+    .replace(/[íìîïÍÌÎÏ]/g, 'i').replace(/[óòôõÓÒÔÕ]/g, 'o')
+    .replace(/[úùûÚÙÛ]/g, 'u').replace(/[ýÝ]/g, 'y');
+}
+
+// Canonical club name map — applied after normEnt to collapse language variants.
+// Keys are normEnt output (lowercase, diacritics stripped). Values are canonical tokens.
+// Keys are normEnt() output (all lowercase, diacritics removed).
+// Collapses language variants: "Bayern Munich" (EN) == "Bayern Münih" (TR) after normEnt.
+const CLUB_ALIASES = Object.fromEntries([
+  ['fc Bayern',         'fc_Bayern'],  // written via normEnt("FC Bayern")
+  ['Bayern munich',     'fc_Bayern'],  // normEnt("Bayern Munich")
+  ['Bayern munih',      'fc_Bayern'],  // normEnt("Bayern Münih")
+  ['Bayern munchen',    'fc_Bayern'],  // normEnt("Bayern München")
+  ['psg',               'paris_sg'],
+  ['paris sg',          'paris_sg'],
+  ['paris saint germain', 'paris_sg'],
+  ['paris st germain',  'paris_sg'],
+  ['inter milan',       'inter'],
+  ['inter milano',      'inter'],
+  ['fc inter',          'inter'],
+  ['real madrid cf',    'real_madrid'],
+  ['atletico madrid',   'atletico_madrid'],
+  ['atletico de madrid','atletico_madrid'],
+  ['manchester united', 'man_united'],
+  ['man united',        'man_united'],
+  ['manchester city',   'man_city'],
+  ['man city',          'man_city'],
+  ['tottenham hotspur', 'tottenham'],
+  ['wolverhampton wanderers', 'wolves'],
+  ['bahia fc',          'bahia'],
+  ['ec bahia',          'bahia'],
+  ['rb leipzig',        'rb_leipzig'],
+  ['rasenballsport leipzig', 'rb_leipzig'],
+].map(([k, v]) => [k.toLowerCase(), v.toLowerCase()]));
+function normalizeClub(s) {
+  const n = normEnt(s).trim();
+  return CLUB_ALIASES[n] || n;
 }
 
 // ─── STAGE 2: CORRELATE TO TOPIC ─────────────────────────────────────────────
 // Entity-fingerprint match against open topics (shared player OR ≥2 shared clubs); creates a
 // new topic on no match. On creation, runs a Haiku judge to detect branch_of / sequel_of
 // edges against open + recently-closed topics (design §2.3, Step 2).
-async function correlateToTopic(item, facts, site, env, stats) {
+// batchTopics: topics created earlier in the same cron run — passed by reference so
+// within-run items can see topics that haven't yet been committed and returned by the DB.
+async function correlateToTopic(item, facts, site, env, stats, batchTopics = []) {
   const ents = facts?.entities || {};
   const players = (ents.players || []).map(normEnt);
-  const clubs   = (ents.clubs   || []).map(normEnt);
+  const clubs   = (ents.clubs   || []).map(normalizeClub);
 
-  const [open, recentClosed] = await Promise.all([
+  const [fetched, recentClosed] = await Promise.all([
     supabase(env, 'GET',
-      `/rest/v1/topics?site_id=eq.${site.id}&state=eq.open&order=last_event_at.desc&limit=50` +
+      `/rest/v1/topics?site_id=eq.${site.id}&state=eq.open&order=last_event_at.desc&limit=200` +
       `&select=id,story_type,entities,claim_tracks,title,state`
     ).then(r => r || []),
     supabase(env, 'GET',
@@ -513,10 +575,14 @@ async function correlateToTopic(item, facts, site, env, stats) {
     ).then(r => r || []),
   ]);
 
+  // Prepend batch-created topics so within-run items can correlate to them
+  // before the DB transaction is visible to a fresh query.
+  const open = [...batchTopics, ...fetched.filter(t => !batchTopics.some(b => b.id === t.id))];
+
   // Pre-normalize topic entity lists once so the find loop doesn't re-normalize on every topic.
   const openNorm = open.map(t => {
     const te = t.entities || {};
-    return { ...t, _tp: (te.players || []).map(normEnt), _tc: (te.clubs || []).map(normEnt) };
+    return { ...t, _tp: (te.players || []).map(normEnt), _tc: (te.clubs || []).map(normalizeClub) };
   });
   // Surname-tolerant name match: "nubel" matches "alexander nubel" and vice versa.
   const nameMatches = (a, b) => a === b || a.endsWith(' ' + b) || b.endsWith(' ' + a);
@@ -525,6 +591,24 @@ async function correlateToTopic(item, facts, site, env, stats) {
     clubs.filter(c => t._tc.includes(c)).length >= 2;
 
   let topic = openNorm.find(entityOverlaps) || null;
+
+  // Title-keyword fallback: when entities are empty/poor, find an open topic whose title
+  // shares a significant keyword with the article title (≥6 chars, not a stop word).
+  // Catches "alternatif kaleçileri" or "Nübel ardından" articles that have no player entities.
+  if (!topic && !players.length && clubs.length <= 1) {
+    const STOP = new Set(['besiktas', 'transfer', 'haberi', 'oyuncu', 'istanbul',
+                          'futbol', 'sezonu', 'kadrosu', 'gundem', 'aktardi']);
+    const titleWords = normEnt(item.title || '')
+      .replace(/[^a-z0-9\s]/g, '').split(/\s+/)
+      .filter(w => w.length >= 6 && !STOP.has(w));
+    if (titleWords.length > 0) {
+      topic = openNorm.find(t => {
+        const tt = normEnt(t.title || '');
+        return titleWords.some(w => tt.includes(w));
+      }) || null;
+    }
+  }
+
   let isNewTopic = false;
 
   if (!topic) {
@@ -533,6 +617,7 @@ async function correlateToTopic(item, facts, site, env, stats) {
       entities: ents, claim_tracks: {}, title: (item.title || '').slice(0, 200),
     });
     topic = Array.isArray(created) ? created[0] : created;
+    if (topic?.id) batchTopics.push(topic);
     isNewTopic = true;
   }
 
