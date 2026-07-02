@@ -2537,6 +2537,7 @@
   }
 
   // ── RENDER TICKER ────────────────────────────────────────────
+  const TICKER_SPEED_PX_PER_SEC = 65; // constant readable scroll speed, independent of item count
   function renderTicker(articles) {
     const items = articles
       .map(a => {
@@ -2544,7 +2545,14 @@
         return `<span class="ticker-item">⚫ <span onclick="openArticle(_articles[${idx}])" style="cursor:pointer;white-space:nowrap">${cleanForDisplay(a.title)}</span></span>`;
       })
       .join('<span class="ticker-sep">|</span>');
-    document.getElementById('ticker').innerHTML = items + items;
+    const track = document.getElementById('ticker');
+    track.innerHTML = items + items;
+    // Track content is duplicated (items + items) so the loop is seamless;
+    // the animation travels exactly one copy's width (-50%). Derive duration
+    // from that width so speed stays constant no matter how many news items there are.
+    const singleSetWidth = track.scrollWidth / 2;
+    const duration = Math.max(singleSetWidth / TICKER_SPEED_PX_PER_SEC, 15);
+    track.style.animationDuration = duration + 's';
   }
 
   // ── RENDER RADAR (sidebar) ───────────────────────────────────
