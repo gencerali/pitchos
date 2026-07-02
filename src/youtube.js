@@ -9,6 +9,8 @@ import { bjkMatch } from './utils.js';
 //   embed_qualify    — generate iframe embed article (T-VID-*)
 //   transcript_qualify — fetch caption text → feed into generateOriginalNews as source
 
+// Seed-only reference — used by /admin/sources/seed to bootstrap new sites.
+// Runtime channel list comes from source_configs in DB (admin/sources is the source of truth).
 export const YOUTUBE_CHANNELS = [
   // Official Beşiktaş — all videos qualify; embed + transcript both enabled
   { id: 'UCLJVUlpsxZcIMECVDcZaM2g', name: 'Beşiktaş JK',       tier: 'official',   all_qualify: true,  embed_qualify: true,  transcript_qualify: false },

@@ -1050,7 +1050,7 @@ export default {
 
         const sourceConfigs   = await fetchSourceConfigs(site.id, env).catch(() => []);
         const dynamicChannels = configsToYTChannels(sourceConfigs);
-        const allChannels     = (dynamicChannels.length > 0) ? dynamicChannels : YOUTUBE_CHANNELS;
+        const allChannels     = dynamicChannels;
         const channels = filterChannel
           ? allChannels.filter(c => c.id === filterChannel)
           : allChannels;
@@ -4978,7 +4978,7 @@ function videoToArticle(video) {
 // Max 2 embeds per channel per run to avoid feed flooding.
 // Rabona Digital videos go to daily digest instead of embed.
 async function processYouTubeVideos(site, env, seenUrls, channelOverride = null, stats = null) {
-  const channels = (channelOverride && channelOverride.length > 0) ? channelOverride : YOUTUBE_CHANNELS;
+  const channels = channelOverride ?? [];
   const since = new Date(Date.now() - 48 * 60 * 60 * 1000);
   const feeds = await Promise.all(channels.map(ch => fetchYouTubeChannel(ch, since).catch(() => [])));
 
@@ -5093,18 +5093,11 @@ async function processSite(site, env, ctx, lookbackMs = 3 * 60 * 60 * 1000) {
 
   // ── FETCH (RSS + web search + beIN + Twitter in parallel) ────
   // ── DYNAMIC SOURCE CONFIGS ────────────────────────────────────
-  // Read from Supabase source_configs table. Falls back to hardcoded arrays if empty.
+  // Read from Supabase source_configs table. Admin/sources is the single source of truth.
   const sourceConfigs = await fetchSourceConfigs(site.id, env).catch(() => []);
-  const dynamicRSSFeeds = sourceConfigs.length > 0 ? configsToRSSFeeds(sourceConfigs) : null;
-  const dynamicYTChannels = sourceConfigs.length > 0 ? configsToYTChannels(sourceConfigs) : null;
-  if (sourceConfigs.length > 0) {
-    console.log(`SOURCE CONFIGS: ${sourceConfigs.length} active (${dynamicRSSFeeds?.length || 0} RSS, ${dynamicYTChannels?.length || 0} YT)`);
-    if (dynamicYTChannels !== null && dynamicYTChannels.length === 0) {
-      console.warn('SOURCE CONFIGS: 0 active YouTube channels in source_configs — falling back to hardcoded YOUTUBE_CHANNELS');
-    }
-  } else {
-    console.log('SOURCE CONFIGS: none in DB, using hardcoded defaults');
-  }
+  const dynamicRSSFeeds = configsToRSSFeeds(sourceConfigs);
+  const dynamicYTChannels = configsToYTChannels(sourceConfigs);
+  console.log(`SOURCE CONFIGS: ${sourceConfigs.length} active (${dynamicRSSFeeds?.length || 0} RSS, ${dynamicYTChannels?.length || 0} YT)`);
 
   // fetchBJKOfficial disabled — bjk.com.tr blocks all datacenter IPs (direct, pitchos-proxy, allorigins).
   // Official BJK content will arrive via @Besiktas Twitter in Slice 4.
